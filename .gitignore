@@ -1,0 +1,17 @@
+# Documentación
+docs/init.md
+
+# Binarios compilados de Go
+/mcp-appointments-crm
+cmd/config-wizard/config-wizard
+cmd/mcp-server/mcp-server
+
+# Base de datos local de desarrollo (SQLite)
+*.db
+*.db-wal
+*.db-shm
+
+# Variables de entorno y configuraciones locales
+.env
+/setup/*.json
+!/setup/.gitkeep
