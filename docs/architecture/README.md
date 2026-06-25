@@ -23,3 +23,4 @@ We use a lightweight ADR format inspired by Michael Nygard's template:
 | [0002](./0002-user-level-install.md) | User-level install with XDG / platform-native paths | accepted | 2026-06-25 |
 | [0003](./0003-portable-backup.md) | Portable backup.sh, no auto-configured scheduler | accepted | 2026-06-25 |
 | [0004](./0004-naming-conventions.md) | Project naming conventions | accepted | 2026-06-25 |
+| [0005](./0005-optional-external-tools.md) | Project does not install external system tools; only suggests | accepted | 2026-06-25 |

@@ -253,6 +253,7 @@ Install **user-level** (sin root, sin `appuser` dedicado). El servicio corre baj
   - [ ] Dado que el script se ejecuta en una VPS Ubuntu limpia (sólo con `curl` y `bash`), cuando termina exitosamente, entonces el servicio `mcp-appointments-crm` está activo (`systemctl is-active` o equivalente) y el log final imprime `http://127.0.0.1:3000/mcp` y el log final muestra la línea sugerida para schedular `backup.sh` en `crontab` (u otro scheduler nativo según OS).
   - [ ] Dado que el script se ejecuta sin los archivos JSON de `setup/`, cuando el sistema valida los prerrequisitos, entonces imprime `Error: ejecute primero config-wizard` y termina con exit code 1 sin instalar el binario ni registrar el servicio.
   - [ ] Dado que el script terminó exitosamente, cuando el operador revisa la salida, entonces encuentra al final un snippet sugerido para `crontab` con la frecuencia por defecto (1 vez al día, 03:00 hora local) que puede agregar manualmente.
+  - [ ] Dado que `sqlite3` CLI no está instalado en el sistema, cuando el script `install.sh` termina exitosamente, entonces el log final incluye un bloque "Recommended additional tools" con el comando de instalación específico para el OS detectado, **sin ejecutar la instalación** (ver [ADR-0005](../architecture/0005-optional-external-tools.md)).
 
 > **Nota**: los criterios Gherkin de §5.1 se traducen a `scenarios` en el delta spec
 > (`openspec/changes/<fase>/specs/<domain>/spec.md`) usando el formato
@@ -395,6 +396,7 @@ Install **user-level** (sin root, sin `appuser` dedicado). El servicio corre baj
 - Descarga del binario correcto según OS/arquitectura desde GitHub Releases
 - Registro del binario como user-level service: `~/.config/systemd/user/mcp-appointments-crm.service` (Linux), `~/Library/LaunchAgents/com.mcp.appointments.server.plist` (macOS), Task Scheduler user task (Windows)
 - Impresión al final de `install.sh` de la línea sugerida para schedular `backup.sh` (sin auto-configurar ningún scheduler)
+- Bloque "Recommended additional tools" al final del log: lista cada herramienta opcional (ej. `sqlite3` CLI) con su estado (✓ encontrado / ⚠ no encontrado) y el comando de instalación específico para el OS detectado; **nunca ejecuta la instalación** (ver [ADR-0005](../architecture/0005-optional-external-tools.md))
 - `scripts/backup.sh` portable (bash, sin scheduler) disponible en el repo y en el release
 - Ejecución de `loginctl enable-linger <user>` (sólo en Linux) para que el servicio user-level siga corriendo tras logout
 - Log final con el endpoint `http://127.0.0.1:3000/mcp`
