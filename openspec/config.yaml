@@ -8,7 +8,9 @@ context: |
   Search: SQLite FTS5 (clients_fts, services_fts)
   TUI: Charm Bubble Tea ecosystem (bubbletea, bubbles, lipgloss) for native setup
   Architecture: Hybrid - TUI runs natively to validate inputs and emit JSON config;
-                MCP Server runs containerized via Docker Compose, exposing SSE on 127.0.0.1:3000
+                MCP Server runs as a native Go binary registered as a user-level system service
+                (systemd on Linux, launchd on macOS, NSSM/Task Scheduler on Windows), exposing SSE
+                on 127.0.0.1:3000. No Docker, no appuser. See docs/architecture/ for ADRs.
   Communication: Model Context Protocol with upstream LLM (Hermes)
   Coding standards:
     - Prepared statements only (parameterized queries with ? placeholders)
@@ -19,8 +21,12 @@ context: |
     - Conventional commits (feat/fix/docs/chore/refactor/test)
     - Feature branches for code; main for direct doc pushes only
   Testing state: 0 tests, harness to be created on first feature (strict TDD enabled)
-  Tooling gaps: no .golangci.yml, no .github/workflows/, no Dockerfile, no Makefile,
-                no pre-commit framework. GGA hook referenced in AGENTS.md is not installed.
+  Tooling in place: .golangci.yml (8 linters: sqlclosecheck, rowserrcheck, gosec, errorlint,
+                  gocritic, prealloc, bodyclose, noctx); GGA pre-commit hook installed
+                  (provider=opencode, Go file patterns).
+  Tooling intentionally absent (architectural decisions): no Docker / Dockerfile /
+                  docker-compose.yml (see ADR-0001); no Makefile (Tier 2 pending).
+  Tooling gaps: no .github/workflows/ (planned Fase 5+ for CI).
 
 rules:
   proposal:
