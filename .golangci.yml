@@ -1,0 +1,24 @@
+version: "2"
+
+linters:
+  enable:
+    # Tier 1: SQL/seguridad (criticos para Go + SQLite + MCP)
+    - sqlclosecheck   # *sql.Rows y *sql.Stmt deben cerrarse
+    - rowserrcheck    # *sql.Rows.Err() debe llamarse despues de Next()
+    - gosec           # SQL injection, hardcoded credentials, weak crypto
+    - errorlint       # fmt.Errorf("...: %w", err) idiomático
+
+    # Tier 2: utilitarios
+    - gocritic        # meta-linter con checks de bugs, performance y estilo
+    - prealloc        # slice pre-allocation (performance del binario)
+    - bodyclose       # HTTP response body closed (SSE server MCP)
+    - noctx           # HTTP requests con context.Context
+
+  settings:
+    gocritic:
+      disabled-checks:
+        # Subjetivos / ruidosos para un proyecto chico. El AGENTS.md ya
+        # define los estandares; no necesitamos que el linter opine
+        # sobre estilo subjetivo.
+        - ifElseChain
+        - singleCaseSwitch
