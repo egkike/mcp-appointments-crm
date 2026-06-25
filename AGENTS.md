@@ -14,7 +14,7 @@ Your tone is professional, direct and highly technical.
 ## Code Organization
 - **Philosophy:** Create small components with a single responsibility.
 - **Logic:** Prefer composition over complex configurations. Avoid premature abstractions.
-- **Structure:** Shared code must reside in `components`, `layouts`, `libs`, or `utils` folders.
+- **Structure:** Shared code resides in `internal/` (private application code) or `pkg/` (public libraries). Binaries go in `cmd/<name>/`. Configuration, scripts, and templates at the repo root or under `setup/`/`scripts/`/`templates/`.
 
 ### Feedback Loop:
 - When you find an issue, don't just say it's wrong. Briefly explain **WHY** it's a bad practice and provide a code snippet with the **Better Way**.
@@ -40,7 +40,11 @@ Before staging, committing, or pushing any code to the repository, you **MUST** 
 2. **Compilation:** Verify the project builds flawlessly:
    ```bash
    go build -o /dev/null ./...
-3. go test -v -race ./...
+   ```
+3. **Tests:** Run the full test suite with race detector:
+   ```bash
+   go test -v -race ./...
+   ```
 
 ### GGA Rule
 
@@ -62,9 +66,9 @@ Wait for user confirmation before proceeding.
 
 ### Branch Rules
 
-| Type | Branch | Push Direct to master | PR Required |
+| Type | Branch | Push Direct to main | PR Required |
 |------|--------|---------------------|------------|
-| **Documentation** | `master` | ✅ Yes | ❌ No |
+| **Documentation** | `main` | ✅ Yes | ❌ No |
 | **Code Changes** | Feature branch | ❌ No | ✅ Yes |
 
 ### Commit Format (Conventional Commits)
@@ -100,7 +104,7 @@ Wait for user confirmation before proceeding.
 
 ### Pull Request Requirements
 
-1. Create feature branch from `master`
+1. Create feature branch from `main`
 2. Commit following Conventional Commits
 3. Push and create PR via gh
 4. CI checks must pass
@@ -119,33 +123,38 @@ Wait for user confirmation before proceeding.
 
 ### Input Validation & Sanitization
 - ❌ **NEVER** trust user input - always validate and sanitize
-- ❌ **NEVER** use `any` for input types - use specific types/interfaces
+- ❌ **NEVER** use `any` for input types - use specific types/interfaces (concrete structs)
 - ✅ Validate: type, length, format, range, allowed characters
-- ✅ Use libraries like `zod`, `joi`, or `express-validator`
-- ✅ Sanitize HTML with `DOMPurify` before rendering
+- ✅ Use Go validation patterns: struct tags with `go-playground/validator`, regex matching, or explicit manual checks
+- ✅ Sanitize TUI inputs with regex/string validation before persistence (see Bubble Tea TUI Architecture)
 - ✅ Parameterize ALL database queries - NEVER concatenate strings
 
 ### SQL Injection Prevention
 - ❌ **NEVER** concatenate strings in SQL queries - use parameterized queries
 - ❌ **NEVER** use string replacement for schema/table names - use allowlists
-- ✅ Use `$1, $2, $3` placeholders: `pool.query('SELECT * FROM users WHERE id = $1', [userId])`
+- ✅ Use `?` placeholders: `db.QueryRow("SELECT id, name FROM clients WHERE id = ?", clientID)`
 - ✅ Validate table/column names against a strict allowlist if dynamic
 
 ### Authentication & Authorization
-- ❌ **NEVER** implement auth from scratch - use proven libraries (Passport.js, Auth0, Firebase Auth)
-- ❌ **NEVER** store passwords in plaintext - use bcrypt/argon2 with proper salt rounds
-- ❌ **NEVER** trust frontend for authorization - always verify in backend
-- ✅ Implement RBAC (Role-Based Access Control) at service layer
-- ✅ Use middleware for auth checks on every protected route
-- ✅ Implement proper session management with secure, httpOnly cookies
+> **N/A for this project:** This MCP server runs locally on `127.0.0.1:3000` for a single trusted client (Hermes LLM). No web auth, no public users, no password storage. Re-evaluate this section if a future API-key or remote-deployment auth layer is added.
+
+Reference patterns if/when auth is introduced:
+- ❌ **NEVER** implement auth from scratch - use proven libraries (e.g., `golang-jwt/jwt`, `casbin`, `oauth2`)
+- ❌ **NEVER** store passwords in plaintext - use bcrypt/argon2 with proper cost
+- ❌ **NEVER** trust the LLM client for authorization - always verify in the MCP handler
+- ✅ Implement RBAC at the tool/service layer, not the transport layer
+- ✅ Gate every MCP tool with explicit permission checks
+- ✅ Keep any secrets in env vars, never in source code
 
 ### JWT Security
+> **N/A for this project:** No JWT layer in the current design. The MCP server trusts the loopback client. Re-evaluate this section only if token-based auth is introduced.
+
+Reference patterns if/when JWT is introduced:
 - ❌ **NEVER** use JWT without expiration (`exp` claim required)
-- ❌ **NEVER** use algorithm 'none' in JWT
-- ❌ **NEVER** store sensitive data in JWT payload - only use ID, roles, permissions
+- ❌ **NEVER** use algorithm `none` in JWT
+- ❌ **NEVER** store sensitive data in JWT payload - only IDs, roles, permissions
 - ✅ Use strong signing algorithms (RS256, HS256 with strong keys)
-- ✅ Implement refresh token rotation
-- ✅ Store refresh tokens securely (httpOnly, secure, sameSite)
+- ✅ Implement refresh token rotation if/when refresh tokens exist
 
 ### Secrets Management
 - ❌ **NEVER** hardcode credentials - use environment variables
@@ -156,11 +165,13 @@ Wait for user confirmation before proceeding.
 - ✅ Rotate secrets regularly
 
 ### Secure Headers & HTTPS
-- ✅ Implement HSTS (HTTP Strict Transport Security)
-- ✅ Implement CSP (Content Security Policy)
-- ✅ Use security headers: X-Frame-Options, X-Content-Type-Options, X-XSS-Protection
-- ✅ Enable CORS with explicit allowed origins
-- ✅ Never serve static assets over HTTP in production
+> **N/A for this project:** The MCP server is loopback-only (`127.0.0.1:3000`). No browser, no static assets, no public TLS termination. Re-evaluate this section only if the server is exposed beyond loopback or fronted by a public reverse proxy.
+
+Reference patterns if/when the server is exposed:
+- ✅ Terminate TLS at a reverse proxy (Caddy, nginx, traefik) - never in-app
+- ✅ Set HSTS, CSP, X-Frame-Options, X-Content-Type-Options at the proxy
+- ✅ Enable CORS with explicit allow-list of origins (not `*`)
+- ✅ Never serve static assets over plain HTTP in production
 
 ### Error Handling & Logging
 - ❌ **NEVER** expose stack traces in production
@@ -171,24 +182,25 @@ Wait for user confirmation before proceeding.
 - ✅ Log security events: failed auth attempts, rate limit hits, suspicious patterns
 
 ### Rate Limiting
-- ✅ Implement rate limiting on ALL public endpoints
-- ✅ Use sliding window algorithm for accurate limiting
-- ✅ Return proper headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
-- ✅ Implement different limits for different endpoints (auth endpoints = stricter)
-- ✅ Use Redis for distributed rate limiting
+> **N/A for this project:** Single loopback client, no public endpoints. Concurrency control happens at the SQLite layer via `busy_timeout=5000` + WAL mode (see Coding Standards). Re-evaluate this section only if the server is exposed to multiple clients.
+
+Reference patterns if/when rate limiting is needed:
+- ✅ Apply per-tool rate limits (e.g., `golang.org/x/time/rate` token bucket)
+- ✅ Return clear error messages when limits are hit; do not silently drop
+- ✅ For multi-instance deployments, use a shared store (Redis) for limits
 
 ### Dependency Security
-- ✅ Audit dependencies regularly: `npm audit`, `pnpm audit`, `snyk`
+- ✅ Audit dependencies regularly: `go mod tidy`, `go list -m -u all`, `govulncheck ./...`
 - ✅ Update dependencies frequently (especially security patches)
 - ❌ **NEVER** use packages with known vulnerabilities
 - ❌ **NEVER** use abandoned or unmaintained packages
 
 ### Secure Coding Patterns
-- ✅ Use `const` over `var` - avoid hoisting issues
-- ✅ Use async/await over callbacks - better error handling
-- ✅ Use optional chaining (`?.`) and nullish coalescing (`??`) - prevent undefined errors
-- ✅ Use `===` over `==` - avoid type coercion bugs
-- ✅ Validate JSON input with schemas before parsing
+- ✅ Wrap errors with `fmt.Errorf("...: %w", err)` for context propagation
+- ✅ Use `defer` for cleanup (close `*sql.Rows`, `*sql.Stmt`, transactions)
+- ✅ Propagate `context.Context` through all layers for cancellation and timeouts
+- ✅ Return concrete types from public APIs; never `any` / `interface{}`
+- ✅ Validate JSON input (MCP tool args) with structs and explicit field tags
 
 ### Security Checklist (Pre-Commit)
 
@@ -196,15 +208,17 @@ Before every commit, verify:
 ```
 □ No hardcoded passwords, API keys, or secrets
 □ All user inputs are validated and sanitized
-□ All database queries use parameterized statements
-□ Auth middleware protects all private routes
-□ Error messages don't expose internal details
-□ Environment variables documented in .env.example
-□ Rate limiting configured on public endpoints
-□ Dependencies have no known vulnerabilities (audit)
-□ Compilation passes
-□ Lint passes
-□ Tests pass
+□ All database queries use parameterized statements (`?` placeholders)
+□ MCP tool handlers validate all input args (types, length, format, range)
+□ Error messages don't expose internal details (paths, stack traces, raw SQL)
+□ Environment variables documented in .env.example (when introduced)
+□ SQLite pragmas active: WAL, busy_timeout=5000, foreign_keys=ON
+□ Dependencies have no known vulnerabilities (`govulncheck ./...`)
+□ `go fmt ./...` clean
+□ `go vet ./...` clean
+□ `golangci-lint run ./...` clean
+□ `go build -o /dev/null ./...` passes
+□ `go test -v -race ./...` passes
 ```
 
 ---

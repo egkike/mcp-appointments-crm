@@ -1,0 +1,57 @@
+schema: spec-driven
+
+context: |
+  Project: mcp-appointments-crm
+  Module: github.com/egkike/mcp-appointments-crm
+  Language: Go 1.26.4
+  Database: SQLite via modernc.org/sqlite (pure Go, no CGo) with WAL mode and busy_timeout=5000
+  Search: SQLite FTS5 (clients_fts, services_fts)
+  TUI: Charm Bubble Tea ecosystem (bubbletea, bubbles, lipgloss) for native setup
+  Architecture: Hybrid - TUI runs natively to validate inputs and emit JSON config;
+                MCP Server runs containerized via Docker Compose, exposing SSE on 127.0.0.1:3000
+  Communication: Model Context Protocol with upstream LLM (Hermes)
+  Coding standards:
+    - Prepared statements only (parameterized queries with ? placeholders)
+    - WAL mode + busy_timeout=5000 + foreign_keys=ON + synchronous=NORMAL pragmas enforced
+    - Semantic error messages (Spanish/natural language, no raw system dumps to LLM)
+    - Bubble Tea MVU pattern with regex/string validation on every input
+    - No `any` types - specific interfaces always
+    - Conventional commits (feat/fix/docs/chore/refactor/test)
+    - Feature branches for code; main for direct doc pushes only
+  Testing state: 0 tests, harness to be created on first feature (strict TDD enabled)
+  Tooling gaps: no .golangci.yml, no .github/workflows/, no Dockerfile, no Makefile,
+                no pre-commit framework. GGA hook referenced in AGENTS.md is not installed.
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Document the user/business problem being solved, not only the technical approach
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - One spec.md per domain (clients, services, appointments, business_profile, etc.)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale and tradeoffs
+    - Spell out how prepared statements and FTS5 sync are wired
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Add or update tests for any modified logic (mandatory)
+  apply:
+    - Follow existing code patterns from internal/db/database.go
+    - Reject clever code; prefer clarity and SOLID
+    - Database access via repository interfaces, never raw queries from MCP handlers
+    - tdd: true
+    - test_command: "go test -v -race ./..."
+    - build_command: "go build -o /dev/null ./..."
+    - format_command: "go fmt ./..."
+    - vet_command: "go vet ./..."
+  verify:
+    - test_command: "go test -v -race ./..."
+    - build_command: "go build -o /dev/null ./..."
+    - coverage_threshold: 0
+    - Run go vet and go fmt as part of verification
+  archive:
+    - Warn before merging destructive deltas
+    - Move to openspec/changes/archive/YYYY-MM-DD-{change-name}/ on success
