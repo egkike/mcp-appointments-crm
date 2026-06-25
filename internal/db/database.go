@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -15,10 +16,10 @@ type DB struct {
 }
 
 // NewDatabase inicializa la conexión, activa WAL y ejecuta las migraciones base
-func NewDatabase(dbPath string) (*DB, error) {
+func NewDatabase(ctx context.Context, dbPath string) (*DB, error) {
 	// Asegurar que el directorio de la BD exista
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("error al crear directorio de BD: %w", err)
 	}
 
@@ -37,7 +38,7 @@ func NewDatabase(dbPath string) (*DB, error) {
 	}
 
 	for _, pragma := range pragmas {
-		if _, err := conn.Exec(pragma); err != nil {
+		if _, err := conn.ExecContext(ctx, pragma); err != nil {
 			_ = conn.Close()
 			return nil, fmt.Errorf("error aplicando pragma (%s): %w", pragma, err)
 		}
@@ -46,7 +47,7 @@ func NewDatabase(dbPath string) (*DB, error) {
 	db := &DB{Conn: conn}
 
 	// Ejecutar la creación de tablas
-	if err := db.initSchema(); err != nil {
+	if err := db.initSchema(ctx); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -63,7 +64,7 @@ func (db *DB) Close() error {
 }
 
 // initSchema define las tablas del sistema e inicializa FTS5
-func (db *DB) initSchema() error {
+func (db *DB) initSchema(ctx context.Context) error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS business_profile (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,20 +105,20 @@ func (db *DB) initSchema() error {
 
 	-- Tablas Virtuales FTS5 para búsquedas instantáneas
 	CREATE VIRTUAL TABLE IF NOT EXISTS clients_fts USING fts5(
-		name, 
-		phone, 
-		content='clients', 
+		name,
+		phone,
+		content='clients',
 		content_rowid='id'
 	);
 
 	CREATE VIRTUAL TABLE IF NOT EXISTS services_fts USING fts5(
-		name, 
-		content='services', 
-		content_rowid='id'
+		name,
+		content='services',
+		rowid='id'
 	);
 	`
 
-	if _, err := db.Conn.Exec(schema); err != nil {
+	if _, err := db.Conn.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("error al inicializar el esquema de tablas: %w", err)
 	}
 
