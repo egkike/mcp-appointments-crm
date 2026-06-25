@@ -1,17 +1,25 @@
-# Documentación
-docs/init.md
-
-# Binarios compilados de Go
+# Go build artifacts
 /mcp-appointments-crm
 cmd/config-wizard/config-wizard
 cmd/mcp-server/mcp-server
+/dist/
 
-# Base de datos local de desarrollo (SQLite)
+# Test coverage
+coverage.out
+coverage.html
+
+# Local SQLite databases
 *.db
 *.db-wal
 *.db-shm
 
-# Variables de entorno y configuraciones locales
+# Environment / local config
 .env
-/setup/*.json
-!/setup/.gitkeep
+.env.local
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+*~
+*.bak
