@@ -24,7 +24,7 @@ You are developing a high-performance, self-hosted, lightweight MCP (Model Conte
 * **Core Languages/Tech:** Go (Golang), SQLite (with WAL mode enabled).
 * **Search Engine:** Native SQLite FTS5 virtual tables (`clients_fts`, `services_fts`).
 * **UI/UX Layer:** Go-based Terminal User Interface (TUI) using the **Charm Bubble Tea** ecosystem (`bubbletea`, `bubbles`, `lipgloss`) for initial setup.
-* **Architecture:** Hybrid. TUI runs natively to validate inputs and output JSON configurations; the MCP Server runs containerized via Docker Compose, exposing an SSE endpoint strictly to `127.0.0.1:3000`.
+* **Architecture:** Hybrid. TUI runs natively to validate inputs and output JSON configurations; the MCP Server runs as a native Go binary registered as a system service (systemd on Linux, launchd on macOS, NSSM or Task Scheduler on Windows), exposing an SSE endpoint strictly to `127.0.0.1:3000`.
 
 ## Coding Standards
 * **Concurreny & SQLite:** Always assume high concurrency from the upstream LLM (Hermes). Ensure SQLite is opened with `_busy_timeout=5000` and journal mode set to `WAL`.

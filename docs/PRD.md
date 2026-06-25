@@ -26,7 +26,7 @@ Cuantificación aproximada: un negocio típico pierde entre un 10% y un 20% de i
 
 ### 1.3 Solución Propuesta
 
-Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia VPS o PC del cliente. El sistema **no tiene UI propia**; expone un conjunto de herramientas (tools) al protocolo MCP. Un agente de IA conversacional (Hermes) consume esas herramientas y actúa como la interfaz para clientes finales y administradores. El sistema es single-tenant (una DB por negocio) pero multi-staff (varios profesionales por instalación). La configuración inicial se realiza mediante un asistente TUI en Go (Bubble Tea) que valida y exporta JSON. El despliegue en la VPS del cliente se automatiza con un script `curl | bash` que instala Docker y levanta el contenedor.
+Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia VPS o PC del cliente. El sistema **no tiene UI propia**; expone un conjunto de herramientas (tools) al protocolo MCP. Un agente de IA conversacional (Hermes) consume esas herramientas y actúa como la interfaz para clientes finales y administradores. El sistema es single-tenant (una DB por negocio) pero multi-staff (varios profesionales por instalación). La configuración inicial se realiza mediante un asistente TUI en Go (Bubble Tea) que valida y exporta JSON. El despliegue en la VPS del cliente se automatiza con un script `curl | bash` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
 
 ---
 
@@ -35,7 +35,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 ### 2.1 Objetivos (SMART)
 
 - [ ] **O1**: Lanzar un binario MCP server en Go v1.0 que exponga al menos 12 tools funcionales (gestión de identidad, recursos, reservas, alertas, fidelización) antes del 2026-Q4.
-- [ ] **O2**: Alcanzar un tiempo de instalación en una VPS Ubuntu limpia (sin Docker) inferior a 5 minutos, medido desde `curl | bash` hasta el log "Servidor MCP Activo".
+- [ ] **O2**: Alcanzar un tiempo de instalación en una VPS Ubuntu limpia (sólo con `curl` y `bash`) inferior a 5 minutos, medido desde `curl | bash` hasta el log "Servidor MCP Activo".
 - [ ] **O3**: Soportar al menos 50 reservas concurrentes sin colisiones ni locks visibles al usuario, con `busy_timeout=5000` y WAL activo.
 - [ ] **O4**: Cero SQL injections verificable: 100% de las queries usan prepared statements; cobertura de tests sobre el repository layer superior al 80%.
 
@@ -60,8 +60,9 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - Persistencia en SQLite (archivo local) con WAL, `busy_timeout=5000`, `foreign_keys=ON`, `synchronous=NORMAL`.
 - Soporte FTS5 con triggers `AFTER INSERT/UPDATE/DELETE` para sincronización automática.
 - Binario `config-wizard` (TUI en Bubble Tea) para configuración inicial con validación regex/string.
-- Script `install.sh` que instala Docker, levanta el contenedor y configura el cron de backups.
-- `Dockerfile` y `docker-compose.yml` con el binario ejecutándose bajo un usuario sin privilegios (`appuser`).
+- Script `install.sh` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
+- Script `scripts/backup.sh` portable (bash, sin scheduler automático) que produce un backup consistente del `.db` con `sqlite3 .backup` + gzip.
+- Templates de service unit para Linux (`mcp-appointments-crm.service`), macOS (`com.mcp.appointments.server.plist`) y Windows (`mcp-appointments-crm.xml` para Task Scheduler).
 - Endpoint SSE expuesto **únicamente** en `127.0.0.1:3000` (loopback estricto).
 - Manejo de errores con mensajes semánticos en español, sin stack traces al LLM.
 - Tests unitarios sobre el repository layer con `go-sqlmock`.
@@ -94,10 +95,10 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - **Repository pattern** sobre `*sql.DB`, con una capa de repos por tabla (`clients`, `services`, `professionals`, `bookings`, etc.) que centraliza las queries con prepared statements.
 - **MCP server framework**: evaluar e integrar una librería MCP para Go (oficial de `modelcontextprotocol/go-sdk` o equivalente); si no hay una estable al momento, se implementa el protocolo a mano.
 - **FTS5 sync via triggers** SQL declarados en el schema, no en código Go. La fuente de verdad es la tabla relacional; el FTS es un índice derivado.
-- **Containerizado en Docker** con `modernc.org/sqlite` (pure Go, sin CGo) para mantener la imagen pequeña y portable. Binario corre como usuario no-root (`appuser`).
+- **Binario nativo en Go 1.26.4** con `modernc.org/sqlite` (pure Go, sin CGo, sin capas de contenedor). Se distribuye como binario único cross-compiled para 5 plataformas. Binario corre como **user-level service** (sin root, sin `appuser` dedicado) bajo el usuario que invoca `install.sh`.
 - **TUI con MVU estricto** (Bubble Tea), con validación regex/string por campo antes de permitir avanzar.
 - **Trazabilidad de errores** con `fmt.Errorf("...: %w", err)` y mensajes semánticos en español para devolver al LLM.
-- **Tradeoff principal**: usar `modernc.org/sqlite` (pure Go) a cambio de un binario ~5 MB más grande que el driver CGo. Se acepta porque simplifica el build (no requiere toolchain C) y la imagen Docker.
+- **Tradeoff principal**: usar `modernc.org/sqlite` (pure Go) a cambio de un binario ~5 MB más grande que el driver CGo. Se acepta porque simplifica el build cross-platform (no requiere toolchain C en target ni runtime de contenedor).
 
 ### 3.5 Affected Areas
 
@@ -109,9 +110,40 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - `internal/model/` — nuevo: structs de dominio (Client, Service, Booking, etc.).
 - `internal/tui/` — nuevo: modelo Bubble Tea del config-wizard.
 - `scripts/install.sh` — script de despliegue para VPS del cliente.
-- `setup/Dockerfile`, `setup/docker-compose.yml` — contenedores de despliegue.
+- `scripts/backup.sh` — nuevo: script bash portable de backup (usa `sqlite3 .backup` para consistencia).
+- `setup/service/` — templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1:3000`.
 - `openspec/specs/{core,clients,services,bookings,business-profile}/` — delta specs por dominio.
 - `openspec/changes/<fase>/` — carpetas por fase del SDD workflow.
+
+#### Matriz de cross-compilation
+
+| Plataforma | Binario | Service manager |
+|---|---|---|
+| `linux/amd64` | `mcp-server-linux-amd64` | systemd |
+| `linux/arm64` | `mcp-server-linux-arm64` | systemd |
+| `darwin/amd64` | `mcp-server-darwin-amd64` | launchd |
+| `darwin/arm64` | `mcp-server-darwin-arm64` | launchd |
+| `windows/amd64` | `mcp-server-windows-amd64.exe` | NSSM o Task Scheduler |
+
+Distribución: GitHub Releases + `install.sh` que detecta OS/arquitectura (`uname -s` + `uname -m`) y descarga el binario correspondiente.
+
+#### Install Layout (paths por OS)
+
+Install **user-level** (sin root, sin `appuser` dedicado). El servicio corre bajo el usuario que invoca `install.sh`. La convención de paths sigue el XDG Base Directory spec en Linux y las convenciones nativas en macOS/Windows.
+
+| Componente | Linux (XDG) | macOS | Windows |
+|---|---|---|---|
+| **Binario** | `~/.local/bin/mcp-server` | `~/.local/bin/mcp-server` | `%LOCALAPPDATA%\Programs\mcp-server\mcp-server.exe` |
+| **Data** (SQLite + backups) | `~/.local/share/mcp-appointments-crm/` | `~/Library/Application Support/MCP Appointments CRM/` | `%APPDATA%\MCP Appointments CRM\` |
+| **Config** (JSON del wizard) | `~/.config/mcp-appointments-crm/setup/` | `~/Library/Application Support/MCP Appointments CRM/setup/` | `%APPDATA%\MCP Appointments CRM\setup\` |
+| **Logs** | `~/.local/state/mcp-appointments-crm/mcp-server.log` | `~/Library/Logs/MCP Appointments CRM/mcp-server.log` | `%LOCALAPPDATA%\MCP Appointments CRM\Logs\mcp-server.log` |
+| **Service definition** | `~/.config/systemd/user/mcp-appointments-crm.service` | `~/Library/LaunchAgents/com.mcp.appointments.server.plist` | Task Scheduler (carpeta del usuario) |
+
+> **Convenciones XDG**: si `XDG_DATA_HOME`, `XDG_CONFIG_HOME` o `XDG_STATE_HOME` están definidas, se respetan como base de los paths de data/config/logs.
+>
+> **24/7 en Linux**: para que el servicio user-level de systemd siga corriendo después de logout, `install.sh` ejecuta automáticamente `loginctl enable-linger <user>` (operación one-time, no afecta el login del usuario). En macOS y Windows, los user-level services/agents/tasks persisten tras logout por defecto.
+>
+> Los ejemplos de paths en este PRD usan los valores de Linux (XDG) como referencia canónica; para macOS y Windows, consultar la tabla anterior.
 
 > **Convenciones de nomenclatura del modelo de datos** (alinear antes de Fase 1 db-layer):
 > - La tabla de reservas se llama **`bookings`** (no `appointments`).
@@ -121,9 +153,9 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 
 ### 3.6 Rollback Plan
 
-- **Estrategia**: una vez commiteado, cada fase del SDD es revertible con `git revert <sha>` sobre el branch de feature antes de merge a `main`. Para releases ya desplegados, el contenedor Docker se puede bajar con `docker compose down`, restaurando la imagen anterior con `docker compose pull <tag-anterior>`.
-- **Tiempo estimado de rollback**: < 5 minutos por commit en entorno de desarrollo; < 15 minutos en VPS de cliente con el cron de backup activado.
-- **Riesgo residual si rollback falla**: la base de datos SQLite queda en un estado inconsistente con el binario. Mitigación: el backup diario (`/opt/mcp-server/backups/reservas-YYYYMMDD.db.gz`) permite restaurar el `.db` a un punto anterior y volver a levantar el contenedor contra ese backup.
+- **Estrategia**: una vez commiteado, cada fase del SDD es revertible con `git revert <sha>` sobre el branch de feature antes de merge a `main`. Para releases ya desplegados, el servicio se puede detener con `systemctl stop mcp-appointments-crm`, restaurar el binario anterior desde un release previo, y reiniciar con `systemctl start mcp-appointments-crm`.
+- **Tiempo estimado de rollback**: < 5 minutos por commit en entorno de desarrollo; < 15 minutos en VPS de cliente con el script `backup.sh` ejecutándose según la estrategia de scheduling elegida por el operador.
+- **Riesgo residual si rollback falla**: la base de datos SQLite queda en un estado inconsistente con el binario. Mitigación: el backup ejecutado vía `scripts/backup.sh` (que produce `~/.local/share/mcp-appointments-crm/backups/reservas-YYYYMMDD.db.gz` en Linux, con paths análogos en macOS/Windows según §3.5) permite restaurar el `.db` a un punto anterior y volver a iniciar el servicio contra ese backup. La estrategia de scheduling queda a criterio del operador.
 
 ---
 
@@ -145,7 +177,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - Como **profesional**, quiero **ver mi agenda de mañana y agregar una nota a una reserva**, para **prepararme con contexto del cliente**.
 - Como **cliente final**, quiero **pedirle a Hermes un turno disponible con María para el jueves a las 16**, para **no tener que llamar por teléfono**.
 - Como **cliente final**, quiero **recibir un recordatorio 24 hs antes de mi turno**, para **no olvidarme y poder reprogramar si no puedo ir**.
-- Como **soporte técnico**, quiero **poder conectarme por SSH a la VPS del cliente y bajar/levantar el contenedor**, para **aplicar updates o restaurar backups sin pedirle nada al cliente**.
+- Como **soporte técnico**, quiero **poder conectarme por SSH a la VPS del cliente y detener/iniciar el servicio**, para **aplicar updates o restaurar backups sin pedirle nada al cliente**.
 
 ---
 
@@ -154,10 +186,10 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 ### 5.1 Requerimientos Funcionales (RF)
 
 **RF1: Configuración inicial del negocio vía TUI**
-- **Descripción**: El sistema debe proveer un binario `config-wizard` que captura los datos de `business_profile`, `professionals` iniciales y `services` iniciales a través de una interfaz de terminal con validación por campo. La salida son archivos JSON en `/opt/mcp-server/setup/`.
+- **Descripción**: El sistema debe proveer un binario `config-wizard` que captura los datos de `business_profile`, `professionals` iniciales y `services` iniciales a través de una interfaz de terminal con validación por campo. La salida son archivos JSON en `~/.config/mcp-appointments-crm/setup/` (Linux) o su equivalente platform-native según §3.5.
 - **Prioridad**: Must
 - **Criterios de Aceptación** (formato Gherkin):
-  - [ ] Dado que el usuario ejecuta `config-wizard` por primera vez, cuando completa todos los pasos, entonces el sistema genera `setup_business.json`, `setup_staff.json` y `setup_services.json` válidos en `/opt/mcp-server/setup/`.
+  - [ ] Dado que el usuario ejecuta `config-wizard` por primera vez, cuando completa todos los pasos, entonces el sistema genera `setup_business.json`, `setup_staff.json` y `setup_services.json` válidos en `~/.config/mcp-appointments-crm/setup/`.
   - [ ] Dado que el usuario ingresa un email con formato inválido en `contact_email`, cuando intenta avanzar, entonces el TUI muestra un error de validación y no permite continuar.
   - [ ] Dado que el usuario ingresa un horario `start_time` que no respeta el formato `HH:MM`, cuando intenta guardar, entonces el TUI rechaza el input y pide reintentar.
 
@@ -165,7 +197,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - **Descripción**: El sistema debe exponer los tools `get_business_profile()` y `update_business_profile(fields...)` que leen y modifican la tabla `business_profile` a través del protocolo MCP.
 - **Prioridad**: Must
 - **Criterios de Aceptación**:
-  - [ ] Dado que el primer boot del contenedor terminó exitosamente, cuando Hermes invoca `get_business_profile()`, entonces el sistema retorna un JSON con todos los campos del negocio actual.
+  - [ ] Dado que el primer inicio del servicio terminó exitosamente, cuando Hermes invoca `get_business_profile()`, entonces el sistema retorna un JSON con todos los campos del negocio actual.
   - [ ] Dado que Hermes invoca `update_business_profile({"public_phone": "+5491112345678"})`, cuando la operación es exitosa, entonces el sistema retorna `OK` y el nuevo teléfono queda persistido.
   - [ ] Dado que Hermes invoca `update_business_profile` con un campo que no existe en la tabla, cuando el sistema intenta aplicarlo, entonces retorna un mensaje semántico `Error: campo desconocido 'foo'. Campos válidos: ...`.
 
@@ -215,11 +247,12 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
   - [ ] Dado que hay 50 clientes con al menos una reserva en el último mes, cuando Hermes invoca `get_loyalty_report("last_month")`, entonces el sistema retorna el Top N de clientes ordenados por cantidad de reservas descendente, junto con su `client_id`, `name`, `phone` y `booking_count`.
 
 **RF9: Despliegue automatizado con `install.sh`**
-- **Descripción**: El sistema debe proveer un script `install.sh` ejecutable vía `curl | bash` que instala Docker, levanta el contenedor y configura el cron de backups.
+- **Descripción**: El sistema debe proveer un script `install.sh` ejecutable vía `curl | bash` que instala el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular el script `backup.sh`.
 - **Prioridad**: Must
 - **Criterios de Aceptación**:
-  - [ ] Dado que el script se ejecuta en una VPS Ubuntu limpia sin Docker, cuando termina exitosamente, entonces el contenedor `mcp-appointments-crm` está corriendo y el log final imprime `http://127.0.0.1:3000/mcp`.
-  - [ ] Dado que el script se ejecuta sin los archivos JSON de `setup/`, cuando el sistema valida los prerrequisitos, entonces imprime `Error: ejecute primero config-wizard` y termina con exit code 1 sin instalar Docker.
+  - [ ] Dado que el script se ejecuta en una VPS Ubuntu limpia (sólo con `curl` y `bash`), cuando termina exitosamente, entonces el servicio `mcp-appointments-crm` está activo (`systemctl is-active` o equivalente) y el log final imprime `http://127.0.0.1:3000/mcp` y el log final muestra la línea sugerida para schedular `backup.sh` en `crontab` (u otro scheduler nativo según OS).
+  - [ ] Dado que el script se ejecuta sin los archivos JSON de `setup/`, cuando el sistema valida los prerrequisitos, entonces imprime `Error: ejecute primero config-wizard` y termina con exit code 1 sin instalar el binario ni registrar el servicio.
+  - [ ] Dado que el script terminó exitosamente, cuando el operador revisa la salida, entonces encuentra al final un snippet sugerido para `crontab` con la frecuencia por defecto (1 vez al día, 03:00 hora local) que puede agregar manualmente.
 
 > **Nota**: los criterios Gherkin de §5.1 se traducen a `scenarios` en el delta spec
 > (`openspec/changes/<fase>/specs/<domain>/spec.md`) usando el formato
@@ -235,14 +268,14 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 | Latencia SSE | Latencia del endpoint `check_availability` | p95 < 100 ms en VPS con 2 vCPU / 2 GB RAM |
 | Tamaño binario | Tamaño del binario compilado (linux/amd64) | < 25 MB con `modernc.org/sqlite` |
 | Portabilidad | Debe correr en Linux/amd64, Linux/arm64 y macOS/amd64, macOS/arm64 | Compilación cross-platform verificada en CI |
-| Disponibilidad | El contenedor debe reiniciarse automáticamente ante crash | Política `restart: unless-stopped` en `docker-compose.yml` |
+| Disponibilidad | El servicio debe reiniciarse automáticamente ante crash | Unit de systemd con `Restart=always` (equivalente launchd `KeepAlive=true`) |
 | Mantenibilidad | Cobertura de tests sobre el repository layer | > 80% con `go test -cover` |
 | Seguridad | 100% de queries con prepared statements | Linter custom o test de auditoría que falle si hay concatenación |
-| Seguridad | Puerto 3000 expuesto solo en loopback | `docker-compose.yml` con `"127.0.0.1:3000:3000:3000"` |
-| Seguridad | Contenedor corre como usuario no-root | `USER appuser` en Dockerfile |
+| Seguridad | Puerto 3000 expuesto solo en loopback | Doble capa: bind a `127.0.0.1` en el binario Go + unit de systemd con `IPAddressAllow=127.0.0.1` (cuando aplique) |
+| Seguridad | Servicio corre sin root | User-level systemd (`~/.config/systemd/user/`), launchd `LaunchAgents/`, Task Scheduler user task. No se crea `appuser` dedicado. |
 | Seguridad | Permisos de directorio restrictivos al crear el path del SQLite | `os.MkdirAll(dir, 0750)` en `internal/db/database.go` |
 | Observabilidad | Logs estructurados en stdout (JSON) | `slog` de Go stdlib; nivel configurable vía env var |
-| Resiliencia | Backup diario del archivo SQLite | Cron en `install.sh` que comprime `/opt/mcp-server/data/reservas.db` |
+| Resiliencia | Backup del archivo SQLite | Script `scripts/backup.sh` portable (bash) que el operador puede schedular con la herramienta que prefiera (cron, systemd timer, launchd, Task Scheduler, o solución del proveedor de VPS) |
 
 ---
 
@@ -254,7 +287,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - **Base de Datos**: SQLite vía `modernc.org/sqlite` v1.53+ (pure Go, sin CGo) con FTS5 nativo
 - **MCP**: Protocolo MCP sobre SSE en `http://127.0.0.1:3000/mcp`
 - **TUI**: Charm Bubble Tea ecosystem (`bubbletea`, `bubbles`, `lipgloss`)
-- **Infraestructura**: Docker + Docker Compose en la VPS del cliente
+- **Infraestructura**: binarios nativos en la VPS/PC del cliente, gestionados por el service manager del SO
 - **Build**: `go build -o /dev/null ./...`, `go test -v -race ./...`, `golangci-lint run ./...`
 - **Distribución**: Script `install.sh` descargable vía `curl | bash` desde GitHub
 
@@ -271,7 +304,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 
 - **Regulaciones aplicables**: ninguna explícita. El sistema maneja datos personales (PII) del cliente final (nombre, teléfono, email, preferencias) y datos de negocio, por lo que el dueño del negocio es responsable de cumplir las regulaciones locales (Ley 25.326 de Protección de Datos Personales en Argentina, GDPR si aplica, etc.). El sistema **no está certificado para manejar PCI-DSS ni datos financieros regulados** más allá de los precios de los servicios.
 - **Datos sensibles manejados**: PII (nombre, teléfono, email, preferencias del cliente), historial de reservas, datos de negocio.
-- **Controles de seguridad requeridos**: prepared statements (100%), puerto loopback estricto, usuario no-root en contenedor, validación regex/string en TUI, mensajes semánticos sin stack traces al LLM, HTTPS para descarga del `install.sh` desde GitHub.
+- **Controles de seguridad requeridos**: prepared statements (100%), puerto loopback estricto, servicio user-level sin root, validación regex/string en TUI, mensajes semánticos sin stack traces al LLM, HTTPS para descarga del `install.sh` desde GitHub.
 
 ---
 
@@ -308,13 +341,12 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas)
 - `internal/model/` con structs de dominio
 - `internal/errs/` con códigos y mensajes semánticos en español
-- `Dockerfile` multi-stage con `USER appuser`
-- `docker-compose.yml` con `"127.0.0.1:3000:3000:3000"`
+- Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1:3000`
 
 **Definition of Done**:
 - [ ] 6+ tools MCP registrados y funcionales
 - [ ] Endpoint SSE responde en `http://127.0.0.1:3000/mcp`
-- [ ] El contenedor corre como `appuser` (verificable con `docker exec`)
+- [ ] El servicio corre bajo el usuario que invoca `install.sh` (verificable con `systemctl --user show mcp-appointments-crm -p User` o `ps -o user= -p $(pgrep mcp-server)`)
 - [ ] El puerto 3000 NO es accesible desde la red del host (`curl 192.168.x.x:3000` falla)
 - [ ] Todos los errores lógicos retornan mensajes en español, sin stack traces
 - [ ] `go test -v -race ./...` pasa
@@ -350,26 +382,28 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 **Definition of Done**:
 - [ ] El TUI guía al usuario paso a paso
 - [ ] Cada campo valida antes de permitir avanzar (regex para email, formato `HH:MM` para horarios, coordenadas geográficas)
-- [ ] Al finalizar, los 3 JSON están en `/opt/mcp-server/setup/` con schema válido
+- [ ] Al finalizar, los 3 JSON están en `~/.config/mcp-appointments-crm/setup/` con schema válido
 - [ ] Tests con `teatest` pasan
 
-### Fase 5: install-and-docker (Estimación: S)
+### Fase 5: install-and-service (Estimación: S)
 
-**Objetivo**: script de despliegue automatizado para la VPS del cliente + cron de backups + documentación de instalación.
+**Objetivo**: script de despliegue automatizado para la VPS del cliente + script de backup portable + documentación de instalación.
 
 **Entregables**:
 - `scripts/install.sh` ejecutable vía `curl | bash`
 - Verificación de prerrequisitos (JSON existen, OS soportado)
-- Instalación de Docker y Docker Compose si no están
-- `docker compose up -d` del stack
-- Configuración del cron de backups diarios
+- Descarga del binario correcto según OS/arquitectura desde GitHub Releases
+- Registro del binario como user-level service: `~/.config/systemd/user/mcp-appointments-crm.service` (Linux), `~/Library/LaunchAgents/com.mcp.appointments.server.plist` (macOS), Task Scheduler user task (Windows)
+- Impresión al final de `install.sh` de la línea sugerida para schedular `backup.sh` (sin auto-configurar ningún scheduler)
+- `scripts/backup.sh` portable (bash, sin scheduler) disponible en el repo y en el release
+- Ejecución de `loginctl enable-linger <user>` (sólo en Linux) para que el servicio user-level siga corriendo tras logout
 - Log final con el endpoint `http://127.0.0.1:3000/mcp`
 - `docs/installation.md` con el manual de uso del script
 - `docs/maintenance.md` con el manual de soporte anual
 
 **Definition of Done**:
-- [ ] En una VPS Ubuntu 22.04 limpia, el comando `curl -fsSL <url> | bash` deja el sistema corriendo en < 5 minutos
-- [ ] El cron de backups crea un `.gz` diario en `/opt/mcp-server/backups/`
+- [ ] En una máquina con SO soportado (Linux, macOS 13+ o Windows 10+), el comando `curl -fsSL <url> | bash` (o `iwr -useb <url> | iex` en Windows) deja el sistema corriendo en < 5 minutos
+- [ ] El script `backup.sh` está disponible en el repo y en el release, y produce un `.gz` ejecutándose manualmente con `./scripts/backup.sh`
 - [ ] El script falla con mensaje claro si los JSON no existen
 - [ ] Manual de instalación en español, paso a paso
 
@@ -408,11 +442,10 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 | # | Dependencia | Tipo | Estado | Owner |
 |---|-------------|------|--------|-------|
 | D1 | Hermes agent con soporte MCP sobre SSE | Bloqueante | Externa, se asume disponible | Cliente |
-| D2 | VPS Linux del cliente (Ubuntu/Debian recomendados) | Bloqueante | Aprovisionar por el cliente | Cliente |
+| D2 | VPS o PC del cliente con SO soportado (Linux, macOS 13+, Windows 10+) | Bloqueante | Aprovisionar por el cliente | Cliente |
 | D3 | Suscripción a un LLM (OpenAI, Anthropic, etc.) | Bloqueante | Aprovisionar por el cliente | Cliente |
 | D4 | Cuenta de WhatsApp Business / Telegram Bot | Paralela | Configurar por el cliente vía Hermes | Cliente |
 | D5 | Librería MCP para Go (oficial o comunitaria) | Bloqueante para Fase 2 | A evaluar al inicio de Fase 2 | Kike |
-| D6 | Docker + Docker Compose | Bloqueante para Fase 5 | Instalado por `install.sh` | Kike / script |
 
 ---
 
