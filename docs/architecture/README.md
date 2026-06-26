@@ -24,3 +24,4 @@ We use a lightweight ADR format inspired by Michael Nygard's template:
 | [0003](./0003-portable-backup.md) | Portable backup.sh, no auto-configured scheduler | accepted | 2026-06-25 |
 | [0004](./0004-naming-conventions.md) | Project naming conventions | accepted | 2026-06-25 |
 | [0005](./0005-optional-external-tools.md) | Project does not install external system tools; only suggests | accepted | 2026-06-25 |
+| [0006](./0006-data-model-and-reservations.md) | Data model and reservation flow design | accepted | 2026-06-25 |
