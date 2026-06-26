@@ -159,6 +159,468 @@ Install **user-level** (sin root, sin `appuser` dedicado). El servicio corre baj
 
 ---
 
+### 3.7 Modelo de Datos Relacional
+
+> **Referencia canónica del schema.** Las migraciones y la Fase 1 (db-layer) deben
+> implementar exactamente estas tablas. Cambios al schema requieren update de
+> esta sección y, si son significativos, un ADR nuevo.
+>
+> Este modelo se alinea con `docs/SDD.md §B` con las correcciones/adiciones
+> detectadas en la revisión de 2026-06-25:
+>
+> - `business_hours` se almacena como columna JSON dentro de `business_profile` (decisión de diseño del 2026-06-25: no justifica una tabla separada para una sola fila de config; trade-off documentado en §3.7.2).
+> - `business_hours_exception` se agrega como tabla nueva para feriados, eventos y vacaciones — fechas específicas con horario diferente al semanal regular. Ver §3.7.3.
+> - `business_profile` se documenta con sus campos extendidos (SDD.md lo
+>   lista en otra sección).
+> - `schedules` se documenta formalmente (estaba ausente del PRD).
+> - `bookings` documenta explícitamente `end_datetime` y `payment_method`
+>   (estaban en SDD.md pero faltantes en el PRD).
+> - FTS5 sync via triggers `AFTER INSERT/UPDATE/DELETE` se documenta como
+>   requisito funcional (gap conocido desde la fundación).
+
+#### 3.7.1 `business_profile` (singleton — una sola fila por instalación)
+
+Configuración global del negocio. Relación 1:1 con la instalación.
+
+```sql
+CREATE TABLE business_profile (
+    id                          TEXT PRIMARY KEY DEFAULT 'singleton',
+    name                        TEXT NOT NULL,
+    industry                    TEXT,                          -- "veterinaria", "barbería", "peluquería"
+    country                     TEXT,                          -- ISO 3166-1 alpha-2, ej "AR"
+    address                     TEXT,
+    latitude                    REAL,
+    longitude                   REAL,
+    cover_photo_url             TEXT,
+    public_phone                TEXT,
+    messenger_platform          TEXT,                          -- "whatsapp" | "telegram" | NULL
+    messenger_id                TEXT,                          -- número o handle del bot del negocio
+    contact_email               TEXT,
+    website_url                 TEXT,
+    general_description         TEXT,
+    currency_code               TEXT NOT NULL DEFAULT 'ARS',   -- ISO 4217
+    currency_symbol             TEXT NOT NULL DEFAULT '$',
+    accepted_payment_methods    TEXT,                          -- JSON array, ej ["efectivo","tarjeta","transferencia"]
+    timezone                    TEXT NOT NULL DEFAULT 'UTC',   -- IANA, ej "America/Argentina/Buenos_Aires"
+    slot_interval_minutes       INTEGER NOT NULL DEFAULT 30,   -- granularidad para "find next available"
+    business_hours              TEXT NOT NULL DEFAULT '{}',    -- JSON, ver §3.7.2
+    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+#### 3.7.2 Formato del JSON `business_hours` (columna de `business_profile`)
+
+El horario de atención del negocio se almacena como JSON en la columna `business_hours` de `business_profile` (decisión del 2026-06-25: no justifica una tabla separada para una sola fila de config del negocio). La estructura es un objeto con una entrada por día de la semana; un día con valor `null` significa "cerrado".
+
+```json
+{
+  "monday":    { "open": "09:00", "close": "18:00" },
+  "tuesday":   { "open": "09:00", "close": "18:00" },
+  "wednesday": { "open": "09:00", "close": "18:00" },
+  "thursday":  { "open": "09:00", "close": "18:00" },
+  "friday":    { "open": "09:00", "close": "18:00" },
+  "saturday":  { "open": "09:00", "close": "13:00" },
+  "sunday":    null
+}
+```
+
+Los horarios se expresan en formato `HH:MM` (24 horas) en la `timezone` del negocio (columna `business_profile.timezone`).
+
+**Query de ejemplo** (¿está abierto el sábado a las 10:00?):
+
+```sql
+SELECT
+  json_extract(bp.business_hours, '$.saturday.open')  AS sat_open,
+  json_extract(bp.business_hours, '$.saturday.close') AS sat_close
+FROM business_profile bp
+WHERE bp.id = 'singleton';
+```
+
+**Trade-off documentado**: este enfoque sacrifica queries SQL directas sobre horarios a cambio de mantener el "perfil" del negocio consolidado en una sola fila (single source of truth). Es aceptable porque:
+- Solo hay UNA fila de `business_profile` por instalación
+- El acceso a horarios se hace con `json_extract` (que SQLite soporta nativamente)
+- Cambiar de un día a otro es raro (lo hace el dueño del negocio, no en hot path)
+
+`business_hours` siempre representa el **horario regular semanal** del negocio. Para fechas específicas con horario diferente (feriados, eventos, vacaciones), ver `business_hours_exception` en §3.7.3. Si en el futuro se necesitan patrones más complejos (ej. "todos los domingos de agosto"), se evaluará una nueva abstracción sin romper estos dos.
+
+#### 3.7.3 `business_hours_exception`
+
+Excepciones por fecha al horario semanal regular. Permite representar feriados, eventos especiales, vacaciones del dueño, o días con horario reducido.
+
+```sql
+CREATE TABLE business_hours_exception (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    exception_date  TEXT NOT NULL UNIQUE,        -- "2026-12-25" (ISO date, sin timezone)
+    is_closed       BOOLEAN NOT NULL DEFAULT 1, -- 1=cerrado, 0=abierto con horario custom
+    open_time       TEXT,                        -- "HH:MM" (sólo si is_closed=0)
+    close_time      TEXT,                        -- "HH:MM" (sólo si is_closed=0)
+    reason          TEXT,                        -- "Navidad", "Vacaciones del dueño", "Feriado puente"
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_business_hours_exception_date ON business_hours_exception(exception_date);
+```
+
+**Semántica de la columna `is_closed`**:
+- `is_closed = 1` → el negocio está cerrado ese día. `open_time`/`close_time` son NULL.
+- `is_closed = 0` → el negocio está abierto con horario custom. `open_time`/`close_time` son requeridos.
+
+**Regla de precedencia en `check_availability`**: si existe una fila en `business_hours_exception` para la fecha solicitada, se usa esa (con `is_closed` y opcionalmente `open_time`/`close_time`). Si NO existe, se usa el JSON `business_hours` con el día de la semana. Esto se documenta en §3.7.13 Paso 3a (ver abajo).
+
+**Sobre los feriados nacionales**: por simplicidad, esta tabla NO incluye una librería de feriados nacionales por país. El dueño del negocio carga manualmente los feriados que le importan. Si en el futuro se vuelve tedioso, se evaluará agregar una tabla `national_holidays` curada por país o una librería Go de holidays.
+
+#### 3.7.4 `professionals`
+
+Staff que presta servicios. Multi-staff por instalación. La entidad existía en SDD.md §B pero el PRD no documentaba sus campos; los formalizamos acá.
+
+```sql
+CREATE TABLE professionals (
+    id              TEXT PRIMARY KEY,                       -- UUID v4
+    name            TEXT NOT NULL,
+    role_specialty  TEXT,                                   -- "Veterinario", "Barbero", "Estilista" (alineado con SDD.md §B)
+    status          TEXT NOT NULL DEFAULT 'active',         -- 'active' | 'inactive'
+    email           TEXT,
+    phone           TEXT,
+    specialties     TEXT,                                   -- JSON array de service_ids, ej ["svc-001","svc-003"]
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+`role_specialty` (string) viene de SDD.md §B para describir el rol principal; `specialties` (JSON array) es una adición que permite asociar múltiples servicios a un profesional (un veterinario puede atender "consulta" y "cirugía"). El campo `status` controla visibilidad: profesionales inactivos no aparecen en `check_availability` ni en la lista de staff.
+
+#### 3.7.5 `schedules`
+
+Horario semanal de cada profesional. Permite responder "¿el Profesional A trabaja hoy?". Era completamente ausente del PRD antes de esta sección; SDD.md §B la definía.
+
+```sql
+CREATE TABLE schedules (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    professional_id     TEXT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
+    day_of_week         INTEGER NOT NULL,                   -- 0=domingo, ..., 6=sábado
+    start_time          TEXT NOT NULL,                      -- "HH:MM" en la timezone del negocio
+    end_time            TEXT NOT NULL,                      -- "HH:MM"
+    UNIQUE(professional_id, day_of_week)
+);
+
+CREATE INDEX idx_schedules_professional_day ON schedules(professional_id, day_of_week);
+```
+
+Una fila por (profesional, día). Si un profesional no tiene fila para un día, ese día no trabaja.
+
+#### 3.7.6 `services`
+
+Catálogo de servicios que ofrece el negocio. Cada servicio tiene duración y precio.
+
+```sql
+CREATE TABLE services (
+    id              TEXT PRIMARY KEY,                       -- UUID v4
+    name            TEXT NOT NULL,
+    description     TEXT,                                   -- campo que faltaba documentar en el PRD; presente en SDD.md §B
+    duration_minutes INTEGER NOT NULL,                      -- canónico, ver ADR-0004
+    price           REAL NOT NULL,                          -- en la currency_code de business_profile
+    is_active       BOOLEAN NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+#### 3.7.7 `clients`
+
+Clientes del negocio. `phone` es único porque se usa como ID del chat en WhatsApp/Telegram (alineado con SDD.md §B).
+
+```sql
+CREATE TABLE clients (
+    id              TEXT PRIMARY KEY,                       -- UUID v4
+    name            TEXT NOT NULL,
+    phone           TEXT NOT NULL UNIQUE,                  -- ID del chat (WhatsApp/Telegram)
+    email           TEXT,
+    preferences     TEXT,                                   -- texto libre, ej "alergia a penicilina"
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
+#### 3.7.8 `bookings`
+
+Reservas de servicios. Tabla central del sistema. Renombrada de `appointments` (gap #10, ver ADR-0004).
+
+```sql
+CREATE TABLE bookings (
+    id                  TEXT PRIMARY KEY,                   -- UUID v4
+    client_id           TEXT NOT NULL REFERENCES clients(id),
+    professional_id     TEXT NOT NULL REFERENCES professionals(id),
+    service_id          TEXT NOT NULL REFERENCES services(id),
+    start_datetime      TEXT NOT NULL,                      -- ISO 8601 con timezone, ej "2026-06-25T14:00:00-03:00"
+    end_datetime        TEXT NOT NULL,                      -- start + service.duration_minutes
+    status              TEXT NOT NULL DEFAULT 'pending',    -- 'pending' | 'confirmed' | 'cancelled'
+    notes               TEXT,
+    payment_method      TEXT,                               -- método elegido para la cita (alineado con SDD.md §B)
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_bookings_start_professional_client
+    ON bookings(start_datetime, professional_id, client_id);
+```
+
+**Máquina de estados de `status`**: ver §5.1 RF6. Valores permitidos `pending`, `confirmed`, `cancelled`. Transiciones documentadas ahí.
+
+**`end_datetime`**: se almacena para optimizar queries de overlap check en `check_availability()`. Se calcula al insert/update como `start_datetime + duration_minutes` del servicio. Si el servicio cambia de duración en el futuro, las reservas existentes mantienen su `end_datetime` (consistencia histórica). Si la reserva se mueve, ambos campos se recalculan juntos.
+
+**Overlap check** (la consulta clave de `check_availability`):
+
+```sql
+-- Devuelve 1 si hay conflicto entre (professional_id, start, end) y otra reserva no cancelada
+SELECT 1
+FROM bookings
+WHERE professional_id = ?
+  AND status != 'cancelled'
+  AND start_datetime < ?     -- proposed end
+  AND end_datetime   > ?     -- proposed start
+LIMIT 1;
+```
+
+#### 3.7.9 `pending_alerts`
+
+Cola de notificaciones pull-based. Hermes las consume con `get_pending_alerts()` y las marca como enviadas con `mark_alert_as_sent()` (RF7).
+
+```sql
+CREATE TABLE pending_alerts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    type                TEXT NOT NULL,                      -- "confirmation_requested" | "reminder_24h" | "loyalty_alert"
+    message             TEXT NOT NULL,                      -- texto en español, listo para enviar
+    scheduled_datetime  TEXT NOT NULL,                      -- cuándo debe enviarse (en la timezone del negocio)
+    status              TEXT NOT NULL DEFAULT 'pending',    -- 'pending' | 'sent' | 'cancelled'
+    related_booking_id  TEXT REFERENCES bookings(id),       -- opcional, link a la reserva que origina la alerta
+    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_pending_alerts_scheduled_status
+    ON pending_alerts(scheduled_datetime, status);
+```
+
+#### 3.7.10 Tablas FTS5 (búsqueda full-text)
+
+```sql
+-- Índice full-text sobre clients.name y clients.preferences
+CREATE VIRTUAL TABLE clients_fts USING fts5(
+    name,
+    preferences,
+    content='clients',
+    content_rowid='rowid'
+);
+
+-- Índice full-text sobre services.name y services.description
+CREATE VIRTUAL TABLE services_fts USING fts5(
+    name,
+    description,
+    content='services',
+    content_rowid='rowid'
+);
+```
+
+> **⚠️ CRÍTICO — gap conocido desde la fundación**: las tablas FTS5 con
+> `content='source'` requieren triggers `AFTER INSERT / UPDATE / DELETE`
+> en la tabla fuente para mantener la sincronización. **Sin los triggers,
+> las búsquedas devuelven cero resultados aunque haya datos en la tabla
+> fuente.** Implementación obligatoria en Fase 1 (db-layer).
+
+```sql
+-- Ejemplo: triggers de sync para clients_fts
+CREATE TRIGGER clients_ai AFTER INSERT ON clients BEGIN
+    INSERT INTO clients_fts(rowid, name, preferences)
+    VALUES (new.rowid, new.name, new.preferences);
+END;
+
+CREATE TRIGGER clients_ad AFTER DELETE ON clients BEGIN
+    INSERT INTO clients_fts(clients_fts, rowid, name, preferences)
+    VALUES ('delete', old.rowid, old.name, old.preferences);
+END;
+
+CREATE TRIGGER clients_au AFTER UPDATE ON clients BEGIN
+    INSERT INTO clients_fts(clients_fts, rowid, name, preferences)
+    VALUES ('delete', old.rowid, old.name, old.preferences);
+    INSERT INTO clients_fts(rowid, name, preferences)
+    VALUES (new.rowid, new.name, new.preferences);
+END;
+
+-- (análogo para services_fts)
+```
+
+#### 3.7.11 Resumen de índices secundarios
+
+| Tabla | Índice | Razón |
+|---|---|---|
+| `schedules` | `(professional_id, day_of_week)` | "¿trabaja el Profesional A hoy?" |
+| `bookings` | `(start_datetime, professional_id, client_id)` | Overlap check + agenda del cliente |
+| `business_hours_exception` | `(exception_date)` UNIQUE | "¿hay excepción para esta fecha?" (Paso 3a de §3.7.13) |
+| `pending_alerts` | `(scheduled_datetime, status)` | "¿qué alertas hay pendientes para enviar?" |
+| `clients_fts` | (auto, FTS5) | `search_clients_advanced` |
+| `services_fts` | (auto, FTS5) | `search_services_advanced` |
+
+#### 3.7.12 Convenciones de nombrado aplicadas
+
+Per [ADR-0004](../architecture/0004-naming-conventions.md):
+
+- Tabla de reservas: `bookings` (no `appointments`)
+- Campo de duración: `duration_minutes` (no `duration_mins`)
+- Fechas de inicio/fin: `start_datetime` / `end_datetime` (no `start_time` / `end_time`)
+- Messenger fields: `messenger_platform`, `messenger_id` en `business_profile` (no en `clients`)
+- Repos Go: plural para colecciones (`BookingsRepo`), singular para agregados (`Booking`)
+
+---
+
+#### 3.7.13 Flujo de Reserva End-to-End
+
+Cuando el cliente solicita una reserva (típicamente vía Hermes, ej. "Hermes, quiero un turno con María para hoy a las 16"), el sistema ejecuta una cadena de validaciones. Cada paso tiene un mensaje semántico en español que se devuelve al LLM si falla (per coding standards: "no raw system dumps", "stack traces NEVER sent to LLM").
+
+##### Paso 1 — Resolución de parámetros
+
+```sql
+-- service_id, duration_minutes
+SELECT id, duration_minutes
+FROM services
+WHERE id = ? AND is_active = 1;
+
+-- professional_id, status
+SELECT id, status
+FROM professionals
+WHERE id = ?;
+```
+
+Si el servicio no existe o está inactivo:
+`Error: el servicio '{name}' no existe o no está disponible.`
+
+Si el profesional no existe o está inactivo:
+`Error: el profesional '{name}' no está disponible.`
+
+##### Paso 2 — Calcular `end_datetime`
+
+```go
+end_datetime = start_datetime + service.duration_minutes
+```
+
+##### Paso 3 — `check_availability()` (cadena de validaciones)
+
+El sistema ejecuta las siguientes validaciones **en orden**. La primera que falle aborta y retorna el mensaje correspondiente.
+
+**3a. ¿El negocio está abierto ese día?**
+
+Primero se consulta `business_hours_exception` (excepciones por fecha). Si hay una fila para la fecha solicitada, se usa esa. Si no, se cae al JSON `business_hours` con el día de la semana.
+
+```sql
+-- 1. ¿Hay excepción para esta fecha? (feriado, evento, vacaciones)
+SELECT is_closed, open_time, close_time, reason
+FROM business_hours_exception
+WHERE exception_date = ?;  -- "2026-12-25" (ISO date, derivado de start_datetime)
+
+-- 2. Si no hay fila, usar el JSON de business_hours
+--    (el día se pasa como string: "monday", "tuesday", etc.,
+--     derivado de start_datetime en la timezone del negocio)
+SELECT
+  json_extract(bp.business_hours, '$.' || ? || '.open')  AS open_time,
+  json_extract(bp.business_hours, '$.' || ? || '.close') AS close_time
+FROM business_profile bp
+WHERE bp.id = 'singleton';
+```
+
+**Lógica de aplicación**:
+- Si la query 1 retorna fila con `is_closed = 1` → `Error: el negocio está cerrado el {fecha} ({reason}).`
+- Si la query 1 retorna fila con `is_closed = 0` → usar `open_time`/`close_time` de la exception (horario especial para esa fecha).
+- Si la query 1 NO retorna fila → usar la query 2 con el día de la semana:
+  - Si `open_time IS NULL` → `Error: el negocio no abre los {día}.`
+
+**3b. ¿El Profesional trabaja ese día?**
+
+```sql
+SELECT start_time, end_time
+FROM schedules
+WHERE professional_id = ? AND day_of_week = ?;
+```
+
+Si no hay fila → `Error: el Profesional {name} no trabaja los {día}.`
+
+**3c. ¿El slot cabe dentro del horario de atención y del horario del profesional?**
+
+```sql
+-- slot_start >= max(business_open, pro_start)
+-- slot_end   <= min(business_close, pro_end)
+```
+
+Si el slot empieza antes de la apertura:
+`Error: el horario de atención comienza a las {open}.`
+
+Si el slot termina después del cierre:
+`Error: el servicio dura {duration} minutos pero solo quedan {remaining} antes del cierre a las {close}.`
+
+**3d. ¿Hay overlap con otra reserva no cancelada?**
+
+```sql
+SELECT 1
+FROM bookings
+WHERE professional_id = ?
+  AND status != 'cancelled'
+  AND start_datetime < ?     -- proposed end_datetime
+  AND end_datetime   > ?     -- proposed start_datetime
+LIMIT 1;
+```
+
+Si retorna fila → `Error: el Profesional {name} ya tiene una reserva de {existing_start} a {existing_end}.`
+
+**3e. ¿El slot no está en el pasado?**
+
+```sql
+SELECT start_datetime > datetime('now') AS is_future;
+```
+
+Si está en el pasado → `Error: no se puede reservar en el pasado.`
+
+##### Paso 4 — `create_booking()`
+
+Si todas las validaciones pasan, se inserta la reserva con `status='pending'`:
+
+```sql
+INSERT INTO bookings (id, client_id, professional_id, service_id,
+                      start_datetime, end_datetime, status, notes,
+                      payment_method, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, datetime('now'), datetime('now'));
+```
+
+`end_datetime` se calcula como `start_datetime + service.duration_minutes` (Paso 2).
+
+##### Paso 5 — Generar alerta pendiente
+
+```sql
+INSERT INTO pending_alerts (type, message, scheduled_datetime, status,
+                            related_booking_id, created_at)
+VALUES ('confirmation_requested',
+        'Confirmar reserva de {client_name} con {pro_name} el {start_datetime}',
+        datetime('now'),
+        'pending',
+        ?,
+        datetime('now'));
+```
+
+Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como enviada con `mark_alert_as_sent()` después de confirmar con el cliente vía WhatsApp/Telegram.
+
+##### Mensajes semánticos — Tabla de referencia
+
+| Validación fallida | Mensaje (español) |
+|---|---|
+| Negocio cerrado por excepción (feriado/evento) | `Error: el negocio está cerrado el {fecha} ({reason}).` |
+| Servicio no existe | `Error: el servicio '{name}' no existe o no está disponible.` |
+| Profesional no existe | `Error: el profesional '{name}' no está disponible.` |
+| Negocio cerrado semanal (no hay exception pero JSON lo marca cerrado) | `Error: el negocio no abre los {día}.` |
+| Profesional no trabaja ese día | `Error: el Profesional {name} no trabaja los {día}.` |
+| Slot antes de la apertura | `Error: el horario de atención comienza a las {open}.` |
+| Slot después del cierre | `Error: el servicio dura {duration} minutos pero solo quedan {remaining} antes del cierre a las {close}.` |
+| Overlap con otra reserva | `Error: el Profesional {name} ya tiene una reserva de {existing_start} a {existing_end}.` |
+| Slot en el pasado | `Error: no se puede reservar en el pasado.` |
+
+---
+
 ## 4. Usuarios y Personas
 
 ### 4.1 Personas
