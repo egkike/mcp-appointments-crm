@@ -39,8 +39,9 @@ The `exception_date` column MUST store calendar dates in the format `YYYY-MM-DD`
 #### Scenario: Rejecting date with time component
 
 - GIVEN a fresh table
-- WHEN an insert with `exception_date = '2026-12-25T00:00:00'` is attempted
-- THEN the database MUST accept the literal value (the column is `TEXT` and stores whatever string is provided) but the comparison logic of `check_availability` MUST treat that value as not matching the canonical `2026-12-25` form, so a separate row for `2026-12-25` MUST be the one matched
+- WHEN an insert with `exception_date = '2026-12-25T00:00:00'` (not the canonical `YYYY-MM-DD`) is attempted
+- THEN the repository MUST reject the input with `Code == ErrCodeInvalidInput`
+- AND the database MUST NOT receive the INSERT
 
 ### Requirement: `is_closed` flag drives the open/close semantics
 

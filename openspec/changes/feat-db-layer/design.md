@@ -6,7 +6,7 @@
 
 ## Overview
 
-`feat-db-layer` (Fase 1 del roadmap) extiende el esquema SQLite de **4 a 11 tablas** (10 de dominio incluyendo `schema_version`), agrega **6 triggers FTS5** y **3 índices secundarios**, e introduce dos paquetes nuevos: `internal/model/` (8 structs) y `internal/repository/` (9 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 10 archivos totales, con CRUD prepared-statement + la cadena `check_availability` de 5 pasos de PRD §3.7.13). El trabajo se reparte en **3 PRs encadenados** bajo el budget elevado de 600 líneas (obs 456). El diseño es el puente entre el **qué** (las 10 specs) y el **cómo** (las tasks): define la arquitectura de capas, los flujos de datos centrales, 12 decisiones arquitectónicas y el mapeo specs → tests que operará `sdd-tasks` y `sdd-apply`.
+`feat-db-layer` (Fase 1 del roadmap) extiende el esquema SQLite de **4 a 11 tablas**: 10 de dominio (PRD §3.7) + `schema_version` (tracking de migraciones), agrega **6 triggers FTS5** y **3 índices secundarios**, e introduce dos paquetes nuevos: `internal/model/` (8 structs) y `internal/repository/` (8 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 9 archivos totales, con CRUD prepared-statement + la cadena `check_availability` de 5 pasos de PRD §3.7.13). El trabajo se reparte en **3 PRs encadenados** bajo el budget elevado de 600 líneas (obs 456). El diseño es el puente entre el **qué** (las 10 specs) y el **cómo** (las tasks): define la arquitectura de capas, los flujos de datos centrales, 12 decisiones arquitectónicas y el mapeo specs → tests que operará `sdd-tasks` y `sdd-apply`.
 
 ## Layer Architecture
 
@@ -14,7 +14,7 @@
 flowchart TD
     cmd["cmd/mcp-server<br/>(main, wiring)"]
     mcp["internal/mcp<br/>(handlers + interfaces<br/>BookingsRepository, ClientsRepository, ...)"]
-    repo["internal/repository<br/>(9 *Repo structs + errors.go<br/>prepared statements, sentinels)"]
+    repo["internal/repository<br/>(8 *Repo structs + errors.go<br/>prepared statements, sentinels)"]
     model["internal/model<br/>(8 domain structs<br/>with db: tags)"]
     db["internal/db<br/>(database.go: schema + triggers<br/>database_test.go: FTS integration)"]
     val["internal/validation<br/>(validators + Error/ErrCode<br/>Spanish messages)"]
@@ -44,7 +44,7 @@ flowchart LR
     PR1 --> PR3
 ```
 
-Orden estricto: **PR 1 es un gate duro**. PR 2 y PR 3 dependen ambos del esquema nuevo (11 tablas + FKs + triggers). Si PR 1 se revierte, PR 2 y PR 3 quedan bloqueados hasta aterrizar un fix (ver Rollback Plan de la propuesta). PR 2 y PR 3 possono mergearse en cualquier orden o juntos una vez aterrizado PR 1, porque son capas aisladas (`internal/repository/*`) que no se importan entre sí (salvo `bookings` que referencia `services`/`professionals`/`schedules` vía FK a nivel SQL, no vía Go imports).
+Orden estricto: **PR 1 es un gate duro**. PR 2 y PR 3 dependen ambos del esquema nuevo (11 tablas + FKs + triggers). Si PR 1 se revierte, PR 2 y PR 3 quedan bloqueados hasta aterrizar un fix (ver Rollback Plan de la propuesta). PR 2 y PR 3 pueden mergearse en cualquier orden o juntos una vez aterrizado PR 1, porque son capas aisladas (`internal/repository/*`) que no se importan entre sí (salvo `bookings` que referencia `services`/`professionals`/`schedules` vía FK a nivel SQL, no vía Go imports).
 
 ## Data Flow: `check_availability` (cadena de 5 pasos)
 
@@ -97,8 +97,8 @@ sequenceDiagram
 Notas de implementación que el diseño fija (las tasks las materializan):
 - **Short-circuit al primer fallo**: la cadena es `if err := paso3a(); err != nil { return err }` encadenado. La spec "First failure wins" lo exige. No hay paralelización (ADR-0006 Decisión 5 lo rechazó por complejidad vs. el target p95 < 100 ms).
 - **3a es siempre 2 queries** (excepción primero, JSON fallback). 3b/3c/3d/3e son 1 query cada uno. En el worst case, `check_availability` hace 6 `QueryRow`/`Query` secuenciales (Paso 1 son 2, Paso 3a son 2). Aceptable por ADR-0006.
-- **3d no hace JOIN a `services`**: usa `bookings.end_datetime` denormalizado (Decisión 2). El SQL del PRD §3.7.13 3d es un range comparison `AND start_datetime < ? AND end_datetime > ?` con `status != 'cancelled'`.
-- **`end_datetime` se calcula en Go con `startTime.Add(time.Duration(service.DurationMinutes) * time.Minute)`** (Paso 2), no en SQL. `startTime` es el resultado de cargar la timezone con `loc, err := time.LoadLocation(business_profile.timezone)` (si `err != nil`, retornar error semántico), luego parsear `start_datetime` con `time.ParseInLocation(time.RFC3339, start_datetime, loc)`, y convertir a UTC. El `end_datetime` se almacena con formato `time.Now().UTC().Format("2006-01-02T15:04:05.000Z")` (ISO 8601 UTC con milisegundos). Si `time.LoadLocation` falla (timezone IANA inválido), `CreateBooking` retorna `&SemanticError{Code: ErrCodeInternal, Message: "no se pudo cargar la zona horaria 'X': ..."}`.
+- **3d no hace JOIN a `services`**: usa `bookings.end_datetime` denormalizado (Decisión 2). El SQL del PRD §3.7.13 3d es un range comparison `AND start_datetime < ? AND end_datetime > ?` con `status != 'cancelled'`. La comparación SQL de strings es correcta porque todos los valores `*_datetime` están normalizados como UTC ISO 8601 (orden lexicográfico = orden cronológico).
+- **`end_datetime` se calcula en Go con `startTime.Add(time.Duration(service.DurationMinutes) * time.Minute)`** (Paso 2), no en SQL. `startTime` es el resultado de cargar la timezone con `loc, err := time.LoadLocation(business_profile.timezone)` (si `err != nil`, retornar error semántico), luego parsear `start_datetime` con `time.ParseInLocation(time.RFC3339, start_datetime, loc)`, y convertir a UTC. El `end_datetime` se almacena con formato `endTime.UTC().Format("2006-01-02T15:04:05.000Z")` (ISO 8601 UTC con milisegundos), donde `endTime` es el valor computado en Paso 2 (`startTime + duration`), NO `time.Now()`. Si `time.LoadLocation` falla (timezone IANA inválido), `CreateBooking` retorna `&SemanticError{Code: ErrCodeInternal, Message: "no se pudo cargar la zona horaria 'X': ..."}`.
 - **`day_of_week` y `HH:MM` se derivan en Go** del `start_datetime` parseado. El repositorio carga la timezone con `loc, err := time.LoadLocation(business_profile.timezone)`, parsea `start_datetime` con `time.ParseInLocation(time.RFC3339, start_datetime, loc)`, obtiene `startTime`, y deriva `day_of_week` con `startTime.In(loc).Weekday()` y los `HH:MM` con `startTime.In(loc).Format("15:04")`. El storage no convierte (ver spec `schedules` Notes). **Decisión explícita**: si `business_profile.timezone == 'UTC'` (default de fresh install), el operador DEBE configurarlo a su timezone local antes de aceptar bookings (mitigación del R6 — se enforce en el handler de Fase 2+, pero el código del repo debe estar preparado para que `time.LoadLocation("UTC")` y la conversión den el día correcto para evitar el bug "wrong weekday" cuando el offset es distinto de 0).
 
 ## Data Flow: `create_booking` + `pending_alert` (Paso 4 + Paso 5)
@@ -159,7 +159,11 @@ review (propuesta). Ventana TOCTOU bajo concurrencia: dos goroutines hacen
 
 **Decisión**: `end_datetime` se calcula en Go (Paso 2) como `start + duration_minutes` y se persiste. El 3d es un range comparison sin JOIN.
 
-**Nota sobre comparación de datetimes**: todas las comparaciones de datetime ocurren en Go tras parsear a `time.Time` — **excepto** el predicado atómico de overlap en el `INSERT ... WHERE NOT EXISTS` de `CreateBooking`, que compara strings UTC ISO 8601 normalizados en SQL. Como todos los valores `start_datetime` / `end_datetime` están normalizados a UTC (per D2) y el orden lexicográfico de strings UTC equivale al orden cronológico, la comparación SQL de rango es correcta y atómica (sin race). Para comparaciones timezone-aware (3a horario del negocio, 3c slot vs horario, 3e no en el pasado), el repositorio parsea a `time.Time` en Go y usa `time.Time.Before/After`.
+**Nota sobre comparación de datetimes**: todas las comparaciones de datetime ocurren en Go tras parsear a `time.Time` — **excepto** para overlap checks (3d), que usan comparación de rango de strings UTC ISO 8601 normalizados en SQL. La excepción cubre:
+- El predicado atómico de overlap en el `INSERT ... WHERE NOT EXISTS` de `CreateBooking`
+- El check 3d de overlap en `CheckAvailability`
+
+En ambos casos, la comparación es segura porque todos los valores `*_datetime` están almacenados como strings UTC ISO 8601 normalizados (orden lexicográfico = orden cronológico). Para comparaciones timezone-aware (3a horario del negocio, 3c slot vs horario, 3e no en el pasado), el repositorio parsea a `time.Time` en Go y usa `time.Time.Before/After`.
 
 **Alternativas rechazadas** (documentadas en ADR-0006): JOIN on read (hot path costosa), generated column (SQLite no referencia tablas externas), trigger que recompute al cambiar `services.duration_minutes` (complejidad, runtime cost).
 
@@ -230,7 +234,7 @@ El handler hace `errors.As(err, &sErr)` para extraer el `Code` y el `Message` y 
 
 **Contexto**: propuesta Rollback Plan + budget 600. PR 2 y PR 3 importan el esquema nuevo (FKs, triggers, tipos).
 
-**Decisión**: PR 1 (foundation) **debe** mergear antes. PR 2 y PR 3 possono ir en cualquier orden o juntos después, pero nunca solos.
+**Decisión**: PR 1 (foundation) **debe** mergear antes. PR 2 y PR 3 pueden ir en cualquier orden o juntos después, pero nunca solos.
 
 **Alternativas rechazadas**: (a) un único PR de ~1800 LOC → rompe el Review Workload Guard (budget 600); (b) PR 2/3 sin PR 1 (esquema viejo no cumple) → no compila.
 

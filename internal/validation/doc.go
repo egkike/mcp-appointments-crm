@@ -8,6 +8,7 @@
 //   - ValidateLongitude(f float64) error
 //   - ValidateRFC3339(s string) error
 //   - ValidateHHMM(s string) error
+//   - ValidateISO8601UTC(s string) error    // YYYY-MM-DDTHH:MM:SS.000Z (storage format)
 //   - etc.
 //
 // Business-domain semantic errors (e.g., "el profesional no trabaja los domingos")

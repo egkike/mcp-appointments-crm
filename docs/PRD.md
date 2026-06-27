@@ -63,7 +63,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - Script `install.sh` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
 - Script `scripts/backup.sh` portable (bash, sin scheduler automático) que produce un backup consistente del `.db` con `sqlite3 .backup` + gzip.
 - Templates de service unit para Linux (`mcp-appointments-crm.service`), macOS (`com.mcp.appointments.server.plist`) y Windows (`mcp-appointments-crm.xml` para Task Scheduler).
-- Endpoint SSE expuesto **únicamente** en loopback. Bind default `127.0.0.1` (IPv4) o `::1` (IPv6). Validación acepta loopback (127.0.0.0/8 o ::1). Ver [ADR-0007](../architecture/0007-server-config.md). Puerto default `3000`. Configurable vía env vars `MCP_BIND` y `MCP_PORT`. Precedencia (mayor a menor): env vars del sistema > `~/.config/mcp-appointments-crm/.env` (o equivalente platform-native) > defaults. El binario **no hace fallback automático** de puerto. Si `MCP_BIND` no es loopback (127.0.0.0/8 o ::1), falla con error de seguridad antes de bindear. Ver [ADR-0007](../architecture/0007-server-config.md).
+- Endpoint SSE expuesto **únicamente** en loopback. Bind default `127.0.0.1` (IPv4); `MCP_BIND` may also be set to `::1` (IPv6) u otra dirección loopback (127.0.0.0/8). Validación acepta loopback (127.0.0.0/8 o ::1). Ver [ADR-0007](../architecture/0007-server-config.md). Puerto default `3000`. Configurable vía env vars `MCP_BIND` y `MCP_PORT`. Precedencia (mayor a menor): env vars del sistema > `~/.config/mcp-appointments-crm/.env` (o equivalente platform-native) > defaults. El binario **no hace fallback automático** de puerto. Si `MCP_BIND` no es loopback (127.0.0.0/8 o ::1), falla con error de seguridad antes de bindear. Ver [ADR-0007](../architecture/0007-server-config.md).
 - Manejo de errores con mensajes semánticos en español, sin stack traces al LLM.
 - Tests unitarios sobre el repository layer con `go-sqlmock`.
 - Linter `golangci-lint` con defaults (errcheck, govet, ineffassign, staticcheck, unused).
@@ -491,6 +491,8 @@ Per [ADR-0004](../architecture/0004-naming-conventions.md):
 - Messenger fields: `messenger_platform`, `messenger_id` en `business_profile` (no en `clients`)
 - Repos Go: plural para colecciones (`BookingsRepo`), singular para agregados (`Booking`)
 
+> **Convención `updated_at`**: las columnas `updated_at` en todas las tablas se refrescan automáticamente en cada UPDATE via `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`. Los repos son responsables de incluirlas en sus `UPDATE ... SET ..., updated_at = strftime(...)`.
+
 ---
 
 #### 3.7.13 Flujo de Reserva End-to-End
@@ -588,6 +590,8 @@ WHERE professional_id = ?
 LIMIT 1;
 ```
 
+> La comparación SQL de strings es correcta porque todos los valores `*_datetime` están normalizados como UTC ISO 8601 (orden lexicográfico = orden cronológico).
+
 Si retorna fila → `Error: el Profesional {name} ya tiene una reserva de {existing_start} a {existing_end}.`
 
 **3e. ¿El slot no está en el pasado?**
@@ -622,7 +626,7 @@ WHERE NOT EXISTS (
 );
 ```
 
-`end_datetime` se calcula como `startTime.Add(time.Duration(service.DurationMinutes) * time.Minute)` (Paso 2), donde `startTime` es el resultado de cargar la timezone con `loc, err := time.LoadLocation(business_profile.timezone)` (si `err != nil`, retornar `&SemanticError{Code: ErrCodeInternal, Message: "no se pudo cargar la zona horaria 'X': ..."}`), luego parsear con `time.ParseInLocation(time.RFC3339, start_datetime, loc)` y convertir a UTC con `.UTC()`.
+`end_datetime` se calcula en Go (Paso 2) como `endTime := startTime.Add(time.Duration(service.DurationMinutes) * time.Minute)` y se almacena como `endTime.UTC().Format("2006-01-02T15:04:05.000Z")` (ISO 8601 UTC con milisegundos). `startTime` es el resultado de cargar la timezone con `loc, err := time.LoadLocation(business_profile.timezone)` (si `err != nil`, retornar `&SemanticError{Code: ErrCodeInternal, Message: "no se pudo cargar la zona horaria 'X': ..."}`), luego parsear con `time.ParseInLocation(time.RFC3339, start_datetime, loc)` y convertir a UTC con `.UTC()`.
 
 Si `RowsAffected() == 0`, el insert no ocurrió porque existe un overlap. El repositorio retorna `&SemanticError{Code: ErrCodeBookingOverlap, Message: "el Profesional {name} ya tiene una reserva de {a} a {b}."}`.
 
@@ -651,6 +655,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 | Negocio cerrado semanal (no hay exception pero JSON lo marca cerrado) | `Error: el negocio no abre los {día}.` |
 | Profesional no trabaja ese día | `Error: el Profesional {name} no trabaja los {día}.` |
 | Slot antes de la apertura | `Error: el horario de atención comienza a las {open}.` |
+| Slot antes del horario del profesional (3c) | `Error: el Profesional {name} empieza a las {start}.` |
 | Slot después del cierre | `Error: el servicio dura {duration} minutos pero solo quedan {remaining} antes del cierre a las {close}.` |
 | Overlap con otra reserva | `Error: el Profesional {name} ya tiene una reserva de {existing_start} a {existing_end}.` |
 | Slot en el pasado | `Error: no se puede reservar en el pasado.` |
@@ -725,8 +730,16 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - **Descripción**: El sistema debe exponer `check_availability()`, `create_booking()`, `cancel_booking()` y `reschedule_booking()` con validación de reglas de negocio.
 - **Prioridad**: Must
 - **Criterios de Aceptación**:
+  > **Nota sobre el flujo de reserva**: per la decisión arquitectónica D1
+  > (atomic INSERT, design.md Decisión 11), `create_booking` ejecuta
+  > **únicamente** el check de overlap atómico (Paso 4 §3.7.13). Las validaciones
+  > de horario del negocio (3a), horario del profesional (3b), slot dentro del
+  > horario (3c) y no-en-el-pasado (3e) se ejecutan vía `check_availability`.
+  > Esta separación es intencional y documentada en el design; mover las
+  > validaciones dentro de `create_booking` queda para Fase 2+. Los criterios
+  > de aceptación a continuación reflejan este flujo.
   - [ ] Dado que el profesional X tiene horario Lunes 9-18 y hay una reserva de 10:00 a 11:00, cuando Hermes invoca `check_availability(professional_id=X, start=10:30)`, entonces el sistema retorna `false` y un mensaje `Error: el Profesional {name} ya tiene una reserva de {existing_start} a {existing_end}.`.
-  - [ ] Dado que el profesional X no trabaja los domingos, cuando Hermes invoca `create_booking` con `start_datetime` en domingo, entonces el sistema retorna `Error: el Profesional {name} no trabaja los {día}.`.
+  - [ ] Dado que el profesional X no trabaja los domingos, cuando Hermes invoca `check_availability` con `start_datetime` en domingo, entonces el sistema retorna `Error: el Profesional {name} no trabaja los {día}.`. Tras la confirmación, `create_booking` ejecuta el INSERT atómico (Paso 4 §3.7.13) y el registro se crea o falla con overlap.
   - [ ] Dado que se cancela una reserva, cuando la operación es exitosa, entonces la fila se marca con `status='cancelled'` (no se borra) y el slot queda libre para `check_availability`.
 
 > **Máquina de estados de `bookings.status`**: valores permitidos `pending`, `confirmed`, `cancelled`. Transiciones válidas: `pending → confirmed`, `confirmed → cancelled`, `pending → cancelled`. No se permiten transiciones inválidas (ej. `cancelled → confirmed`, `cancelled → pending`); si el LLM las pide, el sistema retorna `Error: transición de estado inválida de {from} a {to}`.
@@ -817,8 +830,11 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 **Objetivo**: sentar las bases de persistencia con repository pattern, prepared statements, FTS5 sync via triggers y tests con `go-sqlmock`.
 
 **Entregables**:
-- `internal/db/database.go` extendido con los triggers FTS5
-- `internal/repository/{clients,services,professionals,bookings,business_profile,pending_alerts}.go`
+- `internal/db/database.go` reescrito: 11 tablas (10 de dominio PRD §3.7 + `schema_version`) + 6 triggers FTS5 + 3 índices secundarios
+- `internal/db/database_test.go` (integración FTS con SQLite en memoria)
+- `internal/model/` (8 archivos: 1 struct por tabla de dominio)
+- `internal/repository/errors.go` (sentinels + `SemanticError{Code, Message, Cause}`)
+- `internal/repository/{business_profile,business_hours_exception,clients,services,professionals,schedules,bookings,pending_alerts}.go` (8 `*_Repo.go`)
 - Tests con `go-sqlmock` cubriendo >80% del repository
 - Índices secundarios en `bookings (start_datetime, professional_id, client_id)` y `pending_alerts (scheduled_datetime, status)`
 

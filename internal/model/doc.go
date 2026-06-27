@@ -1,8 +1,8 @@
 // Package model contains the domain structs for the project's entities.
 //
-// Entities include: BusinessProfile, Client, Service, Professional, Booking, Schedule,
-// and PendingAlert. All structs map 1:1 to the SQLite tables declared
-// in internal/db/database.go.
+// Entities include (8 total): BusinessProfile, Client, Service, Professional,
+// Booking, Schedule, PendingAlert, and BusinessHoursException.
+// All structs map 1:1 to the SQLite tables declared in internal/db/database.go.
 //
 // Computed/DTO types (e.g., a future LoyaltyReport DTO built from aggregation
 // queries) do NOT map 1:1 to a table and are not declared here unless they

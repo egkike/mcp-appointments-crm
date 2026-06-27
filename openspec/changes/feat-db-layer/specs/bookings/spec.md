@@ -192,6 +192,13 @@ Cancelling a booking MUST set `status = 'cancelled'` on the existing row, NOT de
 
 ### Requirement: CreateBooking does atomic overlap check
 
+> **Nota (per Decisión 11 del design)**: `CreateBooking` ejecuta
+> **únicamente** el check de overlap atómico (Paso 4 §3.7.13 del PRD).
+> Las validaciones de horario del negocio (3a), horario del profesional
+> (3b), slot dentro del horario (3c) y no-en-el-pasado (3e) se ejecutan
+> vía `CheckAvailability`. Esta separación es intencional. Mover las
+> validaciones dentro de `CreateBooking` queda para Fase 2+.
+
 The system MUST perform the availability check atomically with the insert. The
 repository's `CreateBooking` MUST execute a single `INSERT ... WHERE NOT EXISTS`
 statement that checks for overlapping bookings AND inserts the new row in one
@@ -289,14 +296,16 @@ datetimes (e.g., `start_datetime` from a tool arg) are parsed in Go with
 `time.ParseInLocation(time.RFC3339, input, loc)`,
 then converted to UTC and stored. All datetime comparisons (overlap
 check, past-slot check) happen in Go after parsing to `time.Time` —
-**except** the atomic overlap predicate in `CreateBooking`'s
-`INSERT ... WHERE NOT EXISTS` subquery, which compares normalized UTC
-ISO 8601 strings in SQL. Because all `start_datetime` / `end_datetime`
-values are normalized to UTC (per D2) and lexicographic order of UTC
-strings equals chronological order, the SQL range comparison is correct
-and atomic (no race). For timezone-aware comparisons (3a business hours,
-3c slot vs hours, 3e past now), the repository parses to `time.Time` in
-Go and uses `time.Time.Before/After`.
+**except** for overlap checks (3d), which use normalized UTC ISO 8601
+string range comparison in SQL. The exception covers:
+
+- The atomic overlap predicate in `CreateBooking`'s `INSERT ... WHERE NOT EXISTS` subquery
+- The 3d overlap check in `CheckAvailability`'s subquery
+
+In both cases, the comparison is safe because all `*_datetime` values are
+stored as normalized UTC ISO 8601 strings (lexicographic order = chronological order).
+For timezone-aware comparisons (3a business hours, 3c slot vs hours, 3e past now),
+the repository parses to `time.Time` in Go and uses `time.Time.Before/After`.
 
 #### Scenario: ISO 8601 UTC storage format
 

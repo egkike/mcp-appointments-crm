@@ -13,12 +13,13 @@ sincronización** (`clients_fts`/`services_fts` devuelven cero resultados siempr
 ### In Scope
 - Reescribir `internal/db/database.go` al esquema completo de **11 tablas** (10 de dominio PRD §3.7 + `schema_version`).
 - Renombrar `appointments`→`bookings`, `duration_mins`→`duration_minutes`,
-  `start_time`/`end_time`→`start_datetime`/`end_datetime` (ADR-0004).
+  columnas de la tabla `bookings` `start_time`/`end_time`→`start_datetime`/`end_datetime` (ADR-0004).
+  La tabla `schedules` mantiene `start_time`/`end_time` (ventanas diarias locales, no datetimes).
 - Mover `messenger_*` de `clients` a `business_profile`; IDs `INTEGER`→`TEXT` UUID v4
   (salvo `business_profile.id='singleton'`); timestamps `DATETIME`→`TEXT` ISO 8601.
 - Añadir **6 triggers FTS5** (`*_ai`, `*_ad`, `*_au` por tabla) — ADR-0006 Decisión 4.
 - Desnormalizar `bookings.end_datetime` y 3 índices secundarios.
-- Crear `internal/model/` (8 archivos) y `internal/repository/` (9 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 10 archivos totales) con
+- Crear `internal/model/` (8 archivos) y `internal/repository/` (8 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 9 archivos totales) con
   prepared-statement CRUD + `CheckAvailability` (5 pasos).
 - Promover `go-sqlmock` de `// indirect` a directa. TDD estricto, ≥80% cobertura repos.
 

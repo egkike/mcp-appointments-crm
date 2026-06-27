@@ -90,15 +90,15 @@ The type MUST be:
 type ErrCode string
 
 const (
-    ErrCodeBusinessClosed       ErrCode = "BUSINESS_CLOSED"
+    ErrCodeBusinessClosed         ErrCode = "BUSINESS_CLOSED"
     ErrCodeProfessionalNotWorking ErrCode = "PROFESSIONAL_NOT_WORKING"
-    ErrCodeSlotOutOfHours       ErrCode = "SLOT_OUT_OF_HOURS"
-    ErrCodeBookingOverlap       ErrCode = "BOOKING_OVERLAP"
-    ErrCodeSlotInPast           ErrCode = "SLOT_IN_PAST"
-    ErrCodeNotFound             ErrCode = "NOT_FOUND"
-    ErrCodeConflict             ErrCode = "CONFLICT"
-    ErrCodeInvalidInput         ErrCode = "INVALID_INPUT"
-    ErrCodeInternal             ErrCode = "INTERNAL"
+    ErrCodeSlotOutOfHours         ErrCode = "SLOT_OUT_OF_HOURS"
+    ErrCodeBookingOverlap         ErrCode = "BOOKING_OVERLAP"
+    ErrCodeSlotInPast             ErrCode = "SLOT_IN_PAST"
+    ErrCodeNotFound               ErrCode = "NOT_FOUND"
+    ErrCodeConflict               ErrCode = "CONFLICT"
+    ErrCodeInvalidInput           ErrCode = "INVALID_INPUT"
+    ErrCodeInternal               ErrCode = "INTERNAL"
 )
 
 type SemanticError struct {
@@ -235,6 +235,7 @@ The repository package MUST NOT import any new third-party library beyond what i
 - GIVEN the source code under `internal/repository/` and `internal/model/`
 - WHEN the import statements are reviewed
 - THEN the only third-party imports MUST be from `modernc.org/sqlite`, `github.com/DATA-DOG/go-sqlmock` and `github.com/google/uuid`
+- AND `github.com/DATA-DOG/go-sqlmock` MUST only be imported in `*_test.go` files, never in production repository code
 
 ### Requirement: Env-var driven config is the pattern (deferred to Fase 2)
 
@@ -276,7 +277,11 @@ The repository is responsible for:
 - Loading the business timezone with `loc, err := time.LoadLocation(business_profile.timezone)` (if `err != nil`, return semantic error)
 - Parsing input datetimes with `time.ParseInLocation(time.RFC3339, input, loc)` where `loc` is the loaded `*time.Location`
 - Storing `time.Time.UTC().Format("2006-01-02T15:04:05.000Z")` for Go-generated timestamps (or using `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` in SQL)
-- Comparing datetimes in Go after parsing to `time.Time` (using `time.Time.Before` / `time.Time.After`) — **except** the atomic overlap predicate in `CreateBooking`'s `INSERT ... WHERE NOT EXISTS` subquery, which compares normalized UTC ISO 8601 strings in SQL. Because all `start_datetime` / `end_datetime` values are normalized to UTC (per D2) and lexicographic order of UTC strings equals chronological order, the SQL range comparison is correct and atomic (no race). For timezone-aware comparisons (3a business hours, 3c slot vs hours, 3e past now), the repository parses to `time.Time` in Go and uses `time.Time.Before/After`.
+- Comparing datetimes in Go after parsing to `time.Time` (using `time.Time.Before` / `time.Time.After`) — **except** for overlap checks (3d), which use normalized UTC ISO 8601 string range comparison in SQL. The exception covers:
+  - The atomic overlap predicate in `CreateBooking`'s `INSERT ... WHERE NOT EXISTS` subquery
+  - The 3d overlap check in `CheckAvailability`'s subquery
+
+  In both cases, the comparison is safe because all `*_datetime` values are stored as normalized UTC ISO 8601 strings (lexicographic order = chronological order). For timezone-aware comparisons (3a business hours, 3c slot vs hours, 3e past now), the repository parses to `time.Time` in Go and uses `time.Time.Before/After`.
 
 This convention is required for DST safety, multi-timezone correctness, and
 to honor the spec requirement that all `*_datetime` values are ISO 8601 with
@@ -295,7 +300,7 @@ timezone.
 - WHEN the implementation is reviewed
 - THEN the comparison MUST be performed in Go after parsing to `time.Time` (using `time.Time.Before` / `time.Time.After`)
 - AND the SQL MUST NOT contain raw string comparisons between `*_datetime` columns and `datetime('now')`
-- NOTE: the atomic overlap predicate in `CreateBooking`'s `INSERT ... WHERE NOT EXISTS` subquery is an exception — it compares normalized UTC ISO 8601 strings in SQL, which is correct because lexicographic order of UTC strings equals chronological order.
+- NOTE: the atomic overlap predicate in `CreateBooking`'s `INSERT ... WHERE NOT EXISTS` subquery and the 3d overlap check in `CheckAvailability` are exceptions — they compare normalized UTC ISO 8601 strings in SQL, which is correct because lexicographic order of UTC strings equals chronological order.
 
 ## Notes
 
