@@ -80,6 +80,66 @@ All three MUST be usable with `errors.Is` and MUST be returned as wrapped errors
 - WHEN the exported names are enumerated
 - THEN `ErrNotFound`, `ErrConflict` and `ErrInvalidInput` MUST be among them
 
+### Requirement: Semantic error type for business domain errors
+
+The package `internal/repository` MUST define a `SemanticError` type in `errors.go` for business domain errors (e.g., the 5-step `check_availability` chain's contextual failures). The `internal/repository` package MUST NOT import `internal/validation` (separation of concerns: `validation` is for input format checks, `SemanticError` is for business domain outcomes).
+
+The type MUST be:
+
+```go
+type ErrCode string
+
+const (
+    ErrCodeBusinessClosed       ErrCode = "BUSINESS_CLOSED"
+    ErrCodeProfessionalNotWorking ErrCode = "PROFESSIONAL_NOT_WORKING"
+    ErrCodeSlotOutOfHours       ErrCode = "SLOT_OUT_OF_HOURS"
+    ErrCodeBookingOverlap       ErrCode = "BOOKING_OVERLAP"
+    ErrCodeSlotInPast           ErrCode = "SLOT_IN_PAST"
+    ErrCodeNotFound             ErrCode = "NOT_FOUND"
+    ErrCodeConflict             ErrCode = "CONFLICT"
+    ErrCodeInvalidInput         ErrCode = "INVALID_INPUT"
+    ErrCodeInternal             ErrCode = "INTERNAL"
+)
+
+type SemanticError struct {
+    Code    ErrCode
+    Message string
+    Cause   error
+}
+
+func (e *SemanticError) Error() string  { return e.Message }
+func (e *SemanticError) Unwrap() error  { return e.Cause }
+```
+
+Repository methods MUST return `*SemanticError` (wrapped with `fmt.Errorf("...: %w", &SemanticError{...})`) for business domain errors. The 5-step `check_availability` chain MUST return `*SemanticError` with one of the step-specific `ErrCode*` constants and a Spanish `Message` that is contextual to the failure (per the spec scenarios in `bookings`).
+
+#### Scenario: SemanticError is the business error type
+
+- GIVEN a call to `BookingsRepo.CheckAvailability(ctx, params)` that fails at step 3a (e.g., the business is closed on the requested date)
+- WHEN the repo returns the error
+- THEN the error MUST unwrap to a `*repository.SemanticError` (verifiable via `errors.As(err, &sErr)`)
+- AND `sErr.Code` MUST be `ErrCodeBusinessClosed`
+- AND `sErr.Message` MUST be a Spanish phrase contextual to the failure (e.g., `"el negocio está cerrado el 2026-12-25 (Navidad)"`)
+
+#### Scenario: Cause is preserved through the chain
+
+- GIVEN a `*SemanticError` was constructed with `Cause: someDBErr`
+- WHEN the caller does `errors.Unwrap(sErr)` or `errors.Unwrap(fmt.Errorf("...: %w", sErr))`
+- THEN the chain MUST be inspectable (`someDBErr` is reachable for server-side logging)
+
+#### Scenario: ErrCode is one of the defined constants
+
+- GIVEN any `*SemanticError` returned by a repository method
+- WHEN `sErr.Code` is inspected
+- THEN it MUST be one of the `ErrCode*` constants defined in this requirement
+- AND it MUST NOT be an empty string or a custom user-defined value
+
+#### Scenario: repository does not import internal/validation
+
+- GIVEN the package `internal/repository`
+- WHEN its imports are inspected (e.g., via `go list -f '{{.Imports}}' ./internal/repository` or `grep -r "internal/validation" internal/repository/`)
+- THEN it MUST NOT contain `internal/validation`
+
 ### Requirement: Interfaces defined where they are consumed
 
 Consumers of the repositories (e.g., the MCP handlers in `internal/mcp/`) MUST depend on small interfaces (e.g., `BookingsRepository`, `ClientsRepository`), not on the concrete `*Repo` struct. The interfaces MUST live in the consumer package, not in `internal/repository/`. Each interface MUST list only the methods that consumer actually uses.
