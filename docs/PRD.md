@@ -63,7 +63,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - Script `install.sh` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
 - Script `scripts/backup.sh` portable (bash, sin scheduler automático) que produce un backup consistente del `.db` con `sqlite3 .backup` + gzip.
 - Templates de service unit para Linux (`mcp-appointments-crm.service`), macOS (`com.mcp.appointments.server.plist`) y Windows (`mcp-appointments-crm.xml` para Task Scheduler).
-- Endpoint SSE expuesto **únicamente** en `127.0.0.1:3000` (loopback estricto).
+- Endpoint SSE expuesto **únicamente** en loopback. Bind default `127.0.0.1` (IPv4, explícito — NO `localhost`, que puede resolver a `::1` según el sistema) y puerto default `3000`. Configurable vía env vars `MCP_BIND` y `MCP_PORT`. Precedencia (mayor a menor): env vars del sistema > `~/.config/mcp-appointments-crm/.env` (o equivalente platform-native) > defaults. El binario **no hace fallback automático** de puerto. Si `MCP_BIND` no es loopback (127.0.0.0/8 o ::1), falla con error de seguridad antes de bindear. Ver [ADR-0007](../architecture/0007-server-config.md).
 - Manejo de errores con mensajes semánticos en español, sin stack traces al LLM.
 - Tests unitarios sobre el repository layer con `go-sqlmock`.
 - Linter `golangci-lint` con defaults (errcheck, govet, ineffassign, staticcheck, unused).
@@ -111,7 +111,8 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - `internal/tui/` — nuevo: modelo Bubble Tea del config-wizard.
 - `scripts/install.sh` — script de despliegue para VPS del cliente.
 - `scripts/backup.sh` — nuevo: script bash portable de backup (usa `sqlite3 .backup` para consistencia).
-- `setup/service/` — templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1:3000`.
+- `setup/service/` — templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`).
+- `~/.config/mcp-appointments-crm/.env` (Linux) o equivalente platform-native (§3.5 Install Layout) — archivo de configuración opcional con `MCP_BIND` y `MCP_PORT`; generado por `install.sh` con los valores default; editable por el operador; el service unit (systemd) lo carga con `EnvironmentFile=`. Si no existe, el binario arranca con los defaults sin error.
 - `openspec/specs/{core,clients,services,bookings,business-profile}/` — delta specs por dominio.
 - `openspec/changes/<fase>/` — carpetas por fase del SDD workflow.
 
@@ -734,7 +735,8 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 | Disponibilidad | El servicio debe reiniciarse automáticamente ante crash | Unit de systemd con `Restart=always` (equivalente launchd `KeepAlive=true`) |
 | Mantenibilidad | Cobertura de tests sobre el repository layer | > 80% con `go test -cover` |
 | Seguridad | 100% de queries con prepared statements | Linter custom o test de auditoría que falle si hay concatenación |
-| Seguridad | Puerto 3000 expuesto solo en loopback | Doble capa: bind a `127.0.0.1` en el binario Go + unit de systemd con `IPAddressAllow=127.0.0.1` (cuando aplique) |
+| Seguridad | Puerto expuesto solo en loopback; bind y puerto configurables vía env vars + `.env` | Doble capa: bind a `127.0.0.1` (default, configurable vía `MCP_BIND` con validación de loopback) + `IPAddressAllow=127.0.0.1` en systemd. Puerto default `3000` configurable vía `MCP_PORT`. Precedencia: env vars > `~/.config/mcp-appointments-crm/.env` > defaults. |
+| Configurabilidad | Bind y puerto sin recompilar | `MCP_BIND` (default `127.0.0.1`) y `MCP_PORT` (default `3000`) vía env vars del sistema o archivo `.env` en el config dir |
 | Seguridad | Servicio corre sin root | User-level systemd (`~/.config/systemd/user/`), launchd `LaunchAgents/`, Task Scheduler user task. No se crea `appuser` dedicado. |
 | Seguridad | Permisos de directorio restrictivos al crear el path del SQLite | `os.MkdirAll(dir, 0750)` en `internal/db/database.go` |
 | Observabilidad | Logs estructurados en stdout (JSON) | `slog` de Go stdlib; nivel configurable vía env var |
@@ -748,7 +750,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 - **Backend**: Go 1.26.4 (binarios `mcp-server` y `config-wizard`)
 - **Base de Datos**: SQLite vía `modernc.org/sqlite` v1.53+ (pure Go, sin CGo) con FTS5 nativo
-- **MCP**: Protocolo MCP sobre SSE en `http://127.0.0.1:3000/mcp`
+- **MCP**: Protocolo MCP sobre SSE en `http://127.0.0.1:3000/mcp` (loopback por default; bind y puerto configurables vía `MCP_BIND` + `MCP_PORT` — ver ADR-0007)
 - **TUI**: Charm Bubble Tea ecosystem (`bubbletea`, `bubbles`, `lipgloss`)
 - **Infraestructura**: binarios nativos en la VPS/PC del cliente, gestionados por el service manager del SO
 - **Build**: `go build -o /dev/null ./...`, `go test -v -race ./...`, `golangci-lint run ./...`
@@ -767,7 +769,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 - **Regulaciones aplicables**: ninguna explícita. El sistema maneja datos personales (PII) del cliente final (nombre, teléfono, email, preferencias) y datos de negocio, por lo que el dueño del negocio es responsable de cumplir las regulaciones locales (Ley 25.326 de Protección de Datos Personales en Argentina, GDPR si aplica, etc.). El sistema **no está certificado para manejar PCI-DSS ni datos financieros regulados** más allá de los precios de los servicios.
 - **Datos sensibles manejados**: PII (nombre, teléfono, email, preferencias del cliente), historial de reservas, datos de negocio.
-- **Controles de seguridad requeridos**: prepared statements (100%), puerto loopback estricto, servicio user-level sin root, validación regex/string en TUI, mensajes semánticos sin stack traces al LLM, HTTPS para descarga del `install.sh` desde GitHub.
+- **Controles de seguridad requeridos**: prepared statements (100%), puerto loopback estricto, **bind validado contra loopback al arranque** (rechaza `0.0.0.0` y otras interfaces públicas antes de bindear), servicio user-level sin root, validación regex/string en TUI, mensajes semánticos sin stack traces al LLM, HTTPS para descarga del `install.sh` desde GitHub.
 
 ---
 
@@ -804,11 +806,11 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas)
 - `internal/model/` con structs de dominio
 - `internal/errs/` con códigos y mensajes semánticos en español
-- Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1:3000`
+- Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`)
 
 **Definition of Done**:
 - [ ] 6+ tools MCP registrados y funcionales
-- [ ] Endpoint SSE responde en `http://127.0.0.1:3000/mcp`
+- [ ] Endpoint SSE responde en `http://127.0.0.1:3000/mcp` (o en el bind/puerto configurado vía `MCP_BIND`/`MCP_PORT`/`.env`)
 - [ ] El servicio corre bajo el usuario que invoca `install.sh` (verificable con `systemctl --user show mcp-appointments-crm -p User` o `ps -o user= -p $(pgrep mcp-server)`)
 - [ ] El puerto 3000 NO es accesible desde la red del host (`curl 192.168.x.x:3000` falla)
 - [ ] Todos los errores lógicos retornan mensajes en español, sin stack traces
