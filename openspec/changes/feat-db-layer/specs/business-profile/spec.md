@@ -26,11 +26,18 @@ The system MUST guarantee that the `business_profile` table contains at most one
 - WHEN `GetBusinessProfile(ctx)` is invoked again
 - THEN the system MUST NOT insert a second row, and MUST return the existing row unchanged
 
-#### Scenario: Direct INSERT of a second row fails
+#### Scenario: Direct INSERT of a second row fails (constraint violation)
 
-- GIVEN a database that already has the singleton row
-- WHEN a direct SQL statement attempts to insert another row into `business_profile`
-- THEN the database MUST reject the statement with a primary key conflict on the literal `singleton` value
+- GIVEN a `business_profile` row with `id='singleton'` already exists
+- WHEN a direct SQL `INSERT INTO business_profile (id, name) VALUES ('singleton', 'Other')` is attempted
+- THEN the database MUST reject the statement with a constraint violation (PRIMARY KEY uniqueness on `id`)
+
+#### Scenario: Direct INSERT with a different id is rejected by CHECK
+
+- GIVEN no row exists in `business_profile`
+- WHEN a direct SQL `INSERT INTO business_profile (id, name) VALUES ('something-else', 'X')` is attempted
+- THEN the database MUST reject the statement with a CHECK constraint violation (`CHECK (id = 'singleton')` fails)
+- AND the repository's `GetBusinessProfile` MUST still succeed because it uses `INSERT OR IGNORE ... VALUES ('singleton', ...)`
 
 ### Requirement: Lazy-init semantics for first-boot access
 

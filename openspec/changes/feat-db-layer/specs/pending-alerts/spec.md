@@ -26,14 +26,17 @@ The `status` column MUST be one of `pending`, `sent`, `cancelled`. Newly created
 - WHEN an alert is inserted with `status = 'unknown'`
 - THEN the application-level validation MUST reject the input with a semantic error listing the valid values
 
-### Requirement: `scheduled_datetime` uses ISO 8601 with timezone
+### Requirement: `scheduled_datetime` uses ISO 8601 UTC with millisecond precision
 
-The `scheduled_datetime` column MUST be a `TEXT` value holding an ISO 8601 datetime with a timezone offset, indicating the moment at which the alert should be considered eligible for sending.
+The `scheduled_datetime` column MUST be a `TEXT` value holding an ISO 8601 UTC
+datetime with millisecond precision (regex: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`),
+indicating the moment at which the alert should be considered eligible for sending.
+The repository converts any input timezone to UTC at insert time.
 
-#### Scenario: Datetime with timezone offset persisted
+#### Scenario: UTC datetime stored verbatim
 
 - GIVEN a fresh table
-- WHEN an alert is inserted with `scheduled_datetime = '2026-07-12T10:00:00-03:00'`
+- WHEN an alert is inserted with `scheduled_datetime = '2026-07-12T16:00:00.000Z'`
 - THEN a subsequent SELECT MUST return that exact string verbatim
 
 ### Requirement: `ListPending` returns due alerts only

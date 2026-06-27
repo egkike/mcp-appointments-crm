@@ -18,7 +18,7 @@ El sistema MUST crear la tabla `schema_version` durante `initSchema`, con el sig
 ```sql
 CREATE TABLE schema_version (
     version         INTEGER PRIMARY KEY,
-    applied_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    applied_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     description     TEXT
 );
 ```
@@ -55,7 +55,7 @@ En el primer arranque (cuando la tabla `schema_version` no existe), `initSchema`
 - GIVEN el INSERT de la versión inicial
 - WHEN se ejecuta
 - THEN el sistema NO necesita setear `applied_at` explícitamente
-- AND el valor de `applied_at` es el `datetime('now')` de SQLite en formato ISO 8601
+- AND el valor de `applied_at` es generado por `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` de SQLite en formato ISO 8601 UTC con milisegundos
 
 ### Requirement: Schema Initialization Idempotency
 

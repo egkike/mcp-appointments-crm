@@ -25,9 +25,9 @@ The `duration_minutes` column MUST exist as `INTEGER` and MUST be strictly great
 
 #### Scenario: Duration is used by the bookings flow
 
-- GIVEN a service with `duration_minutes = 30` and a booking with `start_datetime = 2026-07-13T10:00:00-03:00`
-- WHEN the booking is created through the repository
-- THEN the stored `end_datetime` MUST equal `start_datetime + 30 minutes`, computed in the service-level logic that creates the booking
+- GIVEN a service with `duration_minutes = 30` and a booking with tool arg `start_datetime = '2026-07-13T10:00:00-03:00'` (UTC equivalent: `2026-07-13T13:00:00.000Z`)
+- WHEN the booking is created through the repository (which converts input to UTC)
+- THEN the stored `end_datetime` MUST equal the UTC equivalent of `start_datetime + 30 minutes`, i.e. `2026-07-13T13:30:00.000Z`, computed in Go after parsing to `time.Time`
 
 ### Requirement: `is_active` drives visibility
 

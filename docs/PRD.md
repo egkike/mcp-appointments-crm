@@ -205,8 +205,9 @@ CREATE TABLE business_profile (
     timezone                    TEXT NOT NULL DEFAULT 'UTC',   -- IANA, ej "America/Argentina/Buenos_Aires"
     slot_interval_minutes       INTEGER NOT NULL DEFAULT 30,   -- granularidad para "find next available"
     business_hours              TEXT NOT NULL DEFAULT '{}',    -- JSON, ver §3.7.2
-    created_at                  TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CHECK (id = 'singleton')
 );
 ```
 
@@ -257,7 +258,7 @@ CREATE TABLE business_hours_exception (
     open_time       TEXT,                        -- "HH:MM" (sólo si is_closed=0)
     close_time      TEXT,                        -- "HH:MM" (sólo si is_closed=0)
     reason          TEXT,                        -- "Navidad", "Vacaciones del dueño", "Feriado puente"
-    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE INDEX idx_business_hours_exception_date ON business_hours_exception(exception_date);
@@ -284,8 +285,8 @@ CREATE TABLE professionals (
     email           TEXT,
     phone           TEXT,
     specialties     TEXT,                                   -- JSON array de service_ids, ej ["svc-001","svc-003"]
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 ```
 
@@ -322,8 +323,8 @@ CREATE TABLE services (
     duration_minutes INTEGER NOT NULL,                      -- canónico, ver ADR-0004
     price           REAL NOT NULL,                          -- en la currency_code de business_profile
     is_active       BOOLEAN NOT NULL DEFAULT 1,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 ```
 
@@ -338,8 +339,8 @@ CREATE TABLE clients (
     phone           TEXT NOT NULL UNIQUE,                  -- ID del chat (WhatsApp/Telegram)
     email           TEXT,
     preferences     TEXT,                                   -- texto libre, ej "alergia a penicilina"
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 ```
 
@@ -353,13 +354,13 @@ CREATE TABLE bookings (
     client_id           TEXT NOT NULL REFERENCES clients(id),
     professional_id     TEXT NOT NULL REFERENCES professionals(id),
     service_id          TEXT NOT NULL REFERENCES services(id),
-    start_datetime      TEXT NOT NULL,                      -- ISO 8601 con timezone, ej "2026-06-25T14:00:00-03:00"
-    end_datetime        TEXT NOT NULL,                      -- start + service.duration_minutes
+    start_datetime      TEXT NOT NULL,                      -- ISO 8601 UTC, ej "2026-06-25T17:00:00.000Z"
+    end_datetime        TEXT NOT NULL,                      -- ISO 8601 UTC, start + service.duration_minutes
     status              TEXT NOT NULL DEFAULT 'pending',    -- 'pending' | 'confirmed' | 'cancelled'
     notes               TEXT,
     payment_method      TEXT,                               -- método elegido para la cita (alineado con SDD.md §B)
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE INDEX idx_bookings_start_professional_client
@@ -392,10 +393,10 @@ CREATE TABLE pending_alerts (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     type                TEXT NOT NULL,                      -- "confirmation_requested" | "reminder_24h" | "loyalty_alert"
     message             TEXT NOT NULL,                      -- texto en español, listo para enviar
-    scheduled_datetime  TEXT NOT NULL,                      -- cuándo debe enviarse (en la timezone del negocio)
+    scheduled_datetime  TEXT NOT NULL,                      -- ISO 8601 UTC, cuándo debe enviarse
     status              TEXT NOT NULL DEFAULT 'pending',    -- 'pending' | 'sent' | 'cancelled'
     related_booking_id  TEXT REFERENCES bookings(id),       -- opcional, link a la reserva que origina la alerta
-    created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
 CREATE INDEX idx_pending_alerts_scheduled_status
@@ -591,24 +592,39 @@ Si retorna fila → `Error: el Profesional {name} ya tiene una reserva de {exist
 
 **3e. ¿El slot no está en el pasado?**
 
+El repositorio parsea `start_datetime` a `time.Time` en UTC (usando `time.ParseInLocation` con la timezone del negocio) y compara con `time.Now().UTC()`. Si `startTime.Before(now)`, retorna `&SemanticError{Code: ErrCodeSlotInPast, Message: "no se puede reservar en el pasado."}`. La comparación NO se realiza vía SQL string comparison.
+
+##### Paso 4 — `create_booking()` (INSERT atómico)
+
+Si todas las validaciones pasan (o si el LLM decide crear la reserva directamente sin hacer `check_availability` primero), se inserta la reserva con `status='pending'` mediante un **INSERT atómico** que verifica overlap en el mismo statement:
+
+**Asunción explícita**: si el caller (MCP handler) llama `CreateBooking`
+directamente sin antes llamar `CheckAvailability`, las validaciones de 3a
+(horario del negocio), 3b (profesional trabaja), 3c (slot cabe en horario)
+y 3e (no en el pasado) NO se ejecutan. Solo el overlap check (3d) se ejecuta
+atómicamente vía el `INSERT ... WHERE NOT EXISTS`. Esto es aceptable en
+Fase 1 (loopback, single-writer) pero Fase 2+ debería mover esas
+validaciones dentro de `CreateBooking` para que sean obligatorias.
+
 ```sql
-SELECT start_datetime > datetime('now') AS is_future;
+INSERT INTO bookings (
+    id, client_id, professional_id, service_id,
+    start_datetime, end_datetime, status, notes,
+    payment_method, created_at, updated_at
+)
+SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE NOT EXISTS (
+    SELECT 1 FROM bookings
+    WHERE professional_id = ?
+      AND status != 'cancelled'
+      AND start_datetime < ?     -- proposed end_datetime
+      AND end_datetime   > ?     -- proposed start_datetime
+);
 ```
 
-Si está en el pasado → `Error: no se puede reservar en el pasado.`
+`end_datetime` se calcula como `startTime.Add(time.Duration(service.DurationMinutes) * time.Minute)` (Paso 2), donde `startTime` es el resultado de cargar la timezone con `loc, err := time.LoadLocation(business_profile.timezone)` (si `err != nil`, retornar `&SemanticError{Code: ErrCodeInternal, Message: "no se pudo cargar la zona horaria 'X': ..."}`), luego parsear con `time.ParseInLocation(time.RFC3339, start_datetime, loc)` y convertir a UTC con `.UTC()`.
 
-##### Paso 4 — `create_booking()`
-
-Si todas las validaciones pasan, se inserta la reserva con `status='pending'`:
-
-```sql
-INSERT INTO bookings (id, client_id, professional_id, service_id,
-                      start_datetime, end_datetime, status, notes,
-                      payment_method, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, datetime('now'), datetime('now'));
-```
-
-`end_datetime` se calcula como `start_datetime + service.duration_minutes` (Paso 2).
+Si `RowsAffected() == 0`, el insert no ocurrió porque existe un overlap. El repositorio retorna `&SemanticError{Code: ErrCodeBookingOverlap, Message: "el Profesional {name} ya tiene una reserva de {a} a {b}."}`.
 
 ##### Paso 5 — Generar alerta pendiente
 
@@ -617,10 +633,10 @@ INSERT INTO pending_alerts (type, message, scheduled_datetime, status,
                             related_booking_id, created_at)
 VALUES ('confirmation_requested',
         'Confirmar reserva de {client_name} con {pro_name} el {start_datetime}',
-        datetime('now'),
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
         'pending',
         ?,
-        datetime('now'));
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
 ```
 
 Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como enviada con `mark_alert_as_sent()` después de confirmar con el cliente vía WhatsApp/Telegram.

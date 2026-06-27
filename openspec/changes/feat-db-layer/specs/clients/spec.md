@@ -112,17 +112,6 @@ The repository method `SearchFTS(ctx, query)` MUST return clients that match the
 - WHEN the FTS5 parser would otherwise fail
 - THEN the repository MUST either sanitize the input or return a semantic error, and MUST NOT propagate a raw SQLite syntax error to the caller
 
-### Requirement: Application-level rejection of malformed date formats
-
-The repository MUST validate that date inputs (such as `exception_date` in `business_hours_exception`) match the canonical `YYYY-MM-DD` format before passing them to the database. Non-canonical date strings MUST NOT be silently stored.
-
-#### Scenario: Rejects malformed exception_date format
-
-- GIVEN an input with `exception_date` not matching `YYYY-MM-DD` (e.g., `2026-12-25T00:00:00` or `25/12/2026`)
-- WHEN the repository is called
-- THEN the call MUST return an error with `Code == ErrCodeInvalidInput`
-- AND the database MUST NOT receive the INSERT
-
 ## Notes
 
 - Trigger naming follows the convention `clients_fts_ai`, `clients_fts_au`, `clients_fts_ad` (infix `_fts_` for consistency with the table name). Confirmed 2026-06-25.

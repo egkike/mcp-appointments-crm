@@ -6,6 +6,8 @@
 //   - ValidateTime(s, format string) error
 //   - ValidateLatitude(f float64) error
 //   - ValidateLongitude(f float64) error
+//   - ValidateRFC3339(s string) error
+//   - ValidateHHMM(s string) error
 //   - etc.
 //
 // Business-domain semantic errors (e.g., "el profesional no trabaja los domingos")

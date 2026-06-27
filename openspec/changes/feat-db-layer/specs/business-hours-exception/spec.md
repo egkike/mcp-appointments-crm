@@ -96,6 +96,17 @@ The `reason` column MUST accept a human-readable explanation of why the exceptio
 - WHEN an exception is inserted with `reason = NULL`
 - THEN the insert MUST succeed and the row MUST be returned with `reason = NULL` on subsequent SELECTs
 
+### Requirement: Application-level rejection of malformed date formats
+
+The repository MUST validate that date inputs (such as `exception_date` in `business_hours_exception`) match the canonical `YYYY-MM-DD` format before passing them to the database. Non-canonical date strings MUST NOT be silently stored.
+
+#### Scenario: Rejects malformed exception_date format
+
+- GIVEN an input with `exception_date` not matching `YYYY-MM-DD` (e.g., `2026-12-25T00:00:00` or `25/12/2026`)
+- WHEN the repository is called
+- THEN the call MUST return an error with `Code == ErrCodeInvalidInput`
+- AND the database MUST NOT receive the INSERT
+
 ### Requirement: `check_availability` precedence rule
 
 `check_availability` MUST consult `business_hours_exception` before the JSON `business_hours` for the date in question. If a row exists, the JSON MUST NOT be consulted.

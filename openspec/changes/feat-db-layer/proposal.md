@@ -155,7 +155,7 @@ está una base dada.
 ```sql
 CREATE TABLE schema_version (
     version         INTEGER PRIMARY KEY,
-    applied_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    applied_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     description     TEXT
 );
 
@@ -179,9 +179,20 @@ state, sin datos de usuario); los arranques subsecuentes son no-op.
    (trackeo de versión, sin runner de migraciones). Ver sección "Schema version + estrategia
    de migración" arriba para el SQL y la semántica.
 3. **Seeder first-boot de `business_profile`** (confirmado 2026-06-25 por Kike): lazy-init
-   en el repositorio. `GetBusinessProfile(ctx)` hace `INSERT OR IGNORE INTO business_profile
-   (id, name) VALUES ('singleton', '')` y luego `SELECT * FROM business_profile WHERE
-   id = 'singleton'`. Es idempotente (múltiples llamadas son safe) y self-healing. Caveat:
-   sólo se dispara cuando se llama a través del repo — un `SELECT` directo vía SQL
-   devolvería 0 filas en un fresh install. La convención "todo acceso vía repo" se enforce
-   por code review.
+    en el repositorio. `GetBusinessProfile(ctx)` hace `INSERT OR IGNORE INTO business_profile
+    (id, name) VALUES ('singleton', '')` y luego `SELECT * FROM business_profile WHERE
+    id = 'singleton'`. Es idempotente (múltiples llamadas son safe) y self-healing. Caveat:
+    sólo se dispara cuando se llama a través del repo — un `SELECT` directo vía SQL
+    devolvería 0 filas en un fresh install. La convención "todo acceso vía repo" se enforce
+    por code review.
+4. **Decisiones confirmadas por juicio 2026-06-25** (D1, D2, D3):
+   - **D1 — `CreateBooking` atómico**: `CreateBooking` es la fuente de verdad de availability.
+     Implementa un único `INSERT ... WHERE NOT EXISTS (overlap subquery)` atómico. Si
+     `RowsAffected() == 0`, retorna `&SemanticError{Code: ErrCodeBookingOverlap, ...}` sin
+     estado parcial. `CheckAvailability` se mantiene como método de "preview" no-autoritativo.
+   - **D2 — Datetime ISO 8601 UTC**: todos los `*_datetime` almacenan ISO 8601 UTC (RFC3339
+     con sufijo `Z`). Los timestamps automáticos usan `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
+      Los datetimes de input se parsean en Go con `loc, _ := time.LoadLocation(business_profile.timezone)` seguido de `time.ParseInLocation(time.RFC3339, input, loc)` y se convierten a UTC antes de almacenar. Las comparaciones
+     de datetime ocurren en Go tras parsear a `time.Time`, nunca por comparación SQL de strings.
+   - **D3 — Singleton CHECK constraint**: `business_profile` incluye `CHECK (id = 'singleton')`
+     para garantizar a nivel DB que solo existe una fila con id `'singleton'`.

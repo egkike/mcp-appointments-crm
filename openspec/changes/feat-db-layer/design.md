@@ -6,7 +6,7 @@
 
 ## Overview
 
-`feat-db-layer` (Fase 1 del roadmap) extiende el esquema SQLite de **4 a 11 tablas** (10 de dominio incluyendo `schema_version`), agrega **6 triggers FTS5** y **3 índices secundarios**, e introduce dos paquetes nuevos: `internal/model/` (8 structs) y `internal/repository/` (9 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 10 archivos totales, con CRUD prepared-statement + la cadena `check_availability` de 5 pasos de PRD §3.7.13). El trabajo se reparte en **3 PRs encadenados** bajo el budget elevado de 600 líneas (obs 456). El diseño es el puente entre el **qué** (las 10 specs) y el **cómo** (las tasks): define la arquitectura de capas, los flujos de datos centrales, 10 decisiones arquitectónicas y el mapeo specs → tests que operará `sdd-tasks` y `sdd-apply`.
+`feat-db-layer` (Fase 1 del roadmap) extiende el esquema SQLite de **4 a 11 tablas** (10 de dominio incluyendo `schema_version`), agrega **6 triggers FTS5** y **3 índices secundarios**, e introduce dos paquetes nuevos: `internal/model/` (8 structs) y `internal/repository/` (9 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 10 archivos totales, con CRUD prepared-statement + la cadena `check_availability` de 5 pasos de PRD §3.7.13). El trabajo se reparte en **3 PRs encadenados** bajo el budget elevado de 600 líneas (obs 456). El diseño es el puente entre el **qué** (las 10 specs) y el **cómo** (las tasks): define la arquitectura de capas, los flujos de datos centrales, 12 decisiones arquitectónicas y el mapeo specs → tests que operará `sdd-tasks` y `sdd-apply`.
 
 ## Layer Architecture
 
@@ -98,8 +98,8 @@ Notas de implementación que el diseño fija (las tasks las materializan):
 - **Short-circuit al primer fallo**: la cadena es `if err := paso3a(); err != nil { return err }` encadenado. La spec "First failure wins" lo exige. No hay paralelización (ADR-0006 Decisión 5 lo rechazó por complejidad vs. el target p95 < 100 ms).
 - **3a es siempre 2 queries** (excepción primero, JSON fallback). 3b/3c/3d/3e son 1 query cada uno. En el worst case, `check_availability` hace 6 `QueryRow`/`Query` secuenciales (Paso 1 son 2, Paso 3a son 2). Aceptable por ADR-0006.
 - **3d no hace JOIN a `services`**: usa `bookings.end_datetime` denormalizado (Decisión 2). El SQL del PRD §3.7.13 3d es un range comparison `AND start_datetime < ? AND end_datetime > ?` con `status != 'cancelled'`.
-- **`end_datetime` se calcula en Go** (Paso 2), no en SQL, porque la timezone del negocio y el offset del `start_datetime` deben respetarse (Decisión 2). El cálculo es `start_datetime.Add(duration_minutes * time.Minute)`.
-- **`day_of_week` y `HH:MM` se derivan en Go** del `start_datetime` parseado en la timezone del negocio (`business_profile.timezone`, cargado con `time.LoadLocation`). El storage no convierte (ver spec `schedules` Notes). **Decisión explícita**: si `business_profile.timezone == 'UTC'` (default de fresh install), el operador DEBE configurarlo a su timezone local antes de aceptar bookings (mitigación del R6 — se enforce en el handler de Fase 2+, pero el código del repo debe estar preparado para que `time.LoadLocation("UTC")` y la conversión den el día correcto para evitar el bug "wrong weekday" cuando el offset es distinto de 0).
+- **`end_datetime` se calcula en Go con `startTime.Add(time.Duration(service.DurationMinutes) * time.Minute)`** (Paso 2), no en SQL. `startTime` es el resultado de cargar la timezone con `loc, err := time.LoadLocation(business_profile.timezone)` (si `err != nil`, retornar error semántico), luego parsear `start_datetime` con `time.ParseInLocation(time.RFC3339, start_datetime, loc)`, y convertir a UTC. El `end_datetime` se almacena con formato `time.Now().UTC().Format("2006-01-02T15:04:05.000Z")` (ISO 8601 UTC con milisegundos). Si `time.LoadLocation` falla (timezone IANA inválido), `CreateBooking` retorna `&SemanticError{Code: ErrCodeInternal, Message: "no se pudo cargar la zona horaria 'X': ..."}`.
+- **`day_of_week` y `HH:MM` se derivan en Go** del `start_datetime` parseado. El repositorio carga la timezone con `loc, err := time.LoadLocation(business_profile.timezone)`, parsea `start_datetime` con `time.ParseInLocation(time.RFC3339, start_datetime, loc)`, obtiene `startTime`, y deriva `day_of_week` con `startTime.In(loc).Weekday()` y los `HH:MM` con `startTime.In(loc).Format("15:04")`. El storage no convierte (ver spec `schedules` Notes). **Decisión explícita**: si `business_profile.timezone == 'UTC'` (default de fresh install), el operador DEBE configurarlo a su timezone local antes de aceptar bookings (mitigación del R6 — se enforce en el handler de Fase 2+, pero el código del repo debe estar preparado para que `time.LoadLocation("UTC")` y la conversión den el día correcto para evitar el bug "wrong weekday" cuando el offset es distinto de 0).
 
 ## Data Flow: `create_booking` + `pending_alert` (Paso 4 + Paso 5)
 
@@ -116,10 +116,15 @@ sequenceDiagram
     Handler->>Bk: CheckAvailability(ctx, params)
     Bk-->>Handler: available=true, nil
     Handler->>Bk: CreateBooking(ctx, booking)  // Paso 4
-    Note over Bk: status='pending', end_datetime ya calculado
-    Bk->>DB: INSERT INTO bookings (...) VALUES (...)
-    DB-->>Bk: (assigned UUID id)
-    Bk-->>Handler: (*Booking, nil)
+    Note over Bk: status='pending', end_datetime ya calculado<br/>(startTime.Add(duration * time.Minute))
+    Bk->>DB: INSERT ... WHERE NOT EXISTS (overlap subquery)<br/>— atómico: check + insert en un solo statement<br/>created_at/updated_at via strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    alt RowsAffected() == 0 (overlap detectado)
+        DB-->>Bk: 0 rows affected
+        Bk-->>Handler: &SemanticError{Code: ErrCodeBookingOverlap, ...}
+    else RowsAffected() == 1 (insert exitoso)
+        DB-->>Bk: (assigned UUID id)
+        Bk-->>Handler: (*Booking, nil)
+    end
     Handler->>Al: EnqueueAlert(ctx, type='confirmation_requested',<br/>scheduled_datetime=now, related_booking_id=booking.ID,<br/>message='Confirmar reserva de {client} con {pro} el {start}')  // Paso 5
     Al->>DB: INSERT INTO pending_alerts (...) VALUES ('pending', ...)
     DB-->>Al: (assigned id)
@@ -127,7 +132,7 @@ sequenceDiagram
     Note over Handler: return booking + alert al LLM
 ```
 
-Decisión de diseño: `CreateBooking` y `EnqueueAlert` **no** se ejecutan en una misma transacción SQL en Fase 1. Motivo: `check_availability` ya validó el slot (sin lock), e insertar el booking y luego el alert son dos writes secuenciales con timestamps `datetime('now')`; el coste de una transacción explícita no aporta corrección en el modelo single-writer loopback. Si en Fase 2+ se introduce contención u ordenamiento, se envuelve en `db.BeginTx`. **Esto queda documentado como riesgo menor** (ver Open Questions).
+Decisión de diseño (actualizada por juicio 2026-06-25): `CreateBooking` es **atómico** — ejecuta un `INSERT ... WHERE NOT EXISTS (overlap subquery)` que checkea disponibilidad e inserta en un solo statement. Si `RowsAffected() == 0`, retorna `&SemanticError{Code: ErrCodeBookingOverlap, ...}` sin estado parcial. `CheckAvailability` es un "preview" no-autoritativo (ver Decisión 11). `EnqueueAlert` se ejecuta como llamada subsiguiente; **no** en una transacción SQL conjunta con `CreateBooking` en Fase 1. Motivo: el INSERT atómico ya garantiza la correctitud del slot, e insertar el alert es un write secuencial con timestamp `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`; el coste de una transacción explícita no aporta corrección en el modelo single-writer loopback. Si en Fase 2+ se introduce contención u ordenamiento, se envuelve en `db.BeginTx`. **Esto queda documentado como riesgo menor** (ver Open Questions).
 
 ## Key Architectural Decisions
 
@@ -139,13 +144,22 @@ Decisión de diseño: `CreateBooking` y `EnqueueAlert` **no** se ejecutan en una
 
 **Alternativas rechazadas**: (a) eager-init en `initSchema` — acopla el schema con defaults del dominio y rompe la pureza de `internal/db`; (b) función `SeedBusinessProfile` separada que el caller invoca — requiere que el caller sepa cuándo llamarla, viola "todo acceso vía repo".
 
-**Consecuencias**: La unicidad la garantiza PK `id TEXT PRIMARY KEY` con valor literal `'singleton'` (spec scenario "Direct INSERT of a second row fails"). El caveat "SELECT directo devuelve 0 filas" se acepta y se enforce por code review (propuesta). Ventana TOCTOU bajo concurrencia: dos goroutines hacen `INSERT OR IGNORE` (una gana, la otra no-op vía `IGNORE`), ambas llegan al `SELECT` y leen la misma fila → seguro sin transacción explícita.
+**Consecuencias**: la unicidad se garantiza por DOS constraints: (a) PK
+`id TEXT PRIMARY KEY DEFAULT 'singleton'` evita dos filas con el mismo id;
+(b) `CHECK (id = 'singleton')` rechaza cualquier INSERT con id distinto de
+'singleton' (incluso si la PK no es la causa, e.g. un INSERT con id='otro').
+El caveat "SELECT directo devuelve 0 filas" se acepta y se enforce por code
+review (propuesta). Ventana TOCTOU bajo concurrencia: dos goroutines hacen
+`INSERT OR IGNORE` (una gana, la otra no-op vía `IGNORE`), ambas llegan al
+`SELECT` y leen la misma fila → seguro sin transacción explícita.
 
 ### Decisión 2: `bookings.end_datetime` desnormalizado (consistencia > frescura)
 
 **Contexto**: spec `bookings` "end_datetime is denormalized" + ADR-0006 Decisión 3. El 3d overlap check es la hot path más frecuente.
 
 **Decisión**: `end_datetime` se calcula en Go (Paso 2) como `start + duration_minutes` y se persiste. El 3d es un range comparison sin JOIN.
+
+**Nota sobre comparación de datetimes**: todas las comparaciones de datetime ocurren en Go tras parsear a `time.Time` — **excepto** el predicado atómico de overlap en el `INSERT ... WHERE NOT EXISTS` de `CreateBooking`, que compara strings UTC ISO 8601 normalizados en SQL. Como todos los valores `start_datetime` / `end_datetime` están normalizados a UTC (per D2) y el orden lexicográfico de strings UTC equivale al orden cronológico, la comparación SQL de rango es correcta y atómica (sin race). Para comparaciones timezone-aware (3a horario del negocio, 3c slot vs horario, 3e no en el pasado), el repositorio parsea a `time.Time` en Go y usa `time.Time.Before/After`.
 
 **Alternativas rechazadas** (documentadas en ADR-0006): JOIN on read (hot path costosa), generated column (SQLite no referencia tablas externas), trigger que recompute al cambiar `services.duration_minutes` (complejidad, runtime cost).
 
@@ -167,7 +181,9 @@ Decisión de diseño: `CreateBooking` y `EnqueueAlert` **no** se ejecutan en una
 
 **Decisión**: las interfaces (`BookingsRepository`, `ClientsRepository`, `ServicesRepository`, etc.) viven en `internal/mcp` (el consumidor), no en `internal/repository`. Cada interface lista sólo los métodos que ese handler llama.
 
-**⚠️ Conflicto detectado con doc.go actual**: `internal/repository/doc.go` (foundation) dice "interfaces defined **here** (e.g., BookingsRepository interface)". Esto **contradice** la spec `data-access`. El design dictate que `doc.go` debe actualizarse en **PR 1** (como parte del foundation-correctness) para reflejar "interfaces defined in the **consumer** package, NOT here". Este es el punto donde la spec nueva sobreescribe el placeholder de foundation. Ver Open Questions.
+**Resolución del conflicto (post-R1)**: `internal/repository/doc.go` fue
+borrado en el commit `7b7f1b3` (R1: opción C del juicio 2026-06-25). La spec
+`data-access` queda como source of truth para el contrato de interfaces.
 
 **Alternativas rechazadas**: interfaces en `repository` (acoplamiento: el repositorio define su propio contrato → consumidores no pueden recortarlo; además viola el patrón Go idiomático).
 
@@ -250,6 +266,82 @@ El handler hace `errors.As(err, &sErr)` para extraer el `Code` y el `Message` y 
 **Alternativas rechazadas**: envolver todo en `BEGIN TRANSACTION`/`COMMIT` — algunos DDL de SQLite (especialmente FTS5 virtual tables y triggers) tienen comportamiento transaccional limitado y agrega complejidad sin valor en estado pre-release.
 
 **Consecuencias**: simple, cumple el scenario de la spec. El "rollback de un CREATE fallido" no ocurre; en su lugar, el re-intento es idempotente. Documentado en `database.go` package-level comment si GGA lo permite.
+
+### Decisión 11 (añadida por juicio 2026-06-25): `CreateBooking` es atómico, `CheckAvailability` es preview
+
+**Contexto**: el design original hacía `CheckAvailability` + `CreateBooking` como dos
+llamadas separadas. El juicio del 2026-06-25 (C3) identificó que esto permite una
+race condition: dos requests concurrentes pueden pasar ambas el check y luego
+insertar bookings que se solapan, violando PRD O3.
+
+**Decisión**: `CreateBooking` es la fuente de verdad de availability. Implementa
+un único `INSERT ... WHERE NOT EXISTS (overlap subquery)` atómico. Si
+`RowsAffected() == 0`, retorna `&SemanticError{Code: ErrCodeBookingOverlap, ...}`
+sin estado parcial. `CheckAvailability` se mantiene como un método de
+"preview" no-autoritativo — útil para que el LLM pregunte "¿está libre?"
+antes de pedirle al usuario que confirme, pero el resultado es informativo,
+no garantiza el slot. La garantía real viene del INSERT atómico.
+
+**Alternativas rechazadas**:
+- (a) `db.BeginTx()` envolviendo check + insert — funciona pero lockea durante
+  la transacción y agrega ~10 LOC de boilerplate.
+- (b) Usar `db.BeginTx()` con `SET TRANSACTION` y lock explícito — más robusto
+  pero innecesario dado que SQLite serializa writes a nivel de statement.
+- (c) Documentar la race como limitación MVP — viola PRD O3, inaceptable para
+  un sistema de reservas.
+
+**Consecuencias**: el SQL de `CreateBooking` es más complejo (subquery) pero
+la correctitud está garantizada. Los tests de la spec `bookings` ahora cubren
+tanto el camino feliz (no overlap → RowsAffected=1) como el overlap (→ RowsAffected=0
++ error). `CheckAvailability` se mantiene como utilidad pero su rol cambia de
+"autoritativo" a "preview".
+
+**Por qué SQLite previene la race**: SQLite es single-writer — las
+operaciones de escritura se serializan. Cuando dos goroutines hacen
+`CreateBooking` simultáneamente, una adquiere el write lock primero; su
+INSERT ejecuta (incluyendo el subquery de overlap) y se confirma. La
+segunda goroutine espera el lock, luego su INSERT ejecuta y su subquery
+ve el booking recién insertado de la primera goroutine (porque SQLite
+serializa a nivel de statement), por lo que el WHERE NOT EXISTS falla y
+RowsAffected es 0. Por eso el INSERT atómico + SQLite single-writer
+garantizan 0 colisiones sin transacción explícita.
+
+**Asunción explícita sobre validaciones**: si el caller (MCP handler) llama
+`CreateBooking` directamente sin antes llamar `CheckAvailability`, las
+validaciones de 3a (horario del negocio), 3b (profesional trabaja), 3c
+(slot cabe en horario) y 3e (no en el pasado) NO se ejecutan. Solo el
+overlap check (3d) se ejecuta atómicamente vía el `INSERT ... WHERE NOT
+EXISTS`. Esto es aceptable en Fase 1 (loopback, single-writer) pero Fase 2+
+debería mover esas validaciones dentro de `CreateBooking` para que sean
+obligatorias.
+
+### Decisión 12 (añadida por juicio 2026-06-25): Singleton de `business_profile` enforced con CHECK constraint
+
+**Contexto**: el spec `business-profile` exige que un INSERT de una segunda fila
+falle. El schema `id TEXT PRIMARY KEY DEFAULT 'singleton'` solo setea el default;
+un INSERT con `id='otro'` pasaría. El juicio del 2026-06-25 (C6) lo identificó.
+
+**Decisión**: agregar `CHECK (id = 'singleton')` al schema de `business_profile`.
+Combinado con la PK, la garantía es enforced a nivel DB:
+- PK evita dos filas con el mismo id
+- CHECK evita que cualquier id distinto de `'singleton'` sea aceptado
+
+```sql
+CREATE TABLE business_profile (
+    id TEXT PRIMARY KEY DEFAULT 'singleton',
+    -- ... otras columnas ...
+    CHECK (id = 'singleton')
+);
+```
+
+**Alternativas rechazadas**:
+- (b) Confiar en la convención "todo acceso vía repo" — defensa débil; un INSERT
+  directo vía SQL (script de mantenimiento, debug) la rompe.
+
+**Consecuencias**: la spec `business-profile` ya cubre este comportamiento en el
+scenario "Direct INSERT of a second row fails" — el CHECK lo hace efectivo a
+nivel SQL. El test del spec puede usar `ExpectExec` con el constraint violated
+y verificar que retorna `ErrConflict`.
 
 ## Test Mapping
 
@@ -390,7 +482,7 @@ Notas:
 - **R3 — Tests de triggers requieren JSON1 + FTS5 con `modernc.org/sqlite`**: smoke test en `database_test.go` debe assert que `SELECT json_extract('{"a":1}', '$.a')` y `SELECT fts5(?)` están disponibles antes de los casos, sino `t.Skip("driver no soporta JSON1/FTS5")` claro y con link al issue. **Guidance para `sdd-tasks`**: PR 1 incluye este smoke test como primer test del file, antes de los tests de triggers FTS. Si la CI (Fase 5+) usa el driver `modernc.org/sqlite` puro (sin CGo), no hay riesgo — `modernc.org/sqlite` v1.53+ trae JSON1 y FTS5 compilados.
 - **R4 — TOCTOU en lazy-init de singleton**: dos goroutines haciendo `INSERT OR IGNORE` + `SELECT` — la spec "Two simultaneous first calls" exige 1 fila al final y ambas devuelvan la misma. Bajo `INSERT OR IGNORE` una gana (insert), la otra no-op; ambas hacen `SELECT` → misma fila. **Test**: `go-sqlmock` sequential ExpectExec + ExpectQuery ×2, más un smoke `go test -race`. No requiere transacción. Documentar en godoc de `GetBusinessProfile`.
 - **R5 — `CreateBooking` + `EnqueueAlert` no son transaccionales en Fase 1**: si `EnqueueAlert` falla después de un `CreateBooking` exitoso, queda un booking sin alerta. Aceptable en Fase 1 (loopback, single-writer, sin órden estricto). Fase 2+ debería envolver en `db.BeginTx`. Documentado arriba en el data flow.
-- **R6 — `day_of_week` y `HH:MM` derivación de timezone**: `business_profile.timezone` puede ser `'UTC'` en fresh install (default). Si el owner no configura su timezone, los `start_datetime` con offset `-03:00` derivarían `day_of_week` de la fecha UTC, no local → potencial bug de "wrong weekday". **Mitigación en este design (Decisión que el `CheckAvailability` debe implementar)**: el código del repo debe parsear `start_datetime` con `time.ParseInLocation(..., business_profile.timezone)` y derivar `day_of_week`/`HH:MM` del resultado (no de UTC). Si el operador nunca configura `timezone`, sigue siendo UTC y el bug existe — pero el código está preparado. **Guidance para `sdd-tasks`**: PR 3 incluye un test que valida este caso con `timezone='America/Argentina/Buenos_Aires'` y un `start_datetime` con offset `-03:00` que cruza medianoche UTC (e.g., `2026-06-25T23:00:00-03:00` = `2026-06-26T02:00:00Z` → debe resolver a `miércoles 23:00` local, no `jueves 02:00` UTC).
+- **R6 — `day_of_week` y `HH:MM` derivación de timezone**: `business_profile.timezone` puede ser `'UTC'` en fresh install (default). Si el owner no configura su timezone, los `start_datetime` con offset `-03:00` derivarían `day_of_week` de la fecha UTC, no local → potencial bug de "wrong weekday". **Mitigación en este design (Decisión que el `CheckAvailability` debe implementar)**: el código del repo debe cargar la timezone con `loc, _ := time.LoadLocation(business_profile.timezone)` y luego parsear `start_datetime` con `time.ParseInLocation(..., loc)`, derivando `day_of_week`/`HH:MM` del resultado (no de UTC). Si el operador nunca configura `timezone`, sigue siendo UTC y el bug existe — pero el código está preparado. **Guidance para `sdd-tasks`**: PR 3 incluye un test que valida este caso con `timezone='America/Argentina/Buenos_Aires'` y un `start_datetime` con offset `-03:00` que cruza medianoche UTC (e.g., `2026-06-25T23:00:00-03:00` = `2026-06-26T02:00:00Z` → debe resolver a `miércoles 23:00` local, no `jueves 02:00` UTC).
 - **R7 — `repository` ↔ `validation`** ✅ **RESUELTO el 2026-06-25**: opción B elegida por Kike. `repository` define su propio `SemanticError{Code, Message, Cause}` con `ErrCode` como typed string constant. No import de `validation`. Spec `data-access` actualizada con un nuevo Requirement 9. Decisión 5 del design reescrita. Tests usan `errors.As(err, &repoErr)` directamente.
 
 ## References

@@ -14,4 +14,10 @@
 //   - Messenger fields live in BusinessProfile, not Client.
 //   - Go repos are plural for collections (BookingsRepo) and singular for aggregates
 //     (Booking); models are always singular (Booking, Client).
+//
+// All `*_datetime` fields in these structs hold ISO 8601 UTC strings
+// (regex: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`, e.g.
+// "2026-07-13T13:30:00.000Z"). The repository converts any input timezone
+// to UTC at insert time. See design.md Decisión 2 and Decisión 11
+// for the storage/comparison contract.
 package model

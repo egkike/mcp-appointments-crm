@@ -48,15 +48,15 @@ The `end_datetime` column MUST be stored explicitly and MUST equal `start_dateti
 
 #### Scenario: `end_datetime` computed at insert
 
-- GIVEN a service with `duration_minutes = 30` and a `start_datetime = 2026-07-13T10:00:00-03:00`
-- WHEN the repository creates a booking
-- THEN the stored `end_datetime` MUST be `2026-07-13T10:30:00-03:00` (or its ISO 8601 equivalent with the same instant)
+- GIVEN a service with `duration_minutes = 30` and a tool arg `start_datetime = '2026-07-13T10:00:00-03:00'` (UTC equivalent: `2026-07-13T13:00:00.000Z`)
+- WHEN the repository creates a booking (converting input to UTC)
+- THEN the stored `end_datetime` MUST be `2026-07-13T13:30:00.000Z` (UTC equivalent of start + 30 minutes)
 
 #### Scenario: Reschedule recomputes `end_datetime`
 
-- GIVEN an existing booking with `start_datetime = 2026-07-13T10:00:00-03:00` and `end_datetime = 2026-07-13T10:30:00-03:00`
-- WHEN the booking is rescheduled to `start_datetime = 2026-07-13T11:00:00-03:00` (same service, 30 minutes)
-- THEN the stored `end_datetime` MUST be `2026-07-13T11:30:00-03:00`; the old `end_datetime` MUST NOT survive
+- GIVEN an existing booking with `start_datetime = '2026-07-13T13:00:00.000Z'` and `end_datetime = '2026-07-13T13:30:00.000Z'`
+- WHEN the booking is rescheduled to tool arg `start_datetime = '2026-07-13T11:00:00-03:00'` (UTC equivalent: `2026-07-13T14:00:00.000Z`) (same service, 30 minutes)
+- THEN the stored `end_datetime` MUST be `2026-07-13T14:30:00.000Z`; the old `end_datetime` MUST NOT survive
 
 #### Scenario: Overlap check uses stored `end_datetime`
 
@@ -190,15 +190,129 @@ Cancelling a booking MUST set `status = 'cancelled'` on the existing row, NOT de
 - WHEN `CheckAvailability` is called
 - THEN the method MUST return the 3a error and MUST NOT execute 3d
 
-### Requirement: `start_datetime` and `end_datetime` use ISO 8601 with timezone
+### Requirement: CreateBooking does atomic overlap check
 
-The `start_datetime` and `end_datetime` columns MUST be `TEXT` values holding ISO 8601 datetimes with a timezone offset (for example `2026-07-13T10:00:00-03:00`). Storing without a timezone offset is not allowed because the business timezone is known and a booking must be unambiguous across DST transitions.
+The system MUST perform the availability check atomically with the insert. The
+repository's `CreateBooking` MUST execute a single `INSERT ... WHERE NOT EXISTS`
+statement that checks for overlapping bookings AND inserts the new row in one
+operation. If the insert affects 0 rows, the system MUST return
+`&SemanticError{Code: ErrCodeBookingOverlap, ...}` without partial state.
 
-#### Scenario: Datetime with timezone offset persisted
+The canonical SQL for `CreateBooking` is:
+
+```sql
+INSERT INTO bookings (
+    id, client_id, professional_id, service_id,
+    start_datetime, end_datetime, status, notes,
+    payment_method, created_at, updated_at
+)
+SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE NOT EXISTS (
+    SELECT 1 FROM bookings
+    WHERE professional_id = ?
+      AND status != 'cancelled'
+      AND start_datetime < ?     -- proposed end_datetime
+      AND end_datetime   > ?     -- proposed start_datetime
+);
+```
+
+If `RowsAffected() == 0`, the insert did not happen (conflict). The repository MUST return `&SemanticError{Code: ErrCodeBookingOverlap, Message: "el Profesional X ya tiene una reserva de {a} a {b}."}`.
+
+#### Scenario: Atomic insert with no overlap
+
+- GIVEN no existing booking for professional X in the requested slot
+- WHEN `CreateBooking(ctx, booking)` is called
+- THEN the SQL is a single statement (INSERT ... WHERE NOT EXISTS (...))
+- AND the new booking is created
+- AND `RowsAffected() == 1`
+
+#### Scenario: Atomic insert with overlap
+
+- GIVEN an existing booking for professional X in the requested slot
+- WHEN `CreateBooking(ctx, booking)` is called
+- THEN the SQL is a single statement (INSERT ... WHERE NOT EXISTS (...))
+- AND the new booking is NOT created
+- AND `RowsAffected() == 0`
+- AND the system returns `&SemanticError{Code: ErrCodeBookingOverlap, Message: "el Profesional X ya tiene una reserva de {a} a {b}."}`
+- AND no partial state is left in the DB
+
+#### Scenario: CheckAvailability remains as a non-authoritative preview
+
+- GIVEN a request to check availability (e.g., LLM asking "is this slot free?")
+- WHEN `CheckAvailability(ctx, params)` is called
+- THEN it runs the 5-step chain as documented
+- AND returns either `available=true` (no conflict) or `&SemanticError` (conflict)
+- AND the result is non-authoritative: between the check and a subsequent `CreateBooking`, the slot may have been taken by a concurrent request
+- AND the source of truth is `CreateBooking`'s atomic insert, NOT `CheckAvailability`'s result
+
+### Requirement: Datetime storage format (UTC with millisecond precision)
+
+The `start_datetime` and `end_datetime` columns MUST be valid ISO 8601 UTC
+strings with millisecond precision: the regex is
+`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`. Example: `2026-07-13T13:30:00.000Z`.
+
+**Input handling**: tool arguments (e.g. `start_datetime` from `create_booking`)
+MAY have an offset (RFC 3339 allows `+02:00` etc.). The repository parses
+the input with `time.ParseInLocation(time.RFC3339, input, loc)` where
+`loc` is loaded via `time.LoadLocation(business_profile.timezone)`, then
+converts to UTC and stores. The stored value is always UTC; the offset
+is informational only.
+
+**Output handling**: SELECT returns the UTC string verbatim; the LLM can
+convert to any timezone for display.
+
+Si `time.LoadLocation(business_profile.timezone)` falla (e.g., timezone
+IANA inválido), `CreateBooking` retorna `&SemanticError{Code: ErrCodeInternal,
+Message: "no se pudo cargar la zona horaria 'X': ..."}`. Esto blinda al
+sistema contra configuraciones de timezone inválidas.
+
+#### Scenario: UTC datetime stored verbatim
 
 - GIVEN a fresh table
-- WHEN a booking is inserted with `start_datetime = '2026-07-13T10:00:00-03:00'`
+- WHEN a booking is inserted with `start_datetime = '2026-07-13T13:00:00.000Z'` (already UTC)
 - THEN a subsequent SELECT MUST return that exact string verbatim
+
+#### Scenario: Input with offset is converted to UTC before storage
+
+- GIVEN a fresh table and `business_profile.timezone = 'America/Argentina/Buenos_Aires'`
+- WHEN a booking is inserted with tool arg `start_datetime = '2026-07-13T10:00:00-03:00'`
+- THEN the stored value MUST be `'2026-07-13T13:00:00.000Z'` (the UTC equivalent)
+
+### Requirement: Datetime storage and comparison convention
+
+All `*_datetime` columns store ISO 8601 UTC strings with millisecond precision
+(e.g., `2026-06-25T17:00:00.000Z`).
+Automatic timestamps (created_at, updated_at, applied_at) are generated via
+SQLite's `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` at insert time. Input
+datetimes (e.g., `start_datetime` from a tool arg) are parsed in Go with
+`loc, err := time.LoadLocation(business_profile.timezone)` followed by
+`time.ParseInLocation(time.RFC3339, input, loc)`,
+then converted to UTC and stored. All datetime comparisons (overlap
+check, past-slot check) happen in Go after parsing to `time.Time` —
+**except** the atomic overlap predicate in `CreateBooking`'s
+`INSERT ... WHERE NOT EXISTS` subquery, which compares normalized UTC
+ISO 8601 strings in SQL. Because all `start_datetime` / `end_datetime`
+values are normalized to UTC (per D2) and lexicographic order of UTC
+strings equals chronological order, the SQL range comparison is correct
+and atomic (no race). For timezone-aware comparisons (3a business hours,
+3c slot vs hours, 3e past now), the repository parses to `time.Time` in
+Go and uses `time.Time.Before/After`.
+
+#### Scenario: ISO 8601 UTC storage format
+
+- GIVEN any `*_datetime` column in any table
+- WHEN a row is inserted with an automatic timestamp
+- THEN the stored value MUST match the regex `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`
+- (this is the RFC3339 format with milliseconds and `Z` suffix for UTC)
+
+#### Scenario: Datetime comparison is timezone-aware
+
+- GIVEN a booking with `start_datetime = "2026-06-26T02:00:00.000Z"` (i.e., 2026-06-25T23:00:00-03:00 in local time)
+- AND the current time is "2026-06-25T20:00:00Z" (UTC)
+- WHEN the system checks if the slot is in the past
+- THEN it MUST parse `start_datetime` to a `time.Time` and compare with `time.Now().UTC()`
+- AND the result MUST be "not in the past" (the slot is 6 hours in the future)
+- AND the system MUST NOT use raw string comparison
 
 ## Notes
 

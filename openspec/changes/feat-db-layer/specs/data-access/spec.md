@@ -252,6 +252,51 @@ The data-access layer MUST be designed so that a future Fase 2 change can introd
 - WHEN the source is searched for `os.Getenv`
 - THEN there MUST NOT be any call to `os.Getenv` for the keys `MCP_BIND` or `MCP_PORT` (Fase 2 work)
 
+### Requirement: CreateBooking uses atomic INSERT for race-safety
+
+Per the `bookings` spec Requirement "CreateBooking does atomic overlap check",
+the repository's `CreateBooking` MUST be implemented as a single
+`INSERT ... WHERE NOT EXISTS (...)` statement. The repository MUST NOT
+implement this as two separate calls (one to `CheckAvailability` and then
+one to a plain `INSERT`). This is non-negotiable for PRD O3 compliance.
+
+#### Scenario: CreateBooking is a single atomic statement
+
+- GIVEN the source code of `BookingsRepo.CreateBooking`
+- WHEN the implementation is reviewed
+- THEN the SQL MUST be a single `INSERT ... WHERE NOT EXISTS (overlap subquery)` statement
+- AND there MUST NOT be a separate `CheckAvailability` call followed by a plain `INSERT`
+- AND if `RowsAffected() == 0`, the method MUST return `*SemanticError` with `Code: ErrCodeBookingOverlap`
+
+### Requirement: Datetime convention is ISO 8601 UTC with Go-side parsing
+
+All `*_datetime` columns use ISO 8601 UTC strings with millisecond precision
+(regex: `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`).
+The repository is responsible for:
+- Loading the business timezone with `loc, err := time.LoadLocation(business_profile.timezone)` (if `err != nil`, return semantic error)
+- Parsing input datetimes with `time.ParseInLocation(time.RFC3339, input, loc)` where `loc` is the loaded `*time.Location`
+- Storing `time.Time.UTC().Format("2006-01-02T15:04:05.000Z")` for Go-generated timestamps (or using `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` in SQL)
+- Comparing datetimes in Go after parsing to `time.Time` (using `time.Time.Before` / `time.Time.After`) — **except** the atomic overlap predicate in `CreateBooking`'s `INSERT ... WHERE NOT EXISTS` subquery, which compares normalized UTC ISO 8601 strings in SQL. Because all `start_datetime` / `end_datetime` values are normalized to UTC (per D2) and lexicographic order of UTC strings equals chronological order, the SQL range comparison is correct and atomic (no race). For timezone-aware comparisons (3a business hours, 3c slot vs hours, 3e past now), the repository parses to `time.Time` in Go and uses `time.Time.Before/After`.
+
+This convention is required for DST safety, multi-timezone correctness, and
+to honor the spec requirement that all `*_datetime` values are ISO 8601 with
+timezone.
+
+#### Scenario: Automatic timestamps use ISO 8601 UTC with milliseconds
+
+- GIVEN any INSERT that uses a SQLite-side automatic timestamp
+- WHEN the SQL is reviewed
+- THEN the default expression MUST be `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` (NOT `datetime('now')`)
+- AND the stored value MUST match the regex `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`
+
+#### Scenario: Datetime comparisons happen in Go
+
+- GIVEN a repository method that compares datetimes (e.g., past-slot check, business-hours check)
+- WHEN the implementation is reviewed
+- THEN the comparison MUST be performed in Go after parsing to `time.Time` (using `time.Time.Before` / `time.Time.After`)
+- AND the SQL MUST NOT contain raw string comparisons between `*_datetime` columns and `datetime('now')`
+- NOTE: the atomic overlap predicate in `CreateBooking`'s `INSERT ... WHERE NOT EXISTS` subquery is an exception — it compares normalized UTC ISO 8601 strings in SQL, which is correct because lexicographic order of UTC strings equals chronological order.
+
 ## Notes
 
 - This is the meta-capability for the entire `feat/db-layer` change. The other eight capabilities (`business-profile`, `business-hours-exception`, `professionals`, `schedules`, `services`, `clients`, `bookings`, `pending-alerts`) all consume the conventions defined here.
