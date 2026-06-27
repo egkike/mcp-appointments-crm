@@ -18,7 +18,7 @@ sincronización** (`clients_fts`/`services_fts` devuelven cero resultados siempr
 - Mover `messenger_*` de `clients` a `business_profile`; IDs `INTEGER`→`TEXT` UUID v4
   (salvo `business_profile.id='singleton'`); timestamps `DATETIME`→`TEXT` ISO 8601.
 - Añadir **6 triggers FTS5** (`*_ai`, `*_ad`, `*_au` por tabla) — ADR-0006 Decisión 4.
-- Desnormalizar `bookings.end_datetime` y 3 índices secundarios.
+- Desnormalizar `bookings.end_datetime` y 4 índices secundarios.
 - Crear `internal/model/` (8 archivos) y `internal/repository/` (8 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 9 archivos totales) con
   prepared-statement CRUD + `CheckAvailability` (5 pasos).
 - Promover `go-sqlmock` de `// indirect` a directa. TDD estricto, ≥80% cobertura repos.
@@ -60,7 +60,7 @@ siguen ADR-0004. Repartido en **3 PRs encadenados** (budget elevado a 600 — ob
 
 | PR | Alcance | LOC | Cambio |
 |----|---------|-----|--------|
-| **1** | `database.go` (10 tablas de dominio + `schema_version` + 6 triggers + 3 índices) + 8 modelos + `errors.go` + `internal/db/database_test.go` (integración FTS en memoria, ~100 LOC) | ~420 | Fundación |
+| **1** | `database.go` (10 tablas de dominio + `schema_version` + 6 triggers + 4 índices) + 8 modelos + `errors.go` + `internal/db/database_test.go` (integración FTS en memoria, ~100 LOC) | ~420 | Fundación |
 | **2** | Repos simples: `business_profile` (lazy-init), `services`, `clients`, `business_hours_exception` + `*_test.go` (`go-sqlmock`) | ~500 | CRUD |
 | **3** | Repos complejos: `bookings` con `CheckAvailability` (5 pasos), `professionals`, `schedules`, `pending_alerts` + `*_test.go` | ~600 | Lógica |
 | Total | ~1500-1900 LOC | — | 3 PRs ≤600 |
@@ -93,7 +93,7 @@ Orden estricto: PR 2 y PR 3 dependen del esquema de PR 1.
 
 | Área | Impacto | Descripción |
 |------|---------|-------------|
-| `internal/db/database.go` | Modificado | Reescritura: 4→11 tablas (10 dominio + schema_version), +6 triggers, +3 índices |
+| `internal/db/database.go` | Modificado | Reescritura: 4→11 tablas (10 dominio + schema_version), +6 triggers, +4 índices |
 | `internal/db/database_test.go` | Nuevo | Integración FTS con SQLite en memoria |
 | `internal/model/*.go` (8) | Nuevo | Modelos por tabla, singular |
 | `internal/repository/*.go` (9) | Nuevo | CRUD + `CheckAvailability` + `errors.go` |
@@ -162,7 +162,7 @@ CREATE TABLE schema_version (
 
 -- En el primer arranque, initSchema inserta la versión inicial:
 INSERT INTO schema_version (version, description) VALUES
-    (1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 3 secondary indexes');
+    (1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes');
 ```
 
 `initSchema` usa la presencia de la fila `(version=1)` como señal de "ya está

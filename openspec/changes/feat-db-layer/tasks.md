@@ -58,9 +58,63 @@ flowchart TD
 
 Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen de PR 1. Dentro de PR 3, `BookingsRepo` CRUD (3.4) necesita que existan `ProfessionalsRepo` (3.1), `SchedulesRepo` (3.2) y los helpers de datetime (3.6); `CheckAvailability` (3.5) depende del CRUD de bookings.
 
+## Repository method signatures (reference)
+
+```go
+// En internal/repository/errors.go
+type ErrCode string
+
+const (
+    ErrCodeBusinessClosed         ErrCode = "BUSINESS_CLOSED"
+    ErrCodeProfessionalNotWorking ErrCode = "PROFESSIONAL_NOT_WORKING"
+    ErrCodeSlotOutOfHours         ErrCode = "SLOT_OUT_OF_HOURS"
+    ErrCodeBookingOverlap         ErrCode = "BOOKING_OVERLAP"
+    ErrCodeSlotInPast             ErrCode = "SLOT_IN_PAST"
+    ErrCodeNotFound               ErrCode = "NOT_FOUND"
+    ErrCodeConflict               ErrCode = "CONFLICT"
+    ErrCodeInvalidInput           ErrCode = "INVALID_INPUT"
+    ErrCodeInternal               ErrCode = "INTERNAL"
+)
+
+type SemanticError struct {
+    Code    ErrCode
+    Message string
+    Cause   error
+}
+
+// CheckAvailability input
+type CheckAvailabilityParams struct {
+    ServiceID      string
+    ProfessionalID string
+    StartDatetime  string  // RFC3339, will be parsed to time.Time in business_profile.timezone
+}
+
+// CheckAvailability output
+type CheckAvailabilityResult struct {
+    Available bool
+    Reason    string  // populated when Available == false
+}
+
+// CreateBooking input
+type CreateBookingInput struct {
+    ClientID       string
+    ProfessionalID string
+    ServiceID      string
+    StartDatetime  string  // RFC3339
+    Notes          string
+    PaymentMethod  string
+    // end_datetime is COMPUTED in the repo, not caller-provided
+}
+
+// CreateBooking output
+type CreateBookingResult struct {
+    Booking  *model.Booking  // with id, end_datetime, created_at, updated_at set
+}
+```
+
 ## PR 1 — Foundation (schema + models + sentinels + FTS integration)
 
-### Task 1.1 — Rewrite `internal/db/database.go` to the 10-table schema
+### Task 1.1 — Rewrite `internal/db/database.go` to the 11-table schema
 
 - **Files**:
   - `internal/db/database.go` (rewrite; ~150 LOC)
@@ -80,14 +134,34 @@ Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen d
   - `start_time`/`end_time` → `start_datetime`/`end_datetime` (only in `bookings`)
   - Add columns: `bookings.professional_id` (FK), `bookings.notes`, `bookings.payment_method`, `bookings.end_datetime` (stored denorm), `clients.preferences`, `services.description`
   - Move: `messenger_platform`, `messenger_id` from `clients` to `business_profile`
-  - IDs: `INTEGER PK AUTOINCREMENT` → `TEXT PK` (UUID v4) for all tables except `business_profile.id` which uses `DEFAULT 'singleton'`
+  - IDs (per tabla, ver PRD §3.7 y Decisión 12):
+
+    | Tabla | PK | Default | Notas |
+    |---|---|---|---|
+    | `business_profile` | `TEXT` | `'singleton'` | Singleton (ver Decisión 12) |
+    | `business_hours_exception` | `INTEGER` (AUTOINCREMENT) | — | Surrogate key |
+    | `clients` | `TEXT` (UUID v4) | — | Generado por repo |
+    | `services` | `TEXT` (UUID v4) | — | Generado por repo |
+    | `professionals` | `TEXT` (UUID v4) | — | Generado por repo |
+    | `bookings` | `TEXT` (UUID v4) | — | Generado por repo |
+    | `pending_alerts` | `INTEGER` (AUTOINCREMENT) | — | Surrogate key |
+    | `schedules` | `INTEGER` (AUTOINCREMENT) | — | Surrogate key |
+    | `schema_version` | `INTEGER` | — | Es el número de versión |
+
+  - Índices secundarios (4 en total, per §3.7.11):
+    - `business_hours_exception(exception_date)` UNIQUE — sirve 3a lookup O(log n)
+    - `schedules(professional_id, day_of_week)` UNIQUE — sirve 3b lookup + enforce unicidad
+    - **`bookings(start_datetime, professional_id, client_id)`** — sirve overlap check (3d) y agenda del cliente
+    - `pending_alerts(scheduled_datetime, status)` — sirve `ListPending` index-served
   - Timestamps: `DATETIME` → `TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`
   - `business_profile`: add `CHECK (id = 'singleton')` constraint (per Decisión 12)
+  - Refactorizar `initSchema` como función package-level: `func initSchema(ctx context.Context, db *sql.DB) error` (en vez de método de `*DB`). Esto permite que el test de integración FTS (Task 1.6) lo llame directamente con un `*sql.DB` in-memory sin tener que instanciar un `*DB` wrapper.
 - **Acceptance**:
   - `go build -o /dev/null ./...` succeeds
-  - All 10 tables can be created via `initSchema(ctx, db)` on a fresh SQLite file
+  - All 11 tables can be created via `initSchema(ctx, db)` on a fresh SQLite file
   - The 6 FTS sync triggers are created (see Task 1.2)
   - `foreign_keys=ON`, WAL mode and `_busy_timeout=5000` remain active
+  - [ ] `go mod tidy` ejecutado; `go-sqlmock` y `google/uuid` son dependencias directas (sin `// indirect`)
 
 ### Task 1.2 — Add 6 FTS sync triggers to `database.go`
 
@@ -111,20 +185,20 @@ Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen d
   - `schema-version` "Multiple InitSchema Calls", "Schema Initialization Idempotency", "Version Tracking Reserved for Future Migrations"
 - **Implementation**:
   - CREATE TABLE `schema_version` per spec §3.7.3
-  - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 3 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
+  - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
 - **Acceptance**:
   - After `initSchema`, exactly 1 row exists in `schema_version` with `version=1`
   - Re-running `initSchema` is a no-op (idempotent)
   - Partial-failure retry leaves DB eventually consistent
 
-### Task 1.4 — Create 8 model files in `internal/model/`
+### Task 1.4 — Create 8 domain model files and update `internal/model/doc.go`
 
 - **Files**:
   - `internal/model/business_profile.go` (~30 LOC)
   - `internal/model/client.go` (~15 LOC)
   - `internal/model/service.go` (~20 LOC)
   - `internal/model/professional.go` (~25 LOC)
-  - `internal/model/booking.go` (~30 LOC, with `BookingStatus` typed string + FSM constants)
+  - `internal/model/booking.go` (~30 LOC, with `BookingStatus` typed string + FSM constants; `Booking.ID` is generated as UUID v4 by `BookingsRepo.CreateBooking` — caller does not provide it)
   - `internal/model/schedule.go` (~15 LOC)
   - `internal/model/business_hours_exception.go` (~15 LOC)
   - `internal/model/pending_alert.go` (~20 LOC)
@@ -136,6 +210,7 @@ Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen d
   - All 8 structs have all fields from their respective spec
   - `BookingStatus` is `type BookingStatus string` with constants `BookingStatusPending`, `BookingStatusConfirmed`, `BookingStatusCancelled` and a valid-transitions helper
   - `go build -o /dev/null ./...` succeeds
+- **Dependency promotion**: Correr `go mod tidy` para que `go-sqlmock` (v1.5.2) y `google/uuid` (v1.6.0) pasen de `// indirect` a dependencia directa. Verificar con `go list -m -u all` que ambas estén en `require` (sin `// indirect`).
 
 ### Task 1.5 — Create `internal/repository/errors.go` (sentinels + SemanticError)
 
@@ -213,7 +288,7 @@ Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen d
 - **Spec scenarios satisfied**:
   - `services` "duration_minutes > 0", "ListActive filter", "SearchFTS ranked", "Malformed FTS query rejected"
 - **Tests** (go-sqlmock):
-  - `Create`, `Get`, `List`, `ListActive`, `Update`, `Delete`
+  - `Create`, `Get`, `ListActive`, `Update`, `Delete`
   - `SearchFTS(query)` with ranking
   - Malformed FTS query → sanitized or `ErrInvalidInput`
 - **Acceptance**:
@@ -229,7 +304,7 @@ Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen d
   - Also: "No messenger columns" (verified via PRAGMA in the FTS integration test from Task 1.6)
 - **Tests** (go-sqlmock):
   - `Create`, `Get`, `GetByPhone`, `GetOrCreate`, `Update`, `Delete`
-  - `SearchFTS(query)`
+  - `SearchFTS(query)`: parse the FTS5 query, run the MATCH, return results ordered by FTS5 rank DESC (mirrors the `services` repo's ranking behavior per spec)
   - Phone UNIQUE violation → `ErrConflict`
 - **Acceptance**:
   - All scenarios pass; coverage ≥ 80%
@@ -312,12 +387,13 @@ Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen d
     )
     ```
     If `RowsAffected() == 0`, return `&SemanticError{Code: ErrCodeBookingOverlap, ...}`.
-  - `GetBooking`, `CancelBooking`, `RescheduleBooking` (which recomputes `end_datetime`)
+  - `GetBooking`, `CancelBooking`, `RescheduleBooking` (actualiza `start_datetime`, recomputando `end_datetime`. Corre el mismo overlap guard atómico — `INSERT` con `WHERE NOT EXISTS` o `SELECT count` — que `CreateBooking`. Si hay overlap, retorna `&SemanticError{Code: ErrCodeBookingOverlap, ...}` sin modificar la fila)
   - **Bypass assumption** (per design Decisión 11 + S1): `CreateBooking` does NOT run 3a-3c/3e validations — only the atomic 3d overlap. This must be documented in the function godoc.
 - **Tests** (go-sqlmock):
-  - Successful insert: ExpectQuery 2 times (for service + professional), ExpectExec INSERT, return rows affected = 1
-  - Overlap: same setup but return rows affected = 0; verify SemanticError returned
-  - FK violation: ExpectExec returns SQLite FK error; verify wrapped as ErrConflict
+  - Successful insert: ExpectQuery 1 time (for service.duration_minutes), ExpectExec INSERT ... WHERE NOT EXISTS, return rows affected = 1
+  - Overlap (atomic guard): same setup but ExpectExec returns rows affected = 0; verify SemanticError{Code: ErrCodeBookingOverlap, ...} returned
+  - FK violation (client_id, professional_id, or service_id bogus): ExpectExec returns SQLite FK error; verify wrapped as ErrConflict
+  - Service not found: ExpectQuery returns sql.ErrNoRows; verify wrapped as ErrNotFound
   - Reschedule: verify end_datetime recomputed
   - Status FSM: pending→confirmed OK; cancelled→confirmed REJECTED
 - **Acceptance**:
@@ -333,7 +409,7 @@ Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen d
   - `bookings` "5-step chain (9 scenarios)" — 3a, 3b, 3c, 3d, 3e + happy path + first-failure-wins + 3d-ignores-cancelled + 3c-before-pro
 - **Key implementation** (per design Decisión 11 + round-3 C2):
   - The chain runs 3a → 3b → 3c → 3d → 3e in order; first failure returns
-  - **3a** (exception first, then JSON): query `business_hours_exception` for the date; if row exists use it; else query JSON `business_hours` for the weekday
+  - **3a** (exception first, then JSON): query `business_hours_exception` for the date. If a row exists: if `is_closed=1` → return `ErrCodeBusinessClosed`; if `is_closed=0` → use the exception's `open_time`/`close_time`. Otherwise, fallback to JSON `business_hours` for the weekday.
   - **3b**: query `schedules` for `(professional_id, day_of_week)`
   - **3c**: compare `slot_start` and `slot_end` against the tighter of business/professional hours
   - **3d**: SQL range comparison `start_datetime < ? AND end_datetime > ?` (carve-out from D2 per C2; UTC normalized → safe)
@@ -341,7 +417,7 @@ Dentro de cada PR las tareas son principalmente seriales. PR 2 y PR 3 dependen d
 - **Tests** (go-sqlmock):
   - 9 scenarios: 3a-closed-by-exception, 3a-closed-by-JSON, 3b-pro-not-working, 3c-slot-out-of-hours, 3c-before-pro-start, 3d-overlap, 3d-ignores-cancelled, 3e-past, happy-path-all-5-pass
   - Plus the "first failure wins" meta-scenario (assert 3d is NEVER called if 3a fails)
-  - Plus timezone-cross-midnight test: `2026-06-25T23:00:00-03:00` → local Wednesday 23:00, not UTC Thursday 02:00
+  - Plus timezone-cross-midnight test: `2026-06-25T23:00:00-03:00` → local Thursday 23:00, not UTC Friday 02:00
 - **Acceptance**:
   - All 9 scenarios pass; coverage ≥ 80%
 

@@ -48,7 +48,7 @@ En el primer arranque (cuando la tabla `schema_version` no existe), `initSchema`
 - WHEN `initSchema(ctx, db)` completa exitosamente
 - THEN existe exactamente UNA fila en `schema_version` con `version=1`
 - AND `applied_at` es la fecha/hora actual (formato ISO 8601 UTC)
-- AND `description` es exactamente `"initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 3 secondary indexes"`
+- AND `description` es exactamente `"initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes"`
 
 #### Scenario: Applied At Is Automatic
 

@@ -351,9 +351,9 @@ Reservas de servicios. Tabla central del sistema. Renombrada de `appointments` (
 ```sql
 CREATE TABLE bookings (
     id                  TEXT PRIMARY KEY,                   -- UUID v4
-    client_id           TEXT NOT NULL REFERENCES clients(id),
-    professional_id     TEXT NOT NULL REFERENCES professionals(id),
-    service_id          TEXT NOT NULL REFERENCES services(id),
+    client_id           TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    professional_id     TEXT NOT NULL REFERENCES professionals(id) ON DELETE RESTRICT,
+    service_id          TEXT NOT NULL REFERENCES services(id) ON DELETE RESTRICT,
     start_datetime      TEXT NOT NULL,                      -- ISO 8601 UTC, ej "2026-06-25T17:00:00.000Z"
     end_datetime        TEXT NOT NULL,                      -- ISO 8601 UTC, start + service.duration_minutes
     status              TEXT NOT NULL DEFAULT 'pending',    -- 'pending' | 'confirmed' | 'cancelled'
@@ -830,7 +830,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 **Objetivo**: sentar las bases de persistencia con repository pattern, prepared statements, FTS5 sync via triggers y tests con `go-sqlmock`.
 
 **Entregables**:
-- `internal/db/database.go` reescrito: 11 tablas (10 de dominio PRD §3.7 + `schema_version`) + 6 triggers FTS5 + 3 índices secundarios
+- `internal/db/database.go` reescrito: 11 tablas (10 de dominio PRD §3.7 + `schema_version`) + 6 triggers FTS5 + 4 índices secundarios
 - `internal/db/database_test.go` (integración FTS con SQLite en memoria)
 - `internal/model/` (8 archivos: 1 struct por tabla de dominio)
 - `internal/repository/errors.go` (sentinels + `SemanticError{Code, Message, Cause}`)

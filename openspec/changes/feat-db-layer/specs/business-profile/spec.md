@@ -69,6 +69,10 @@ The `business_hours` column MUST be a `TEXT` column that stores a JSON object wi
 
 The `accepted_payment_methods` column MUST store a JSON array of strings, where each string identifies one payment method accepted by the business (for example `efectivo`, `tarjeta`, `transferencia`).
 
+### Requirement: `accepted_payment_methods` is NULL or JSON array
+
+The `accepted_payment_methods` column is TEXT, holding either NULL (means "no payment methods registered yet") or a JSON array of strings (e.g., `["efectivo","tarjeta","transferencia"]`). `Create`/`Update` MUST accept NULL as "empty". The repository MUST validate each entry is a non-empty string if the array is non-NULL.
+
 #### Scenario: Multiple payment methods persisted
 
 - GIVEN a business that accepts cash, card and bank transfer

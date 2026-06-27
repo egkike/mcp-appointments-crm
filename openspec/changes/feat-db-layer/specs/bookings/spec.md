@@ -160,6 +160,12 @@ Cancelling a booking MUST set `status = 'cancelled'` on the existing row, NOT de
 - WHEN se solicita un slot a las 09:30 con el profesional A
 - THEN el sistema retorna `&SemanticError{Code: ErrCodeSlotOutOfHours, Message: "el Profesional A empieza a las 10:00."}` (no "el negocio abre a las 09:00")
 
+#### Scenario: 3c — slot starts before business opening (3c)
+
+- GIVEN the business opens at 09:00 and Professional A's shift starts at 10:00
+- WHEN `CheckAvailability` is called with a `start_datetime` of 09:30 with Professional A
+- THEN the system returns `&SemanticError{Code: ErrCodeSlotOutOfHours, Message: "el horario de atención comienza a las 09:00."}` (uses the business opening time, not the professional's start time)
+
 #### Scenario: 3d — overlap with existing non-cancelled booking
 
 - GIVEN a non-cancelled booking exists for the same professional that overlaps the proposed slot

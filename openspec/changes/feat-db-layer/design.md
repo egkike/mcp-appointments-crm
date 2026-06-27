@@ -6,7 +6,7 @@
 
 ## Overview
 
-`feat-db-layer` (Fase 1 del roadmap) extiende el esquema SQLite de **4 a 11 tablas**: 10 de dominio (PRD §3.7) + `schema_version` (tracking de migraciones), agrega **6 triggers FTS5** y **3 índices secundarios**, e introduce dos paquetes nuevos: `internal/model/` (8 structs) y `internal/repository/` (8 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 9 archivos totales, con CRUD prepared-statement + la cadena `check_availability` de 5 pasos de PRD §3.7.13). El trabajo se reparte en **3 PRs encadenados** bajo el budget elevado de 600 líneas (obs 456). El diseño es el puente entre el **qué** (las 10 specs) y el **cómo** (las tasks): define la arquitectura de capas, los flujos de datos centrales, 12 decisiones arquitectónicas y el mapeo specs → tests que operará `sdd-tasks` y `sdd-apply`.
+`feat-db-layer` (Fase 1 del roadmap) extiende el esquema SQLite de **4 a 11 tablas**: 10 de dominio (PRD §3.7) + `schema_version` (tracking de migraciones), agrega **6 triggers FTS5** y **4 índices secundarios**, e introduce dos paquetes nuevos: `internal/model/` (8 structs) y `internal/repository/` (8 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 9 archivos totales, con CRUD prepared-statement + la cadena `check_availability` de 5 pasos de PRD §3.7.13). El trabajo se reparte en **3 PRs encadenados** bajo el budget elevado de 600 líneas (obs 456). El diseño es el puente entre el **qué** (las 10 specs) y el **cómo** (las tasks): define la arquitectura de capas, los flujos de datos centrales, 12 decisiones arquitectónicas y el mapeo specs → tests que operará `sdd-tasks` y `sdd-apply`.
 
 ## Layer Architecture
 
@@ -36,7 +36,7 @@ Reglas de dependencia (no escritas, enforced por code review + `go vet`):
 
 ```mermaid
 flowchart LR
-    PR1["PR 1 — foundation<br/>database.go (11 tablas: 10 dominio + schema_version + 6 triggers + 3 idx)<br/>+ 8 modelos + errors.go<br/>+ database_test.go (in-mem FTS)<br/>~420 LOC"]
+    PR1["PR 1 — foundation<br/>database.go (11 tablas: 10 dominio + schema_version + 6 triggers + 4 idx)<br/>+ 8 modelos + errors.go<br/>+ database_test.go (in-mem FTS)<br/>~420 LOC"]
     PR2["PR 2 — simple repos<br/>business_profile (lazy-init)<br/>services, clients, business_hours_exception<br/>+ *_test.go (go-sqlmock)<br/>~500 LOC"]
     PR3["PR 3 — complex repos<br/>bookings (CheckAvailability 5 pasos)<br/>professionals, schedules, pending_alerts<br/>+ *_test.go<br/>~600 LOC"]
 
@@ -244,20 +244,21 @@ El handler hace `errors.As(err, &sErr)` para extraer el `Code` y el `Message` y 
 
 **Contexto**: spec `schema-version` + propuesta "Schema version + estrategia de migración". Fase 1 introduce la tabla para tracking; el runner incremental es Fase 2+.
 
-**Decisión**: `database.go` crea `schema_version` y en el primer arranque inserta fila `(version=1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 3 secondary indexes')`. `initSchema` usa la presencia de esa fila como señal de "ya inicializado" → idempotente (`CREATE TABLE IF NOT EXISTS` + `INSERT ... WHERE NOT EXISTS` style).
+**Decisión**: `database.go` crea `schema_version` y en el primer arranque inserta fila `(version=1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')`. `initSchema` usa la presencia de esa fila como señal de "ya inicializado" → idempotente (`CREATE TABLE IF NOT EXISTS` + `INSERT ... WHERE NOT EXISTS` style).
 
 **Alternativas rechazadas**: introducir un runner de migraciones en Fase 1 (over-engineering para base sin datos — propuesta rechazó explícitamente).
 
 **Consecuencias**: el costo es ~5 LOC en Fase 1. El beneficio es estructural: cuando Fase 2+ agregue columnas/tablas, el patrón versionado ya está (ver Migration Strategy). El `INSERT` de v1 puede ser `INSERT OR IGNORE` para idempotencia sin leer primero.
 
-### Decisión 9 (añadida): 3 índices secundarios — qué y por qué
+### Decisión 9 (añadida): 4 índices secundarios — qué y por qué
 
-**Contexto**: propuesta menciona "3 índices secundarios" pero las specs los dispersan. Diseño los consolida.
+**Contexto**: propuesta menciona "4 índices secundarios" pero las specs los dispersan. Diseño los consolida.
 
-**Decisión**: los 3 índices secundarios son:
+**Decisión**: los 4 índices secundarios son:
 1. `business_hours_exception(exception_date)` UNIQUE — sirve 3a lookup O(log n), también enforce unicidad (spec `business-hours-exception`).
 2. `schedules(professional_id, day_of_week)` UNIQUE — sirve 3b lookup + enforce una fila por (pro, día) (spec `schedules`).
-3. `pending_alerts(scheduled_datetime, status)` — sirve `ListPending` index-served sin full scan (spec `pending-alerts` "Secondary index on (scheduled_datetime, status)").
+3. `bookings(start_datetime, professional_id, client_id)` — sirve overlap check (3d) y agenda del cliente (spec `bookings`, PRD §3.7.11).
+4. `pending_alerts(scheduled_datetime, status)` — sirve `ListPending` index-served sin full scan (spec `pending-alerts` "Secondary index on (scheduled_datetime, status)").
 
 **Rationale**: cada uno soporta un query hot del flujo de reservas o de la cola de alertas. No se agregan índices sobre FKs porque SQLite no los requiere para integridad y los FKs de `bookings` no son hot-path de search.
 
@@ -486,7 +487,7 @@ Notas:
 - **R3 — Tests de triggers requieren JSON1 + FTS5 con `modernc.org/sqlite`**: smoke test en `database_test.go` debe assert que `SELECT json_extract('{"a":1}', '$.a')` y `SELECT fts5(?)` están disponibles antes de los casos, sino `t.Skip("driver no soporta JSON1/FTS5")` claro y con link al issue. **Guidance para `sdd-tasks`**: PR 1 incluye este smoke test como primer test del file, antes de los tests de triggers FTS. Si la CI (Fase 5+) usa el driver `modernc.org/sqlite` puro (sin CGo), no hay riesgo — `modernc.org/sqlite` v1.53+ trae JSON1 y FTS5 compilados.
 - **R4 — TOCTOU en lazy-init de singleton**: dos goroutines haciendo `INSERT OR IGNORE` + `SELECT` — la spec "Two simultaneous first calls" exige 1 fila al final y ambas devuelvan la misma. Bajo `INSERT OR IGNORE` una gana (insert), la otra no-op; ambas hacen `SELECT` → misma fila. **Test**: `go-sqlmock` sequential ExpectExec + ExpectQuery ×2, más un smoke `go test -race`. No requiere transacción. Documentar en godoc de `GetBusinessProfile`.
 - **R5 — `CreateBooking` + `EnqueueAlert` no son transaccionales en Fase 1**: si `EnqueueAlert` falla después de un `CreateBooking` exitoso, queda un booking sin alerta. Aceptable en Fase 1 (loopback, single-writer, sin órden estricto). Fase 2+ debería envolver en `db.BeginTx`. Documentado arriba en el data flow.
-- **R6 — `day_of_week` y `HH:MM` derivación de timezone**: `business_profile.timezone` puede ser `'UTC'` en fresh install (default). Si el owner no configura su timezone, los `start_datetime` con offset `-03:00` derivarían `day_of_week` de la fecha UTC, no local → potencial bug de "wrong weekday". **Mitigación en este design (Decisión que el `CheckAvailability` debe implementar)**: el código del repo debe cargar la timezone con `loc, _ := time.LoadLocation(business_profile.timezone)` y luego parsear `start_datetime` con `time.ParseInLocation(..., loc)`, derivando `day_of_week`/`HH:MM` del resultado (no de UTC). Si el operador nunca configura `timezone`, sigue siendo UTC y el bug existe — pero el código está preparado. **Guidance para `sdd-tasks`**: PR 3 incluye un test que valida este caso con `timezone='America/Argentina/Buenos_Aires'` y un `start_datetime` con offset `-03:00` que cruza medianoche UTC (e.g., `2026-06-25T23:00:00-03:00` = `2026-06-26T02:00:00Z` → debe resolver a `miércoles 23:00` local, no `jueves 02:00` UTC).
+- **R6 — `day_of_week` y `HH:MM` derivación de timezone**: `business_profile.timezone` puede ser `'UTC'` en fresh install (default). Si el owner no configura su timezone, los `start_datetime` con offset `-03:00` derivarían `day_of_week` de la fecha UTC, no local → potencial bug de "wrong weekday". **Mitigación en este design (Decisión que el `CheckAvailability` debe implementar)**: el código del repo debe cargar la timezone con `loc, _ := time.LoadLocation(business_profile.timezone)` y luego parsear `start_datetime` con `time.ParseInLocation(..., loc)`, derivando `day_of_week`/`HH:MM` del resultado (no de UTC). Si el operador nunca configura `timezone`, sigue siendo UTC y el bug existe — pero el código está preparado. **Guidance para `sdd-tasks`**: PR 3 incluye un test que valida este caso con `timezone='America/Argentina/Buenos_Aires'` y un `start_datetime` con offset `-03:00` que cruza medianoche UTC (e.g., `2026-06-25T23:00:00-03:00` = `2026-06-26T02:00:00Z` → debe resolver a `jueves 23:00` local, no `viernes 02:00` UTC).
 - **R7 — `repository` ↔ `validation`** ✅ **RESUELTO el 2026-06-25**: opción B elegida por Kike. `repository` define su propio `SemanticError{Code, Message, Cause}` con `ErrCode` como typed string constant. No import de `validation`. Spec `data-access` actualizada con un nuevo Requirement 9. Decisión 5 del design reescrita. Tests usan `errors.As(err, &repoErr)` directamente.
 
 ## References

@@ -97,6 +97,24 @@ The repository converts any input timezone to UTC at insert time.
 - AND the stored `status` MUST remain `cancelled` (not modified)
 - AND the caller receives a "all good" semantic without error
 
+### Requirement: `Cancel` transitions an alert to cancelled
+
+`Cancel(ctx, id)` MUST set `status = 'cancelled'` on the alert with that ID. If the alert is already `sent` or `cancelled`, the call MUST return `nil` (no-op, idempotent) without modifying the `status`.
+
+#### Scenario: Cancel an alert
+
+- GIVEN an existing alert with `status = 'pending'`
+- WHEN `Cancel(ctx, id)` is called
+- THEN the system sets `status = 'cancelled'`
+- AND the call returns `nil` (success)
+
+#### Scenario: Cancel a sent or already-cancelled alert is a no-op
+
+- GIVEN an alert with `status = 'sent'` or `status = 'cancelled'`
+- WHEN `Cancel(ctx, id)` is called
+- THEN the system returns `nil` (no-op, idempotent)
+- AND the `status` is not changed
+
 ### Requirement: `related_booking_id` is optional
 
 The `related_booking_id` column MAY be `NULL` (for system-generated alerts not tied to a specific booking, e.g., a global loyalty summary). When present, it MUST reference an existing `bookings.id`. The foreign key constraint is what makes the relationship enforceable.
@@ -122,6 +140,10 @@ The `related_booking_id` column MAY be `NULL` (for system-generated alerts not t
 ### Requirement: `type` is a free-text discriminator
 
 The `type` column MUST be a `TEXT` value identifying the kind of alert. The canonical values are `confirmation_requested`, `reminder_24h`, and `loyalty_alert`, but the column is not constrained to that set at the database level; the application validates against that allowlist.
+
+### Requirement: Allowed alert types (Fase 1)
+
+In Fase 1, the only supported `type` is `confirmation_requested` (sent at booking creation per §3.7.13 Paso 5). The other types (`reminder_24h`, `loyalty_alert`) are reserved for Fase 2+. If `Create` is called with a different `type`, it MUST return `&SemanticError{Code: ErrCodeInvalidInput, ...}`.
 
 #### Scenario: All canonical types accepted
 
