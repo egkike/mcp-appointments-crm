@@ -429,25 +429,42 @@ CREATE VIRTUAL TABLE services_fts USING fts5(
 > fuente.** Implementación obligatoria en Fase 1 (db-layer).
 
 ```sql
--- Ejemplo: triggers de sync para clients_fts
-CREATE TRIGGER clients_ai AFTER INSERT ON clients BEGIN
+-- Triggers de sync para clients_fts (naming con infix `_fts_` para
+-- consistencia con el nombre de la tabla)
+CREATE TRIGGER clients_fts_ai AFTER INSERT ON clients BEGIN
     INSERT INTO clients_fts(rowid, name, preferences)
     VALUES (new.rowid, new.name, new.preferences);
 END;
 
-CREATE TRIGGER clients_ad AFTER DELETE ON clients BEGIN
+CREATE TRIGGER clients_fts_ad AFTER DELETE ON clients BEGIN
     INSERT INTO clients_fts(clients_fts, rowid, name, preferences)
     VALUES ('delete', old.rowid, old.name, old.preferences);
 END;
 
-CREATE TRIGGER clients_au AFTER UPDATE ON clients BEGIN
+CREATE TRIGGER clients_fts_au AFTER UPDATE ON clients BEGIN
     INSERT INTO clients_fts(clients_fts, rowid, name, preferences)
     VALUES ('delete', old.rowid, old.name, old.preferences);
     INSERT INTO clients_fts(rowid, name, preferences)
     VALUES (new.rowid, new.name, new.preferences);
 END;
 
--- (análogo para services_fts)
+-- Triggers análogos para services_fts
+CREATE TRIGGER services_fts_ai AFTER INSERT ON services BEGIN
+    INSERT INTO services_fts(rowid, name, description)
+    VALUES (new.rowid, new.name, new.description);
+END;
+
+CREATE TRIGGER services_fts_ad AFTER DELETE ON services BEGIN
+    INSERT INTO services_fts(services_fts, rowid, name, description)
+    VALUES ('delete', old.rowid, old.name, old.description);
+END;
+
+CREATE TRIGGER services_fts_au AFTER UPDATE ON services BEGIN
+    INSERT INTO services_fts(services_fts, rowid, name, description)
+    VALUES ('delete', old.rowid, old.name, old.description);
+    INSERT INTO services_fts(rowid, name, description)
+    VALUES (new.rowid, new.name, new.description);
+END;
 ```
 
 #### 3.7.11 Resumen de índices secundarios
