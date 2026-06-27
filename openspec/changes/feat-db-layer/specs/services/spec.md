@@ -105,6 +105,12 @@ The repository method `SearchFTS(ctx, query)` MUST return services that match th
 - WHEN the FTS5 parser would otherwise fail
 - THEN the repository MUST either sanitize the input or return a semantic error, and MUST NOT propagate a raw SQLite syntax error to the caller
 
+#### Scenario: `SearchFTS` is ordered by relevance
+
+- GIVEN multiple services match a query
+- WHEN `SearchFTS("hair")` is called
+- THEN the results MUST be ordered by FTS5 `bm25` rank ASC (lower rank = more relevant)
+
 ## Notes
 
 - Trigger naming follows the convention `services_fts_ai`, `services_fts_au`, `services_fts_ad` (infix `_fts_` for consistency with the table name). Confirmed 2026-06-25; documented in PRD §3.7.10 and the proposal.

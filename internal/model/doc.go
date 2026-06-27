@@ -2,7 +2,7 @@
 //
 // Entities include (8 total): BusinessProfile, Client, Service, Professional,
 // Booking, Schedule, PendingAlert, and BusinessHoursException.
-// The 8 domain structs (BusinessProfile, Client, Service, Professional, Booking, Schedule, BusinessHoursException, PendingAlert) map 1:1 to the 10 domain SQLite tables declared in internal/db/database.go. `schema_version` is a table without a corresponding model struct (it lives in the schema, not in the Go layer).
+// The 8 domain structs (BusinessProfile, Client, Service, Professional, Booking, Schedule, BusinessHoursException, PendingAlert) map 1:1 to the 8 **relational** domain SQLite tables declared in internal/db/database.go. The 2 FTS5 virtual tables (`clients_fts`, `services_fts`) and the metadata table `schema_version` have no corresponding model structs (they live in the schema, not in the Go layer).
 //
 // Computed/DTO types (e.g., a future LoyaltyReport DTO built from aggregation
 // queries) do NOT map 1:1 to a table and are not declared here unless they

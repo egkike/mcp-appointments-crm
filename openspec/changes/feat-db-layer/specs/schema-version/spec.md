@@ -88,7 +88,7 @@ La tabla `schema_version` está diseñada para que fases futuras (Fase 2+) agreg
 - WHEN Fase 2 necesite agregar una columna o tabla
 - THEN Fase 2 leerá `MAX(version) FROM schema_version` (o equivalente)
 - AND ejecutará las migraciones incrementales hasta la versión target
-- AND actualizará la tabla con la nueva versión (insertando una nueva fila o actualizando la existente según el diseño del runner)
+- AND inserta **nuevas filas** (una por migración aplicada) — nunca UPDATE — preservando el historial `applied_at` de cada paso. La fila con `version=MAX(version)` es la versión actual del esquema
 - AND el resultado es un esquema actualizado sin pérdida de datos del usuario
 
 #### Scenario: Schema Version Scope Boundary

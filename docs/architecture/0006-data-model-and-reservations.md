@@ -162,10 +162,12 @@ The 5 validations are:
   "available / unavailable / pending" status. Overkill for MVP;
   the validation chain handles all the cases we need.
 
-**Trade-off**: the validation chain has 5 sequential queries in
-the worst case. We considered parallelizing 3b/3c/3d (independent
+**Trade-off**: the validation chain has 6 sequential SQL lookups in
+the worst case (Paso 1: 2 queries for services + professionals; Paso 3a: 2 queries
+for exception + JSON fallback; Paso 3b: 1 query for schedules; Paso 3d: 1 query
+for overlap). We considered parallelizing 3b/3c/3d (independent
 checks), but decided the latency gain isn't worth the code
-complexity for MVP. Single-threaded sequential is ~5 ms on a
+complexity for MVP. Single-threaded sequential is ~6 ms on a
 modest database; well within the p95 < 100 ms target from
 `docs/PRD.md §5.2 RNF`.
 
@@ -186,7 +188,7 @@ modest database; well within the p95 < 100 ms target from
 
 **Negative** (all 5 decisions together):
 
-- `check_availability` requires up to 5 sequential queries
+- `check_availability` requires up to 6 sequential SQL lookups
   (acceptable per the p95 < 100 ms target)
 - The hybrid JSON + table model is more complex than "all
   SQL" or "all JSON" — the reader needs to know both

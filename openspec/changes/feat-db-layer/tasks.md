@@ -16,7 +16,7 @@ Fase 1 extiende la base SQLite de 4 a 11 tablas (10 de dominio + `schema_version
 | **1** | foundation (schema + models + sentinels + FTS integration test) | ~420 | 1.1–1.6 |
 | **2** | simple repos (BusinessProfile, Services, Clients, BusinessHoursException) | ~500 | 2.1–2.4 |
 | **3** | complex repos (Bookings with CheckAvailability, Professionals, Schedules, PendingAlerts) | ~600 | 3.1–3.7 |
-| **Total** | | **~1520** | 14 |
+| **Total** | | **~1520** | 17 |
 
 ## Dependency graph
 
@@ -92,7 +92,6 @@ type CheckAvailabilityParams struct {
 // CheckAvailability output
 type CheckAvailabilityResult struct {
     Available bool
-    Reason    string  // populated when Available == false
 }
 
 // CreateBooking input
@@ -151,7 +150,7 @@ type CreateBookingResult struct {
   - Índices secundarios (4 en total, per §3.7.11):
     - `business_hours_exception(exception_date)` UNIQUE — sirve 3a lookup O(log n)
     - `schedules(professional_id, day_of_week)` UNIQUE — sirve 3b lookup + enforce unicidad
-    - **`bookings(start_datetime, professional_id, client_id)`** — sirve overlap check (3d) y agenda del cliente
+    - **`bookings(professional_id, start_datetime, end_datetime)`** — sirve overlap check (3d) y agenda del profesional
     - `pending_alerts(scheduled_datetime, status)` — sirve `ListPending` index-served
   - Timestamps: `DATETIME` → `TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`
   - `business_profile`: add `CHECK (id = 'singleton')` constraint (per Decisión 12)
@@ -184,7 +183,7 @@ type CreateBookingResult struct {
 - **Spec scenarios satisfied**:
   - `schema-version` "Multiple InitSchema Calls", "Schema Initialization Idempotency", "Version Tracking Reserved for Future Migrations"
 - **Implementation**:
-  - CREATE TABLE `schema_version` per spec §3.7.3
+  - CREATE TABLE `schema_version` per `schema-version` spec (y ver ADR-0006 Decisión 8)
   - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
 - **Acceptance**:
   - After `initSchema`, exactly 1 row exists in `schema_version` with `version=1`
@@ -387,7 +386,7 @@ type CreateBookingResult struct {
     )
     ```
     If `RowsAffected() == 0`, return `&SemanticError{Code: ErrCodeBookingOverlap, ...}`.
-  - `GetBooking`, `CancelBooking`, `RescheduleBooking` (actualiza `start_datetime`, recomputando `end_datetime`. Corre el mismo overlap guard atómico — `INSERT` con `WHERE NOT EXISTS` o `SELECT count` — que `CreateBooking`. Si hay overlap, retorna `&SemanticError{Code: ErrCodeBookingOverlap, ...}` sin modificar la fila)
+  - `GetBooking`, `CancelBooking`, `RescheduleBooking` (actualiza `start_datetime`, recomputando `end_datetime`. Corre el mismo overlap guard atómico que `CreateBooking` — `UPDATE ... WHERE NOT EXISTS (overlap subquery)` o `SELECT count` + `UPDATE` dentro de una transacción. Si hay overlap, retorna `&SemanticError{Code: ErrCodeBookingOverlap, ...}` sin modificar la fila)
   - **Bypass assumption** (per design Decisión 11 + S1): `CreateBooking` does NOT run 3a-3c/3e validations — only the atomic 3d overlap. This must be documented in the function godoc.
 - **Tests** (go-sqlmock):
   - Successful insert: ExpectQuery 1 time (for service.duration_minutes), ExpectExec INSERT ... WHERE NOT EXISTS, return rows affected = 1
@@ -406,7 +405,7 @@ type CreateBookingResult struct {
   - `internal/repository/bookings.go` (extend, ~100 LOC for the chain)
   - `internal/repository/bookings_test.go` (extend, ~120 LOC for the chain tests)
 - **Spec scenarios satisfied**:
-  - `bookings` "5-step chain (9 scenarios)" — 3a, 3b, 3c, 3d, 3e + happy path + first-failure-wins + 3d-ignores-cancelled + 3c-before-pro
+  - `bookings` "5-step chain (10 scenarios)" — 3a, 3b, 3c, 3d, 3e + happy path + first-failure-wins + 3d-ignores-cancelled + 3c-before-pro + 3c-before-business-opening
 - **Key implementation** (per design Decisión 11 + round-3 C2):
   - The chain runs 3a → 3b → 3c → 3d → 3e in order; first failure returns
   - **3a** (exception first, then JSON): query `business_hours_exception` for the date. If a row exists: if `is_closed=1` → return `ErrCodeBusinessClosed`; if `is_closed=0` → use the exception's `open_time`/`close_time`. Otherwise, fallback to JSON `business_hours` for the weekday.
@@ -415,11 +414,11 @@ type CreateBookingResult struct {
   - **3d**: SQL range comparison `start_datetime < ? AND end_datetime > ?` (carve-out from D2 per C2; UTC normalized → safe)
   - **3e**: Go parses `start_datetime` and compares with `time.Now().UTC()` (timezone-aware)
 - **Tests** (go-sqlmock):
-  - 9 scenarios: 3a-closed-by-exception, 3a-closed-by-JSON, 3b-pro-not-working, 3c-slot-out-of-hours, 3c-before-pro-start, 3d-overlap, 3d-ignores-cancelled, 3e-past, happy-path-all-5-pass
+  - 9 scenarios: 3a-closed-by-exception, 3a-closed-by-JSON, 3b-pro-not-working, 3c-slot-out-of-hours, 3c-before-pro-start, 3c-slot-starts-before-business-opening, 3d-overlap, 3d-ignores-cancelled, 3e-past, happy-path-all-5-pass
   - Plus the "first failure wins" meta-scenario (assert 3d is NEVER called if 3a fails)
   - Plus timezone-cross-midnight test: `2026-06-25T23:00:00-03:00` → local Thursday 23:00, not UTC Friday 02:00
 - **Acceptance**:
-  - All 9 scenarios pass; coverage ≥ 80%
+  - All 10 scenarios pass; coverage ≥ 80%
 
 ### Task 3.6 — Implement datetime parsing helpers
 

@@ -363,8 +363,8 @@ CREATE TABLE bookings (
     updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-CREATE INDEX idx_bookings_start_professional_client
-    ON bookings(start_datetime, professional_id, client_id);
+CREATE INDEX idx_bookings_overlap
+    ON bookings(professional_id, start_datetime, end_datetime);
 ```
 
 **Máquina de estados de `status`**: ver §5.1 RF6. Valores permitidos `pending`, `confirmed`, `cancelled`. Transiciones documentadas ahí.
@@ -473,7 +473,7 @@ END;
 | Tabla | Índice | Razón |
 |---|---|---|
 | `schedules` | `(professional_id, day_of_week)` | "¿trabaja el Profesional A hoy?" |
-| `bookings` | `(start_datetime, professional_id, client_id)` | Overlap check + agenda del cliente |
+| `bookings` | `(professional_id, start_datetime, end_datetime)` | Overlap check (3d) + agenda del profesional |
 | `business_hours_exception` | `(exception_date)` UNIQUE | "¿hay excepción para esta fecha?" (Paso 3a de §3.7.13) |
 | `pending_alerts` | `(scheduled_datetime, status)` | "¿qué alertas hay pendientes para enviar?" |
 | `clients_fts` | (auto, FTS5) | `search_clients_advanced` |
@@ -491,7 +491,15 @@ Per [ADR-0004](../architecture/0004-naming-conventions.md):
 - Messenger fields: `messenger_platform`, `messenger_id` en `business_profile` (no en `clients`)
 - Repos Go: plural para colecciones (`BookingsRepo`), singular para agregados (`Booking`)
 
-> **Convención `updated_at`**: las columnas `updated_at` en todas las tablas se refrescan automáticamente en cada UPDATE via `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`. Los repos son responsables de incluirlas en sus `UPDATE ... SET ..., updated_at = strftime(...)`.
+> **Convención `updated_at`**: Los repos son responsables de incluir
+> `updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')` en cada `UPDATE ... SET ...`.
+> **No hay triggers** que lo hagan automáticamente; el repositorio debe setearlo
+> explícitamente en cada UPDATE.
+>
+> **Convención de timestamps**:
+> - `business_profile`, `professionals`, `services`, `clients`, `bookings`: `created_at` + `updated_at` (ambas en ISO 8601 UTC, default `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`)
+> - `schedules`, `business_hours_exception`: sin timestamps (configuración set-and-forget; la lógica de negocio no los necesita)
+> - `pending_alerts`: `created_at` solamente; los cambios de status (`MarkAsSent`, `Cancel`) se trackean por el `status` en sí, no por un `updated_at`
 
 ---
 
@@ -836,7 +844,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - `internal/repository/errors.go` (sentinels + `SemanticError{Code, Message, Cause}`)
 - `internal/repository/{business_profile,business_hours_exception,clients,services,professionals,schedules,bookings,pending_alerts}.go` (8 `*_Repo.go`)
 - Tests con `go-sqlmock` cubriendo >80% del repository
-- Índices secundarios en `bookings (start_datetime, professional_id, client_id)` y `pending_alerts (scheduled_datetime, status)`
+- Índices secundarios en `bookings (professional_id, start_datetime, end_datetime)` y `pending_alerts (scheduled_datetime, status)`
 
 **Definition of Done**:
 - [ ] Todos los métodos del repository usan prepared statements (verificable con `grep`/`go vet` o test de auditoría)
@@ -855,8 +863,6 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - `cmd/mcp-server/main.go` con loop de SSE
 - `internal/mcp/server.go` con registro de tools
 - Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas)
-- `internal/model/` con structs de dominio
-- `internal/repository/errors.go` con sentinels (`ErrNotFound`, `ErrConflict`, `ErrInvalidInput`) + `SemanticError{Code, Message, Cause}` para mensajes semánticos en español
 - Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`)
 
 **Definition of Done**:

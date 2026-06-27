@@ -44,6 +44,7 @@ sincronización** (`clients_fts`/`services_fts` devuelven cero resultados siempr
 - `pending-alerts`: alertas programadas con índice `(scheduled_datetime, status)`.
 - `data-access`: estructura y convenciones de la capa `internal/repository/` (interfaces,
   prepared statements, sentinels, ≥80% cobertura).
+- `schema-version`: tracking del estado del esquema (single-row con `version INTEGER PRIMARY KEY`); place-holder para migraciones incrementales en Fase 2+. INSERT v=1 en el primer arranque; idempotente con `INSERT OR IGNORE`.
 
 ### Modified Capabilities
 - Ninguna (no existen specs previas).
@@ -194,6 +195,10 @@ state, sin datos de usuario); los arranques subsecuentes son no-op.
    - **D2 — Datetime ISO 8601 UTC**: todos los `*_datetime` almacenan ISO 8601 UTC (RFC3339
      con sufijo `Z`). Los timestamps automáticos usan `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
       Los datetimes de input se parsean en Go con `loc, _ := time.LoadLocation(business_profile.timezone)` seguido de `time.ParseInLocation(time.RFC3339, input, loc)` y se convierten a UTC antes de almacenar. Las comparaciones
-     de datetime ocurren en Go tras parsear a `time.Time`, nunca por comparación SQL de strings.
+     de datetime timezone-aware (3a business hours, 3c slot vs hours, 3e past now)
+     ocurren en Go tras parsear a `time.Time`. La única excepción es el overlap check
+     (Paso 3d y el `INSERT ... WHERE NOT EXISTS` de `CreateBooking`), que compara
+     strings UTC ISO 8601 normalizados en SQL — el orden lexicográfico de strings UTC
+     normalizados iguala al orden cronológico, por lo que la comparación es segura y atómica.
    - **D3 — Singleton CHECK constraint**: `business_profile` incluye `CHECK (id = 'singleton')`
      para garantizar a nivel DB que solo existe una fila con id `'singleton'`.

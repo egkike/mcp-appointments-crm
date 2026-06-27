@@ -257,7 +257,7 @@ El handler hace `errors.As(err, &sErr)` para extraer el `Code` y el `Message` y 
 **Decisión**: los 4 índices secundarios son:
 1. `business_hours_exception(exception_date)` UNIQUE — sirve 3a lookup O(log n), también enforce unicidad (spec `business-hours-exception`).
 2. `schedules(professional_id, day_of_week)` UNIQUE — sirve 3b lookup + enforce una fila por (pro, día) (spec `schedules`).
-3. `bookings(start_datetime, professional_id, client_id)` — sirve overlap check (3d) y agenda del cliente (spec `bookings`, PRD §3.7.11).
+3. `bookings(professional_id, start_datetime, end_datetime)` — sirve el overlap check (Paso 3d) y la agenda del profesional. El overlap query filtra por `professional_id` y compara rangos; el index cubre el leading prefix `(professional_id, start_datetime)`.
 4. `pending_alerts(scheduled_datetime, status)` — sirve `ListPending` index-served sin full scan (spec `pending-alerts` "Secondary index on (scheduled_datetime, status)").
 
 **Rationale**: cada uno soporta un query hot del flujo de reservas o de la cola de alertas. No se agregan índices sobre FKs porque SQLite no los requiere para integridad y los FKs de `bookings` no son hot-path de search.

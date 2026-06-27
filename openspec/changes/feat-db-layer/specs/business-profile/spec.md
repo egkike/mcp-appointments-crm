@@ -111,6 +111,19 @@ The `messenger_platform` and `messenger_id` columns MUST exist on `business_prof
 - WHEN a SELECT against `clients` is executed
 - THEN the result MUST NOT include `messenger_platform` or `messenger_id` columns
 
+### Requirement: `messenger_platform` CHECK constraint
+
+The `business_profile` schema MUST include a CHECK constraint on `messenger_platform`:
+`CHECK (messenger_platform IS NULL OR messenger_platform IN ('whatsapp', 'telegram'))`.
+
+This enforces the allowlist at the DB level (defense in depth); the repository also validates at the app level.
+
+#### Scenario: Invalid messenger_platform rejected by CHECK
+
+- GIVEN a fresh `business_profile` table
+- WHEN an INSERT or UPDATE sets `messenger_platform = 'sms'`
+- THEN the database MUST reject the statement with a CHECK constraint violation
+
 ## Notes
 
 - ADR-0004 documents the move of `messenger_*` from `clients` to `business_profile`. Any pre-Fase-1 schema that has those columns on `clients` MUST be considered a bug.

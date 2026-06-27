@@ -145,11 +145,12 @@ The `type` column MUST be a `TEXT` value identifying the kind of alert. The cano
 
 In Fase 1, the only supported `type` is `confirmation_requested` (sent at booking creation per §3.7.13 Paso 5). The other types (`reminder_24h`, `loyalty_alert`) are reserved for Fase 2+. If `Create` is called with a different `type`, it MUST return `&SemanticError{Code: ErrCodeInvalidInput, ...}`.
 
-#### Scenario: All canonical types accepted
+#### Scenario: Only `confirmation_requested` is accepted in Fase 1
 
 - GIVEN a fresh table
 - WHEN alerts are inserted with `type` of `confirmation_requested`, `reminder_24h` and `loyalty_alert`
-- THEN all three inserts MUST succeed
+- THEN only the `confirmation_requested` insert succeeds
+- AND the `reminder_24h` and `loyalty_alert` inserts MUST return `&SemanticError{Code: ErrCodeInvalidInput, Message: "tipo de alerta 'X' no soportado en Fase 1; sólo 'confirmation_requested'."}`
 
 #### Scenario: Unknown type is rejected at the application layer
 
