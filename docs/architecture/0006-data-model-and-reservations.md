@@ -131,7 +131,7 @@ Go code in the repository layer.
 who don't know SQL well. Mitigated by:
 
 - The trigger SQL is documented verbatim in
-  `docs/PRD.md §3.7.9` (copy-paste, don't reinvent)
+  `docs/PRD.md §3.7.10` (copy-paste, don't reinvent)
 - The triggers are unit-tested as part of the `feat/db-layer`
   phase
 - The Go code is the same regardless of whether the FTS exists

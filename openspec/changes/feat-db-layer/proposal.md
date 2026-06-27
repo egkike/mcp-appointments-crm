@@ -11,14 +11,14 @@ sincronización** (`clients_fts`/`services_fts` devuelven cero resultados siempr
 ## Scope
 
 ### In Scope
-- Reescribir `internal/db/database.go` al esquema completo de **10 tablas** (PRD §3.7).
+- Reescribir `internal/db/database.go` al esquema completo de **11 tablas** (10 de dominio PRD §3.7 + `schema_version`).
 - Renombrar `appointments`→`bookings`, `duration_mins`→`duration_minutes`,
   `start_time`/`end_time`→`start_datetime`/`end_datetime` (ADR-0004).
 - Mover `messenger_*` de `clients` a `business_profile`; IDs `INTEGER`→`TEXT` UUID v4
   (salvo `business_profile.id='singleton'`); timestamps `DATETIME`→`TEXT` ISO 8601.
 - Añadir **6 triggers FTS5** (`*_ai`, `*_ad`, `*_au` por tabla) — ADR-0006 Decisión 4.
 - Desnormalizar `bookings.end_datetime` y 3 índices secundarios.
-- Crear `internal/model/` (8 archivos) y `internal/repository/` (9 archivos) con
+- Crear `internal/model/` (8 archivos) y `internal/repository/` (9 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 10 archivos totales) con
   prepared-statement CRUD + `CheckAvailability` (5 pasos).
 - Promover `go-sqlmock` de `// indirect` a directa. TDD estricto, ≥80% cobertura repos.
 
@@ -59,7 +59,7 @@ siguen ADR-0004. Repartido en **3 PRs encadenados** (budget elevado a 600 — ob
 
 | PR | Alcance | LOC | Cambio |
 |----|---------|-----|--------|
-| **1** | `database.go` (10 tablas + 6 triggers + 3 índices + tabla `schema_version`) + 8 modelos + `errors.go` + `internal/db/database_test.go` (integración FTS en memoria, ~100 LOC) | ~420 | Fundación |
+| **1** | `database.go` (10 tablas de dominio + `schema_version` + 6 triggers + 3 índices) + 8 modelos + `errors.go` + `internal/db/database_test.go` (integración FTS en memoria, ~100 LOC) | ~420 | Fundación |
 | **2** | Repos simples: `business_profile` (lazy-init), `services`, `clients`, `business_hours_exception` + `*_test.go` (`go-sqlmock`) | ~500 | CRUD |
 | **3** | Repos complejos: `bookings` con `CheckAvailability` (5 pasos), `professionals`, `schedules`, `pending_alerts` + `*_test.go` | ~600 | Lógica |
 | Total | ~1500-1900 LOC | — | 3 PRs ≤600 |
@@ -92,7 +92,7 @@ Orden estricto: PR 2 y PR 3 dependen del esquema de PR 1.
 
 | Área | Impacto | Descripción |
 |------|---------|-------------|
-| `internal/db/database.go` | Modificado | Reescritura: 4→10 tablas, +6 triggers, +3 índices |
+| `internal/db/database.go` | Modificado | Reescritura: 4→11 tablas (10 dominio + schema_version), +6 triggers, +3 índices |
 | `internal/db/database_test.go` | Nuevo | Integración FTS con SQLite en memoria |
 | `internal/model/*.go` (8) | Nuevo | Modelos por tabla, singular |
 | `internal/repository/*.go` (9) | Nuevo | CRUD + `CheckAvailability` + `errors.go` |
@@ -127,7 +127,7 @@ Orden estricto: PR 2 y PR 3 dependen del esquema de PR 1.
 
 ## Success Criteria
 
-- [ ] `internal/db/database.go` crea las 10 tablas de PRD §3.7 con los 6 triggers FTS5.
+- [ ] `internal/db/database.go` crea las 11 tablas (10 de dominio PRD §3.7 + `schema_version`) con los 6 triggers FTS5.
 - [ ] `internal/db/database_test.go` demuestra que insertar/borrar/actualizar en `clients` y
       `services` mantiene `clients_fts`/`services_fts` sincronizados.
 - [ ] `CheckAvailability` implementa los 5 pasos de PRD §3.7.13 con mensajes semánticos.
@@ -137,7 +137,7 @@ Orden estricto: PR 2 y PR 3 dependen del esquema de PR 1.
 
 ## Referencias
 
-- **PRD**: `docs/PRD.md` §3.7 (esquema 10 tablas), §3.7.9 (6 triggers FTS), §3.7.13 (cadena 5 pasos).
+- **PRD**: `docs/PRD.md` §3.7 (esquema 10 tablas de dominio + `schema_version`), §3.7.10 (6 triggers FTS), §3.7.13 (cadena 5 pasos).
 - **ADRs**: `docs/architecture/0004-naming-conventions.md`, `0005-optional-external-tools.md`,
   `0006-data-model-and-reservations.md` (5 decisiones: `business_hours` JSON, tabla
   `business_hours_exception`, `end_datetime` denormalizado, FTS vía triggers, validación 5 pasos),
@@ -161,7 +161,7 @@ CREATE TABLE schema_version (
 
 -- En el primer arranque, initSchema inserta la versión inicial:
 INSERT INTO schema_version (version, description) VALUES
-    (1, 'initial 10-table schema per PRD §3.7 + 6 FTS sync triggers + 3 secondary indexes');
+    (1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 3 secondary indexes');
 ```
 
 `initSchema` usa la presencia de la fila `(version=1)` como señal de "ya está

@@ -1,6 +1,6 @@
 # Spec: clients
 
-> Reference: `docs/PRD.md` §3.7.7, §3.7.9, §3.7.10; `docs/architecture/0004-naming-conventions.md`; `docs/architecture/0006-data-model-and-reservations.md` Decisión 4
+> Reference: `docs/PRD.md` §3.7.7, §3.7.10; `docs/architecture/0004-naming-conventions.md`; `docs/architecture/0006-data-model-and-reservations.md` Decisión 4
 > Change: feat-db-layer
 > Status: NEW (no prior spec existed)
 
@@ -111,6 +111,17 @@ The repository method `SearchFTS(ctx, query)` MUST return clients that match the
 - GIVEN the search method is called with a query that contains unbalanced parentheses or quote characters
 - WHEN the FTS5 parser would otherwise fail
 - THEN the repository MUST either sanitize the input or return a semantic error, and MUST NOT propagate a raw SQLite syntax error to the caller
+
+### Requirement: Application-level rejection of malformed date formats
+
+The repository MUST validate that date inputs (such as `exception_date` in `business_hours_exception`) match the canonical `YYYY-MM-DD` format before passing them to the database. Non-canonical date strings MUST NOT be silently stored.
+
+#### Scenario: Rejects malformed exception_date format
+
+- GIVEN an input with `exception_date` not matching `YYYY-MM-DD` (e.g., `2026-12-25T00:00:00` or `25/12/2026`)
+- WHEN the repository is called
+- THEN the call MUST return an error with `Code == ErrCodeInvalidInput`
+- AND the database MUST NOT receive the INSERT
 
 ## Notes
 

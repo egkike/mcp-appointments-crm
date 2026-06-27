@@ -1,6 +1,6 @@
 # Spec: services
 
-> Reference: `docs/PRD.md` §3.7.6, §3.7.9, §3.7.10; `docs/architecture/0004-naming-conventions.md`; `docs/architecture/0006-data-model-and-reservations.md` Decisión 4
+> Reference: `docs/PRD.md` §3.7.6, §3.7.10; `docs/architecture/0004-naming-conventions.md`; `docs/architecture/0006-data-model-and-reservations.md` Decisión 4
 > Change: feat-db-layer
 > Status: NEW (no prior spec existed)
 

@@ -1,6 +1,6 @@
 # Spec: pending-alerts
 
-> Reference: `docs/PRD.md` §3.7.9; §3.7.13 Paso 5
+> Reference: `docs/PRD.md` §3.7.10; §3.7.13 Paso 5
 > Change: feat-db-layer
 > Status: NEW (no prior spec existed)
 
@@ -86,11 +86,13 @@ The `scheduled_datetime` column MUST be a `TEXT` value holding an ISO 8601 datet
 - WHEN `MarkAsSent(ctx, 42)` is called
 - THEN the call MUST NOT return an error and the stored `status` MUST remain `sent`
 
-#### Scenario: Cancelled alert is not silently sent
+#### Scenario: MarkAsSent on cancelled alert is a no-op
 
-- GIVEN a cancelled alert with `id = 42`
+- GIVEN una alert con `status = 'cancelled'`
 - WHEN `MarkAsSent(ctx, 42)` is called
-- THEN the call MUST return a semantic error indicating that a cancelled alert cannot be marked as sent (or the call MUST be a no-op, depending on project policy — the chosen behavior MUST be documented in the repository's godoc)
+- THEN the system MUST return `nil` (success, no-op)
+- AND the stored `status` MUST remain `cancelled` (not modified)
+- AND the caller receives a "all good" semantic without error
 
 ### Requirement: `related_booking_id` is optional
 

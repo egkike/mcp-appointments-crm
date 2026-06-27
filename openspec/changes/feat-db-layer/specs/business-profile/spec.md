@@ -106,3 +106,14 @@ The `messenger_platform` and `messenger_id` columns MUST exist on `business_prof
 - The lazy-init flow uses `INSERT OR IGNORE` + `SELECT` per the proposal's third confirmed decision (2026-06-25). It is a repository-level concern; direct SQL access from outside the repository is not protected by this contract.
 - See `bookings` capability for how `business_hours` and `timezone` are consumed by the 5-step `check_availability` chain (Paso 3a).
 - See `data-access` capability for the testing strategy that covers this row.
+
+### Requirement: Fresh install with empty business_hours rejects all bookings
+
+The default value of `business_hours` is `'{}'` (empty JSON object). Until the config-wizard sets actual operating hours, `check_availability` MUST reject all booking attempts because no weekday has defined opening hours.
+
+#### Scenario: Fresh install rejects all bookings until wizard sets hours
+
+- GIVEN una base recién creada con `business_hours = '{}'`
+- WHEN `CheckAvailability` se invoca con cualquier día
+- THEN el sistema retorna `&SemanticError{Code: ErrCodeBusinessClosed, Message: "el negocio no abre los {día}."}`
+- AND el operador debe correr el config-wizard o actualizar `business_hours` antes de aceptar bookings

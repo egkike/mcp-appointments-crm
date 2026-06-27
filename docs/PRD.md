@@ -63,7 +63,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - Script `install.sh` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
 - Script `scripts/backup.sh` portable (bash, sin scheduler automático) que produce un backup consistente del `.db` con `sqlite3 .backup` + gzip.
 - Templates de service unit para Linux (`mcp-appointments-crm.service`), macOS (`com.mcp.appointments.server.plist`) y Windows (`mcp-appointments-crm.xml` para Task Scheduler).
-- Endpoint SSE expuesto **únicamente** en loopback. Bind default `127.0.0.1` (IPv4, explícito — NO `localhost`, que puede resolver a `::1` según el sistema) y puerto default `3000`. Configurable vía env vars `MCP_BIND` y `MCP_PORT`. Precedencia (mayor a menor): env vars del sistema > `~/.config/mcp-appointments-crm/.env` (o equivalente platform-native) > defaults. El binario **no hace fallback automático** de puerto. Si `MCP_BIND` no es loopback (127.0.0.0/8 o ::1), falla con error de seguridad antes de bindear. Ver [ADR-0007](../architecture/0007-server-config.md).
+- Endpoint SSE expuesto **únicamente** en loopback. Bind default `127.0.0.1` (IPv4) o `::1` (IPv6). Validación acepta loopback (127.0.0.0/8 o ::1). Ver [ADR-0007](../architecture/0007-server-config.md). Puerto default `3000`. Configurable vía env vars `MCP_BIND` y `MCP_PORT`. Precedencia (mayor a menor): env vars del sistema > `~/.config/mcp-appointments-crm/.env` (o equivalente platform-native) > defaults. El binario **no hace fallback automático** de puerto. Si `MCP_BIND` no es loopback (127.0.0.0/8 o ::1), falla con error de seguridad antes de bindear. Ver [ADR-0007](../architecture/0007-server-config.md).
 - Manejo de errores con mensajes semánticos en español, sin stack traces al LLM.
 - Tests unitarios sobre el repository layer con `go-sqlmock`.
 - Linter `golangci-lint` con defaults (errcheck, govet, ineffassign, staticcheck, unused).
@@ -104,7 +104,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 
 - `cmd/mcp-server/` — entry point del servidor MCP.
 - `cmd/config-wizard/` — entry point del TUI de configuración.
-- `internal/db/` — conexión, pragmas, schema (ya existe `database.go`).
+- `internal/db/` — conexión, pragmas, schema (ya existe `database.go`). Incluye la tabla `schema_version` para tracking de versión del esquema (ver spec `openspec/changes/feat-db-layer/specs/schema-version/spec.md`).
 - `internal/repository/` — nuevo: repos por tabla con prepared statements.
 - `internal/mcp/` — nuevo: handlers de tools MCP, registro del server.
 - `internal/model/` — nuevo: structs de dominio (Client, Service, Booking, etc.).
@@ -113,7 +113,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - `scripts/backup.sh` — nuevo: script bash portable de backup (usa `sqlite3 .backup` para consistencia).
 - `setup/service/` — templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`).
 - `~/.config/mcp-appointments-crm/.env` (Linux) o equivalente platform-native (§3.5 Install Layout) — archivo de configuración opcional con `MCP_BIND` y `MCP_PORT`; generado por `install.sh` con los valores default; editable por el operador; el service unit (systemd) lo carga con `EnvironmentFile=`. Si no existe, el binario arranca con los defaults sin error.
-- `openspec/specs/{core,clients,services,bookings,business-profile}/` — delta specs por dominio.
+- `openspec/changes/<fase>/specs/<capability>/` — delta specs por dominio (un spec por capability dentro de la carpeta del change). Convención: `openspec/changes/feat-db-layer/specs/business-profile/spec.md`, `bookings/spec.md`, etc.
 - `openspec/changes/<fase>/` — carpetas por fase del SDD workflow.
 
 #### Matriz de cross-compilation
@@ -478,6 +478,8 @@ END;
 | `clients_fts` | (auto, FTS5) | `search_clients_advanced` |
 | `services_fts` | (auto, FTS5) | `search_services_advanced` |
 
+> **Nota sobre índices FK de `bookings`**: los FKs de `bookings` (`client_id`, `professional_id`, `service_id`) no se indexan por decisión de diseño (Decisión 9 del design de `feat-db-layer`). SQLite no requiere índices sobre FKs para integridad referencial, y los FKs de `bookings` no son hot-path de search; el overlap check usa `professional_id` + `start_datetime`/`end_datetime` (cubierto por el índice compuesto listado arriba).
+
 #### 3.7.12 Convenciones de nombrado aplicadas
 
 Per [ADR-0004](../architecture/0004-naming-conventions.md):
@@ -497,13 +499,13 @@ Cuando el cliente solicita una reserva (típicamente vía Hermes, ej. "Hermes, q
 ##### Paso 1 — Resolución de parámetros
 
 ```sql
--- service_id, duration_minutes
-SELECT id, duration_minutes
+-- service_id, name, duration_minutes
+SELECT id, name, duration_minutes
 FROM services
 WHERE id = ? AND is_active = 1;
 
--- professional_id, status
-SELECT id, status
+-- professional_id, name, status
+SELECT id, name, status
 FROM professionals
 WHERE id = ?;
 ```
@@ -707,8 +709,8 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - **Descripción**: El sistema debe exponer `check_availability()`, `create_booking()`, `cancel_booking()` y `reschedule_booking()` con validación de reglas de negocio.
 - **Prioridad**: Must
 - **Criterios de Aceptación**:
-  - [ ] Dado que el profesional X tiene horario Lunes 9-18 y hay una reserva de 10:00 a 11:00, cuando Hermes invoca `check_availability(professional_id=X, start=10:30)`, entonces el sistema retorna `false` y un mensaje `Error: el profesional X ya tiene una reserva en ese horario`.
-  - [ ] Dado que el profesional X no trabaja los domingos, cuando Hermes invoca `create_booking` con `start_datetime` en domingo, entonces el sistema retorna `Error: el profesional X no trabaja los domingos`.
+  - [ ] Dado que el profesional X tiene horario Lunes 9-18 y hay una reserva de 10:00 a 11:00, cuando Hermes invoca `check_availability(professional_id=X, start=10:30)`, entonces el sistema retorna `false` y un mensaje `Error: el Profesional {name} ya tiene una reserva de {existing_start} a {existing_end}.`.
+  - [ ] Dado que el profesional X no trabaja los domingos, cuando Hermes invoca `create_booking` con `start_datetime` en domingo, entonces el sistema retorna `Error: el Profesional {name} no trabaja los {día}.`.
   - [ ] Dado que se cancela una reserva, cuando la operación es exitosa, entonces la fila se marca con `status='cancelled'` (no se borra) y el slot queda libre para `check_availability`.
 
 > **Máquina de estados de `bookings.status`**: valores permitidos `pending`, `confirmed`, `cancelled`. Transiciones válidas: `pending → confirmed`, `confirmed → cancelled`, `pending → cancelled`. No se permiten transiciones inválidas (ej. `cancelled → confirmed`, `cancelled → pending`); si el LLM las pide, el sistema retorna `Error: transición de estado inválida de {from} a {to}`.
@@ -752,7 +754,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 | Disponibilidad | El servicio debe reiniciarse automáticamente ante crash | Unit de systemd con `Restart=always` (equivalente launchd `KeepAlive=true`) |
 | Mantenibilidad | Cobertura de tests sobre el repository layer | > 80% con `go test -cover` |
 | Seguridad | 100% de queries con prepared statements | Linter custom o test de auditoría que falle si hay concatenación |
-| Seguridad | Puerto expuesto solo en loopback; bind y puerto configurables vía env vars + `.env` | Doble capa: bind a `127.0.0.1` (default, configurable vía `MCP_BIND` con validación de loopback) + `IPAddressAllow=127.0.0.1` en systemd. Puerto default `3000` configurable vía `MCP_PORT`. Precedencia: env vars > `~/.config/mcp-appointments-crm/.env` > defaults. |
+| Seguridad | Puerto expuesto solo en loopback; bind y puerto configurables vía env vars + `.env` | Doble capa: bind a `127.0.0.1` (IPv4) o `::1` (IPv6) (default, configurable vía `MCP_BIND` con validación de loopback 127.0.0.0/8 o ::1) + `IPAddressAllow=127.0.0.1` en systemd. Puerto default `3000` configurable vía `MCP_PORT`. Precedencia: env vars > `~/.config/mcp-appointments-crm/.env` > defaults. Ver ADR-0007. |
 | Configurabilidad | Bind y puerto sin recompilar | `MCP_BIND` (default `127.0.0.1`) y `MCP_PORT` (default `3000`) vía env vars del sistema o archivo `.env` en el config dir |
 | Seguridad | Servicio corre sin root | User-level systemd (`~/.config/systemd/user/`), launchd `LaunchAgents/`, Task Scheduler user task. No se crea `appuser` dedicado. |
 | Seguridad | Permisos de directorio restrictivos al crear el path del SQLite | `os.MkdirAll(dir, 0750)` en `internal/db/database.go` |
@@ -822,7 +824,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - `internal/mcp/server.go` con registro de tools
 - Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas)
 - `internal/model/` con structs de dominio
-- `internal/errs/` con códigos y mensajes semánticos en español
+- `internal/repository/errors.go` con sentinels (`ErrNotFound`, `ErrConflict`, `ErrInvalidInput`) + `SemanticError{Code, Message, Cause}` para mensajes semánticos en español
 - Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`)
 
 **Definition of Done**:

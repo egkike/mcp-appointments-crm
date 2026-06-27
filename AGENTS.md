@@ -36,7 +36,7 @@ You are developing a high-performance, self-hosted, lightweight MCP (Model Conte
 Before staging, committing, or pushing any code to the repository, you **MUST** execute and pass the following verification pipeline. 
 
 ### Pre-Commit Checklist:
-1. **Formatting & Linting:** Run `go fmt ./...` and ensure no linting issues exist.
+1. **Formatting & Linting:** Run `go fmt ./...` and `go vet ./...` and `golangci-lint run ./...` — ensure no linting issues exist.
 2. **Compilation:** Verify the project builds flawlessly:
    ```bash
    go build -o /dev/null ./...

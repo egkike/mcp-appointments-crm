@@ -154,6 +154,12 @@ Cancelling a booking MUST set `status = 'cancelled'` on the existing row, NOT de
 - WHEN `CheckAvailability` is called for a `start_datetime` of `17:45` with a 30-minute service
 - THEN the method MUST return the error `Error: el servicio dura 30 minutos pero solo quedan {remaining} antes del cierre a las 18:00.`
 
+#### Scenario: 3c — slot before professional's start time (not business opening)
+
+- GIVEN el profesional A tiene schedule `day_of_week=1, start_time=10:00, end_time=18:00` y el negocio abre a las 09:00
+- WHEN se solicita un slot a las 09:30 con el profesional A
+- THEN el sistema retorna `&SemanticError{Code: ErrCodeSlotOutOfHours, Message: "el Profesional A empieza a las 10:00."}` (no "el negocio abre a las 09:00")
+
 #### Scenario: 3d — overlap with existing non-cancelled booking
 
 - GIVEN a non-cancelled booking exists for the same professional that overlaps the proposed slot

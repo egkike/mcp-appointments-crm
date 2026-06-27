@@ -6,7 +6,7 @@
 
 ## Overview
 
-`feat-db-layer` (Fase 1 del roadmap) extiende el esquema SQLite de **4 a 10 tablas** (incluyendo `schema_version`), agrega **6 triggers FTS5** y **3 índices secundarios**, e introduce dos paquetes nuevos: `internal/model/` (8 structs) y `internal/repository/` (9 archivos con CRUD prepared-statement + la cadena `check_availability` de 5 pasos de PRD §3.7.13). El trabajo se reparte en **3 PRs encadenados** bajo el budget elevado de 600 líneas (obs 456). El diseño es el puente entre el **qué** (las 10 specs) y el **cómo** (las tasks): define la arquitectura de capas, los flujos de datos centrales, 8 decisiones arquitectónicas y el mapeo specs → tests que operará `sdd-tasks` y `sdd-apply`.
+`feat-db-layer` (Fase 1 del roadmap) extiende el esquema SQLite de **4 a 11 tablas** (10 de dominio incluyendo `schema_version`), agrega **6 triggers FTS5** y **3 índices secundarios**, e introduce dos paquetes nuevos: `internal/model/` (8 structs) y `internal/repository/` (9 archivos `*_Repo.go` + 1 `errors.go` con sentinels y SemanticError = 10 archivos totales, con CRUD prepared-statement + la cadena `check_availability` de 5 pasos de PRD §3.7.13). El trabajo se reparte en **3 PRs encadenados** bajo el budget elevado de 600 líneas (obs 456). El diseño es el puente entre el **qué** (las 10 specs) y el **cómo** (las tasks): define la arquitectura de capas, los flujos de datos centrales, 10 decisiones arquitectónicas y el mapeo specs → tests que operará `sdd-tasks` y `sdd-apply`.
 
 ## Layer Architecture
 
@@ -36,7 +36,7 @@ Reglas de dependencia (no escritas, enforced por code review + `go vet`):
 
 ```mermaid
 flowchart LR
-    PR1["PR 1 — foundation<br/>database.go (10 tablas + 6 triggers + 3 idx + schema_version)<br/>+ 8 modelos + errors.go<br/>+ database_test.go (in-mem FTS)<br/>~420 LOC"]
+    PR1["PR 1 — foundation<br/>database.go (11 tablas: 10 dominio + schema_version + 6 triggers + 3 idx)<br/>+ 8 modelos + errors.go<br/>+ database_test.go (in-mem FTS)<br/>~420 LOC"]
     PR2["PR 2 — simple repos<br/>business_profile (lazy-init)<br/>services, clients, business_hours_exception<br/>+ *_test.go (go-sqlmock)<br/>~500 LOC"]
     PR3["PR 3 — complex repos<br/>bookings (CheckAvailability 5 pasos)<br/>professionals, schedules, pending_alerts<br/>+ *_test.go<br/>~600 LOC"]
 
@@ -44,7 +44,7 @@ flowchart LR
     PR1 --> PR3
 ```
 
-Orden estricto: **PR 1 es un gate duro**. PR 2 y PR 3 dependen ambos del esquema nuevo (10 tablas + FKs + triggers). Si PR 1 se revierte, PR 2 y PR 3 quedan bloqueados hasta aterrizar un fix (ver Rollback Plan de la propuesta). PR 2 y PR 3 possono mergearse en cualquier orden o juntos una vez aterrizado PR 1, porque son capas aisladas (`internal/repository/*`) que no se importan entre sí (salvo `bookings` que referencia `services`/`professionals`/`schedules` vía FK a nivel SQL, no vía Go imports).
+Orden estricto: **PR 1 es un gate duro**. PR 2 y PR 3 dependen ambos del esquema nuevo (11 tablas + FKs + triggers). Si PR 1 se revierte, PR 2 y PR 3 quedan bloqueados hasta aterrizar un fix (ver Rollback Plan de la propuesta). PR 2 y PR 3 possono mergearse en cualquier orden o juntos una vez aterrizado PR 1, porque son capas aisladas (`internal/repository/*`) que no se importan entre sí (salvo `bookings` que referencia `services`/`professionals`/`schedules` vía FK a nivel SQL, no vía Go imports).
 
 ## Data Flow: `check_availability` (cadena de 5 pasos)
 
@@ -159,7 +159,7 @@ Decisión de diseño: `CreateBooking` y `EnqueueAlert` **no** se ejecutan en una
 
 **Alternativas rechazadas**: sync manual en Go (cada write del repo debería acordarse → frágil, bulk imports desincronizan), no sync (estado actual, bug).
 
-**Consecuencias**: El repositorio es agnóstico al FTS — el código Go no cambia haya o no FTS. Los triggers son opacos para desarrolladores Go; mitigado por: doc verbatim en PRD §3.7.9, integration test en `database_test.go` (Decisión 6). `content_rowid='rowid'` (no `id`) para evitar fricción con tipos UUID TEXT vs INTEGER rowid (propuesta Risks).
+**Consecuencias**: El repositorio es agnóstico al FTS — el código Go no cambia haya o no FTS. Los triggers son opacos para desarrolladores Go; mitigado por: doc verbatim en PRD §3.7.10, integration test en `database_test.go` (Decisión 6). `content_rowid='rowid'` (no `id`) para evitar fricción con tipos UUID TEXT vs INTEGER rowid (propuesta Risks).
 
 ### Decisión 4: Interfaces de repositorio definidas en el paquete consumidor
 
@@ -224,7 +224,7 @@ El handler hace `errors.As(err, &sErr)` para extraer el `Code` y el `Message` y 
 
 **Contexto**: spec `schema-version` + propuesta "Schema version + estrategia de migración". Fase 1 introduce la tabla para tracking; el runner incremental es Fase 2+.
 
-**Decisión**: `database.go` crea `schema_version` y en el primer arranque inserta fila `(version=1, 'initial 10-table schema per PRD §3.7 + 6 FTS sync triggers + 3 secondary indexes')`. `initSchema` usa la presencia de esa fila como señal de "ya inicializado" → idempotente (`CREATE TABLE IF NOT EXISTS` + `INSERT ... WHERE NOT EXISTS` style).
+**Decisión**: `database.go` crea `schema_version` y en el primer arranque inserta fila `(version=1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 3 secondary indexes')`. `initSchema` usa la presencia de esa fila como señal de "ya inicializado" → idempotente (`CREATE TABLE IF NOT EXISTS` + `INSERT ... WHERE NOT EXISTS` style).
 
 **Alternativas rechazadas**: introducir un runner de migraciones en Fase 1 (over-engineering para base sin datos — propuesta rechazó explícitamente).
 
@@ -397,7 +397,7 @@ Notas:
 
 - `openspec/changes/feat-db-layer/proposal.md` (commit `7d0dc77`)
 - `openspec/changes/feat-db-layer/specs/<capability>/spec.md` (commits `29f1d9b`, `5b13740`) — todas las 10 capabilities
-- `docs/PRD.md` §3.7 (esquema 10 tablas), §3.7.9 (6 triggers FTS), §3.7.10 (naming triggers), §3.7.13 (cadena 5 pasos)
+- `docs/PRD.md` §3.7 (esquema 10 tablas de dominio + `schema_version`), §3.7.10 (6 triggers FTS + naming triggers), §3.7.13 (cadena 5 pasos)
 - `docs/architecture/0006-data-model-and-reservations.md` (ADR-0006 — 5 decisiones)
 - `docs/architecture/0004-naming-conventions.md` (ADR-0004)
 - `docs/architecture/0005-optional-external-tools.md` (ADR-0005)

@@ -20,7 +20,7 @@ review on 2026-06-25, the user identified two gaps:
    self-documenting config file.
 
 This ADR documents the WHY of the configuration model implemented in
-the PRD (§1.4, §3.5, §5.2, §5.3).
+the PRD (§3.1, §3.5, §5.2, §6.3).
 
 ## Decision 1: Configuration sources with precedence (env vars > .env > defaults)
 
@@ -77,7 +77,7 @@ etc.
 - **Race conditions**: between the bind attempt on 3000 and the
   bind on 3001, another process could grab 3001.
 
-**The error message** (per `docs/PRD.md §5.3`): the user-facing
+**The error message** (per `docs/PRD.md §6.3`): the user-facing
 error is a clear, actionable string like `Error: puerto 3000 en
 uso. Configurá MCP_PORT con otro valor (ej. export
 MCP_PORT=3001 && mcp-server).`
@@ -140,10 +140,11 @@ stack.
 
 ## Decision 5: In-house `.env` parser, no external library
 
-The `.env` parser is implemented in `internal/config/dotenv.go` as
-~20 lines of Go (per [ADR-0005](./0005-optional-external-tools.md)
+The `.env` parser will be implemented in `internal/config/dotenv.go`
+(Fase 2+) as ~20 lines of Go (per [ADR-0005](./0005-optional-external-tools.md)
 philosophy of "no external runtime tools"). The popular
-`github.com/joho/godotenv` library is rejected.
+`github.com/joho/godotenv` library is rejected. The spec `data-access`
+defines the error types; the actual parser implementation is Fase 2 work.
 
 **Why**:
 
@@ -201,10 +202,10 @@ two config values.
 
 ## References
 
-- `docs/PRD.md §1.4` Entregables — main endpoint statement
+- `docs/PRD.md §3.1` In Scope — main endpoint statement
 - `docs/PRD.md §3.5` Affected Areas — `.env` file path bullet
 - `docs/PRD.md §5.2` RNF — Configurabilidad row
-- `docs/PRD.md §5.3` Controles de seguridad — bind validation
+- `docs/PRD.md §6.3` Compliance y Seguridad — bind validation
 - [ADR-0002](./0002-user-level-install.md) — XDG / platform-native paths
 - [ADR-0005](./0005-optional-external-tools.md) — no external deps philosophy
 - Commit `ba203e7` — when the PRD changes were applied

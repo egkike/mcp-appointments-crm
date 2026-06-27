@@ -11,9 +11,9 @@ Tracking del estado del esquema de la base de datos. Permite que fases futuras (
 
 ## Requirements
 
-### Requirement: Single-Row Schema Version Table
+### Requirement: Schema Version History Table
 
-El sistema MUST crear la tabla `schema_version` durante `initSchema`, con el siguiente esquema:
+El sistema MUST crear la tabla `schema_version` durante `initSchema`, con el siguiente esquema. La tabla actúa como historial de versiones: `version=1` se inserta en el primer arranque, y futuras migraciones (Fase 2+) insertan `version=2`, `version=3`, etc. (sin UPDATE, solo INSERT de nuevas filas).
 
 ```sql
 CREATE TABLE schema_version (
@@ -48,7 +48,7 @@ En el primer arranque (cuando la tabla `schema_version` no existe), `initSchema`
 - WHEN `initSchema(ctx, db)` completa exitosamente
 - THEN existe exactamente UNA fila en `schema_version` con `version=1`
 - AND `applied_at` es la fecha/hora actual (formato ISO 8601 UTC)
-- AND `description` es exactamente `"initial 10-table schema per PRD §3.7 + 6 FTS sync triggers + 3 secondary indexes"`
+- AND `description` es exactamente `"initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 3 secondary indexes"`
 
 #### Scenario: Applied At Is Automatic
 
@@ -69,13 +69,14 @@ En el primer arranque (cuando la tabla `schema_version` no existe), `initSchema`
 - AND la base de datos tiene el mismo estado que después de 1 llamada
 - AND la tabla `schema_version` tiene exactamente 1 fila (no se duplicó)
 
-#### Scenario: InitSchema Failure Mid-Way
+#### Scenario: Idempotent Retry After Partial Failure
 
 - GIVEN un `initSchema` que falla a mitad de camino (ej. error de SQLite en el 5to `CREATE TABLE`)
 - WHEN el operador re-ejecuta `initSchema` en un segundo intento
 - THEN los `CREATE TABLE` que ya habían exitoso se preservan (gracias a `IF NOT EXISTS`)
-- AND la base de datos queda en un estado consistente: o todas las tablas presentes, o ninguna
-- AND `schema_version` se crea al final del batch exitoso (no a mitad de camino)
+- AND los faltantes se crean
+- AND `schema_version` se crea al final del batch exitoso
+- AND la base de datos queda eventualmente consistente: todas las tablas presentes
 
 ### Requirement: Version Tracking Reserved for Future Migrations
 
