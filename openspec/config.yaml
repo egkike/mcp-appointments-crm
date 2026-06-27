@@ -1,5 +1,12 @@
 schema: spec-driven
 
+# Cap de líneas por PR para el Review Workload Guard.
+# Elevated from 400 to 600 for Fase 1 (db-layer) only — Fase 1 is
+# "big bang" (~1700-2000 LOC, 3 chained PRs: schema, simple repos,
+# complex repos with the 5-step check_availability). Vuelve a 400
+# para Fases 2-5. Source of truth: engram obs 456 (preflight cache).
+review_budget_lines: 600
+
 context: |
   Project: mcp-appointments-crm
   Module: github.com/egkike/mcp-appointments-crm
