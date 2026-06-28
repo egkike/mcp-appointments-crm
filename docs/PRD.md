@@ -3,7 +3,7 @@
 > **Estado**: Aprobado
 > **Owner**: Kike
 > **Versión**: 1.0
-> **Última actualización**: 2026-06-24
+> **Última actualización**: 2026-06-26
 
 ---
 
@@ -26,7 +26,7 @@ Cuantificación aproximada: un negocio típico pierde entre un 10% y un 20% de i
 
 ### 1.3 Solución Propuesta
 
-Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia VPS o PC del cliente. El sistema **no tiene UI propia**; expone un conjunto de herramientas (tools) al protocolo MCP. Un agente de IA conversacional (Hermes) consume esas herramientas y actúa como la interfaz para clientes finales y administradores. El sistema es single-tenant (una DB por negocio) pero multi-staff (varios profesionales por instalación). La configuración inicial se realiza mediante un asistente TUI en Go (Bubble Tea) que valida y exporta JSON. El despliegue en la VPS del cliente se automatiza con un script `curl | bash` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
+Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia VPS o PC del cliente. El sistema **no tiene UI propia**; expone un conjunto de herramientas (tools) al protocolo MCP. Un agente de IA conversacional (Hermes) consume esas herramientas y actúa como la interfaz para clientes finales y administradores. El sistema es single-tenant (una DB por negocio) pero multi-staff (varios profesionales por instalación). La configuración inicial se realiza mediante prompts interactivos en el script `install.sh` (bash) con validación regex/string; un checkpoint (`setup.json.tmp`) permite resumir si el usuario cancela a mitad. El despliegue en la VPS del cliente se automatiza con un script `curl | bash` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
 
 ---
 
@@ -59,7 +59,6 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - Binario `mcp-server` en Go que expone tools MCP vía SSE en `127.0.0.1:3000`.
 - Persistencia en SQLite (archivo local) con WAL, `busy_timeout=5000`, `foreign_keys=ON`, `synchronous=NORMAL`.
 - Soporte FTS5 con triggers `AFTER INSERT/UPDATE/DELETE` para sincronización automática.
-- Binario `config-wizard` (TUI en Bubble Tea) para configuración inicial con validación regex/string.
 - Script `install.sh` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
 - Script `scripts/backup.sh` portable (bash, sin scheduler automático) que produce un backup consistente del `.db` con `sqlite3 .backup` + gzip.
 - Templates de service unit para Linux (`mcp-appointments-crm.service`), macOS (`com.mcp.appointments.server.plist`) y Windows (`mcp-appointments-crm.xml` para Task Scheduler).
@@ -96,19 +95,17 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - **MCP server framework**: evaluar e integrar una librería MCP para Go (oficial de `modelcontextprotocol/go-sdk` o equivalente); si no hay una estable al momento, se implementa el protocolo a mano.
 - **FTS5 sync via triggers** SQL declarados en el schema, no en código Go. La fuente de verdad es la tabla relacional; el FTS es un índice derivado.
 - **Binario nativo en Go 1.26.4** con `modernc.org/sqlite` (pure Go, sin CGo, sin capas de contenedor). Se distribuye como binario único cross-compiled para 5 plataformas. Binario corre como **user-level service** (sin root, sin `appuser` dedicado) bajo el usuario que invoca `install.sh`.
-- **TUI con MVU estricto** (Bubble Tea), con validación regex/string por campo antes de permitir avanzar.
+- **Prompts interactivos en `install.sh`** (bash) con validación regex/string por campo antes de permitir avanzar. Un checkpoint (`setup.json.tmp`) cubre la cancelación del usuario.
 - **Trazabilidad de errores** con `fmt.Errorf("...: %w", err)` y mensajes semánticos en español para devolver al LLM.
 - **Tradeoff principal**: usar `modernc.org/sqlite` (pure Go) a cambio de un binario ~5 MB más grande que el driver CGo. Se acepta porque simplifica el build cross-platform (no requiere toolchain C en target ni runtime de contenedor).
 
 ### 3.5 Affected Areas
 
 - `cmd/mcp-server/` — entry point del servidor MCP.
-- `cmd/config-wizard/` — entry point del TUI de configuración.
 - `internal/db/` — conexión, pragmas, schema (ya existe `database.go`). Incluye la tabla `schema_version` para tracking de versión del esquema (ver spec `openspec/changes/feat-db-layer/specs/schema-version/spec.md`).
 - `internal/repository/` — nuevo: repos por tabla con prepared statements.
 - `internal/mcp/` — nuevo: handlers de tools MCP, registro del server.
 - `internal/model/` — nuevo: structs de dominio (Client, Service, Booking, etc.).
-- `internal/tui/` — nuevo: modelo Bubble Tea del config-wizard.
 - `scripts/install.sh` — script de despliegue para VPS del cliente.
 - `scripts/backup.sh` — nuevo: script bash portable de backup (usa `sqlite3 .backup` para consistencia).
 - `setup/service/` — templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`).
@@ -136,7 +133,7 @@ Install **user-level** (sin root, sin `appuser` dedicado). El servicio corre baj
 |---|---|---|---|
 | **Binario** | `~/.local/bin/mcp-server` | `~/.local/bin/mcp-server` | `%LOCALAPPDATA%\Programs\mcp-server\mcp-server.exe` |
 | **Data** (SQLite + backups) | `~/.local/share/mcp-appointments-crm/` | `~/Library/Application Support/MCP Appointments CRM/` | `%APPDATA%\MCP Appointments CRM\` |
-| **Config** (JSON del wizard) | `~/.config/mcp-appointments-crm/setup/` | `~/Library/Application Support/MCP Appointments CRM/setup/` | `%APPDATA%\MCP Appointments CRM\setup\` |
+| **Config** (JSON del setup) | `~/.config/mcp-appointments-crm/setup/` | `~/Library/Application Support/MCP Appointments CRM/setup/` | `%APPDATA%\MCP Appointments CRM\setup\` |
 | **Logs** | `~/.local/state/mcp-appointments-crm/mcp-server.log` | `~/Library/Logs/MCP Appointments CRM/mcp-server.log` | `%LOCALAPPDATA%\MCP Appointments CRM\Logs\mcp-server.log` |
 | **Service definition** | `~/.config/systemd/user/mcp-appointments-crm.service` | `~/Library/LaunchAgents/com.mcp.appointments.server.plist` | Task Scheduler (carpeta del usuario) |
 
@@ -696,13 +693,13 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 ### 5.1 Requerimientos Funcionales (RF)
 
-**RF1: Configuración inicial del negocio vía TUI**
-- **Descripción**: El sistema debe proveer un binario `config-wizard` que captura los datos de `business_profile`, `professionals` iniciales y `services` iniciales a través de una interfaz de terminal con validación por campo. La salida son archivos JSON en `~/.config/mcp-appointments-crm/setup/` (Linux) o su equivalente platform-native según §3.5.
+**RF1: Configuración inicial del negocio vía prompts inline en `install.sh`**
+- **Descripción**: El sistema debe capturar los datos de `business_profile`, `professionals` iniciales y `services` iniciales a través de prompts interactivos en `install.sh` (bash + `read -p` + regex), con validación por campo antes de permitir avanzar. La salida son archivos JSON en `~/.config/mcp-appointments-crm/setup/` (Linux) o su equivalente platform-native según §3.5. Si el usuario cancela (`Ctrl+C`) a mitad del ingreso, el script guarda un checkpoint `setup.json.tmp` que permite resumir al re-correr `install.sh`.
 - **Prioridad**: Must
 - **Criterios de Aceptación** (formato Gherkin):
-  - [ ] Dado que el usuario ejecuta `config-wizard` por primera vez, cuando completa todos los pasos, entonces el sistema genera `setup_business.json`, `setup_staff.json` y `setup_services.json` válidos en `~/.config/mcp-appointments-crm/setup/`.
-  - [ ] Dado que el usuario ingresa un email con formato inválido en `contact_email`, cuando intenta avanzar, entonces el TUI muestra un error de validación y no permite continuar.
-  - [ ] Dado que el usuario ingresa un horario `start_time` que no respeta el formato `HH:MM`, cuando intenta guardar, entonces el TUI rechaza el input y pide reintentar.
+  - [ ] Dado que el usuario ejecuta `install.sh` por primera vez, cuando completa todos los prompts, entonces el sistema genera `setup_business.json`, `setup_staff.json` y `setup_services.json` válidos en `~/.config/mcp-appointments-crm/setup/`, y elimina `setup.json.tmp`.
+  - [ ] Dado que el usuario ingresa un email con formato inválido en `contact_email`, cuando intenta avanzar, entonces `install.sh` muestra un error de validación y vuelve a pedir el campo (loop de reintentos) sin avanzar.
+  - [ ] Dado que el usuario cancela (`Ctrl+C`) el setup a mitad del ingreso, cuando re-ejecuta `install.sh`, el sistema detecta `setup.json.tmp` y le ofrece: (R)esumir desde el último checkpoint, (S)tart over, o (Q)uit. Si elige R, los campos ya completados no se vuelven a preguntar.
 
 **RF2: Exposición de identidad del negocio vía MCP**
 - **Descripción**: El sistema debe exponer los tools `get_business_profile()` y `update_business_profile(fields...)` que leen y modifican la tabla `business_profile` a través del protocolo MCP.
@@ -770,7 +767,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - **Prioridad**: Must
 - **Criterios de Aceptación**:
   - [ ] Dado que el script se ejecuta en una VPS Ubuntu limpia (sólo con `curl` y `bash`), cuando termina exitosamente, entonces el servicio `mcp-appointments-crm` está activo (`systemctl is-active` o equivalente) y el log final imprime `http://127.0.0.1:3000/mcp` y el log final muestra la línea sugerida para schedular `backup.sh` en `crontab` (u otro scheduler nativo según OS).
-  - [ ] Dado que el script se ejecuta sin los archivos JSON de `setup/`, cuando el sistema valida los prerrequisitos, entonces imprime `Error: ejecute primero config-wizard` y termina con exit code 1 sin instalar el binario ni registrar el servicio.
+  - [ ] Dado que el script se ejecuta sin los archivos JSON de `setup/`, cuando el sistema valida los prerrequisitos, entonces imprime `Error: ejecute primero install.sh (que captura los datos del negocio) y vuelva a correrlo` y termina con exit code 1 sin instalar el binario ni registrar el servicio.
   - [ ] Dado que el script terminó exitosamente, cuando el operador revisa la salida, entonces encuentra al final un snippet sugerido para `crontab` con la frecuencia por defecto (1 vez al día, 03:00 hora local) que puede agregar manualmente.
   - [ ] Dado que `sqlite3` CLI no está instalado en el sistema, cuando el script `install.sh` termina exitosamente, entonces el log final incluye un bloque "Recommended additional tools" con el comando de instalación específico para el OS detectado, **sin ejecutar la instalación** (ver [ADR-0005](../architecture/0005-optional-external-tools.md)).
 
@@ -804,10 +801,9 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 ### 6.1 Stack Técnico
 
-- **Backend**: Go 1.26.4 (binarios `mcp-server` y `config-wizard`)
+- **Backend**: Go 1.26.4 (binario `mcp-server`)
 - **Base de Datos**: SQLite vía `modernc.org/sqlite` v1.53+ (pure Go, sin CGo) con FTS5 nativo
 - **MCP**: Protocolo MCP sobre SSE en `http://127.0.0.1:3000/mcp` (loopback por default; bind y puerto configurables vía `MCP_BIND` + `MCP_PORT` — ver ADR-0007)
-- **TUI**: Charm Bubble Tea ecosystem (`bubbletea`, `bubbles`, `lipgloss`)
 - **Infraestructura**: binarios nativos en la VPS/PC del cliente, gestionados por el service manager del SO
 - **Build**: `go build -o /dev/null ./...`, `go test -v -race ./...`, `golangci-lint run ./...`
 - **Distribución**: Script `install.sh` descargable vía `curl | bash` desde GitHub
@@ -825,7 +821,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 - **Regulaciones aplicables**: ninguna explícita. El sistema maneja datos personales (PII) del cliente final (nombre, teléfono, email, preferencias) y datos de negocio, por lo que el dueño del negocio es responsable de cumplir las regulaciones locales (Ley 25.326 de Protección de Datos Personales en Argentina, GDPR si aplica, etc.). El sistema **no está certificado para manejar PCI-DSS ni datos financieros regulados** más allá de los precios de los servicios.
 - **Datos sensibles manejados**: PII (nombre, teléfono, email, preferencias del cliente), historial de reservas, datos de negocio.
-- **Controles de seguridad requeridos**: prepared statements (100%), puerto loopback estricto, **bind validado contra loopback al arranque** (rechaza `0.0.0.0` y otras interfaces públicas antes de bindear), servicio user-level sin root, validación regex/string en TUI, mensajes semánticos sin stack traces al LLM, HTTPS para descarga del `install.sh` desde GitHub.
+- **Controles de seguridad requeridos**: prepared statements (100%), puerto loopback estricto, **bind validado contra loopback al arranque** (rechaza `0.0.0.0` y otras interfaces públicas antes de bindear), servicio user-level sin root, validación regex/string en prompts de install.sh, mensajes semánticos sin stack traces al LLM, HTTPS para descarga del `install.sh` desde GitHub.
 
 ---
 
@@ -891,21 +887,22 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - [ ] El reporte de fidelización retorna el Top N correcto con datos agregados
 - [ ] `go test -v -race ./...` pasa
 
-### Fase 4: config-wizard (Estimación: M)
+### Fase 4: install.sh con prompts interactivos (Estimación: S)
 
-**Objetivo**: binario TUI en Bubble Tea que captura `business_profile`, `professionals` y `services` con validación por campo, y exporta JSON.
+**Objetivo**: extender `install.sh` con prompts interactivos para configurar `business_profile`, `professionals` iniciales y `services` iniciales, con validación por campo y checkpoint para cancelación. Sin binario TUI separado.
 
 **Entregables**:
-- `cmd/config-wizard/main.go`
-- `internal/tui/` con el modelo MVU, validadores regex/string, vistas con `lipgloss`
-- `setup_business.json`, `setup_staff.json`, `setup_services.json` como output
-- Tests del TUI con `teatest` (Bubble Tea testing library)
+- `install.sh` con bloque de prompts (read -p + regex validation)
+- Lógica de checkpoint en `~/.config/mcp-appointments-crm/setup.json.tmp` (escritura tras cada respuesta válida; lectura + oferta de resume en re-run)
+- Finalización atómica: 3 JSONs en `~/.config/mcp-appointments-crm/setup/` (business, staff, services) + borrado de `setup.json.tmp`
+- Cobertura de tests para `install.sh` (bats, shunit2, o equivalente)
 
 **Definition of Done**:
-- [ ] El TUI guía al usuario paso a paso
-- [ ] Cada campo valida antes de permitir avanzar (regex para email, formato `HH:MM` para horarios, coordenadas geográficas)
-- [ ] Al finalizar, los 3 JSON están en `~/.config/mcp-appointments-crm/setup/` con schema válido
-- [ ] Tests con `teatest` pasan
+- [ ] `install.sh` guía al usuario paso a paso con prompts y validación
+- [ ] Cada campo valida antes de permitir avanzar (regex para email, formato `HH:MM` para horarios, coordenadas geográficas, IANA timezone, etc.)
+- [ ] Si el usuario cancela (`Ctrl+C`) a mitad, el último checkpoint queda en `setup.json.tmp`; re-ejecutar `install.sh` detecta el checkpoint y ofrece [R]esume / [S]tart over / [Q]uit
+- [ ] Al finalizar, los 3 JSON están en `~/.config/mcp-appointments-crm/setup/` con schema válido, y `setup.json.tmp` se borra
+- [ ] Tests de los 3 escenarios: fresh install, cancel + resume, cancel + start-over pasan
 
 ### Fase 5: install-and-service (Estimación: S)
 
@@ -983,8 +980,8 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - **WAL (Write-Ahead Logging)**: modo de SQLite donde las escrituras se appendean a un log antes de aplicarse al archivo principal. Mejora la concurrencia entre readers y writers.
 - **`busy_timeout`**: cantidad de milisegundos que SQLite espera a que se libere un lock antes de retornar `SQLITE_BUSY`. Configurado en 5000 ms.
 - **FTS5**: extensión de SQLite para búsquedas de texto completo con ranking por relevancia. Tablas virtuales que se sincronizan con triggers.
-- **TUI (Terminal User Interface)**: interfaz de usuario en la terminal, sin GUI. En este proyecto se usa Bubble Tea con el patrón MVU (Model-View-Update).
-- **MVU (Model-View-Update)**: patrón de arquitectura para TUI donde el estado (Model) se actualiza por mensajes (Update) y se renderiza por una función pura (View).
+- **Prompt interactivo**: pregunta que el script `install.sh` hace al usuario vía `read -p` (bash). Se valida con regex antes de avanzar; el valor se persiste en `setup.json.tmp` (checkpoint) tras cada respuesta válida. Equivale funcionalmente a un campo de formulario en una TUI pero sin la complejidad de un framework.
+- **Checkpoint de setup**: archivo `~/.config/mcp-appointments-crm/setup.json.tmp` que el `install.sh` escribe tras cada prompt válido. Si el usuario cancela, el checkpoint queda con los datos ingresados hasta el momento; re-ejecutar `install.sh` ofrece [R]esumir / [S]tart over / [Q]uit.
 - **Self-hosted / Self-Hosted**: modelo de despliegue donde el software corre en infraestructura del cliente, no en la nube del proveedor.
 - **Single-tenant**: una instalación del sistema sirve a un único negocio. La base de datos es privada de ese negocio.
 - **Multi-staff**: dentro de un mismo negocio (single-tenant), el sistema soporta varios profesionales con agendas independientes.
@@ -998,7 +995,6 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - `AGENTS.md` — convenciones del proyecto para los agentes AI, coding standards, pre-commit checklist.
 - `internal/db/database.go` — implementación actual del schema SQLite (Fase 0 previa al PRD).
 - Spec del protocolo MCP: <https://modelcontextprotocol.io>.
-- Bubble Tea: <https://github.com/charmbracelet/bubbletea>.
 - `modernc.org/sqlite`: <https://pkg.go.dev/modernc.org/sqlite>.
 
 ---
@@ -1008,3 +1004,4 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 | Fecha | Versión | Autor | Cambios |
 |-------|---------|-------|---------|
 | 2026-06-24 | 1.0 | Kike | Creación inicial del PRD a partir de `docs/SDD.md` y `docs/common/prd-template.md`. Incluye 9 RF (Must + Should), 11 RNF, 5 fases de roadmap y 7 riesgos identificados. |
+| 2026-06-26 | 1.1 | Kike | ADR-0008: reemplazo de `config-wizard` TUI (Bubble Tea) por prompts interactivos en `install.sh` con checkpoint. RF1 reformulado, Fase 4 simplificada (M→S), eliminadas referencias a TUI/MVU/Bubble Tea del alcance y glosario. |
