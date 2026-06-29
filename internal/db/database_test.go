@@ -116,7 +116,7 @@ func TestSchemaVersion_RowInserted(t *testing.T) {
 	if version != 1 {
 		t.Errorf("version = %d; want 1", version)
 	}
-	wantDesc := "initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 2 secondary indexes"
+	wantDesc := "initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes"
 	if description != wantDesc {
 		t.Errorf("description = %q; want %q", description, wantDesc)
 	}

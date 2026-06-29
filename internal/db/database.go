@@ -1,7 +1,7 @@
 // Package db manages the SQLite database connection and schema lifecycle.
 //
-// The schema consists of 10 domain tables (per docs/PRD.md §3.7), 2 FTS5
-// virtual tables, 6 FTS sync triggers, 2 secondary indexes, and a
+// The schema consists of 8 domain tables (per docs/PRD.md §3.7), 2 FTS5
+// virtual tables, 6 FTS sync triggers, 4 secondary indexes, and a
 // schema_version metadata table. All DDL is executed by initSchema, which
 // is idempotent (safe to call multiple times).
 package db

@@ -187,6 +187,6 @@ func secondaryIndexDDL() []string {
 func seedDDL() []string {
 	return []string{
 		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
-			(1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 2 secondary indexes')`,
+			(1, 'initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')`,
 	}
 }
