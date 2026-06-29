@@ -115,6 +115,8 @@ type CreateBookingResult struct {
 
 ### Task 1.1 — Rewrite `internal/db/database.go` to the 11-table schema
 
+- [x] Completed
+
 - **Files**:
   - `internal/db/database.go` (rewrite; ~150 LOC)
 - **Spec scenarios satisfied**:
@@ -160,9 +162,11 @@ type CreateBookingResult struct {
   - All 11 tables can be created via `initSchema(ctx, db)` on a fresh SQLite file
   - The 6 FTS sync triggers are created (see Task 1.2)
   - `foreign_keys=ON`, WAL mode and `_busy_timeout=5000` remain active
-  - [ ] `go mod tidy` ejecutado; `go-sqlmock` y `google/uuid` son dependencias directas (sin `// indirect`)
+   - [x] `go mod tidy` ejecutado; `go-sqlmock` y `google/uuid` son dependencias directas (sin `// indirect`)
 
 ### Task 1.2 — Add 6 FTS sync triggers to `database.go`
+
+- [x] Completed
 
 - **Files**:
   - `internal/db/database.go` (extend; ~30 LOC for the triggers)
@@ -178,6 +182,8 @@ type CreateBookingResult struct {
 
 ### Task 1.3 — Add `schema_version` table + initial INSERT
 
+- [x] Completed
+
 - **Files**:
   - `internal/db/database.go` (extend; ~5 LOC)
 - **Spec scenarios satisfied**:
@@ -191,6 +197,8 @@ type CreateBookingResult struct {
   - Partial-failure retry leaves DB eventually consistent
 
 ### Task 1.4 — Create 8 domain model files and update `internal/model/doc.go`
+
+- [x] Completed
 
 - **Files**:
   - `internal/model/business_profile.go` (~30 LOC)
@@ -213,6 +221,8 @@ type CreateBookingResult struct {
 
 ### Task 1.5 — Create `internal/repository/errors.go` (sentinels + SemanticError)
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/errors.go` (~50 LOC)
 - **Spec scenarios satisfied**:
@@ -229,6 +239,8 @@ type CreateBookingResult struct {
   - `repository` package does NOT import `internal/validation` (no circular dep, per ADR-0005)
 
 ### Task 1.6 — Add FTS trigger integration test in `internal/db/database_test.go`
+
+- [x] Completed
 
 - **Files**:
   - `internal/db/database_test.go` (NEW, ~100 LOC)
