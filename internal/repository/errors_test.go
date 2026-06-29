@@ -62,8 +62,8 @@ func TestSemanticError_Unwrap(t *testing.T) {
 		Cause:   cause,
 	}
 	unwrapped := errors.Unwrap(e)
-	if !errors.Is(unwrapped, cause) {
-		t.Errorf("Unwrap() should expose cause; got %v (%T), want %v (%T)", unwrapped, unwrapped, cause, cause)
+	if unwrapped != cause { //nolint:errorlint // test verifies Unwrap returns the exact cause pointer
+		t.Errorf("Unwrap() should return cause; got %v (%T), want %v (%T)", unwrapped, unwrapped, cause, cause)
 	}
 }
 
