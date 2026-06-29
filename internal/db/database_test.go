@@ -301,6 +301,26 @@ func TestBusinessProfile_SingletonConstraint(t *testing.T) {
 	}
 }
 
+func TestBusinessProfile_MessengerPlatformCheck(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("initSchema: %v", err)
+	}
+
+	// Invalid value: 'discord' must fail the CHECK constraint.
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO business_profile (id, name, messenger_platform) VALUES ('singleton', 'Test', 'discord')`)
+	if err == nil {
+		t.Fatal("expected CHECK constraint violation for messenger_platform='discord'; got nil")
+	}
+	if !strings.Contains(err.Error(), "CHECK") {
+		t.Errorf("expected CHECK constraint error, got: %v", err)
+	}
+}
+
 func TestSecondaryIndexes_Exist(t *testing.T) {
 	db := newTestDB(t)
 	skipIfNoFTS5(t, db)
