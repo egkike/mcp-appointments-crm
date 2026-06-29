@@ -309,12 +309,17 @@ func TestSecondaryIndexes_Exist(t *testing.T) {
 		t.Fatalf("initSchema: %v", err)
 	}
 
+	// 4 secondary indexes: 2 explicit CREATE INDEX + 2 auto-indexes from
+	// UNIQUE constraints (business_hours_exception.exception_date and
+	// schedules(professional_id, day_of_week)).
 	expectedIndexes := []struct {
 		table string
 		index string
 	}{
 		{"bookings", "idx_bookings_overlap"},
 		{"pending_alerts", "idx_pending_alerts_scheduled_status"},
+		{"business_hours_exception", "sqlite_autoindex_business_hours_exception_1"},
+		{"schedules", "sqlite_autoindex_schedules_1"},
 	}
 
 	for _, ei := range expectedIndexes {
