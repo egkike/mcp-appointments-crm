@@ -115,7 +115,7 @@ func TestSchemaVersion_RowInserted(t *testing.T) {
 	var version int
 	var description string
 	var appliedAt string
-	err := db.QueryRowContext(ctx,"SELECT version, applied_at, description FROM schema_version WHERE version=1").
+	err := db.QueryRowContext(ctx, "SELECT version, applied_at, description FROM schema_version WHERE version=1").
 		Scan(&version, &appliedAt, &description)
 	if err != nil {
 		t.Fatalf("schema_version row not found: %v", err)
@@ -141,7 +141,7 @@ func TestSchemaVersion_NoDuplicateOnReInit(t *testing.T) {
 	_ = initSchema(ctx, db)
 
 	var count int
-	if err := db.QueryRowContext(ctx,"SELECT count(*) FROM schema_version").Scan(&count); err != nil {
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM schema_version").Scan(&count); err != nil {
 		t.Fatalf("count schema_version: %v", err)
 	}
 	if count != 1 {
@@ -166,7 +166,7 @@ func TestFTS_ClientsSync(t *testing.T) {
 	}
 
 	var count int
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'María'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'María'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestFTS_ClientsSync(t *testing.T) {
 		t.Fatalf("update client: %v", err)
 	}
 
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'López'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'López'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query after update: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestFTS_ClientsSync(t *testing.T) {
 	}
 
 	// Old name should be gone
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'García'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'García'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query for old name: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestFTS_ClientsSync(t *testing.T) {
 		t.Fatalf("delete client: %v", err)
 	}
 
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'López'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'López'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query after delete: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestFTS_ServicesSync(t *testing.T) {
 	}
 
 	var count int
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM services_fts WHERE services_fts MATCH 'Veterinaria'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'Veterinaria'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestFTS_ServicesSync(t *testing.T) {
 	}
 
 	// Also searchable by description
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM services_fts WHERE services_fts MATCH 'mascotas'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'mascotas'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query description: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestFTS_ServicesSync(t *testing.T) {
 		t.Fatalf("update service: %v", err)
 	}
 
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM services_fts WHERE services_fts MATCH 'General'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'General'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query after update: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestFTS_ServicesSync(t *testing.T) {
 	}
 
 	// Old name should be gone
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM services_fts WHERE services_fts MATCH 'Veterinaria'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'Veterinaria'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query for old name: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestFTS_ServicesSync(t *testing.T) {
 		t.Fatalf("delete service: %v", err)
 	}
 
-	err = db.QueryRowContext(ctx,`SELECT count(*) FROM services_fts WHERE services_fts MATCH 'General'`).Scan(&count)
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'General'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("fts query after delete: %v", err)
 	}
