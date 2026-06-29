@@ -36,7 +36,7 @@ func validateService(s *model.Service) error {
 }
 
 // Create inserts a new service. Returns ErrInvalidInput if duration_minutes <= 0,
-// name is empty, or price is negative.
+// name is empty, or price is zero or negative.
 func (r *ServicesRepo) Create(ctx context.Context, s *model.Service) error {
 	if err := validateService(s); err != nil {
 		return fmt.Errorf("crear servicio: %w", err)
