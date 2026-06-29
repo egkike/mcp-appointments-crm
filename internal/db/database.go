@@ -10,6 +10,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,17 +32,47 @@ type DB struct {
 // buildDSN appends modernc.org/sqlite _pragma query parameters to dbPath so
 // that per-connection pragmas (foreign_keys, busy_timeout) are applied to
 // every connection the pool creates — not just the first one.
+// Uses net/url to safely handle paths with special characters (?, &, spaces).
 func buildDSN(dbPath string) string {
-	return fmt.Sprintf("%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
-		dbPath, busyTimeoutMillis)
+	u, err := url.Parse(dbPath)
+	if err != nil {
+		// Fallback for paths that aren't valid URLs (e.g., ":memory:").
+		// Safe because ":memory:" contains no URL-special characters.
+		return dbPath + "?" + pragmaQuery()
+	}
+	q := u.Query()
+	for _, p := range pragmaParams() {
+		q.Add("_pragma", p)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// pragmaParams returns the 4 production pragma values applied to every connection.
+func pragmaParams() []string {
+	return []string{
+		"foreign_keys(1)",
+		fmt.Sprintf("busy_timeout(%d)", busyTimeoutMillis),
+		"journal_mode(WAL)",
+		"synchronous(NORMAL)",
+	}
+}
+
+// pragmaQuery returns the pragma parameters as a URL query string (without leading '?').
+func pragmaQuery() string {
+	params := pragmaParams()
+	parts := make([]string, len(params))
+	for i, p := range params {
+		parts[i] = "_pragma=" + p
+	}
+	return strings.Join(parts, "&")
 }
 
 // buildSharedCacheDSN returns a DSN for a shared-cache in-memory database
 // with the same pragma parameters as buildDSN. The name parameter is the
 // in-memory database identifier (e.g., from t.Name()).
 func buildSharedCacheDSN(name string) string {
-	return fmt.Sprintf("file:%s?mode=memory&cache=shared&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
-		name, busyTimeoutMillis)
+	return "file:" + name + "?mode=memory&cache=shared&" + pragmaQuery()
 }
 
 // NewDatabase opens the SQLite database at dbPath, verifies production
