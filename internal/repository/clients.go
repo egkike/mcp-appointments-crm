@@ -81,6 +81,12 @@ func (r *ClientsRepo) GetByPhone(ctx context.Context, phone string) (*model.Clie
 // GetOrCreate inserts a new client if the phone does not exist, or returns
 // the existing client. Idempotent: does not overwrite the existing name.
 func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*model.Client, error) {
+	if strings.TrimSpace(phone) == "" {
+		return nil, fmt.Errorf("obtener o crear cliente: el teléfono no puede estar vacío: %w", ErrInvalidInput)
+	}
+	if strings.TrimSpace(name) == "" {
+		return nil, fmt.Errorf("obtener o crear cliente: el nombre no puede estar vacío: %w", ErrInvalidInput)
+	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO clients (id, name, phone) VALUES (?, ?, ?)`,
 		model.NewUUID(), name, phone,

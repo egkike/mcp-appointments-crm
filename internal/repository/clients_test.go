@@ -251,6 +251,26 @@ func TestClientsRepo_GetOrCreate(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 	})
+
+	t.Run("empty phone returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewClientsRepo(db)
+
+		_, err := repo.GetOrCreate(context.Background(), "", "Juan")
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for empty phone, got %v", err)
+		}
+	})
+
+	t.Run("empty name returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewClientsRepo(db)
+
+		_, err := repo.GetOrCreate(context.Background(), "+5491112345678", "")
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for empty name, got %v", err)
+		}
+	})
 }
 
 func TestClientsRepo_Update(t *testing.T) {
