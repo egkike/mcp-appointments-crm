@@ -61,7 +61,7 @@ siguen ADR-0004. Repartido en **3 PRs encadenados** (budget elevado a 600 — ob
 
 | PR | Alcance | LOC | Cambio |
 |----|---------|-----|--------|
-| **1** | `database.go` (10 tablas de dominio + `schema_version` + 6 triggers + 4 índices) + 8 modelos + `errors.go` + `internal/db/database_test.go` (integración FTS en memoria, ~100 LOC) | ~420 | Fundación |
+| **1** | `database.go` (8 tablas de dominio + `schema_version` + 6 triggers + 4 índices) + 8 modelos + `errors.go` + `internal/db/database_test.go` (integración FTS en memoria, ~100 LOC) | ~420 | Fundación |
 | **2** | Repos simples: `business_profile` (lazy-init), `services`, `clients`, `business_hours_exception` + `*_test.go` (`go-sqlmock`) | ~500 | CRUD |
 | **3** | Repos complejos: `bookings` con `CheckAvailability` (5 pasos), `professionals`, `schedules`, `pending_alerts` + `*_test.go` | ~600 | Lógica |
 | Total | ~1500-1900 LOC | — | 3 PRs ≤600 |
@@ -139,7 +139,7 @@ Orden estricto: PR 2 y PR 3 dependen del esquema de PR 1.
 
 ## Referencias
 
-- **PRD**: `docs/PRD.md` §3.7 (esquema 10 tablas de dominio + `schema_version`), §3.7.10 (6 triggers FTS), §3.7.13 (cadena 5 pasos).
+- **PRD**: `docs/PRD.md` §3.7 (esquema 8 tablas de dominio + `schema_version`), §3.7.10 (6 triggers FTS), §3.7.13 (cadena 5 pasos).
 - **ADRs**: `docs/architecture/0004-naming-conventions.md`, `0005-optional-external-tools.md`,
   `0006-data-model-and-reservations.md` (5 decisiones: `business_hours` JSON, tabla
   `business_hours_exception`, `end_datetime` denormalizado, FTS vía triggers, validación 5 pasos),
@@ -163,7 +163,7 @@ CREATE TABLE schema_version (
 
 -- En el primer arranque, initSchema inserta la versión inicial:
 INSERT INTO schema_version (version, description) VALUES
-    (1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes');
+    (1, 'initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes');
 ```
 
 `initSchema` usa la presencia de la fila `(version=1)` como señal de "ya está
