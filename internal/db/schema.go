@@ -98,7 +98,8 @@ func domainTableDDL() []string {
 			payment_method   TEXT,
 			created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 			updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			CHECK (status IN ('pending', 'confirmed', 'cancelled'))
+			CHECK (status IN ('pending', 'confirmed', 'cancelled')),
+			CHECK (start_datetime < end_datetime)
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS pending_alerts (
