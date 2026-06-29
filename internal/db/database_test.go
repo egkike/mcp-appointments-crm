@@ -395,3 +395,105 @@ func TestInitSchema_Concurrent(t *testing.T) {
 		t.Errorf("fts count for 'Concurrent' = %d; want 1", ftsCount)
 	}
 }
+
+// installLegacySchema creates the pre-release 4-table schema with column
+// types that are INCOMPATIBLE with the new schema (e.g., business_profile
+// has slots_config NOT NULL and duration_mins instead of duration_minutes).
+// This is used to test the destructive-replace migration path.
+func installLegacySchema(t *testing.T, db *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+	legacyDDL := []string{
+		`CREATE TABLE business_profile (
+			id            TEXT PRIMARY KEY DEFAULT 'singleton',
+			name          TEXT NOT NULL,
+			slots_config  TEXT NOT NULL,
+			duration_mins INTEGER NOT NULL
+		)`,
+		`CREATE TABLE clients (
+			id    TEXT PRIMARY KEY,
+			name  TEXT NOT NULL,
+			phone TEXT NOT NULL
+		)`,
+		`CREATE TABLE services (
+			id       TEXT PRIMARY KEY,
+			name     TEXT NOT NULL,
+			duration INTEGER NOT NULL
+		)`,
+		`CREATE TABLE appointments (
+			id        TEXT PRIMARY KEY,
+			client_id TEXT NOT NULL,
+			start_at  TEXT NOT NULL
+		)`,
+	}
+	for _, stmt := range legacyDDL {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("install legacy schema: %v", err)
+		}
+	}
+}
+
+// TestNewDatabase_OnLegacySchema verifies that NewDatabase transparently
+// migrates from the legacy 4-table schema to the new schema by dropping
+// legacy tables and creating the new ones.
+func TestNewDatabase_OnLegacySchema(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	// Step 1: Open the file directly and install the legacy schema.
+	legacyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open temp db: %v", err)
+	}
+	installLegacySchema(t, legacyDB)
+
+	// Verify legacy tables exist.
+	ctx := context.Background()
+	var legacyCount int
+	if err := legacyDB.QueryRowContext(ctx,
+		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('business_profile','clients','services','appointments')",
+	).Scan(&legacyCount); err != nil {
+		t.Fatalf("count legacy tables: %v", err)
+	}
+	if legacyCount != 4 {
+		t.Fatalf("legacy table count = %d; want 4", legacyCount)
+	}
+	_ = legacyDB.Close()
+
+	// Step 2: Call NewDatabase on the same file — should migrate.
+	db, err := NewDatabase(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabase on legacy DB: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	// Step 3: Verify new schema is in place.
+	newTables := []string{"schema_version", "professionals", "bookings", "pending_alerts"}
+	for _, table := range newTables {
+		var name string
+		if err := db.Conn.QueryRowContext(ctx,
+			"SELECT name FROM sqlite_master WHERE type='table' AND name=?", table,
+		).Scan(&name); err != nil {
+			t.Errorf("new table %q not found: %v", table, err)
+		}
+	}
+
+	// Step 4: Verify legacy-only table "appointments" is gone.
+	var apCount int
+	if err := db.Conn.QueryRowContext(ctx,
+		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='appointments'",
+	).Scan(&apCount); err != nil {
+		t.Fatalf("check appointments: %v", err)
+	}
+	if apCount != 0 {
+		t.Error("legacy table 'appointments' still exists after migration")
+	}
+
+	// Step 5: Verify schema_version row exists.
+	var version int
+	if err := db.Conn.QueryRowContext(ctx,
+		"SELECT version FROM schema_version WHERE version=1",
+	).Scan(&version); err != nil {
+		t.Errorf("schema_version row not found: %v", err)
+	}
+}
