@@ -184,7 +184,7 @@ type CreateBookingResult struct {
   - `schema-version` "Multiple InitSchema Calls", "Schema Initialization Idempotency", "Version Tracking Reserved for Future Migrations"
 - **Implementation**:
   - CREATE TABLE `schema_version` per `schema-version` spec (y ver ADR-0006 Decisión 8)
-  - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
+  - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
 - **Acceptance**:
   - After `initSchema`, exactly 1 row exists in `schema_version` with `version=1`
   - Re-running `initSchema` is a no-op (idempotent)
