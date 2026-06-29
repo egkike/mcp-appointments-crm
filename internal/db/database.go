@@ -36,6 +36,14 @@ func buildDSN(dbPath string) string {
 		dbPath, busyTimeoutMillis)
 }
 
+// buildSharedCacheDSN returns a DSN for a shared-cache in-memory database
+// with the same pragma parameters as buildDSN. The name parameter is the
+// in-memory database identifier (e.g., from t.Name()).
+func buildSharedCacheDSN(name string) string {
+	return fmt.Sprintf("file:%s?mode=memory&cache=shared&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
+		name, busyTimeoutMillis)
+}
+
 // NewDatabase opens the SQLite database at dbPath, verifies production
 // pragmas (WAL), and runs initSchema. Per-connection pragmas (foreign_keys,
 // busy_timeout) are set via the DSN (see buildDSN) so they apply to every

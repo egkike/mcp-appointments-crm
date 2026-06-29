@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"sync"
 	"testing"
 
@@ -335,11 +334,7 @@ func TestSecondaryIndexes_Exist(t *testing.T) {
 // functional. This locks in the DSN-based pragma contract (busy_timeout,
 // foreign_keys) that makes concurrent initialization safe.
 func TestInitSchema_Concurrent(t *testing.T) {
-	// Open a shared-cache in-memory DB so all goroutines see the same data.
-	dsn := fmt.Sprintf(
-		"file:concurrent_test?mode=memory&cache=shared&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
-		busyTimeoutMillis,
-	)
+	dsn := buildSharedCacheDSN(t.Name())
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open shared in-memory sqlite: %v", err)
