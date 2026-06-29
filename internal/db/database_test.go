@@ -522,12 +522,10 @@ func TestNewDatabase_OnLegacySchema(t *testing.T) {
 	}
 }
 
-// TestInitSchema_PartialFailureRetry verifies that initSchema is fully
-// idempotent: calling it multiple times on an already-initialized database
-// produces no errors and leaves the schema in the same state. This covers
-// the "synthetic DDL failure retry" scenario — if a previous call partially
-// failed, the IF NOT EXISTS guards ensure a retry succeeds.
-func TestInitSchema_PartialFailureRetry(t *testing.T) {
+// TestInitSchema_RepeatedCallsAreIdempotent verifies that initSchema can be
+// called multiple times on the same database without errors, building on the
+// guarantees of TestInitSchema_Idempotent and TestSchemaVersion_NoDuplicateOnReInit.
+func TestInitSchema_RepeatedCallsAreIdempotent(t *testing.T) {
 	db := newTestDB(t)
 	skipIfNoFTS5(t, db)
 	ctx := context.Background()
@@ -572,12 +570,12 @@ func TestInitSchema_PartialFailureRetry(t *testing.T) {
 	}
 }
 
-// TestNewDatabase_BadPragmas verifies that NewDatabase returns an error when
-// the SQLite connection does not have the required pragmas set. This tests
-// the verifyPragmas guard by opening a DB with a DSN that omits busy_timeout.
-func TestNewDatabase_BadPragmas(t *testing.T) {
+// TestNewDatabase_RecoversFromBadDSN verifies that NewDatabase can open a
+// database previously initialized with a malformed DSN, because buildDSN
+// supplies the correct pragmas on the new connection.
+func TestNewDatabase_RecoversFromBadDSN(t *testing.T) {
 	tmpDir := t.TempDir()
-	dbPath := tmpDir + "/bad_pragmas.db"
+	dbPath := tmpDir + "/bad_dsn.db"
 
 	// Open the DB directly with a DSN that omits busy_timeout.
 	// This simulates a misconfigured connection.
@@ -603,12 +601,11 @@ func TestNewDatabase_BadPragmas(t *testing.T) {
 	}
 	_ = db.Close()
 
-	// To truly test verifyPragmas failure, we need to mock a connection
-	// that returns wrong pragma values. Since we can't easily do that with
-	// a real SQLite DB, we verify that verifyPragmas is called by checking
-	// that NewDatabase succeeds when pragmas are correct (tested above).
-	// The verifyPragmas function itself is tested implicitly by all other
-	// tests that call NewDatabase.
+	// The verifyPragmas guard is exercised implicitly by every test that
+	// calls NewDatabase: a connection missing the required pragmas would
+	// fail here. Directly mocking a wrong-pragma connection is not
+	// feasible with a real SQLite driver, so this test confirms recovery
+	// from a bad-DSN initialization rather than pragma validation itself.
 }
 
 // TestBuildSharedCacheDSN verifies that buildSharedCacheDSN returns a DSN
