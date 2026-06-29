@@ -82,7 +82,8 @@ func (db *DB) Close() error {
 }
 
 // verifyPragmas asserts that critical SQLite pragmas are active on the
-// connection: WAL journal mode, foreign_keys enabled, and busy_timeout set.
+// connection: WAL journal mode, synchronous NORMAL, foreign_keys enabled,
+// and busy_timeout set.
 func verifyPragmas(ctx context.Context, conn *sql.DB) error {
 	var mode string
 	if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
@@ -90,6 +91,16 @@ func verifyPragmas(ctx context.Context, conn *sql.DB) error {
 	}
 	if mode != "wal" {
 		return fmt.Errorf("expected WAL journal mode, got %q", mode)
+	}
+
+	// synchronous: 0=OFF, 1=NORMAL, 2=FULL, 3=EXTRA.
+	// PRD §3.1 requires NORMAL for performance with acceptable durability.
+	var sync int
+	if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&sync); err != nil {
+		return fmt.Errorf("query synchronous: %w", err)
+	}
+	if sync != 1 {
+		return fmt.Errorf("expected synchronous=NORMAL (1), got %d", sync)
 	}
 
 	var fk int
