@@ -98,7 +98,7 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 		// ── 1. business_profile (singleton) ──────────────────────────
 		`CREATE TABLE IF NOT EXISTS business_profile (
 			id                          TEXT PRIMARY KEY DEFAULT 'singleton',
-			name                        TEXT NOT NULL DEFAULT '',
+			name                        TEXT NOT NULL,
 			industry                    TEXT,
 			country                     TEXT,
 			address                     TEXT,
@@ -130,7 +130,8 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 			open_time       TEXT,
 			close_time      TEXT,
 			reason          TEXT,
-			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			CHECK (is_closed = 1 OR (open_time IS NOT NULL AND close_time IS NOT NULL AND open_time < close_time))
 		)`,
 
 		// ── 3. professionals ─────────────────────────────────────────
@@ -143,7 +144,8 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 			phone           TEXT,
 			specialties     TEXT,
 			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			CHECK (status IN ('active', 'inactive'))
 		)`,
 
 		// ── 4. schedules ─────────────────────────────────────────────
@@ -165,7 +167,9 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 			price            REAL NOT NULL,
 			is_active        BOOLEAN NOT NULL DEFAULT 1,
 			created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			CHECK (duration_minutes > 0),
+			CHECK (is_active IN (0, 1))
 		)`,
 
 		// ── 6. clients ───────────────────────────────────────────────
@@ -191,7 +195,8 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 			notes            TEXT,
 			payment_method   TEXT,
 			created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			CHECK (status IN ('pending', 'confirmed', 'cancelled'))
 		)`,
 
 		// ── 8. pending_alerts ────────────────────────────────────────
@@ -202,7 +207,8 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 			scheduled_datetime  TEXT NOT NULL,
 			status              TEXT NOT NULL DEFAULT 'pending',
 			related_booking_id  TEXT REFERENCES bookings(id),
-			created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			CHECK (status IN ('pending', 'sent', 'cancelled'))
 		)`,
 
 		// ── 9. schema_version ────────────────────────────────────────
@@ -278,6 +284,11 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 
 		`CREATE INDEX IF NOT EXISTS idx_pending_alerts_scheduled_status
 			ON pending_alerts(scheduled_datetime, status)`,
+
+		// ── Seed business_profile singleton (idempotent) ─────────────
+		// name has no DEFAULT (per PRD §3.7.1); supply placeholder for seed.
+		`INSERT OR IGNORE INTO business_profile (id, name) VALUES
+			('singleton', 'Mi Negocio')`,
 
 		// ── Seed schema_version v1 (idempotent) ──────────────────────
 		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
