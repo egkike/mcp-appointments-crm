@@ -151,8 +151,8 @@ func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*model.Se
 			s.is_active, s.created_at, s.updated_at
 		 FROM services s
 		 JOIN services_fts f ON s.rowid = f.rowid
-		 WHERE services_fts MATCH ?
-		 ORDER BY bm25(services_fts)`,
+		 WHERE f MATCH ?
+		 ORDER BY bm25(f)`,
 		query,
 	)
 	if err != nil {

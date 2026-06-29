@@ -171,8 +171,8 @@ func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Cli
 			c.created_at, c.updated_at
 		 FROM clients c
 		 JOIN clients_fts f ON c.rowid = f.rowid
-		 WHERE clients_fts MATCH ?
-		 ORDER BY bm25(clients_fts)`,
+		 WHERE f MATCH ?
+		 ORDER BY bm25(f)`,
 		query,
 	)
 	if err != nil {
