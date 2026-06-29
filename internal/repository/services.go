@@ -29,8 +29,8 @@ func validateService(s *model.Service) error {
 	if s.DurationMinutes <= 0 {
 		return fmt.Errorf("la duración debe ser mayor a 0 minutos: %w", ErrInvalidInput)
 	}
-	if s.Price < 0 {
-		return fmt.Errorf("el precio no puede ser negativo: %w", ErrInvalidInput)
+	if s.Price <= 0 {
+		return fmt.Errorf("el precio debe ser mayor a 0: %w", ErrInvalidInput)
 	}
 	return nil
 }

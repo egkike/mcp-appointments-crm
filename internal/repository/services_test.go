@@ -67,6 +67,17 @@ func TestServicesRepo_Create(t *testing.T) {
 		}
 	})
 
+	t.Run("zero price returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &model.Service{Name: "Test", DurationMinutes: 30, Price: 0}
+		err := repo.Create(context.Background(), svc)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for zero price, got %v", err)
+		}
+	})
+
 	t.Run("negative price returns ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
@@ -230,10 +241,10 @@ func TestServicesRepo_Update(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		mock.ExpectExec(`UPDATE services SET`).
-			WithArgs("Ghost", nil, 30, 0.0, true, "missing").
+			WithArgs("Ghost", nil, 30, 500.0, true, "missing").
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		svc := &model.Service{ID: "missing", Name: "Ghost", DurationMinutes: 30, Price: 0, IsActive: true}
+		svc := &model.Service{ID: "missing", Name: "Ghost", DurationMinutes: 30, Price: 500.0, IsActive: true}
 		err := repo.Update(context.Background(), svc)
 		if !errors.Is(err, ErrNotFound) {
 			t.Errorf("expected ErrNotFound, got %v", err)
@@ -244,7 +255,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{ID: "svc-1", Name: "", DurationMinutes: 30, Price: 0}
+		svc := &model.Service{ID: "svc-1", Name: "", DurationMinutes: 30, Price: 500.0}
 		err := repo.Update(context.Background(), svc)
 		if !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("expected ErrInvalidInput, got %v", err)
@@ -255,10 +266,21 @@ func TestServicesRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 0, Price: 0}
+		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 0, Price: 500.0}
 		err := repo.Update(context.Background(), svc)
 		if !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("expected ErrInvalidInput, got %v", err)
+		}
+	})
+
+	t.Run("zero price returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 0}
+		err := repo.Update(context.Background(), svc)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for zero price, got %v", err)
 		}
 	})
 
