@@ -1,11 +1,7 @@
 package db
 
-// domainTableDDL returns CREATE TABLE statements for the 9 domain tables:
-// business_profile, business_hours_exception, professionals, schedules,
-// services, clients, bookings, pending_alerts, and schema_version.
 func domainTableDDL() []string {
 	return []string{
-		// ── 1. business_profile (singleton) ──────────────────────────
 		`CREATE TABLE IF NOT EXISTS business_profile (
 			id                          TEXT PRIMARY KEY DEFAULT 'singleton',
 			name                        TEXT NOT NULL,
@@ -32,7 +28,6 @@ func domainTableDDL() []string {
 			CHECK (id = 'singleton')
 		)`,
 
-		// ── 2. business_hours_exception ──────────────────────────────
 		`CREATE TABLE IF NOT EXISTS business_hours_exception (
 			id              INTEGER PRIMARY KEY AUTOINCREMENT,
 			exception_date  TEXT NOT NULL UNIQUE,
@@ -44,7 +39,6 @@ func domainTableDDL() []string {
 			CHECK (is_closed = 1 OR (open_time IS NOT NULL AND close_time IS NOT NULL AND open_time < close_time))
 		)`,
 
-		// ── 3. professionals ─────────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS professionals (
 			id              TEXT PRIMARY KEY,
 			name            TEXT NOT NULL,
@@ -58,7 +52,6 @@ func domainTableDDL() []string {
 			CHECK (status IN ('active', 'inactive'))
 		)`,
 
-		// ── 4. schedules ─────────────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS schedules (
 			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
 			professional_id     TEXT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
@@ -68,7 +61,6 @@ func domainTableDDL() []string {
 			UNIQUE(professional_id, day_of_week)
 		)`,
 
-		// ── 5. services ──────────────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS services (
 			id               TEXT PRIMARY KEY,
 			name             TEXT NOT NULL,
@@ -82,7 +74,6 @@ func domainTableDDL() []string {
 			CHECK (is_active IN (0, 1))
 		)`,
 
-		// ── 6. clients ───────────────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS clients (
 			id           TEXT PRIMARY KEY,
 			name         TEXT NOT NULL,
@@ -93,7 +84,6 @@ func domainTableDDL() []string {
 			updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 		)`,
 
-		// ── 7. bookings ──────────────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS bookings (
 			id               TEXT PRIMARY KEY,
 			client_id        TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
@@ -109,7 +99,6 @@ func domainTableDDL() []string {
 			CHECK (status IN ('pending', 'confirmed', 'cancelled'))
 		)`,
 
-		// ── 8. pending_alerts ────────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS pending_alerts (
 			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
 			type                TEXT NOT NULL,
@@ -121,7 +110,6 @@ func domainTableDDL() []string {
 			CHECK (status IN ('pending', 'sent', 'cancelled'))
 		)`,
 
-		// ── 9. schema_version ────────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS schema_version (
 			version      INTEGER PRIMARY KEY,
 			applied_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -130,8 +118,6 @@ func domainTableDDL() []string {
 	}
 }
 
-// ftsTableDDL returns CREATE VIRTUAL TABLE statements for the 2 FTS5
-// full-text search indexes (clients and services).
 func ftsTableDDL() []string {
 	return []string{
 		`CREATE VIRTUAL TABLE IF NOT EXISTS clients_fts USING fts5(
@@ -150,23 +136,18 @@ func ftsTableDDL() []string {
 	}
 }
 
-// ftsTriggerDDL returns CREATE TRIGGER statements for the 6 FTS sync
-// triggers (AFTER INSERT/DELETE/UPDATE on clients and services).
 func ftsTriggerDDL() []string {
 	return []string{
-		// clients_fts: AFTER INSERT
 		`CREATE TRIGGER IF NOT EXISTS clients_fts_ai AFTER INSERT ON clients BEGIN
 			INSERT INTO clients_fts(rowid, name, preferences)
 			VALUES (new.rowid, new.name, new.preferences);
 		END`,
 
-		// clients_fts: AFTER DELETE
 		`CREATE TRIGGER IF NOT EXISTS clients_fts_ad AFTER DELETE ON clients BEGIN
 			INSERT INTO clients_fts(clients_fts, rowid, name, preferences)
 			VALUES ('delete', old.rowid, old.name, old.preferences);
 		END`,
 
-		// clients_fts: AFTER UPDATE
 		`CREATE TRIGGER IF NOT EXISTS clients_fts_au AFTER UPDATE ON clients BEGIN
 			INSERT INTO clients_fts(clients_fts, rowid, name, preferences)
 			VALUES ('delete', old.rowid, old.name, old.preferences);
@@ -174,19 +155,16 @@ func ftsTriggerDDL() []string {
 			VALUES (new.rowid, new.name, new.preferences);
 		END`,
 
-		// services_fts: AFTER INSERT
 		`CREATE TRIGGER IF NOT EXISTS services_fts_ai AFTER INSERT ON services BEGIN
 			INSERT INTO services_fts(rowid, name, description)
 			VALUES (new.rowid, new.name, new.description);
 		END`,
 
-		// services_fts: AFTER DELETE
 		`CREATE TRIGGER IF NOT EXISTS services_fts_ad AFTER DELETE ON services BEGIN
 			INSERT INTO services_fts(services_fts, rowid, name, description)
 			VALUES ('delete', old.rowid, old.name, old.description);
 		END`,
 
-		// services_fts: AFTER UPDATE
 		`CREATE TRIGGER IF NOT EXISTS services_fts_au AFTER UPDATE ON services BEGIN
 			INSERT INTO services_fts(services_fts, rowid, name, description)
 			VALUES ('delete', old.rowid, old.name, old.description);
@@ -196,10 +174,6 @@ func ftsTriggerDDL() []string {
 	}
 }
 
-// secondaryIndexDDL returns CREATE INDEX statements for the 2 secondary
-// indexes. Note: business_hours_exception.exception_date and
-// schedules(professional_id, day_of_week) have UNIQUE table constraints
-// that create implicit indexes — no redundant explicit indexes needed.
 func secondaryIndexDDL() []string {
 	return []string{
 		`CREATE INDEX IF NOT EXISTS idx_bookings_overlap
@@ -210,14 +184,8 @@ func secondaryIndexDDL() []string {
 	}
 }
 
-// seedDDL returns the idempotent seed INSERT statements: a placeholder
-// business_profile singleton and the schema_version v1 row.
 func seedDDL() []string {
 	return []string{
-		// name has no DEFAULT (per PRD §3.7.1); supply placeholder for seed.
-		`INSERT OR IGNORE INTO business_profile (id, name) VALUES
-			('singleton', 'Mi Negocio')`,
-
 		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
 			(1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 2 secondary indexes')`,
 	}
