@@ -52,6 +52,28 @@ func TestServicesRepo_Create(t *testing.T) {
 			t.Errorf("expected ErrInvalidInput, got %v", err)
 		}
 	})
+
+	t.Run("empty name returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &model.Service{Name: "", DurationMinutes: 30}
+		err := repo.Create(context.Background(), svc)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for empty name, got %v", err)
+		}
+	})
+
+	t.Run("negative price returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &model.Service{Name: "Test", DurationMinutes: 30, Price: -100}
+		err := repo.Create(context.Background(), svc)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for negative price, got %v", err)
+		}
+	})
 }
 
 func TestServicesRepo_Get(t *testing.T) {

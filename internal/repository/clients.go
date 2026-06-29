@@ -21,9 +21,15 @@ func NewClientsRepo(db *sql.DB) *ClientsRepo {
 	return &ClientsRepo{db: db}
 }
 
-// Create inserts a new client. Returns ErrConflict if the phone is already
-// in use (UNIQUE violation).
+// Create inserts a new client. Returns ErrInvalidInput if name or phone is empty.
+// Returns ErrConflict if the phone is already in use (UNIQUE violation).
 func (r *ClientsRepo) Create(ctx context.Context, c *model.Client) error {
+	if strings.TrimSpace(c.Name) == "" {
+		return fmt.Errorf("create client: name must not be empty: %w", ErrInvalidInput)
+	}
+	if strings.TrimSpace(c.Phone) == "" {
+		return fmt.Errorf("create client: phone must not be empty: %w", ErrInvalidInput)
+	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO clients (id, name, phone, email, preferences)
 		 VALUES (?, ?, ?, ?, ?)`,
@@ -95,9 +101,16 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*mod
 	return c, nil
 }
 
-// Update updates an existing client. Returns ErrNotFound if no row matches.
+// Update updates an existing client. Returns ErrInvalidInput if name or phone
+// is empty. Returns ErrNotFound if no row matches.
 // Returns ErrConflict if the new phone violates the UNIQUE constraint.
 func (r *ClientsRepo) Update(ctx context.Context, c *model.Client) error {
+	if strings.TrimSpace(c.Name) == "" {
+		return fmt.Errorf("update client: name must not be empty: %w", ErrInvalidInput)
+	}
+	if strings.TrimSpace(c.Phone) == "" {
+		return fmt.Errorf("update client: phone must not be empty: %w", ErrInvalidInput)
+	}
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE clients SET name=?, phone=?, email=?, preferences=?,
 		 updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -159,7 +172,7 @@ func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Cli
 	if err != nil {
 		return nil, fmt.Errorf("search clients FTS: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
 	var clients []*model.Client
 	for rows.Next() {

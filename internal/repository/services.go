@@ -21,10 +21,17 @@ func NewServicesRepo(db *sql.DB) *ServicesRepo {
 	return &ServicesRepo{db: db}
 }
 
-// Create inserts a new service. Returns ErrInvalidInput if duration_minutes <= 0.
+// Create inserts a new service. Returns ErrInvalidInput if duration_minutes <= 0,
+// name is empty, or price is negative.
 func (r *ServicesRepo) Create(ctx context.Context, s *model.Service) error {
+	if strings.TrimSpace(s.Name) == "" {
+		return fmt.Errorf("create service: name must not be empty: %w", ErrInvalidInput)
+	}
 	if s.DurationMinutes <= 0 {
 		return fmt.Errorf("create service: duration_minutes must be positive: %w", ErrInvalidInput)
+	}
+	if s.Price < 0 {
+		return fmt.Errorf("create service: price must not be negative: %w", ErrInvalidInput)
 	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO services (id, name, description, duration_minutes, price, is_active)
@@ -62,7 +69,7 @@ func (r *ServicesRepo) ListActive(ctx context.Context) ([]*model.Service, error)
 	if err != nil {
 		return nil, fmt.Errorf("list active services: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
 	var services []*model.Service
 	for rows.Next() {
@@ -142,7 +149,7 @@ func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*model.Se
 	if err != nil {
 		return nil, fmt.Errorf("search services FTS: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
 	var services []*model.Service
 	for rows.Next() {

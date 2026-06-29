@@ -38,6 +38,28 @@ func TestClientsRepo_Create(t *testing.T) {
 			t.Errorf("expected ErrConflict, got %v", err)
 		}
 	})
+
+	t.Run("empty name returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewClientsRepo(db)
+
+		c := &model.Client{ID: "cli-2", Name: "", Phone: "+5491112345678"}
+		err := repo.Create(context.Background(), c)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for empty name, got %v", err)
+		}
+	})
+
+	t.Run("empty phone returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewClientsRepo(db)
+
+		c := &model.Client{ID: "cli-2", Name: "Juan", Phone: ""}
+		err := repo.Create(context.Background(), c)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for empty phone, got %v", err)
+		}
+	})
 }
 
 func TestClientsRepo_Get(t *testing.T) {
