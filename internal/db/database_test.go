@@ -114,7 +114,7 @@ func TestSchemaVersion_RowInserted(t *testing.T) {
 	if version != 1 {
 		t.Errorf("version = %d; want 1", version)
 	}
-	wantDesc := "initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes"
+	wantDesc := "initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 2 secondary indexes"
 	if description != wantDesc {
 		t.Errorf("description = %q; want %q", description, wantDesc)
 	}
@@ -308,8 +308,6 @@ func TestSecondaryIndexes_Exist(t *testing.T) {
 		table string
 		index string
 	}{
-		{"business_hours_exception", "idx_business_hours_exception_date"},
-		{"schedules", "idx_schedules_professional_day"},
 		{"bookings", "idx_bookings_overlap"},
 		{"pending_alerts", "idx_pending_alerts_scheduled_status"},
 	}

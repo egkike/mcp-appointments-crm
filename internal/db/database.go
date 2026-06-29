@@ -1,7 +1,7 @@
 // Package db manages the SQLite database connection and schema lifecycle.
 //
 // The schema consists of 10 domain tables (per docs/PRD.md §3.7), 2 FTS5
-// virtual tables, 6 FTS sync triggers, 4 secondary indexes, and a
+// virtual tables, 6 FTS sync triggers, 2 secondary indexes, and a
 // schema_version metadata table. All DDL is executed by initSchema, which
 // is idempotent (safe to call multiple times).
 package db
@@ -268,13 +268,11 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 			VALUES (new.rowid, new.name, new.description);
 		END`,
 
-		// ── 4 secondary indexes ──────────────────────────────────────
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_hours_exception_date
-			ON business_hours_exception(exception_date)`,
-
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_professional_day
-			ON schedules(professional_id, day_of_week)`,
-
+		// ── 2 secondary indexes ──────────────────────────────────────
+		// Note: business_hours_exception.exception_date and
+		// schedules(professional_id, day_of_week) have UNIQUE table
+		// constraints that create implicit indexes — no need for
+		// redundant explicit UNIQUE indexes.
 		`CREATE INDEX IF NOT EXISTS idx_bookings_overlap
 			ON bookings(professional_id, start_datetime, end_datetime)`,
 
@@ -283,7 +281,7 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 
 		// ── Seed schema_version v1 (idempotent) ──────────────────────
 		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
-			(1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')`,
+			(1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 2 secondary indexes')`,
 	}
 
 	for _, stmt := range stmts {
