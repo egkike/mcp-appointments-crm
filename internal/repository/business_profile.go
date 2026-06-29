@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/egkike/mcp-appointments-crm/internal/model"
@@ -21,6 +22,36 @@ type BusinessProfileRepo struct {
 // NewBusinessProfileRepo creates a new BusinessProfileRepo.
 func NewBusinessProfileRepo(db *sql.DB) *BusinessProfileRepo {
 	return &BusinessProfileRepo{db: db}
+}
+
+// validateBusinessProfile checks business-rule invariants for a business
+// profile before it reaches the database.
+func validateBusinessProfile(p *model.BusinessProfile) error {
+	// messenger_platform must be nil, "whatsapp", or "telegram".
+	if p.MessengerPlatform != nil {
+		v := *p.MessengerPlatform
+		if v != "whatsapp" && v != "telegram" {
+			return fmt.Errorf("actualizar perfil del negocio: la plataforma de mensajería debe ser \"whatsapp\" o \"telegram\", se recibió: %q: %w",
+				v, ErrInvalidInput)
+		}
+	}
+
+	// accepted_payment_methods must be nil or a valid JSON array of non-empty strings.
+	if p.AcceptedPaymentMethods != nil {
+		var methods []string
+		if err := json.Unmarshal([]byte(*p.AcceptedPaymentMethods), &methods); err != nil {
+			return fmt.Errorf("actualizar perfil del negocio: los métodos de pago deben ser un array JSON válido: %w",
+				ErrInvalidInput)
+		}
+		for i, m := range methods {
+			if m == "" {
+				return fmt.Errorf("actualizar perfil del negocio: el método de pago en la posición %d está vacío: %w",
+					i, ErrInvalidInput)
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetBusinessProfile returns the singleton business profile, creating a
@@ -64,6 +95,9 @@ func (r *BusinessProfileRepo) GetBusinessProfile(ctx context.Context) (*model.Bu
 // UpdateBusinessProfile updates the singleton row. Returns ErrNotFound if
 // no row matches (should not happen in practice due to lazy-init).
 func (r *BusinessProfileRepo) UpdateBusinessProfile(ctx context.Context, p *model.BusinessProfile) error {
+	if err := validateBusinessProfile(p); err != nil {
+		return err
+	}
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE business_profile SET
 			name=?, industry=?, country=?, address=?, latitude=?,

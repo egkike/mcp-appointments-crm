@@ -212,6 +212,116 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		}
 	})
 
+	t.Run("valid messenger_platform whatsapp succeeds", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		platform := "whatsapp"
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("valid messenger_platform telegram succeeds", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		platform := "telegram"
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("invalid messenger_platform returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		platform := "facebook"
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for invalid platform, got %v", err)
+		}
+	})
+
+	t.Run("valid accepted_payment_methods JSON array succeeds", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		methods := `["cash","credit_card"]`
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty JSON array accepted_payment_methods succeeds", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		methods := `[]`
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("invalid JSON accepted_payment_methods returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		methods := `not-json`
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for invalid JSON, got %v", err)
+		}
+	})
+
+	t.Run("accepted_payment_methods with empty string returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		methods := `["cash",""]`
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for empty string in array, got %v", err)
+		}
+	})
+
+	t.Run("nil messenger_platform and nil accepted_payment_methods succeed", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test"}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
 	t.Run("DB error on UPDATE propagates", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
