@@ -16,25 +16,42 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// busyTimeoutMillis is the SQLite busy_timeout value in milliseconds.
+// It is embedded in the DSN so every connection in the pool inherits it,
+// fixing the per-connection pragma leakage that occurred when pragmas were
+// set via ExecContext on a pooled *sql.DB.
+const busyTimeoutMillis = 5000
+
 // DB wraps a *sql.DB connection to the SQLite database.
 type DB struct {
 	Conn *sql.DB
 }
 
-// NewDatabase opens the SQLite database at dbPath, configures production
-// pragmas (WAL, foreign_keys, busy_timeout), and runs initSchema.
+// buildDSN appends modernc.org/sqlite _pragma query parameters to dbPath so
+// that per-connection pragmas (foreign_keys, busy_timeout) are applied to
+// every connection the pool creates — not just the first one.
+func buildDSN(dbPath string) string {
+	return fmt.Sprintf("%s?_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
+		dbPath, busyTimeoutMillis)
+}
+
+// NewDatabase opens the SQLite database at dbPath, verifies production
+// pragmas (WAL), and runs initSchema. Per-connection pragmas (foreign_keys,
+// busy_timeout) are set via the DSN (see buildDSN) so they apply to every
+// connection in the pool.
 func NewDatabase(ctx context.Context, dbPath string) (*DB, error) {
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
 	}
 
-	conn, err := sql.Open("sqlite", dbPath)
+	dsn := buildDSN(dbPath)
+	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	if err := configurePragmas(ctx, conn); err != nil {
+	if err := verifyPragmas(ctx, conn); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -55,18 +72,17 @@ func (db *DB) Close() error {
 	return nil
 }
 
-// configurePragmas sets the production pragmas on the connection.
-func configurePragmas(ctx context.Context, conn *sql.DB) error {
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON;",
-		"PRAGMA journal_mode = WAL;",
-		"PRAGMA synchronous = NORMAL;",
-		"PRAGMA busy_timeout = 5000;",
+// verifyPragmas asserts that WAL journal mode is active on the connection.
+// Per-connection pragmas (foreign_keys, busy_timeout) are set via the DSN;
+// this function only verifies the result for WAL since it is critical for
+// concurrent read/write performance.
+func verifyPragmas(ctx context.Context, conn *sql.DB) error {
+	var mode string
+	if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+		return fmt.Errorf("query journal_mode: %w", err)
 	}
-	for _, p := range pragmas {
-		if _, err := conn.ExecContext(ctx, p); err != nil {
-			return fmt.Errorf("apply pragma %q: %w", p, err)
-		}
+	if mode != "wal" {
+		return fmt.Errorf("expected WAL journal mode, got %q", mode)
 	}
 	return nil
 }

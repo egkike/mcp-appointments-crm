@@ -9,25 +9,16 @@ import (
 )
 
 // newTestDB creates an in-memory SQLite DB with pragmas matching production.
+// Pragmas are set via the DSN (see buildDSN) so every connection in the pool
+// inherits them. WAL is silently ignored for in-memory databases.
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	dsn := buildDSN(":memory:")
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open in-memory sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON;",
-		"PRAGMA journal_mode = WAL;",
-		"PRAGMA synchronous = NORMAL;",
-		"PRAGMA busy_timeout = 5000;",
-	}
-	for _, p := range pragmas {
-		if _, err := db.ExecContext(context.Background(), p); err != nil {
-			t.Fatalf("pragma %q: %v", p, err)
-		}
-	}
 	return db
 }
 
