@@ -5,11 +5,14 @@
 //     control flow, usable with errors.Is.
 //   - SemanticError for business-domain errors (e.g., the 5-step
 //     check_availability chain), usable with errors.As.
-//
-// This package does NOT import internal/validation.
 package repository
 
-import "errors"
+import (
+	"errors"
+	"strings"
+
+	"modernc.org/sqlite"
+)
 
 // Sentinel errors for CRUD-level conditions.
 var (
@@ -52,3 +55,22 @@ func (e *SemanticError) Error() string { return e.Message }
 
 // Unwrap returns the underlying cause, if any.
 func (e *SemanticError) Unwrap() error { return e.Cause }
+
+// sqliteConstraintUnique is the SQLite extended result code for
+// SQLITE_CONSTRAINT_UNIQUE.
+const sqliteConstraintUnique = 2067
+
+// isUniqueViolation checks whether err is a SQLite UNIQUE constraint error.
+// Primary path: typed check via *sqlite.Error.Code() for reliability.
+// Fallback: string match for drivers that don't expose *sqlite.Error
+// (e.g., go-sqlmock in tests).
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		return sqliteErr.Code() == sqliteConstraintUnique
+	}
+	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+}

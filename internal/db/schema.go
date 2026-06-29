@@ -29,7 +29,8 @@ func domainTableDDL() []string {
 			business_hours              TEXT NOT NULL DEFAULT '{}',
 			created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
 			updated_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			CHECK (id = 'singleton')
+			CHECK (id = 'singleton'),
+			CHECK (messenger_platform IS NULL OR messenger_platform IN ('whatsapp', 'telegram'))
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS business_hours_exception (
