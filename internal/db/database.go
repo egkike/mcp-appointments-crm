@@ -101,15 +101,49 @@ func firstLine(s string) string {
 
 // initSchema creates all tables, FTS virtual tables, triggers, and indexes.
 //
-// Pre-release: the legacy 4-table schema is intentionally left in place because
-// no production data exists. When v1 ships, a separate migration must drop
-// legacy tables. See docs/PRD.md §3.7.
+// Legacy schema migration: if the legacy "appointments" table is found in
+// sqlite_master, the database contains a pre-release schema with incompatible
+// column types. All legacy tables (business_profile, clients, services,
+// appointments, clients_fts, services_fts) are dropped before the new DDL
+// runs. This is safe because no production data existed before the new schema,
+// and the schema-version spec explicitly permits destructive replace when
+// legacy tables are detected.
 //
 // It is idempotent: calling it N times produces the same state as calling it
 // once. All DDL uses IF NOT EXISTS for safety on partial-failure retries.
 // Schema version tracking: after all DDL succeeds, a row with version=1 is
 // inserted into schema_version (INSERT OR IGNORE for idempotency).
 func initSchema(ctx context.Context, db *sql.DB) error {
+	// If the legacy "appointments" table exists, this is a pre-release DB
+	// with an incompatible schema. Drop all legacy tables (including FTS
+	// virtual tables) so the new DDL can create tables with the correct
+	// column types. The "appointments" table is used as a marker because it
+	// exists ONLY in the legacy schema — it is never created by the new DDL.
+	// This check is safe under concurrency: on a fresh DB, "appointments"
+	// does not exist so no drops run; on a legacy DB, all goroutines drop
+	// the same tables with IF EXISTS (idempotent).
+	var hasLegacy int
+	err := db.QueryRowContext(ctx,
+		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='appointments'",
+	).Scan(&hasLegacy)
+	if err != nil {
+		return fmt.Errorf("initSchema: check legacy tables: %w", err)
+	}
+	if hasLegacy > 0 {
+		// Drop base tables first (auto-drops associated triggers),
+		// then FTS virtual tables.
+		legacyTables := []string{
+			"business_profile", "clients", "services", "appointments",
+			"clients_fts", "services_fts",
+		}
+		for _, table := range legacyTables {
+			stmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", table)
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("initSchema: drop legacy table %s: %w", table, err)
+			}
+		}
+	}
+
 	ddl := make([]string, 0, 100)
 	ddl = append(ddl, domainTableDDL()...)
 	ddl = append(ddl, ftsTableDDL()...)
