@@ -394,6 +394,29 @@ func TestInitSchema_Concurrent(t *testing.T) {
 	if ftsCount != 1 {
 		t.Errorf("fts count for 'Concurrent' = %d; want 1", ftsCount)
 	}
+
+	// Open a second handle to verify DSN pragmas propagate to new connections.
+	db2, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open second handle: %v", err)
+	}
+	t.Cleanup(func() { _ = db2.Close() })
+
+	var fk int
+	if err := db2.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatalf("query foreign_keys: %v", err)
+	}
+	if fk != 1 {
+		t.Errorf("foreign_keys = %d; want 1", fk)
+	}
+
+	var timeout int
+	if err := db2.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+		t.Fatalf("query busy_timeout: %v", err)
+	}
+	if timeout != busyTimeoutMillis {
+		t.Errorf("busy_timeout = %d; want %d", timeout, busyTimeoutMillis)
+	}
 }
 
 // installLegacySchema creates the pre-release 4-table schema with column
