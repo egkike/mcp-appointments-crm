@@ -647,20 +647,23 @@ func TestBuildSharedCacheDSN(t *testing.T) {
 // <dbPath> plus the 4 production pragma parameters.
 func TestBuildDSN(t *testing.T) {
 	tests := []struct {
-		name   string
-		dbPath string
+		name             string
+		dbPath           string
+		wantPathContains string // substring expected in the DSN path portion
 	}{
-		{"file path", "/tmp/test.db"},
-		{"memory", ":memory:"},
+		{"file path", "/tmp/test.db", "/tmp/test.db"},
+		{"memory", ":memory:", ":memory:"},
+		{"path with space", "/tmp/my db.db", "/tmp/my%20db.db"},
+		{"windows-style path", "C:/path/to/db.db", "c:/path/to/db.db"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dsn := buildDSN(tt.dbPath)
 
-			// Must contain the database path.
-			if !strings.Contains(dsn, tt.dbPath) {
-				t.Errorf("DSN %q does not contain dbPath %q", dsn, tt.dbPath)
+			// Must contain the expected path portion (may be URL-encoded).
+			if !strings.Contains(dsn, tt.wantPathContains) {
+				t.Errorf("DSN %q does not contain expected path %q", dsn, tt.wantPathContains)
 			}
 
 			// Must contain all 4 pragma parameters.
