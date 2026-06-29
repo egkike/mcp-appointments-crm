@@ -24,27 +24,47 @@ func NewBusinessHoursExceptionRepo(db *sql.DB) *BusinessHoursExceptionRepo {
 // datePattern matches YYYY-MM-DD strictly (no time component).
 var datePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
+// timeHHMMRe matches HH:MM with leading zero (24-hour format).
+var timeHHMMRe = regexp.MustCompile(`^\d{2}:\d{2}$`)
+
 // Create inserts a new exception. Validates:
 //   - exception_date is YYYY-MM-DD (no time component)
-//   - is_closed=false requires both open_time and close_time
+//   - is_closed=true requires open_time and close_time to be nil
+//   - is_closed=false requires both open_time and close_time in HH:MM format
 //   - open_time must be < close_time
 //
 // Returns ErrInvalidInput for validation failures, ErrConflict for duplicate dates.
 func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.BusinessHoursException) error {
 	// Validate date format.
 	if !datePattern.MatchString(ex.ExceptionDate) {
-		return fmt.Errorf("create exception: exception_date must be YYYY-MM-DD, got %q: %w",
+		return fmt.Errorf("crear excepción: la fecha de excepción debe tener formato YYYY-MM-DD, se recibió: %q: %w",
 			ex.ExceptionDate, ErrInvalidInput)
 	}
 
-	// Validate time consistency when not closed.
-	if !ex.IsClosed {
-		if ex.OpenTime == nil || ex.CloseTime == nil {
-			return fmt.Errorf("create exception: is_closed=false requires both open_time and close_time: %w",
+	if ex.IsClosed {
+		// If closed, open_time and close_time must not be set.
+		if ex.OpenTime != nil || ex.CloseTime != nil {
+			return fmt.Errorf("crear excepción: si está cerrado, no se deben especificar horarios: %w",
 				ErrInvalidInput)
 		}
+	} else {
+		// If open, both times are required.
+		if ex.OpenTime == nil || ex.CloseTime == nil {
+			return fmt.Errorf("crear excepción: si está abierto, se deben especificar hora de apertura y cierre: %w",
+				ErrInvalidInput)
+		}
+		// Validate HH:MM format.
+		if !timeHHMMRe.MatchString(*ex.OpenTime) {
+			return fmt.Errorf("crear excepción: la hora de apertura debe tener formato HH:MM, se recibió: %q: %w",
+				*ex.OpenTime, ErrInvalidInput)
+		}
+		if !timeHHMMRe.MatchString(*ex.CloseTime) {
+			return fmt.Errorf("crear excepción: la hora de cierre debe tener formato HH:MM, se recibió: %q: %w",
+				*ex.CloseTime, ErrInvalidInput)
+		}
+		// Validate open < close using string comparison (HH:MM is lexicographically ordered).
 		if *ex.OpenTime >= *ex.CloseTime {
-			return fmt.Errorf("create exception: open_time (%s) must be before close_time (%s): %w",
+			return fmt.Errorf("crear excepción: la hora de apertura (%s) debe ser anterior a la hora de cierre (%s): %w",
 				*ex.OpenTime, *ex.CloseTime, ErrInvalidInput)
 		}
 	}
@@ -56,9 +76,9 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.Busin
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("create exception: date %s already exists: %w", ex.ExceptionDate, ErrConflict)
+			return fmt.Errorf("crear excepción: la fecha %s ya existe: %w", ex.ExceptionDate, ErrConflict)
 		}
-		return fmt.Errorf("create exception: %w", err)
+		return fmt.Errorf("crear excepción: %w", err)
 	}
 	return nil
 }
@@ -74,9 +94,9 @@ func (r *BusinessHoursExceptionRepo) GetByDate(ctx context.Context, date string)
 		&ex.Reason, &ex.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("get exception by date %s: %w", date, ErrNotFound)
+			return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date, ErrNotFound)
 		}
-		return nil, fmt.Errorf("get exception by date %s: %w", date, err)
+		return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date, err)
 	}
 	return ex, nil
 }
@@ -87,7 +107,7 @@ func (r *BusinessHoursExceptionRepo) List(ctx context.Context) ([]*model.Busines
 		`SELECT id, exception_date, is_closed, open_time, close_time, reason, created_at
 		 FROM business_hours_exception ORDER BY exception_date`)
 	if err != nil {
-		return nil, fmt.Errorf("list exceptions: %w", err)
+		return nil, fmt.Errorf("listar excepciones: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
@@ -96,12 +116,12 @@ func (r *BusinessHoursExceptionRepo) List(ctx context.Context) ([]*model.Busines
 		ex := &model.BusinessHoursException{}
 		if err := rows.Scan(&ex.ID, &ex.ExceptionDate, &ex.IsClosed, &ex.OpenTime,
 			&ex.CloseTime, &ex.Reason, &ex.CreatedAt); err != nil {
-			return nil, fmt.Errorf("list exceptions: scan: %w", err)
+			return nil, fmt.Errorf("listar excepciones: escaneo: %w", err)
 		}
 		exceptions = append(exceptions, ex)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list exceptions: rows: %w", err)
+		return nil, fmt.Errorf("listar excepciones: iteración: %w", err)
 	}
 	return exceptions, nil
 }
@@ -111,14 +131,14 @@ func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id string) erro
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM business_hours_exception WHERE id = ?`, id)
 	if err != nil {
-		return fmt.Errorf("delete exception: %w", err)
+		return fmt.Errorf("eliminar excepción: %w", err)
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("delete exception rows affected: %w", err)
+		return fmt.Errorf("eliminar excepción: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("delete exception: %w", ErrNotFound)
+		return fmt.Errorf("eliminar excepción: %w", ErrNotFound)
 	}
 	return nil
 }

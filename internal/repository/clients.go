@@ -25,10 +25,10 @@ func NewClientsRepo(db *sql.DB) *ClientsRepo {
 // Returns ErrConflict if the phone is already in use (UNIQUE violation).
 func (r *ClientsRepo) Create(ctx context.Context, c *model.Client) error {
 	if strings.TrimSpace(c.Name) == "" {
-		return fmt.Errorf("create client: name must not be empty: %w", ErrInvalidInput)
+		return fmt.Errorf("crear cliente: el nombre no puede estar vacío: %w", ErrInvalidInput)
 	}
 	if strings.TrimSpace(c.Phone) == "" {
-		return fmt.Errorf("create client: phone must not be empty: %w", ErrInvalidInput)
+		return fmt.Errorf("crear cliente: el teléfono no puede estar vacío: %w", ErrInvalidInput)
 	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO clients (id, name, phone, email, preferences)
@@ -37,9 +37,9 @@ func (r *ClientsRepo) Create(ctx context.Context, c *model.Client) error {
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("create client: phone %s already exists: %w", c.Phone, ErrConflict)
+			return fmt.Errorf("crear cliente: el teléfono %s ya existe: %w", c.Phone, ErrConflict)
 		}
-		return fmt.Errorf("create client: %w", err)
+		return fmt.Errorf("crear cliente: %w", err)
 	}
 	return nil
 }
@@ -54,9 +54,9 @@ func (r *ClientsRepo) Get(ctx context.Context, id string) (*model.Client, error)
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("get client %s: %w", id, ErrNotFound)
+			return nil, fmt.Errorf("obtener cliente %s: %w", id, ErrNotFound)
 		}
-		return nil, fmt.Errorf("get client %s: %w", id, err)
+		return nil, fmt.Errorf("obtener cliente %s: %w", id, err)
 	}
 	return c, nil
 }
@@ -71,9 +71,9 @@ func (r *ClientsRepo) GetByPhone(ctx context.Context, phone string) (*model.Clie
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("get client by phone %s: %w", phone, ErrNotFound)
+			return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, ErrNotFound)
 		}
-		return nil, fmt.Errorf("get client by phone %s: %w", phone, err)
+		return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, err)
 	}
 	return c, nil
 }
@@ -86,7 +86,7 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*mod
 		model.NewUUID(), name, phone,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("get or create client: insert: %w", err)
+		return nil, fmt.Errorf("obtener o crear cliente: inserción: %w", err)
 	}
 
 	c := &model.Client{}
@@ -96,7 +96,7 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*mod
 	).Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Preferences,
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("get or create client: select: %w", err)
+		return nil, fmt.Errorf("obtener o crear cliente: consulta: %w", err)
 	}
 	return c, nil
 }
@@ -106,10 +106,10 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*mod
 // Returns ErrConflict if the new phone violates the UNIQUE constraint.
 func (r *ClientsRepo) Update(ctx context.Context, c *model.Client) error {
 	if strings.TrimSpace(c.Name) == "" {
-		return fmt.Errorf("update client: name must not be empty: %w", ErrInvalidInput)
+		return fmt.Errorf("actualizar cliente: el nombre no puede estar vacío: %w", ErrInvalidInput)
 	}
 	if strings.TrimSpace(c.Phone) == "" {
-		return fmt.Errorf("update client: phone must not be empty: %w", ErrInvalidInput)
+		return fmt.Errorf("actualizar cliente: el teléfono no puede estar vacío: %w", ErrInvalidInput)
 	}
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE clients SET name=?, phone=?, email=?, preferences=?,
@@ -119,16 +119,16 @@ func (r *ClientsRepo) Update(ctx context.Context, c *model.Client) error {
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("update client: phone %s already exists: %w", c.Phone, ErrConflict)
+			return fmt.Errorf("actualizar cliente: el teléfono %s ya existe: %w", c.Phone, ErrConflict)
 		}
-		return fmt.Errorf("update client: %w", err)
+		return fmt.Errorf("actualizar cliente: %w", err)
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("update client rows affected: %w", err)
+		return fmt.Errorf("actualizar cliente: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("update client: %w", ErrNotFound)
+		return fmt.Errorf("actualizar cliente: %w", ErrNotFound)
 	}
 	return nil
 }
@@ -137,14 +137,14 @@ func (r *ClientsRepo) Update(ctx context.Context, c *model.Client) error {
 func (r *ClientsRepo) Delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM clients WHERE id = ?`, id)
 	if err != nil {
-		return fmt.Errorf("delete client: %w", err)
+		return fmt.Errorf("eliminar cliente: %w", err)
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("delete client rows affected: %w", err)
+		return fmt.Errorf("eliminar cliente: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("delete client: %w", ErrNotFound)
+		return fmt.Errorf("eliminar cliente: %w", ErrNotFound)
 	}
 	return nil
 }
@@ -154,10 +154,10 @@ func (r *ClientsRepo) Delete(ctx context.Context, id string) error {
 // Returns ErrInvalidInput if the query contains FTS5 operator characters.
 func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Client, error) {
 	if strings.TrimSpace(query) == "" {
-		return nil, fmt.Errorf("search clients FTS: empty query: %w", ErrInvalidInput)
+		return nil, fmt.Errorf("buscar clientes: consulta vacía: %w", ErrInvalidInput)
 	}
 	if ftsQueryRe.MatchString(query) {
-		return nil, fmt.Errorf("search clients FTS: query contains forbidden characters: %w", ErrInvalidInput)
+		return nil, fmt.Errorf("buscar clientes: la consulta contiene caracteres no permitidos: %w", ErrInvalidInput)
 	}
 
 	rows, err := r.db.QueryContext(ctx,
@@ -170,7 +170,7 @@ func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Cli
 		query,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("search clients FTS: %w", err)
+		return nil, fmt.Errorf("buscar clientes: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
@@ -179,12 +179,12 @@ func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Cli
 		c := &model.Client{}
 		if err := rows.Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Preferences,
 			&c.CreatedAt, &c.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("search clients FTS: scan: %w", err)
+			return nil, fmt.Errorf("buscar clientes: escaneo: %w", err)
 		}
 		clients = append(clients, c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("search clients FTS: rows: %w", err)
+		return nil, fmt.Errorf("buscar clientes: iteración: %w", err)
 	}
 	return clients, nil
 }

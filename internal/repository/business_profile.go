@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
+
+// singletonID is the fixed primary-key value for the unique business_profile row.
+const singletonID = "singleton"
 
 // BusinessProfileRepo provides access to the singleton business_profile row.
 // GetBusinessProfile uses lazy-init (INSERT OR IGNORE + SELECT) so that a
@@ -26,8 +28,14 @@ func NewBusinessProfileRepo(db *sql.DB) *BusinessProfileRepo {
 // concurrent access: INSERT OR IGNORE ensures at most one row exists.
 func (r *BusinessProfileRepo) GetBusinessProfile(ctx context.Context) (*model.BusinessProfile, error) {
 	// Lazy-init: ensure the singleton row exists.
-	_, _ = r.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO business_profile (id, name) VALUES ('singleton', '')`)
+	// INSERT OR IGNORE silently no-ops when the row already exists (UNIQUE
+	// conflict on id='singleton'). Any other error is surfaced.
+	_, err := r.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO business_profile (id, name) VALUES (?, ?)`,
+		singletonID, "")
+	if err != nil && !isUniqueViolation(err) {
+		return nil, fmt.Errorf("obtener perfil del negocio: %w", err)
+	}
 
 	const query = `SELECT id, name, industry, country, address, latitude, longitude,
 		cover_photo_url, public_phone, messenger_platform, messenger_id,
@@ -35,10 +43,10 @@ func (r *BusinessProfileRepo) GetBusinessProfile(ctx context.Context) (*model.Bu
 		currency_code, currency_symbol, accepted_payment_methods,
 		timezone, slot_interval_minutes, business_hours,
 		created_at, updated_at
-		FROM business_profile WHERE id = 'singleton'`
+		FROM business_profile WHERE id = ?`
 
 	p := &model.BusinessProfile{}
-	err := r.db.QueryRowContext(ctx, query).Scan(
+	err = r.db.QueryRowContext(ctx, query, singletonID).Scan(
 		&p.ID, &p.Name, &p.Industry, &p.Country, &p.Address,
 		&p.Latitude, &p.Longitude, &p.CoverPhotoURL, &p.PublicPhone,
 		&p.MessengerPlatform, &p.MessengerID, &p.ContactEmail,
@@ -48,7 +56,7 @@ func (r *BusinessProfileRepo) GetBusinessProfile(ctx context.Context) (*model.Bu
 		&p.CreatedAt, &p.UpdatedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("get business profile: %w", err)
+		return nil, fmt.Errorf("obtener perfil del negocio: %w", err)
 	}
 	return p, nil
 }
@@ -65,33 +73,24 @@ func (r *BusinessProfileRepo) UpdateBusinessProfile(ctx context.Context, p *mode
 			currency_symbol=?, accepted_payment_methods=?, timezone=?,
 			slot_interval_minutes=?, business_hours=?,
 			updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		WHERE id = 'singleton'`,
+		WHERE id = ?`,
 		p.Name, p.Industry, p.Country, p.Address, p.Latitude,
 		p.Longitude, p.CoverPhotoURL, p.PublicPhone,
 		p.MessengerPlatform, p.MessengerID, p.ContactEmail,
 		p.WebsiteURL, p.GeneralDescription, p.CurrencyCode,
 		p.CurrencySymbol, p.AcceptedPaymentMethods, p.Timezone,
 		p.SlotIntervalMinutes, p.BusinessHours,
+		singletonID,
 	)
 	if err != nil {
-		return fmt.Errorf("update business profile: %w", err)
+		return fmt.Errorf("actualizar perfil del negocio: %w", err)
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("update business profile rows affected: %w", err)
+		return fmt.Errorf("actualizar perfil del negocio: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("update business profile: %w", ErrNotFound)
+		return fmt.Errorf("actualizar perfil del negocio: %w", ErrNotFound)
 	}
 	return nil
-}
-
-// isUniqueViolation checks whether err is a SQLite UNIQUE constraint error.
-// Uses string matching for driver portability (works with both mattn/go-sqlite3
-// and modernc.org/sqlite).
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
 }

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/model"
@@ -21,17 +20,26 @@ func NewServicesRepo(db *sql.DB) *ServicesRepo {
 	return &ServicesRepo{db: db}
 }
 
+// validateService checks business-rule invariants for a service before it
+// reaches the database. Used by both Create and Update.
+func validateService(s *model.Service) error {
+	if strings.TrimSpace(s.Name) == "" {
+		return fmt.Errorf("el nombre no puede estar vacío: %w", ErrInvalidInput)
+	}
+	if s.DurationMinutes <= 0 {
+		return fmt.Errorf("la duración debe ser mayor a 0 minutos: %w", ErrInvalidInput)
+	}
+	if s.Price < 0 {
+		return fmt.Errorf("el precio no puede ser negativo: %w", ErrInvalidInput)
+	}
+	return nil
+}
+
 // Create inserts a new service. Returns ErrInvalidInput if duration_minutes <= 0,
 // name is empty, or price is negative.
 func (r *ServicesRepo) Create(ctx context.Context, s *model.Service) error {
-	if strings.TrimSpace(s.Name) == "" {
-		return fmt.Errorf("create service: name must not be empty: %w", ErrInvalidInput)
-	}
-	if s.DurationMinutes <= 0 {
-		return fmt.Errorf("create service: duration_minutes must be positive: %w", ErrInvalidInput)
-	}
-	if s.Price < 0 {
-		return fmt.Errorf("create service: price must not be negative: %w", ErrInvalidInput)
+	if err := validateService(s); err != nil {
+		return fmt.Errorf("crear servicio: %w", err)
 	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO services (id, name, description, duration_minutes, price, is_active)
@@ -39,7 +47,7 @@ func (r *ServicesRepo) Create(ctx context.Context, s *model.Service) error {
 		s.ID, s.Name, s.Description, s.DurationMinutes, s.Price, s.IsActive,
 	)
 	if err != nil {
-		return fmt.Errorf("create service: %w", err)
+		return fmt.Errorf("crear servicio: %w", err)
 	}
 	return nil
 }
@@ -54,9 +62,9 @@ func (r *ServicesRepo) Get(ctx context.Context, id string) (*model.Service, erro
 		&s.IsActive, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("get service %s: %w", id, ErrNotFound)
+			return nil, fmt.Errorf("obtener servicio %s: %w", id, ErrNotFound)
 		}
-		return nil, fmt.Errorf("get service %s: %w", id, err)
+		return nil, fmt.Errorf("obtener servicio %s: %w", id, err)
 	}
 	return s, nil
 }
@@ -67,7 +75,7 @@ func (r *ServicesRepo) ListActive(ctx context.Context) ([]*model.Service, error)
 		`SELECT id, name, description, duration_minutes, price, is_active, created_at, updated_at
 		 FROM services WHERE is_active = 1 ORDER BY name`)
 	if err != nil {
-		return nil, fmt.Errorf("list active services: %w", err)
+		return nil, fmt.Errorf("listar servicios activos: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
@@ -76,18 +84,22 @@ func (r *ServicesRepo) ListActive(ctx context.Context) ([]*model.Service, error)
 		s := &model.Service{}
 		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.DurationMinutes,
 			&s.Price, &s.IsActive, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("list active services: scan: %w", err)
+			return nil, fmt.Errorf("listar servicios activos: escaneo: %w", err)
 		}
 		services = append(services, s)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list active services: rows: %w", err)
+		return nil, fmt.Errorf("listar servicios activos: iteración: %w", err)
 	}
 	return services, nil
 }
 
-// Update updates an existing service. Returns ErrNotFound if no row matches.
+// Update updates an existing service. Returns ErrInvalidInput for invalid
+// fields, ErrNotFound if no row matches.
 func (r *ServicesRepo) Update(ctx context.Context, s *model.Service) error {
+	if err := validateService(s); err != nil {
+		return fmt.Errorf("actualizar servicio: %w", err)
+	}
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE services SET name=?, description=?, duration_minutes=?, price=?,
 		 is_active=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -95,14 +107,14 @@ func (r *ServicesRepo) Update(ctx context.Context, s *model.Service) error {
 		s.Name, s.Description, s.DurationMinutes, s.Price, s.IsActive, s.ID,
 	)
 	if err != nil {
-		return fmt.Errorf("update service: %w", err)
+		return fmt.Errorf("actualizar servicio: %w", err)
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("update service rows affected: %w", err)
+		return fmt.Errorf("actualizar servicio: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("update service: %w", ErrNotFound)
+		return fmt.Errorf("actualizar servicio: %w", ErrNotFound)
 	}
 	return nil
 }
@@ -111,30 +123,27 @@ func (r *ServicesRepo) Update(ctx context.Context, s *model.Service) error {
 func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM services WHERE id = ?`, id)
 	if err != nil {
-		return fmt.Errorf("delete service: %w", err)
+		return fmt.Errorf("eliminar servicio: %w", err)
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("delete service rows affected: %w", err)
+		return fmt.Errorf("eliminar servicio: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("delete service: %w", ErrNotFound)
+		return fmt.Errorf("eliminar servicio: %w", ErrNotFound)
 	}
 	return nil
 }
-
-// ftsQueryRe matches allowed FTS5 query characters: alphanumeric, spaces, and hyphens.
-var ftsQueryRe = regexp.MustCompile(`[^a-zA-Z0-9\s\-]`)
 
 // SearchFTS performs a full-text search on services using FTS5 MATCH.
 // Results are ordered by FTS5 rank (most relevant first).
 // Returns ErrInvalidInput if the query contains FTS5 operator characters.
 func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*model.Service, error) {
 	if strings.TrimSpace(query) == "" {
-		return nil, fmt.Errorf("search services FTS: empty query: %w", ErrInvalidInput)
+		return nil, fmt.Errorf("buscar servicios: consulta vacía: %w", ErrInvalidInput)
 	}
 	if ftsQueryRe.MatchString(query) {
-		return nil, fmt.Errorf("search services FTS: query contains forbidden characters: %w", ErrInvalidInput)
+		return nil, fmt.Errorf("buscar servicios: la consulta contiene caracteres no permitidos: %w", ErrInvalidInput)
 	}
 
 	rows, err := r.db.QueryContext(ctx,
@@ -147,7 +156,7 @@ func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*model.Se
 		query,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("search services FTS: %w", err)
+		return nil, fmt.Errorf("buscar servicios: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
@@ -156,12 +165,12 @@ func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*model.Se
 		s := &model.Service{}
 		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.DurationMinutes,
 			&s.Price, &s.IsActive, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("search services FTS: scan: %w", err)
+			return nil, fmt.Errorf("buscar servicios: escaneo: %w", err)
 		}
 		services = append(services, s)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("search services FTS: rows: %w", err)
+		return nil, fmt.Errorf("buscar servicios: iteración: %w", err)
 	}
 	return services, nil
 }
