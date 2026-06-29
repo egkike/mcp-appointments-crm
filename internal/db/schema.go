@@ -1,5 +1,9 @@
+// Package db — schema.go owns the canonical DDL for the project.
+// It exposes a small set of focused builders that initSchema composes.
 package db
 
+// domainTableDDL returns CREATE TABLE statements for the 8 PRD domain tables
+// plus schema_version.
 func domainTableDDL() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS business_profile (
@@ -121,6 +125,7 @@ func domainTableDDL() []string {
 	}
 }
 
+// ftsTableDDL returns CREATE VIRTUAL TABLE statements for the 2 FTS5 indexes.
 func ftsTableDDL() []string {
 	return []string{
 		`CREATE VIRTUAL TABLE IF NOT EXISTS clients_fts USING fts5(
@@ -139,6 +144,8 @@ func ftsTableDDL() []string {
 	}
 }
 
+// ftsTriggerDDL returns CREATE TRIGGER statements for the 6 FTS sync triggers
+// (insert, delete, update for each of clients_fts and services_fts).
 func ftsTriggerDDL() []string {
 	return []string{
 		`CREATE TRIGGER IF NOT EXISTS clients_fts_ai AFTER INSERT ON clients BEGIN
@@ -177,6 +184,8 @@ func ftsTriggerDDL() []string {
 	}
 }
 
+// secondaryIndexDDL returns CREATE INDEX statements for the 2 explicit
+// secondary indexes (overlap detection and alert scheduling).
 func secondaryIndexDDL() []string {
 	return []string{
 		`CREATE INDEX IF NOT EXISTS idx_bookings_overlap
@@ -187,6 +196,7 @@ func secondaryIndexDDL() []string {
 	}
 }
 
+// seedDDL returns the initial INSERT statement for schema_version (version 1).
 func seedDDL() []string {
 	return []string{
 		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
