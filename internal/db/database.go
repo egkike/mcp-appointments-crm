@@ -30,9 +30,12 @@ type DB struct {
 }
 
 // buildDSN appends modernc.org/sqlite _pragma query parameters to dbPath so
-// that per-connection pragmas (foreign_keys, busy_timeout) are applied to
-// every connection the pool creates — not just the first one.
-// Uses net/url to safely handle paths with special characters (?, &, spaces).
+// that per-connection pragmas (foreign_keys, busy_timeout, journal_mode,
+// synchronous) are applied to every connection in the pool.
+// For non-URL paths like ":memory:", it falls back to direct concatenation.
+// The path component is parsed by net/url, so paths containing "?" or "#"
+// may be misinterpreted as URI components — callers should avoid such
+// characters in dbPath. For typical Linux/macOS XDG paths, this is safe.
 func buildDSN(dbPath string) string {
 	u, err := url.Parse(dbPath)
 	if err != nil {
