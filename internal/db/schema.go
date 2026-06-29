@@ -58,7 +58,9 @@ func domainTableDDL() []string {
 			day_of_week         INTEGER NOT NULL,
 			start_time          TEXT NOT NULL,
 			end_time            TEXT NOT NULL,
-			UNIQUE(professional_id, day_of_week)
+			UNIQUE(professional_id, day_of_week),
+			CHECK (day_of_week BETWEEN 0 AND 6),
+			CHECK (start_time < end_time)
 		)`,
 
 		`CREATE TABLE IF NOT EXISTS services (
