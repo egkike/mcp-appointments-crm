@@ -113,3 +113,26 @@ func TestErrCode_Constants(t *testing.T) {
 		}
 	}
 }
+
+func TestIsUniqueViolation(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil error", nil, false},
+		{"plain UNIQUE string match", errors.New("UNIQUE constraint failed: clients.phone"), true},
+		{"plain non-UNIQUE error", errors.New("disk I/O error"), false},
+		{"wrapped UNIQUE string match", fmt.Errorf("insert: %w", errors.New("UNIQUE constraint failed: x")), true},
+		{"empty error message", errors.New(""), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isUniqueViolation(tt.err)
+			if got != tt.want {
+				t.Errorf("isUniqueViolation(%v) = %v; want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
