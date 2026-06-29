@@ -63,7 +63,7 @@ func TestSemanticError_Unwrap(t *testing.T) {
 	}
 	unwrapped := errors.Unwrap(e)
 	if !errors.Is(unwrapped, cause) {
-		t.Errorf("Unwrap() should expose cause; got %v, want %v", unwrapped, cause)
+		t.Errorf("Unwrap() should expose cause; got %v (%T), want %v (%T)", unwrapped, unwrapped, cause, cause)
 	}
 }
 

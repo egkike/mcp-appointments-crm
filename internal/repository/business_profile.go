@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 
 	"github.com/egkike/mcp-appointments-crm/internal/model"
@@ -26,6 +25,7 @@ func NewBusinessProfileRepo(db *sql.DB) *BusinessProfileRepo {
 
 // validateBusinessProfile checks business-rule invariants for a business
 // profile before it reaches the database.
+// Optional fields (BusinessHours, Timezone) are only validated when non-empty.
 func validateBusinessProfile(p *model.BusinessProfile) error {
 	// messenger_platform must be nil, "whatsapp", or "telegram".
 	if p.MessengerPlatform != nil {
@@ -37,18 +37,21 @@ func validateBusinessProfile(p *model.BusinessProfile) error {
 	}
 
 	// accepted_payment_methods must be nil or a valid JSON array of non-empty strings.
+	// JSON "null" is explicitly rejected (must be an array or omitted).
 	if p.AcceptedPaymentMethods != nil {
-		var methods []string
-		if err := json.Unmarshal([]byte(*p.AcceptedPaymentMethods), &methods); err != nil {
-			return fmt.Errorf("actualizar perfil del negocio: los métodos de pago deben ser un array JSON válido: %w",
-				ErrInvalidInput)
+		if err := validateAcceptedPaymentMethodsJSON(*p.AcceptedPaymentMethods); err != nil {
+			return fmt.Errorf("actualizar perfil del negocio: %w", err)
 		}
-		for i, m := range methods {
-			if m == "" {
-				return fmt.Errorf("actualizar perfil del negocio: el método de pago en la posición %d está vacío: %w",
-					i, ErrInvalidInput)
-			}
-		}
+	}
+
+	// business_hours must be empty or valid JSON object (optional field).
+	if err := validateBusinessHoursJSON(p.BusinessHours); err != nil {
+		return fmt.Errorf("actualizar perfil del negocio: %w", err)
+	}
+
+	// timezone must be empty or valid IANA zone (optional field).
+	if err := validateTimezone(p.Timezone); err != nil {
+		return fmt.Errorf("actualizar perfil del negocio: %w", err)
 	}
 
 	return nil

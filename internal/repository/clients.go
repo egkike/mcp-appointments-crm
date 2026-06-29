@@ -159,11 +159,8 @@ func (r *ClientsRepo) Delete(ctx context.Context, id string) error {
 // Results are ordered by FTS5 rank (most relevant first).
 // Returns ErrInvalidInput if the query contains FTS5 operator characters.
 func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Client, error) {
-	if strings.TrimSpace(query) == "" {
-		return nil, fmt.Errorf("buscar clientes: consulta vacía: %w", ErrInvalidInput)
-	}
-	if ftsQueryRe.MatchString(query) {
-		return nil, fmt.Errorf("buscar clientes: la consulta contiene caracteres no permitidos: %w", ErrInvalidInput)
+	if err := validateFTSQuery(query); err != nil {
+		return nil, fmt.Errorf("buscar clientes: %w", err)
 	}
 
 	rows, err := r.db.QueryContext(ctx,

@@ -335,4 +335,144 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 	})
+
+	t.Run("valid business_hours JSON object succeeds", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		profile := &model.BusinessProfile{
+			ID:            "singleton",
+			Name:          "Test",
+			BusinessHours: `{"mon":{"open":"09:00","close":"18:00"}}`,
+		}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty business_hours is allowed (optional field)", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", BusinessHours: ""}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("invalid business_hours JSON returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		profile := &model.BusinessProfile{
+			ID:            "singleton",
+			Name:          "Test",
+			BusinessHours: `{invalid`,
+		}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for malformed JSON, got %v", err)
+		}
+	})
+
+	t.Run("business_hours as JSON array returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		profile := &model.BusinessProfile{
+			ID:            "singleton",
+			Name:          "Test",
+			BusinessHours: `["not","an","object"]`,
+		}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for JSON array, got %v", err)
+		}
+	})
+
+	t.Run("business_hours as JSON string returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		profile := &model.BusinessProfile{
+			ID:            "singleton",
+			Name:          "Test",
+			BusinessHours: `"just a string"`,
+		}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for JSON string, got %v", err)
+		}
+	})
+
+	t.Run("valid IANA timezone succeeds", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		profile := &model.BusinessProfile{
+			ID:       "singleton",
+			Name:     "Test",
+			Timezone: "America/Argentina/Buenos_Aires",
+		}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty timezone is allowed (optional field)", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		mock.ExpectExec(`UPDATE business_profile SET`).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", Timezone: ""}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("invalid timezone returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		profile := &model.BusinessProfile{
+			ID:       "singleton",
+			Name:     "Test",
+			Timezone: "Not/A/Real/Zone",
+		}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for invalid timezone, got %v", err)
+		}
+	})
+
+	t.Run("accepted_payment_methods JSON null returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessProfileRepo(db)
+
+		methods := `null`
+		profile := &model.BusinessProfile{
+			ID:                     "singleton",
+			Name:                   "Test",
+			AcceptedPaymentMethods: &methods,
+		}
+		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for JSON null, got %v", err)
+		}
+	})
 }

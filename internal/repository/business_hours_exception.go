@@ -5,14 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
-	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
 // BusinessHoursExceptionRepo provides CRUD for the business_hours_exception
 // table. Validates date format and time consistency before hitting the DB.
+// Update is intentionally not provided; the only way to change an exception
+// is Delete + Create (exceptions are immutable by design).
 type BusinessHoursExceptionRepo struct {
 	db *sql.DB
 }
@@ -22,12 +22,6 @@ func NewBusinessHoursExceptionRepo(db *sql.DB) *BusinessHoursExceptionRepo {
 	return &BusinessHoursExceptionRepo{db: db}
 }
 
-// datePattern matches YYYY-MM-DD strictly (no time component).
-var datePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-
-// timeHHMMRe matches HH:MM in strict 24-hour format (HH: 00-23, MM: 00-59).
-var timeHHMMRe = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)$`)
-
 // Create inserts a new exception. Validates:
 //   - exception_date is YYYY-MM-DD (no time component)
 //   - is_closed=true requires open_time and close_time to be nil
@@ -36,15 +30,9 @@ var timeHHMMRe = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)$`)
 //
 // Returns ErrInvalidInput for validation failures, ErrConflict for duplicate dates.
 func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.BusinessHoursException) error {
-	// Validate date format.
-	if !datePattern.MatchString(ex.ExceptionDate) {
-		return fmt.Errorf("crear excepción: la fecha de excepción debe tener formato YYYY-MM-DD, se recibió: %q: %w",
-			ex.ExceptionDate, ErrInvalidInput)
-	}
-	// Validate date is a real calendar date (rejects 2026-02-30, 2026-13-45, etc.).
-	if _, err := time.Parse("2006-01-02", ex.ExceptionDate); err != nil {
-		return fmt.Errorf("crear excepción: la fecha %q no es una fecha válida: %w",
-			ex.ExceptionDate, ErrInvalidInput)
+	// Validate date format and calendar validity via shared helper.
+	if err := validateExceptionDate(ex.ExceptionDate); err != nil {
+		return fmt.Errorf("crear excepción: %w", err)
 	}
 
 	if ex.IsClosed {
@@ -90,8 +78,11 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.Busin
 }
 
 // GetByDate returns the exception for a given date. Returns ErrNotFound if
-// no exception exists for that date.
+// no exception exists for that date. Validates date format before querying.
 func (r *BusinessHoursExceptionRepo) GetByDate(ctx context.Context, date string) (*model.BusinessHoursException, error) {
+	if err := validateExceptionDate(date); err != nil {
+		return nil, fmt.Errorf("obtener excepción por fecha: %w", err)
+	}
 	ex := &model.BusinessHoursException{}
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, exception_date, is_closed, open_time, close_time, reason, created_at

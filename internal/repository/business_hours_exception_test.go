@@ -343,6 +343,36 @@ func TestBusinessHoursExceptionRepo_GetByDate(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 	})
+
+	t.Run("malformed date returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessHoursExceptionRepo(db)
+
+		_, err := repo.GetByDate(context.Background(), "2026-13-45")
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for invalid calendar date, got %v", err)
+		}
+	})
+
+	t.Run("datetime string returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessHoursExceptionRepo(db)
+
+		_, err := repo.GetByDate(context.Background(), "2026-12-25T00:00:00")
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for datetime, got %v", err)
+		}
+	})
+
+	t.Run("empty string returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessHoursExceptionRepo(db)
+
+		_, err := repo.GetByDate(context.Background(), "")
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for empty date, got %v", err)
+		}
+	})
 }
 
 func TestBusinessHoursExceptionRepo_List(t *testing.T) {
