@@ -187,6 +187,70 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		}
 	})
 
+	t.Run("hour 25:00 returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessHoursExceptionRepo(db)
+
+		open := "25:00"
+		close := "26:00"
+		ex := &model.BusinessHoursException{
+			ExceptionDate: "2026-12-24",
+			IsClosed:      false,
+			OpenTime:      &open,
+			CloseTime:     &close,
+		}
+		err := repo.Create(context.Background(), ex)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for hour=25, got %v", err)
+		}
+	})
+
+	t.Run("minute 12:70 returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessHoursExceptionRepo(db)
+
+		open := "12:70"
+		close := "14:00"
+		ex := &model.BusinessHoursException{
+			ExceptionDate: "2026-12-24",
+			IsClosed:      false,
+			OpenTime:      &open,
+			CloseTime:     &close,
+		}
+		err := repo.Create(context.Background(), ex)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for minute=70, got %v", err)
+		}
+	})
+
+	t.Run("invalid calendar date 2026-13-45 returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessHoursExceptionRepo(db)
+
+		ex := &model.BusinessHoursException{
+			ExceptionDate: "2026-13-45",
+			IsClosed:      true,
+		}
+		err := repo.Create(context.Background(), ex)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for invalid calendar date, got %v", err)
+		}
+	})
+
+	t.Run("invalid calendar date 2026-02-30 returns ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewBusinessHoursExceptionRepo(db)
+
+		ex := &model.BusinessHoursException{
+			ExceptionDate: "2026-02-30",
+			IsClosed:      true,
+		}
+		err := repo.Create(context.Background(), ex)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected ErrInvalidInput for Feb 30, got %v", err)
+		}
+	})
+
 	t.Run("UNIQUE violation returns ErrConflict", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
@@ -347,10 +411,10 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		mock.ExpectExec(`DELETE FROM business_hours_exception WHERE id = \?`).
-			WithArgs("1").
+			WithArgs(int64(1)).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		err := repo.Delete(context.Background(), "1")
+		err := repo.Delete(context.Background(), int64(1))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -361,10 +425,10 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		mock.ExpectExec(`DELETE FROM business_hours_exception WHERE id = \?`).
-			WithArgs("999").
+			WithArgs(int64(999)).
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		err := repo.Delete(context.Background(), "999")
+		err := repo.Delete(context.Background(), int64(999))
 		if !errors.Is(err, ErrNotFound) {
 			t.Errorf("expected ErrNotFound, got %v", err)
 		}
@@ -375,10 +439,10 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		mock.ExpectExec(`DELETE FROM business_hours_exception WHERE id = \?`).
-			WithArgs("1").
+			WithArgs(int64(1)).
 			WillReturnError(errors.New("disk full"))
 
-		err := repo.Delete(context.Background(), "1")
+		err := repo.Delete(context.Background(), int64(1))
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}

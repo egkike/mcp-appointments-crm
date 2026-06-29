@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
@@ -24,8 +25,8 @@ func NewBusinessHoursExceptionRepo(db *sql.DB) *BusinessHoursExceptionRepo {
 // datePattern matches YYYY-MM-DD strictly (no time component).
 var datePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
-// timeHHMMRe matches HH:MM with leading zero (24-hour format).
-var timeHHMMRe = regexp.MustCompile(`^\d{2}:\d{2}$`)
+// timeHHMMRe matches HH:MM in strict 24-hour format (HH: 00-23, MM: 00-59).
+var timeHHMMRe = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)$`)
 
 // Create inserts a new exception. Validates:
 //   - exception_date is YYYY-MM-DD (no time component)
@@ -38,6 +39,11 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.Busin
 	// Validate date format.
 	if !datePattern.MatchString(ex.ExceptionDate) {
 		return fmt.Errorf("crear excepción: la fecha de excepción debe tener formato YYYY-MM-DD, se recibió: %q: %w",
+			ex.ExceptionDate, ErrInvalidInput)
+	}
+	// Validate date is a real calendar date (rejects 2026-02-30, 2026-13-45, etc.).
+	if _, err := time.Parse("2006-01-02", ex.ExceptionDate); err != nil {
+		return fmt.Errorf("crear excepción: la fecha %q no es una fecha válida: %w",
 			ex.ExceptionDate, ErrInvalidInput)
 	}
 
@@ -127,7 +133,7 @@ func (r *BusinessHoursExceptionRepo) List(ctx context.Context) ([]*model.Busines
 }
 
 // Delete removes an exception by ID. Returns ErrNotFound if no row matches.
-func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id string) error {
+func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id int64) error {
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM business_hours_exception WHERE id = ?`, id)
 	if err != nil {
