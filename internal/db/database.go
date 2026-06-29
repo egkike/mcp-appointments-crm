@@ -73,10 +73,8 @@ func (db *DB) Close() error {
 	return nil
 }
 
-// verifyPragmas asserts that WAL journal mode is active on the connection.
-// Per-connection pragmas (foreign_keys, busy_timeout) are set via the DSN;
-// this function only verifies the result for WAL since it is critical for
-// concurrent read/write performance.
+// verifyPragmas asserts that critical SQLite pragmas are active on the
+// connection: WAL journal mode, foreign_keys enabled, and busy_timeout set.
 func verifyPragmas(ctx context.Context, conn *sql.DB) error {
 	var mode string
 	if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
@@ -85,6 +83,23 @@ func verifyPragmas(ctx context.Context, conn *sql.DB) error {
 	if mode != "wal" {
 		return fmt.Errorf("expected WAL journal mode, got %q", mode)
 	}
+
+	var fk int
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+		return fmt.Errorf("query foreign_keys: %w", err)
+	}
+	if fk != 1 {
+		return fmt.Errorf("expected foreign_keys=1, got %d", fk)
+	}
+
+	var timeout int
+	if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+		return fmt.Errorf("query busy_timeout: %w", err)
+	}
+	if timeout != busyTimeoutMillis {
+		return fmt.Errorf("expected busy_timeout=%d, got %d", busyTimeoutMillis, timeout)
+	}
+
 	return nil
 }
 
