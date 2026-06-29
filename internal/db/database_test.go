@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"sync"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -128,8 +130,12 @@ func TestSchemaVersion_NoDuplicateOnReInit(t *testing.T) {
 	skipIfNoFTS5(t, db)
 	ctx := context.Background()
 
-	_ = initSchema(ctx, db)
-	_ = initSchema(ctx, db)
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("first initSchema: %v", err)
+	}
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("second initSchema: %v", err)
+	}
 
 	var count int
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM schema_version").Scan(&count); err != nil {
@@ -320,5 +326,72 @@ func TestSecondaryIndexes_Exist(t *testing.T) {
 		if err != nil {
 			t.Errorf("index %q on table %q not found: %v", ei.index, ei.table, err)
 		}
+	}
+}
+
+// TestInitSchema_Concurrent verifies that 8 goroutines calling initSchema
+// concurrently on a shared-cache in-memory database all succeed without
+// errors, produce exactly one schema_version row, and leave the FTS indexes
+// functional. This locks in the DSN-based pragma contract (busy_timeout,
+// foreign_keys) that makes concurrent initialization safe.
+func TestInitSchema_Concurrent(t *testing.T) {
+	// Open a shared-cache in-memory DB so all goroutines see the same data.
+	dsn := fmt.Sprintf(
+		"file:concurrent_test?mode=memory&cache=shared&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)",
+		busyTimeoutMillis,
+	)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open shared in-memory sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	skipIfNoFTS5(t, db)
+
+	ctx := context.Background()
+	const goroutines = 8
+
+	var wg sync.WaitGroup
+	errs := make([]error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			errs[idx] = initSchema(ctx, db)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d initSchema: %v", i, err)
+		}
+	}
+
+	// Exactly one schema_version row (singleton).
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM schema_version").Scan(&count); err != nil {
+		t.Fatalf("count schema_version: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("schema_version row count = %d; want 1", count)
+	}
+
+	// Insert a test client and verify FTS MATCH works after concurrent init.
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO clients (id, name, phone) VALUES ('c-concurrent', 'Concurrent Client', '+5491100000000')`)
+	if err != nil {
+		t.Fatalf("insert test client: %v", err)
+	}
+
+	var ftsCount int
+	err = db.QueryRowContext(ctx,
+		`SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'Concurrent'`).Scan(&ftsCount)
+	if err != nil {
+		t.Fatalf("fts query: %v", err)
+	}
+	if ftsCount != 1 {
+		t.Errorf("fts count for 'Concurrent' = %d; want 1", ftsCount)
 	}
 }
