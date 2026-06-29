@@ -1,9 +1,13 @@
 package repository
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestSentinelErrors_ErrorsIs(t *testing.T) {
@@ -57,11 +61,8 @@ func TestSemanticError_Unwrap(t *testing.T) {
 		Message: "error interno",
 		Cause:   cause,
 	}
-	if !errors.Is(e, cause) {
-		t.Error("Unwrap should expose the cause")
-	}
 	unwrapped := errors.Unwrap(e)
-	if !errors.Is(e, cause) {
+	if !errors.Is(unwrapped, cause) {
 		t.Errorf("Unwrap() should expose cause; got %v, want %v", unwrapped, cause)
 	}
 }
@@ -115,6 +116,32 @@ func TestErrCode_Constants(t *testing.T) {
 }
 
 func TestIsUniqueViolation(t *testing.T) {
+	// Trigger a real *sqlite.Error via an in-memory SQLite UNIQUE violation.
+	// sqlite.Error has unexported fields, so we can't construct it directly.
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT UNIQUE)"); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO t (v) VALUES ('a')"); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	_, uniqueErr := db.ExecContext(ctx, "INSERT INTO t (v) VALUES ('a')")
+	if uniqueErr == nil {
+		t.Fatal("expected UNIQUE violation error, got nil")
+	}
+
+	// Build a non-UNIQUE *sqlite.Error by dropping a non-existent table.
+	_, nonUniqueErr := db.ExecContext(ctx, "DROP TABLE nonexistent")
+	if nonUniqueErr == nil {
+		t.Fatal("expected error for DROP TABLE nonexistent, got nil")
+	}
+
 	tests := []struct {
 		name string
 		err  error
@@ -125,6 +152,9 @@ func TestIsUniqueViolation(t *testing.T) {
 		{"plain non-UNIQUE error", errors.New("disk I/O error"), false},
 		{"wrapped UNIQUE string match", fmt.Errorf("insert: %w", errors.New("UNIQUE constraint failed: x")), true},
 		{"empty error message", errors.New(""), false},
+		{"typed *sqlite.Error UNIQUE (code 2067)", uniqueErr, true},
+		{"wrapped typed *sqlite.Error UNIQUE", fmt.Errorf("insert: %w", uniqueErr), true},
+		{"typed *sqlite.Error non-UNIQUE", nonUniqueErr, false},
 	}
 
 	for _, tt := range tests {
