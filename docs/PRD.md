@@ -485,7 +485,7 @@ Per [ADR-0004](../architecture/0004-naming-conventions.md):
 - Tabla de reservas: `bookings` (no `appointments`)
 - Campo de duración: `duration_minutes` (no `duration_mins`)
 - Fechas de inicio/fin: `start_datetime` / `end_datetime` (no `start_time` / `end_time`)
-- Messenger fields: `messenger_platform`, `messenger_id` en `business_profile` (no en `clients`)
+- Messenger fields: `messenger_platform`, `messenger_id` en `business_profile` (canal del bot del negocio, no en `clients`). Las cuentas con permisos elevados (admin, staff) se modelan en la nueva tabla `accounts` (ver §3.8).
 - Repos Go: plural para colecciones (`BookingsRepo`), singular para agregados (`Booking`)
 
 > **Convención `updated_at`**: Los repos son responsables de incluir
@@ -664,6 +664,136 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 | Slot después del cierre | `Error: el servicio dura {duration} minutos pero solo quedan {remaining} antes del cierre a las {close}.` |
 | Overlap con otra reserva | `Error: el Profesional {name} ya tiene una reserva de {existing_start} a {existing_end}.` |
 | Slot en el pasado | `Error: no se puede reservar en el pasado.` |
+
+---
+
+### 3.8 Modelo de Autorización
+
+> **Decisión arquitectónica**: ver [ADR-0009](../architecture/0009-authorization-model.md).
+
+El sistema diferencia tres tipos de **caller** según quién está interactuando con el bot del negocio:
+
+| Rol | Descripción | Tabla de identidad |
+|---|---|---|
+| `admin` | Dueño del negocio. Acceso total al sistema (configuración, reportes, gestión de staff, todos los datos de bookings/clients/professionals/services) | `accounts` (whitelist) |
+| `staff` | Profesional del negocio. Acceso limitado a sus propias reservas y datos asociados (no puede ver/modificar otros profesionales) | `accounts` (whitelist) |
+| `client` | Cliente final. Acceso limitado a sus propios datos (sus reservas, su perfil). NO puede ver datos de otros clientes | `clients` (implícito) |
+
+#### 3.8.1 Por qué `accounts` solo contiene admin y staff
+
+Los clientes finales **no** tienen un entry en la tabla `accounts`. Son identificados por su `id` (phone o handle del messenger) directamente en la tabla `clients`. Esto simplifica el modelo:
+
+- La tabla `accounts` actúa como **whitelist de permisos elevados** (admin y staff). El conjunto es cerrado y pequeño.
+- Si un caller no está en `accounts`, se busca en `clients`. Si está, es un `client` con acceso limitado. Si no, se rechaza con `ErrUnauthenticated`.
+- Un cliente **no puede escalar a admin o staff** sin un INSERT explícito en `accounts`. La base de datos enforcea este invariante vía CHECK constraints.
+- Los clientes son un conjunto abierto: cualquiera puede registrarse como cliente. No tiene sentido enumerarlos en una whitelist.
+
+#### 3.8.2 Schema de la tabla `accounts`
+
+```sql
+CREATE TABLE accounts (
+    id              TEXT PRIMARY KEY,        -- phone o handle del messenger del solicitante
+    role            TEXT NOT NULL,           -- 'admin' | 'staff'
+    display_name    TEXT,
+    professional_id TEXT,                    -- FK a professionals.id, solo si role='staff'
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CHECK (role IN ('admin', 'staff')),
+    CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role = 'admin'))
+);
+```
+
+> **Nota**: el campo `business_profile.messenger_id` (en `§3.7.1`) identifica la **cuenta del bot del negocio** (no la cuenta del admin ni la de los staff). El bot es el canal que recibe mensajes de TODAS las cuentas (admin, staff, clients) a través de WhatsApp Business / Telegram.
+
+#### 3.8.3 Flujo de identificación del caller
+
+Cada MCP tool call incluye un header `X-Caller-Id: <phone|handle>`. El cliente MCP (Hermes) inyecta este header **automáticamente** desde el contexto del chat. El LLM no decide ni manipula el `caller_id` — esto es crítico para seguridad.
+
+```
+Hermes (cliente MCP)                           MCP Server
+  │                                                │
+  │  Tool call: create_booking(...)                │
+  │  Header: X-Caller-Id: +5491155554444          │
+  │  Header: X-Caller-Channel: whatsapp           │
+  │ ──────────────────────────────────────────►   │
+  │                                                │  Middleware de autenticación:
+  │                                                │  1. Lee X-Caller-Id
+  │                                                │  2. SELECT * FROM accounts WHERE id = ?
+  │                                                │  3. Si no, SELECT * FROM clients WHERE id = ?
+  │                                                │  4. Carga `caller` en context.Context
+  │                                                │  5. Invoca el handler del tool
+```
+
+#### 3.8.4 Enforcement en 3 capas
+
+| Capa | Dónde | Qué enforza |
+|---|---|---|
+| **Coarse-grained** | Middleware MCP (intercepta cada tool call) | Valida que la cuenta existe y está activa. Rechaza con `ErrUnauthenticated` si no. Rechaza con `ErrForbidden` si el caller no tiene permiso para el tool. |
+| **Medium-grained** | Repositorios (cada método) | Chequea `caller.Role` desde el `context.Context` y filtra por `professional_id` o `client_id` cuando corresponde. |
+| **Fine-grained** | SQL queries | `WHERE professional_id = ?` o `WHERE client_id = ?` para staff/client; sin filtro para admin. |
+
+El `caller` se propaga vía `context.Context`:
+
+```go
+type Caller struct {
+    ID             string   // phone o handle
+    Role           string   // "admin" | "staff" | "client"
+    ProfessionalID *string  // FK a professionals, solo si role=staff
+    ClientID       *string  // FK a clients, solo si role=client
+}
+
+// Middleware
+ctx = auth.WithCaller(ctx, caller)
+
+// Repositorio
+func (r *BookingsRepo) ListBookings(ctx context.Context) ([]*model.Booking, error) {
+    caller, ok := auth.FromContext(ctx)
+    if !ok {
+        return nil, ErrUnauthenticated
+    }
+    switch caller.Role {
+    case "admin":
+        return r.listAll(ctx)
+    case "staff":
+        return r.listByProfessional(ctx, *caller.ProfessionalID)
+    case "client":
+        return r.listByClient(ctx, *caller.ClientID)
+    default:
+        return nil, fmt.Errorf("rol desconocido: %s", caller.Role)
+    }
+}
+```
+
+#### 3.8.5 Defensa contra LLM comprometido
+
+Un LLM (Hermes) comprometido o mal configurado **no puede escalar a admin** porque:
+
+- El `X-Caller-Id` se inyecta desde el contexto del chat, **no del LLM**. El LLM no puede falsificarlo.
+- Para actuar como admin, el atacante necesitaría conocer el phone number de una cuenta whitelisted en `accounts`. El handshake inicial del bot (que identifica al caller antes de que el LLM intervenga) verifica la cuenta.
+- La base de datos enforcea el invariante vía CHECK constraints: sin INSERT en `accounts`, no hay role elevado.
+- Los timestamps dan trazabilidad: cada request queda loggeado con su `caller_id` para auditoría.
+
+#### 3.8.6 Mensajes de error al LLM
+
+| Error | Mensaje (español) |
+|---|---|
+| Caller no identificado (no en `accounts` ni en `clients`) | `Error: no te reconozco. Por favor registrate primero.` |
+| Caller inactivo (`is_active = 0`) | `Error: tu cuenta está deshabilitada. Contacta al administrador.` |
+| Tool no permitido para el rol | `Error: no tienes permiso para realizar esta acción.` |
+| Cliente pide datos de otro cliente | `Error: solo puedes ver tus propias reservas.` |
+| Staff pide datos de otro profesional | `Error: solo puedes ver tus propias reservas.` |
+
+(Per coding standards: "no raw system dumps", "stack traces NEVER sent to LLM".)
+
+#### 3.8.7 Orden de implementación
+
+La capa de autorización se implementa como un **change SDD separado** (`feat-authorization`) **antes** de los PRs complejos de `feat-db-layer` (sobre todo antes de PR 3, que expone datos de staff y clients via `check_availability`). El orden propuesto:
+
+1. **`feat-authorization`** (Fase 0) — schema, repo, middleware, integración con el flujo MCP
+2. **`feat-db-layer` PR 1a + PR 1b + PR 2** (ya mergeados en el tracker)
+3. **`feat-db-layer` PR 3** (Bookings + CheckAvailability) — ahora con la capa de auth integrada
+4. **Fase 2+** (handlers MCP, install.sh con seed del admin)
 
 ---
 
