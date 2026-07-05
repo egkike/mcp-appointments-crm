@@ -66,10 +66,25 @@ Wait for user confirmation before proceeding.
 
 ### Branch Rules
 
-| Type | Branch | Push Direct to main | PR Required |
-|------|--------|---------------------|------------|
-| **Documentation** | `main` | ✅ Yes | ❌ No |
-| **Code Changes** | Feature branch | ❌ No | ✅ Yes |
+| Type | Examples | Branch | Push Direct to main | PR Required |
+|------|----------|--------|---------------------|------------|
+| **Documentation** | `docs/PRD.md`, `docs/architecture/*.md`, `openspec/changes/*/proposal.md`, `openspec/changes/*/specs/*/spec.md`, `openspec/changes/*/design.md`, `openspec/changes/*/tasks.md`, `openspec/changes/archive/*` | `main` | ✅ Yes | ❌ No |
+| **Code Changes** | `*.go`, `go.mod`, `go.sum`, `scripts/`, `internal/`, `cmd/` | Feature branch | ❌ No | ✅ Yes |
+
+**Workflow for docs** (including OpenSpec artifacts like `proposal.md`, `specs/*/spec.md`, `design.md`, `tasks.md`):
+1. Create a feature branch (e.g., `feat/feat-auth-propose`, `feat/feat-auth-specs`).
+2. Commit the `.md` file(s) on that branch.
+3. Orchestrator shows the changes to the user for review.
+4. After approval: `git checkout main && git merge --ff-only <branch> && git push origin main`.
+5. Delete the local feature branch (`git branch -d`).
+6. No PR is opened (the merge to main is direct).
+
+**Workflow for code** (`.go`, `go.mod`, etc.):
+1. Create a feature branch (e.g., `feat/feat-auth-apply`).
+2. Commit and push to the remote branch.
+3. Open a PR against `main` (or against the change tracker if `feature-branch-chain` is in use).
+4. CI checks + reviewer approval required.
+5. Squash and merge after approval.
 
 ### Commit Format (Conventional Commits)
 
