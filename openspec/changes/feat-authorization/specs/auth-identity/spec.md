@@ -47,7 +47,7 @@ func WithCaller(ctx context.Context, caller Caller) context.Context
 
 - GIVEN un `ctx` base (no-cancelable, sin valores)
 - WHEN se llama `WithCaller(ctx, someCaller)` con un caller no-cero
-- THEN el valor retornado MUST ser un `*context.valueCtx` (o equivalente) y MUST ser distinto del `ctx` original
+- THEN el valor retornado MUST ser distinto del `ctx` original (comparación de puntero o `!=`) y `FromContext(returnedCtx)` MUST retornar el caller inyectado con `ok == true`
 - AND `FromContext(returnedCtx)` MUST devolver `(someCaller, true)`
 
 #### Scenario: WithCaller con zero value no hace panic
@@ -117,5 +117,5 @@ El paquete `internal/auth` MUST importar únicamente la stdlib de Go (`context`,
 
 - Esta spec describe SOLO las primitivas de contexto. NO define los valores permitidos de `Role` (eso es `auth-roles`), ni cómo se obtiene el caller del request HTTP (eso es `auth-middleware`).
 - El uso de punteros (`*string`) para `ProfessionalID` y `ClientID` permite distinguir "ausente" de "string vacío" sin sentinels. El cero value de `*string` es `nil` y representa correctamente la ausencia.
-- `WithCaller` y `FromContext` se usan en pares. Los repositorios SIEMPRE deben llamar `FromContext` al inicio de cada método público y rechazar (`ErrUnauthenticated`) si `ok == false` (ver `auth-middleware` para el caso típico).
+- `WithCaller` y `FromContext` se usan en pares. **En Fase 2+**, los repositorios business (BookingsRepo, ClientsRepo, etc.) deberían llamar `FromContext` al inicio de cada método público y rechazar (`ErrUnauthenticated`) si `ok == false` (ver `auth-middleware` para el caso típico). **AccountsRepo es una excepción en este change**: es caller-agnostic (no llama `FromContext`); el enforcement de admin-only se hace en el middleware Fase 2 (ver `design.md` Decisión 5).
 - El coverage target para `internal/auth/` es ≥ 80% (per `data-access` meta-spec de `feat-db-layer` y la propuesta `feat-authorization` §Success Criteria).

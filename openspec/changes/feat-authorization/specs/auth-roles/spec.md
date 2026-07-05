@@ -114,10 +114,11 @@ La tabla `accounts` MUST enforzar a nivel DB que toda fila con `role = 'staff'` 
 
 La función de resolución del caller (referenciada por `auth-middleware` pero especificada aquí por contrato) MUST seguir el siguiente orden de búsqueda, en dos queries máximo:
 
-1. `SELECT * FROM accounts WHERE id = ? AND is_active = 1` — si devuelve una fila, el caller es `{ID, Role: row.role, ProfessionalID: row.professional_id, ClientID: nil}`.
-2. Si la fila en `accounts` existe pero `is_active = 0`, el caller MUST ser rechazado con un semantic error en español (`"tu cuenta está deshabilitada. Contacta al administrador."`).
-3. Si no hay fila en `accounts` (o `is_active = 0`), `SELECT * FROM clients WHERE id = ?` — si devuelve una fila, el caller es `{ID, Role: "client", ProfessionalID: nil, ClientID: id}`.
-4. Si no hay fila en ninguna de las dos tablas, MUST retornar `ErrUnauthenticated` con mensaje en español (`"no te reconozco. Por favor registrate primero."`).
+1. `SELECT * FROM accounts WHERE id = ?` (sin filtro de `is_active`) — si devuelve una fila:
+   - Si `is_active = 1` → el caller es `{ID, Role: row.role, ProfessionalID: row.professional_id, ClientID: nil}`. NO consulta `clients`.
+   - Si `is_active = 0` → el caller MUST ser rechazado con un semantic error en español (`"tu cuenta está deshabilitada. Contacta al administrador."`). NO consulta `clients`.
+2. Si `accounts` no tiene fila para ese `id` → `SELECT * FROM clients WHERE id = ?` — si devuelve una fila, el caller es `{ID, Role: "client", ProfessionalID: nil, ClientID: id}`.
+3. Si no hay fila en ninguna de las dos tablas, MUST retornar `ErrUnauthenticated` con mensaje en español (`"no te reconozco. Por favor registrate primero."`).
 
 Esta función MUST ejecutarse dentro de un `*sql.DB` y MUST usar el `context.Context` recibido para cancelación. MUST NO ser un singleton global: vive en el middleware o en un helper inyectable.
 

@@ -497,7 +497,7 @@ Notas:
 - **Caller en `internal/auth/`** (no en `internal/model/`): el caller es context-flow state, no un entity persistido. Los repos importan `internal/auth` para acceder al `Caller` via `auth.FromContext(ctx)`.
 - **3 capas de enforcement**:
   - **Coarse-grained (middleware, Fase 2)**: rechaza tool calls con `401` (unauthenticated) o `403` (forbidden role).
-  - **Medium-grained (repos)**: cada método chequea `caller.Role` y filtra por `caller.ProfessionalID` (staff) o `caller.ClientID` (client). Errores con sentinels existentes (`ErrUnauthenticated`, `ErrForbidden`).
+  - **Medium-grained (repos)**: cada método chequea `caller.Role` y filtra por `caller.ProfessionalID` (staff) o `caller.ClientID` (client). Errores con sentinels existentes (`ErrUnauthenticated`, `ErrNotFound` para cross-tenant; el `403 Forbidden` se maneja a nivel HTTP middleware, no como Go sentinel).
   - **Fine-grained (SQL)**: `WHERE professional_id = ?` para staff, `WHERE client_id = ?` para client, sin filtro para admin.
 - **Por método de PR 3**:
   - **`ProfessionalsRepo`** (Task 3.1): admin-only para `Create`/`Update`. Un staff puede `Get` (ver staff colegas) pero no modificar.

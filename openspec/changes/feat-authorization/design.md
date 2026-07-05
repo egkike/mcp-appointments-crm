@@ -6,7 +6,7 @@
 
 ## Overview
 
-`feat-authorization` introduce la capa de autorización del MCP server (Fase 0 del roadmap). Añade la **tabla `accounts`** (whitelist `admin`/`staff`) al esquema existente de 8 tablas de dominio + `schema_version` (trae el total a 9 dominio + meta), y crea el paquete `internal/auth/` con tres piezas: `Caller` (value type + propagación vía `context.Context`), `CallerResolver` (cadena de 1-2 queries `accounts` → `clients`), y `AuthMiddleware` (wrapper HTTP que lee `X-Caller-Id`, resuelve al caller, inyecta el `Caller` en el ctx y aplica RBAC coarse-grained por tool). Completa el cambio con `internal/repository/accounts.go` (8 métodos CRUD con prepared statements + sentinels) y `internal/model/account.go`. El diseño se entrega en **un solo PR ≤ 400 LOC** (review_budget_lines: 400) mergeable de forma independiente, y es el puente entre el **qué** (4 specs) y el **cómo** (las tasks de `sdd-tasks`/`sdd-apply`).
+`feat-authorization` introduce la capa de autorización del MCP server (Fase 0 del roadmap). Añade la **tabla `accounts`** (whitelist `admin`/`staff`) al esquema existente de 10 tablas de dominio + `schema_version` (per `feat-db-layer` design, trae el total a 11 dominio + meta, + `accounts` = 12 con el nuevo schema), y crea el paquete `internal/auth/` con tres piezas: `Caller` (value type + propagación vía `context.Context`), `CallerResolver` (cadena de 1-2 queries `accounts` → `clients`), y `AuthMiddleware` (wrapper HTTP que lee `X-Caller-Id`, resuelve al caller, inyecta el `Caller` en el ctx y aplica RBAC coarse-grained por tool). Completa el cambio con `internal/repository/accounts.go` (8 métodos CRUD con prepared statements + sentinels) y `internal/model/account.go`. El diseño se entrega en **dos PRs encadenados** (per `tasks.md` Forecast table: PR 1 ~460 LOC, PR 2 ~520 LOC; el split es mandatory bajo el budget 400-LOC), y es el puente entre el **qué** (4 specs) y el **cómo** (las tasks de `sdd-tasks`/`sdd-apply`).
 
 El wiring del middleware al `*http.ServeMux` del MCP server es **out-of-scope** (Fase 2): este diseño fija el contrato del middleware en aislamiento para que el wiring sea un ejército de 3 líneas cuando llegue el momento. Sin nuevas dependencias externas (stdlib `context`/`net/http`/`database/sql`/`log/slog`), cumpliendo ADR-0005 y AGENTS.md.
 
@@ -104,23 +104,23 @@ type CallerResolver struct {
 
 func NewCallerResolver(db *sql.DB) *CallerResolver
 // Resolve ejecuta 1-2 queries en orden:
-//   1. SELECT id, role, professional_id FROM accounts WHERE id = ? AND is_active = 1
-//      - fila → Caller{Role: row.role, ProfessionalID: row.professional_id (si staff)}
-//   2. SELECT 1 FROM clients WHERE id = ?  (1 query extra solo si accounts no dio fila ACTIVA)
+//   1. SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?
+//      - fila con is_active = 1 → Caller{Role: row.role, ProfessionalID: row.professional_id (si staff)}
+//      - fila con is_active = 0 → ErrUnauthenticated + mensaje "tu cuenta está deshabilitada..."
+//   2. SELECT 1 FROM clients WHERE id = ?  (solo si accounts no tiene fila)
 //      - fila → Caller{Role: RoleClient, ClientID: &id}
-// Si existe fila en accounts pero is_active = 0 → ErrUnauthenticated + mensaje "tu cuenta está deshabilitada..."
-// Si no hay fila en ninguna → ErrUnauthenticated + mensaje "no te reconozco..."
+//      - no fila → ErrUnauthenticated + mensaje "no te reconozco..."
 func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
 ```
 
-**Decisión de diseño**: la query 1 filtra por `is_active = 1` en SQL, **no** en Go. Esto significa: si `is_active = 0`, la query 1 retorna `sql.ErrNoRows` y el resolver NO puede distinguir "inactivo" de "inexistente". Por eso el resolver hace una ** query adicional selectora** antes de caer al client lookup: `SELECT 1 FROM accounts WHERE id = ?` (sin filtro de `is_active`). El algoritmo final:
+**Decisión de diseño**: la query 1 **NO** filtra por `is_active` en SQL — lee la fila completa y decide en Go. Esto permite distinguir "inactivo" (fila con `is_active=0`) de "inexistente" (sin fila), retornando mensajes de error distintos en cada caso. El algoritmo final es:
 
-1. `SELECT id, role, professional_id FROM accounts WHERE id = ?` (sin filtro `is_active`) — si fila existe:
-   - `is_active == 1` → construir `Caller` y retornar (1 query).
-   - `is_active == 0` → retornar `ErrUnauthenticated` con mensaje "cuenta deshabilitada" (1 query).
+1. `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?` (sin filtro `is_active`):
+   - Fila con `is_active == 1` → construir `Caller` y retornar (1 query).
+   - Fila con `is_active == 0` → retornar `ErrUnauthenticated` con mensaje "tu cuenta está deshabilitada" (1 query). **NO consulta `clients`**.
 2. Si accounts no tiene fila → `SELECT id FROM clients WHERE id = ?` (1 query extra):
-   - fila → `Caller{Role: RoleClient, ClientID: &id}` (2 queries total).
-   - no fila → `ErrUnauthenticated` con mensaje "no te reconozco" (2 queries total).
+   - Fila → `Caller{Role: RoleClient, ClientID: &id}` (2 queries total).
+   - No fila → `ErrUnauthenticated` con mensaje "no te reconozco" (2 queries total).
 
 Esto cumple el spec `auth-roles` Requirement "Determinación del role del caller" (paso 2: "Si la fila en `accounts` existe pero `is_active = 0`, el caller MUST ser rechazado") sin hacer `SELECT *` y luego descartar — el costo es el mismo (≤ 2 queries), y la lógica es explícita.
 
@@ -251,7 +251,7 @@ Restate del PRD §3.8.4 + ADR-0009 con interfaces concretas de este diseño:
 | Capa | Componente | Qué enforce | Cómo rejection | Mensaje Spanish |
 |------|-----------|-------------|----------------|-----------------|
 | 1. Coarse | `AuthMiddleware.Wrap` | El caller es autenticable (existe en `accounts` activo o en `clients`) y tiene rol permitido para el tool | HTTP 401 (no identificado) o 403 (rol insuficiente) | "no se proporcionó X-Caller-Id" / "no te reconozco..." / "tu cuenta está deshabilitada..." / "no tienes permiso para realizar esta acción" |
-| 2. Medium | `internal/repository/*` (future) | Cada método caller-aware chequea `auth.FromContext(ctx)` y filtra por `professional_id` / `client_id` según rol | `ErrUnauthenticated` (si no hay caller) o `ErrForbidden` (si el caller intenta acceder a datos de otro) | "solo puedes ver tus propias reservas" |
+| 2. Medium | `internal/repository/*` (future) | Cada método caller-aware chequea `auth.FromContext(ctx)` y filtra por `professional_id` / `client_id` según rol | `ErrUnauthenticated` (si no hay caller) o `ErrNotFound` (cross-tenant: client pidiendo datos de otro client parece "no encontrado" por seguridad) | "no encontrado" |
 | 3. Fine | SQL queries | `WHERE professional_id = ?` (staff) / `WHERE client_id = ?` (client) / sin filtro (admin) | Result set restringido a las filas del caller | — (no hay error, sólo filtrado silencioso) |
 
 **Nota crítica de diseño**: la **capa 2 y 3 NO se implementan en este change** (Fase 0). `AccountsRepo` en este change NO consume el `Caller` — es un CRUD admin-level que asume que el caller ya está autorizado (en Fase 2, los handlers de admin invocarán este repo tras pasar por el middleware coarse). Esto está alineado con la propuesta §Out of Scope ("handler/wiring del MCP server — Fase 2"). Sin embargo, el diseño **documenta el contrato** ahora para que `feat-db-layer` PR 3 (BookingsRepo) pueda introducir la capa 2/3 con un patrón consistente.
@@ -334,7 +334,7 @@ func domainTableDDL() []string {
 }
 ```
 
-**¿`schema_version` bump?**: **No**. Estado pre-release sin datos de usuario. El `INSERT OR IGNORE INTO schema_version (version=1, ...)` se mantiene. Si se quisiera ser estricto, se actualizaría la **descripción** de la fila v1 a `"... 8 domain tables + accounts per PRD §3.8 + schema_version ..."`. Decisión: la description es informativa, no contrato; la actualizamos para mantener el conteo honesto.
+**¿`schema_version` bump?**: **No**. Estado pre-release sin datos de usuario. El `INSERT OR IGNORE INTO schema_version (version=1, ...)` se mantiene. Si se quisiera ser estricto, se actualizaría la **descripción** de la fila v1 a `"... 10 domain tables + accounts per PRD §3.8 + schema_version + 6 FTS triggers + 4 secondary indexes"`. Decisión: la description es informativa, no contrato; la actualizamos para mantener el conteo honesto.
 
 **Idempotencia**: `CREATE TABLE IF NOT EXISTS` — el re-ejecutar `initSchema` tras el merge no falla (Decisión 10 de `feat-db-layer`: "initSchema is all-or-nothing en idempotencia, no transaccional"). Si la mitad de un arranque crea las 8 viejas y falla antes de `accounts`, el re-intento completa `accounts` con `IF NOT EXISTS`.
 
@@ -353,7 +353,7 @@ func domainTableDDL() []string {
   - INSERT con `role='admin'` sin `professional_id` → OK.
 - Nuevo test `TestAccountsTable_Defaults`:
   - INSERT con `(id, role)` → `is_active == 1`, `created_at` y `updated_at` matching el regex ISO 8601 UTC con milisegundos (regex `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`).
-- Extender `TestSchemaVersion_RowInserted` description string ( Decisión de arriba: "8 domain tables + accounts per PRD §3.8 ...").
+- Extender `TestSchemaVersion_RowInserted` description string (Decisión de arriba: "10 domain tables + accounts per PRD §3.8 + schema_version + 6 FTS triggers + 4 secondary indexes").
 
 ## Test Mapping
 
@@ -471,7 +471,7 @@ Property: el LLM nunca ve stack trace, el `caller_id` no se loguea en el body (y
 | **R5** — Audit log síncrono puede añadir latencia al path admin | Baja | `slog.Info` es async-buffereable; <100 µs en loopback. Aceptable. Si Fase 2+ lo requiere, mover a channel+goroutine. |
 | **R6** — Mensaje Spanish embebido en `*authError` puede duplicarse si el handler Fase 2 hace `err.Error()` y lo wrappea | Baja | Contract: el middleware es el **último** bottleneck antes del LLM; nunca re-wrappea el mensaje Spanish. Documentado en §Error Propagation. |
 | **R7** — `go-sqlmock` tests del middleware requieren mockear wide queries | Baja | Strategy fija: mock `accounts` ExpectQuery first; si scenario exige "no clients query", no ExpectQuery para clients. Table-driven con sub-tests claros. |
-| **R8** — `domainTableDDL()` cuentao en `schema_version` description (8 vs 9 tablas) | Baja | Guidance: actualizar description string a "8 domain tables + accounts per PRD §3.8 + schema_version + ...". Si se prefiere no tocar, la description no es contrato visual; registrar como follow-up. |
+| **R8** — `domainTableDDL()` cuentao en `schema_version` description (10 + accounts + schema_version = 12 tablas) | Baja | Guidance: actualizar description string a "10 domain tables + accounts per PRD §3.8 + schema_version + 6 FTS triggers + 4 secondary indexes". Si se prefiere no tocar, la description no es contrato visual; registrar como follow-up. |
 
 ## Implementation Order (preview de `tasks.md`)
 

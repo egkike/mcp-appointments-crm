@@ -91,7 +91,7 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
         CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role = 'admin'))
     )
     ```
-  - Update `seedDDL()` description to reflect "8 domain tables + accounts per PRD §3.8 + schema_version + ...".
+  - Update `seedDDL()` description to reflect "10 domain tables + accounts per PRD §3.8 + schema_version + 6 FTS triggers + 4 secondary indexes".
 - **Tests** (integration test in `database_test.go` using real in-memory SQLite):
   - `TestAccountsTable_Exists` — `PRAGMA table_info(accounts)` includes all columns with expected types
   - `TestAccountsTable_DefaultIsActive` — INSERT `(id, role)` → `is_active == 1`, timestamps match ISO 8601 UTC with milliseconds
@@ -125,7 +125,7 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
   - `internal/repository/accounts.go` (NEW, ~160 LOC)
   - `internal/repository/accounts_test.go` (NEW, ~240 LOC)
 - **Spec scenarios satisfied**:
-  - `accounts-repo` (Requirements 2–12, 29 scenarios)
+  - `accounts-repo` (Requirements 2–13, 29 scenarios)
 - **Key implementation**:
   - 8 methods: `Create`, `Get`, `GetByRole`, `List`, `Update`, `Delete`, `IsActive`, `ListByProfessional`.
   - Constructor `NewAccountsRepo(db *sql.DB) *AccountsRepo` receives an already opened `*sql.DB`; it does not open connections or run migrations.
@@ -218,9 +218,9 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
     1. Read `X-Caller-Id` using `r.Header.Get` (case-insensitive per RFC 7230).
     2. If missing or empty after `strings.TrimSpace` → write JSON `{"error":"no se proporcionó X-Caller-Id"}` with HTTP 401.
     3. Call `resolver.Resolve(ctx, id)`; if `ErrUnauthenticated` → write JSON `{"error":<spanish-message>}` with HTTP 401.
-    4. Inject caller into request context with `WithCaller` and call `next.ServeHTTP(w, r.WithContext(ctx))`.
-    5. If the tool has `RequiredRoles` and the caller's role is not in the set → write JSON `{"error":"no tienes permiso para realizar esta acción"}` with HTTP 403.
-    6. If `caller.Role == RoleAdmin` → emit audit log via `log/slog` with `ts` (ISO 8601 UTC), `caller_id`, and `tool`.
+    4. If the tool has `RequiredRoles` and the caller's role is not in the set → write JSON `{"error":"no tienes permiso para realizar esta acción"}` with HTTP 403. **CRITICAL: RBAC check must happen BEFORE `next.ServeHTTP` — otherwise the handler executes regardless of role.**
+    5. If `caller.Role == RoleAdmin` → emit audit log via `log/slog` with `ts` (ISO 8601 UTC), `caller_id`, and `tool`.
+    6. Inject caller into request context with `WithCaller` and call `next.ServeHTTP(w, r.WithContext(ctx))`.
   - Tool name default: `r.URL.Path`; allow injection of `toolNameFromRequest func(*http.Request) string` for Fase 2 wiring.
 - **Tests** (table-driven with `httptest.ResponseRecorder`):
   - Each of the 16 scenarios in `auth-middleware/spec.md` becomes a subtest.

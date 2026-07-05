@@ -42,7 +42,9 @@ tendría los permisos del dueño.
 TDD estricto (`go-sqlmock` antes que producción). `internal/auth/` aísla primitivas de context y
 el middleware; `accounts.go` añade el repo. El middleware hace 1-2 queries por tool call
 (`accounts` + `clients`). Sin nuevas dependencias (stdlib `context`/`net/http`/`database/sql`).
-Un solo PR ≤400 LOC, mergeable de forma independiente.
+**Dos PRs encadenados** (force-chained, el split es mandatory bajo el budget 400-LOC):
+PR 1 (data layer: schema + model + repo + integration test, ~460 LOC) → PR 2 (auth primitives:
+Caller + Resolver + Middleware, ~520 LOC). Ver `tasks.md` Forecast table para el breakdown.
 
 ## Affected Areas
 
