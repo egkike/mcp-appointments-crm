@@ -325,6 +325,8 @@ type CreateBookingResult struct {
 
 ## PR 3 — Complex repos (Bookings with CheckAvailability, Professionals, Schedules, PendingAlerts)
 
+> **Note (post-`feat-authorization`, 2026-06-29)**: when this PR is implemented, every repo method takes `ctx` with an `auth.Caller` attached (per `feat-authorization`). Methods that return data to clients filter by `caller.ClientID`; staff methods filter by `caller.ProfessionalID`; admin methods have full access. See the integration note in `feat-db-layer/design.md` ("Integración con `feat-authorization`") for details. The integration is by ctx pattern (existing), not by changing the per-method logic in each task — only the SQL filter clause and the role check are added.
+
 ### Task 3.1 — Implement `ProfessionalsRepo`
 
 - **Files**:

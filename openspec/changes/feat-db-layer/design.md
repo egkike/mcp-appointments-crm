@@ -490,6 +490,26 @@ Notas:
 - **R6 — `day_of_week` y `HH:MM` derivación de timezone**: `business_profile.timezone` puede ser `'UTC'` en fresh install (default). Si el owner no configura su timezone, los `start_datetime` con offset `-03:00` derivarían `day_of_week` de la fecha UTC, no local → potencial bug de "wrong weekday". **Mitigación en este design (Decisión que el `CheckAvailability` debe implementar)**: el código del repo debe cargar la timezone con `loc, _ := time.LoadLocation(business_profile.timezone)` y luego parsear `start_datetime` con `time.ParseInLocation(..., loc)`, derivando `day_of_week`/`HH:MM` del resultado (no de UTC). Si el operador nunca configura `timezone`, sigue siendo UTC y el bug existe — pero el código está preparado. **Guidance para `sdd-tasks`**: PR 3 incluye un test que valida este caso con `timezone='America/Argentina/Buenos_Aires'` y un `start_datetime` con offset `-03:00` que cruza medianoche UTC (e.g., `2026-06-25T23:00:00-03:00` = `2026-06-26T02:00:00Z` → debe resolver a `jueves 23:00` local, no `viernes 02:00` UTC).
 - **R7 — `repository` ↔ `validation`** ✅ **RESUELTO el 2026-06-25**: opción B elegida por Kike. `repository` define su propio `SemanticError{Code, Message, Cause}` con `ErrCode` como typed string constant. No import de `validation`. Spec `data-access` actualizada con un nuevo Requirement 9. Decisión 5 del design reescrita. Tests usan `errors.As(err, &repoErr)` directamente.
 
+## Integración con `feat-authorization` (Fase 0 antes de PR 3)
+
+> **Actualizado el 2026-06-29**: el change `feat-authorization` (Fase 0 del roadmap) introduce la capa de autorización **antes** de PR 3. Cuando PR 3 de este change se implemente, los 4 repos complejos van a consumir el `auth.Caller` propagado por `context.Context`. Las decisiones de diseño que aplican son:
+
+- **Caller en `internal/auth/`** (no en `internal/model/`): el caller es context-flow state, no un entity persistido. Los repos importan `internal/auth` para acceder al `Caller` via `auth.FromContext(ctx)`.
+- **3 capas de enforcement**:
+  - **Coarse-grained (middleware, Fase 2)**: rechaza tool calls con `401` (unauthenticated) o `403` (forbidden role).
+  - **Medium-grained (repos)**: cada método chequea `caller.Role` y filtra por `caller.ProfessionalID` (staff) o `caller.ClientID` (client). Errores con sentinels existentes (`ErrUnauthenticated`, `ErrForbidden`).
+  - **Fine-grained (SQL)**: `WHERE professional_id = ?` para staff, `WHERE client_id = ?` para client, sin filtro para admin.
+- **Por método de PR 3**:
+  - **`ProfessionalsRepo`** (Task 3.1): admin-only para `Create`/`Update`. Un staff puede `Get` (ver staff colegas) pero no modificar.
+  - **`SchedulesRepo`** (Task 3.2): admin-only para `Upsert`/`Delete`. Un staff puede `Get` para ver su propio schedule (filtrar por `caller.ProfessionalID`).
+  - **`PendingAlertsRepo`** (Task 3.3): admin-only.
+  - **`BookingsRepo`** (Task 3.4): `CreateBooking`/`RescheduleBooking`/`CancelBooking` son client-only (filtra por `caller.ClientID`). `GetBooking`/`ListMyBookings` filtran por `caller.ClientID` para client, `caller.ProfessionalID` para staff, full para admin.
+  - **`CheckAvailability`** (Task 3.5): el caller es **siempre un client**. No cambia la lógica del chain 3a-3e, pero el caller.id se usa para validar que el slot es para el cliente correcto.
+- **`*SemanticError` no cambia**: la cadena 3a-3e sigue devolviendo `*SemanticError{Code, Message, Cause}` al LLM. El caller context es ortogonal al chain de validaciones.
+- **FK faltante en `accounts.professional_id`** (R3 de `feat-authorization` design): PR 3 va a consumir `caller.ProfessionalID` para filtrar Bookings. La falta de FK explícita a `professionals.id` no es bloqueante (los repos de PR 3 validan in-use), pero debe documentarse en cada task que use el campo.
+
+Ver `openspec/changes/feat-authorization/design.md` para los detalles completos del auth context (Caller struct, CallerResolver, AuthMiddleware).
+
 ## References
 
 - `openspec/changes/feat-db-layer/proposal.md` (commit `7d0dc77`)
