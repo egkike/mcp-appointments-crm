@@ -55,7 +55,7 @@ Caller + Resolver + Middleware, ~520 LOC). Ver `tasks.md` Forecast table para el
 | `internal/auth/*.go` | Nuevo | `Caller`, context helpers, middleware |
 | `internal/repository/accounts.go` | Nuevo | CRUD accounts + `*_test.go` |
 | `internal/model/account.go` | Nuevo | Modelo `Account` |
-| `internal/db/schema.go` | Modificado | `CREATE TABLE accounts` + CHECKs |
+| `internal/db/database.go` | Modificado | `CREATE TABLE accounts` + CHECKs (extender `domainTableDDL()` y `seedDDL()`) |
 
 ## Risks
 

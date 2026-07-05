@@ -49,7 +49,7 @@ Si el header está ausente, o si su valor es la string vacía después de trim, 
 
 Una vez leído el `X-Caller-Id`, el middleware MUST resolver el caller siguiendo la cadena de búsqueda definida en `auth-roles` (Requirement "Determinación del role del caller"):
 
-1. Query 1: `SELECT id, role, display_name, professional_id, is_active FROM accounts WHERE id = ?`.
+1. Query 1: `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?`.
 2. Si la fila existe y `is_active = 1`, construir el `Caller` y terminar (sin segunda query).
 3. Si la fila existe pero `is_active = 0`, retornar 401 con mensaje de cuenta deshabilitada.
 4. Si no hay fila en `accounts`, Query 2: `SELECT id FROM clients WHERE id = ?`.

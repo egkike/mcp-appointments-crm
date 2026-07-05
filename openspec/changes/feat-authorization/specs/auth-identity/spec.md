@@ -24,13 +24,13 @@ El paquete `internal/auth` MUST exportar el struct `Caller` con los siguientes c
 #### Scenario: Crear un caller de staff con ProfessionalID
 
 - GIVEN un código que quiere modelar un staff member
-- WHEN se construye `Caller{ID: "+5491155554444", Role: "staff", ProfessionalID: &"p-001"}` con `ProfessionalID` apuntando a `"p-001"`
+- WHEN se construye `Caller{ID: "+5491155554444", Role: "staff", ProfessionalID: &"p-001"}` con `ProfessionalID` apuntando a `"p-001"` (Go syntax: `&"p-001"` es un puntero a un literal de string; en código real, usar una variable `pID := "p-001"; c := Caller{... ProfessionalID: &pID}`)
 - THEN el struct contiene los cuatro campos con los valores asignados, y `ClientID == nil`
 
 #### Scenario: Crear un caller de client con ClientID
 
 - GIVEN un código que quiere modelar un client
-- WHEN se construye `Caller{ID: "+5491100001111", Role: "client", ClientID: &"+5491100001111"}` con `ClientID` igual al ID del cliente
+- WHEN se construye `Caller{ID: "+5491100001111", Role: "client", ClientID: &"+5491100001111"}` con `ClientID` igual al ID del cliente (Go syntax: `&"+5491100001111"` es un puntero a un literal de string; en código real, usar una variable `id := "+5491100001111"; c := Caller{... ClientID: &id}`)
 - THEN el struct contiene los cuatro campos, `ProfessionalID == nil`, y `Role == "client"`
 
 ### Requirement: `WithCaller` inyecta un Caller en el contexto

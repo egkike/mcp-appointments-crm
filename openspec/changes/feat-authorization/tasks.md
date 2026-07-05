@@ -71,7 +71,7 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
 ### Task 1.1 — Add `accounts` table to schema
 
 - **Files**:
-  - `internal/db/schema.go` (MODIFIED, ~+25 LOC: add `accounts` DDL to `domainTableDDL()` + update `seedDDL()` description)
+  - `internal/db/database.go` (MODIFIED, ~+25 LOC: add `accounts` DDL to `domainTableDDL()` + update `seedDDL()` description)
   - `internal/db/database_test.go` (MODIFIED, ~+70 LOC: integration tests)
 - **Spec scenarios satisfied**:
   - `auth-roles` "Schema of `accounts` table" (Requirement 2)
@@ -216,9 +216,9 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
   - `func NewAuthMiddleware(resolver *CallerResolver, rbac ToolRBAC) *AuthMiddleware`
   - `func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler`:
     1. Read `X-Caller-Id` using `r.Header.Get` (case-insensitive per RFC 7230).
-    2. If missing or empty after `strings.TrimSpace` → write JSON `{"error":"no se proporcionó X-Caller-Id"}` with HTTP 401.
-    3. Call `resolver.Resolve(ctx, id)`; if `ErrUnauthenticated` → write JSON `{"error":<spanish-message>}` with HTTP 401.
-    4. If the tool has `RequiredRoles` and the caller's role is not in the set → write JSON `{"error":"no tienes permiso para realizar esta acción"}` with HTTP 403. **CRITICAL: RBAC check must happen BEFORE `next.ServeHTTP` — otherwise the handler executes regardless of role.**
+    2. If missing or empty after `strings.TrimSpace` → write body with `http.Error(w, "no se proporcionó X-Caller-Id", http.StatusUnauthorized)`.
+    3. Call `resolver.Resolve(ctx, id)`; if `ErrUnauthenticated` → write body with `http.Error(w, <spanish-message>, http.StatusUnauthorized)`.
+    4. If the tool has `RequiredRoles` and the caller's role is not in the set → write body with `http.Error(w, "no tienes permiso para realizar esta acción", http.StatusForbidden)`. **CRITICAL: RBAC check must happen BEFORE `next.ServeHTTP` — otherwise the handler executes regardless of role.**
     5. If `caller.Role == RoleAdmin` → emit audit log via `log/slog` with `ts` (ISO 8601 UTC), `caller_id`, and `tool`.
     6. Inject caller into request context with `WithCaller` and call `next.ServeHTTP(w, r.WithContext(ctx))`.
   - Tool name default: `r.URL.Path`; allow injection of `toolNameFromRequest func(*http.Request) string` for Fase 2 wiring.

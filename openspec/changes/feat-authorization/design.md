@@ -18,7 +18,7 @@ flowchart TD
     mw["internal/auth<br/>AuthMiddleware.Wrap(next, resolver, rbac)<br/>+ CallerResolver.Resolve(ctx, id)<br/>+ Caller / WithCaller / FromContext"]
     repo_acc["internal/repository<br/>AccountsRepo (8 methods)<br/>prepared statements + sentinels"]
     model["internal/model<br/>Account struct"]
-    db["internal/db<br/>schema.go: domainTableDDL() += accounts<br/>database_test.go: extend"]
+    db["internal/db<br/>database.go: domainTableDDL() += accounts<br/>database_test.go: extend"]
     errors["internal/repository/errors.go<br/>ErrNotFound / ErrConflict / ErrInvalidInput<br/>+ SemanticError (reuse)"]
 
     hermes -->|HTTP request + X-Caller-Id| mw
@@ -34,7 +34,7 @@ Reglas de dependencia (no escritas, enforced por code review + `go vet`):
 - `internal/auth` NO importa a `internal/repository` ni a `internal/mcp`. Depende sólo de stdlib y, para el resolver, de `*sql.DB`. El resolver recibe `*sql.DB` (inyectado), no un repo concreto.
 - `internal/auth` importa a `internal/model` para `Account`? **No** — el resolver devuelve `Caller` (struct de `internal/auth`), no `*model.Account`. El modelo `Account` sólo lo toca `AccountsRepo`.
 - `internal/repository/accounts.go` importa `internal/model` (Account) y reutiliza los sentinels de `internal/repository/errors.go`. NO importa `internal/auth` (ortogonal: el repo sólo conoce strings).
-- `internal/db/schema.go` no importa nada nuevo — sólo agrega un string DDL más a `domainTableDDL()`.
+- `internal/db/database.go` no importa nada nuevo — sólo agrega un string DDL más a `domainTableDDL()`.
 
 ## Package Layout
 
@@ -50,7 +50,7 @@ Reglas de dependencia (no escritas, enforced por code review + `go vet`):
 | `internal/repository/accounts.go` | Create | `repository` | `AccountsRepo` con `Create/Get/GetByRole/List/Update/Delete/IsActive/ListByProfessional` (spec `accounts-repo`) |
 | `internal/repository/accounts_test.go` | Create | `repository` | go-sqlmock tests por cada método (29 escenarios), ≥80% cobertura |
 | `internal/model/account.go` | Create | `model` | `Account` struct (7 campos, `ProfessionalID *string`, `IsActive bool`) |
-| `internal/db/schema.go` | Modify | `db` | Añadir `accounts` a `domainTableDDL()`; contar la nueva tabla en `seedDDL()` description |
+| `internal/db/database.go` | Modify | `db` | Añadir `accounts` a `domainTableDDL()`; contar la nueva tabla en `seedDDL()` description |
 | `internal/db/database_test.go` | Modify | `db` | Extender `TestInitSchema_CreatesAllTables` con `accounts`; nuevos tests: CHECKs (role, staff→professional_id), default `is_active=1`, FK implícita no enforced |
 
 ## Key Contracts
@@ -150,14 +150,15 @@ type AuthMiddleware struct {
 //   1. Lee X-Caller-Id (case-insensitive, http.Header.Get ya lo es).
 //   2. Si ausente o vacío tras trim → 401 + body "no se proporcionó X-Caller-Id".
 //   3. Resolver.Resolve(ctx, id) → si ErrUnauthenticated → 401 + body con el mensaje Spanish del error.
-//   4. ctx = WithCaller(ctx, caller).
-//   5. Si el tool requiere roles y el caller no los cumple → 403 + body "no tienes permiso para realizar esta acción".
-//   6. Si caller.Role == RoleAdmin → emitir audit log ({ts, caller_id, tool}).
-//   7. next.ServeHTTP(w, r.WithContext(ctx)).
+//   4. Si el tool requiere roles y el caller no los cumple → 403 + body "no tienes permiso para realizar esta acción". **CRITICAL: RBAC check must happen BEFORE WithCaller + next.ServeHTTP.**
+//   5. Si caller.Role == RoleAdmin → emitir audit log ({ts, caller_id, tool}).
+//   6. ctx = WithCaller(ctx, caller); next.ServeHTTP(w, r.WithContext(ctx)).
 func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler
 ```
 
 **Decisión de diseño clave**: el middleware delega la resolución a `CallerResolver` y la propagación a `WithCaller`. NO conoce `accounts` ni `clients` directamente. Esto lo hace testeable en aislamiento con un `CallerResolver` que use go-sqlmock, y permite swap futura del resolver (e.g., cache en Fase 2+) sin tocar el middleware.
+
+**Orden RBAC vs. WithCaller**: el RBAC check (step 4) ocurre **antes** de `WithCaller` (step 6). Esto es intencional — el check de roles no necesita el caller inyectado en el ctx (usa el `caller` retornado por el resolver directamente), y el orden asegura que el handler nunca se ejecute si el RBAC falla. Ver `tasks.md` Task 2.3 para los bodies de error y los tests.
 
 **Audit log**: el spec `auth-middleware` Requirement "Logging de auditoría" lo marca como MAY (opcional). El diseño fija: para `admin` se loguea (es la cuenta más sensible, defense-in-depth forense); para `staff`/`client` no se loguea en esta versión (diferible). El log usa `log/slog` con nivel `Info`, campos `ts` (ISO 8601 UTC), `caller_id`, `tool`. NO se loguea PII más allá del `caller_id` (que ya es el phone/handle — no hay secreto adicional).
 
@@ -322,13 +323,13 @@ Restate del PRD §3.8.4 + ADR-0009 con interfaces concretas de este diseño:
 
 ### 4.1 Añadir `accounts` al esquema
 
-El cambio es un **schema delta aditivo** (no destructive replace). El esquema existente de `feat-db-layer` (8 tablas + `schema_version` + 6 triggers FTS + 2 idx) se conserva; se añade una fila más al slice retornado por `domainTableDDL()`:
+El cambio es un **schema delta aditivo** (no destructive replace). El esquema existente de `feat-db-layer` (10 tablas de dominio + `schema_version` + 6 triggers FTS + 4 índices secundarios) se conserva; se añade una fila más al slice retornado por `domainTableDDL()`:
 
 ```go
-// internal/db/schema.go — diff
+// internal/db/database.go — diff
 func domainTableDDL() []string {
     return []string{
-        // ... existing 8 tables ...
+        // ... existing 10 tables ...
         `CREATE TABLE IF NOT EXISTS accounts ( ... verbatim PRD §3.8.2 ... )`,
     }
 }
@@ -336,7 +337,7 @@ func domainTableDDL() []string {
 
 **¿`schema_version` bump?**: **No**. Estado pre-release sin datos de usuario. El `INSERT OR IGNORE INTO schema_version (version=1, ...)` se mantiene. Si se quisiera ser estricto, se actualizaría la **descripción** de la fila v1 a `"... 10 domain tables + accounts per PRD §3.8 + schema_version + 6 FTS triggers + 4 secondary indexes"`. Decisión: la description es informativa, no contrato; la actualizamos para mantener el conteo honesto.
 
-**Idempotencia**: `CREATE TABLE IF NOT EXISTS` — el re-ejecutar `initSchema` tras el merge no falla (Decisión 10 de `feat-db-layer`: "initSchema is all-or-nothing en idempotencia, no transaccional"). Si la mitad de un arranque crea las 8 viejas y falla antes de `accounts`, el re-intento completa `accounts` con `IF NOT EXISTS`.
+**Idempotencia**: `CREATE TABLE IF NOT EXISTS` — el re-ejecutar `initSchema` tras el merge no falla (Decisión 10 de `feat-db-layer`: "initSchema is all-or-nothing en idempotencia, no transaccional"). Si la mitad de un arranque crea las 10 viejas y falla antes de `accounts`, el re-intento completa `accounts` con `IF NOT EXISTS`.
 
 ### 4.2 Init order y seed del admin
 
@@ -477,7 +478,7 @@ Property: el LLM nunca ve stack trace, el `caller_id` no se loguea en el body (y
 
 Hint del orden para la próxima fase. `sdd-tasks` refina con TDD estricto (test first, prod code second).
 
-1. **Schema** — `internal/db/schema.go` add `accounts` a `domainTableDDL()` + actualizar description en `seedDDL()`; extender `internal/db/database_test.go` con CHECKs y defaults. (TDD: tests primero contra SQLite real.)
+1. **Schema** — `internal/db/database.go` add `accounts` a `domainTableDDL()` + actualizar description en `seedDDL()`; extender `internal/db/database_test.go` con CHECKs y defaults. (TDD: tests primero contra SQLite real.)
 2. **Model** — `internal/model/account.go` struct `Account` + test de struct literal.
 3. **Repo** — `internal/repository/accounts.go` + `_test.go` go-sqlmock (29 escenarios), ≥80% cobertura. TDD: cada método → test primero → implementación.
 4. **Caller** — `internal/auth/caller.go` + `_test.go` unit tests de ctx propagation.
@@ -486,7 +487,7 @@ Hint del orden para la próxima fase. `sdd-tasks` refina con TDD estricto (test 
 7. **Doc** — `internal/auth/doc.go` package comment.
 8. **(Future Fase 2)** — Wiring del middleware en el `*http.ServeMux`, handlers MCP caller-aware, `install.sh` seed del admin.
 
-Suma de LOC estimada: schema ~+15 (1 statement), model ~+25, repo ~+180 (8 métodos + validaciones), auth (caller+resolver+middleware+doc) ~+120, tests ~+200 (auth ~+150, repo ~+50 ya contado). Total prod+test < 400 LOC (review budget 400) — en el borde. `sdd-tasks` debe prever slice opcional si creep > 400: separar (`auth` package completo) del slice (repo + schema). La spec no cambia; el código se entrega en 1 PR o 2 chained según el forecast.
+Suma de LOC estimada: schema ~+15 (1 statement), model ~+25, repo ~+180 (8 métodos + validaciones), auth (caller+resolver+middleware+doc) ~+120, tests ~+200 (auth ~+150, repo ~+50 ya contado). Total prod+test excede el review budget 400-LOC (~980 LOC estimados), así que el split en **2 PRs encadenados es obligatorio** (no opcional). `sdd-tasks` materializa el split: PR 1 (data layer: schema + model + repo + integration test, ~460 LOC) → PR 2 (auth primitives: Caller + Resolver + Middleware, ~520 LOC). La spec no cambia; el código se entrega en 2 PRs encadenados con `feature-branch-chain`.
 
 ## References
 
@@ -498,7 +499,7 @@ Suma de LOC estimada: schema ~+15 (1 statement), model ~+25, repo ~+180 (8 méto
 - `docs/PRD.md` §3.8 (líneas 670-801) — modelo canónico de autorización
 - `docs/architecture/0009-authorization-model.md` — ADR-0009 (decisión, consecuencias, rejected alternatives, reversibility)
 - `openspec/changes/feat-db-layer/design.md` (formato referencia — 503 líneas, mismo tono bilingual)
-- `internal/db/schema.go` (en `tracker/feat-db-layer`) — esquema actual con 8 tablas dominio + `schema_version`
+- `internal/db/database.go` (en `tracker/feat-db-layer`) — esquema actual con 10 tablas dominio + `schema_version`; la función `initSchema` retorna un slice de statements que `domainTableDDL()`/`seedDDL()`/`accountsTableDDL()` extienden
 - `internal/db/database_test.go` (en `tracker/feat-db-layer`) — patrón de tests de schema
 - `internal/repository/errors.go` (en `tracker/feat-db-layer`) — sentinels `ErrNotFound`/`ErrConflict`/`ErrInvalidInput` + `SemanticError`
 - `AGENTS.md` — branch rules (docs → `main` directo), commit format, security checklist, Spanish error messages
