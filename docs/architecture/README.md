@@ -28,3 +28,4 @@ We use a lightweight ADR format inspired by Michael Nygard's template:
 | [0007](./0007-server-config.md) | Server bind and port configuration | accepted | 2026-06-25 |
 | [0008](./0008-install-prompts.md) | Inline prompts in install.sh (no separate config-wizard TUI) | accepted | 2026-06-26 |
 | [0009](./0009-authorization-model.md) | Authorization model — `accounts` whitelist for admin/staff, `X-Caller-Id` header injection | accepted | 2026-06-29 |
+| [0010](./0010-admin-tui.md) | TUI menú operacional (`mcp-appointments-crm admin tui`) for admin/staff account management | accepted | 2026-06-29 |
