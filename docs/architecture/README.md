@@ -29,3 +29,4 @@ We use a lightweight ADR format inspired by Michael Nygard's template:
 | [0008](./0008-install-prompts.md) | Inline prompts in install.sh (no separate config-wizard TUI) | accepted | 2026-06-26 |
 | [0009](./0009-authorization-model.md) | Authorization model — `accounts` whitelist for admin/staff, `X-Caller-Id` header injection | accepted | 2026-06-29 |
 | [0010](./0010-admin-tui.md) | TUI menú operacional (`mcp-appointments-crm admin tui`) for admin/staff account management | accepted | 2026-06-29 |
+| [0011](./0011-owner-as-client.md) | Owner/admin/staff pueden ser clientes del negocio (mismo phone, doble rol) — `CallerResolver` combina accounts+clients info | accepted | 2026-06-29 |

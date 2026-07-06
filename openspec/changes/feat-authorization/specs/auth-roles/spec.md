@@ -153,10 +153,19 @@ Defense-in-depth: el trigger es la fuente de verdad (enforce a nivel DB); el rep
 La función de resolución del caller (referenciada por `auth-middleware` pero especificada aquí por contrato) MUST seguir el siguiente orden de búsqueda, en dos queries máximo:
 
 1. `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?` (sin filtro de `is_active` en SQL) — si devuelve una fila:
-   - Si `is_active = 1` → el caller es `{ID, Role: row.role, ProfessionalID: row.professional_id, ClientID: nil}`. NO consulta `clients`.
+   - Si `is_active = 1` → el caller es `{ID, Role: row.role, ProfessionalID: row.professional_id, ClientID: <from-clients-if-exists>}` (ver paso 2 abajo). Continúa con la query a `clients` para popular el `ClientID` si el owner/admin/staff también tiene un `client` row (caso "admin/staff/owner que también es cliente", documentado en ADR-0011).
    - Si `is_active = 0` → el caller MUST ser rechazado con un semantic error en español (`"tu cuenta está deshabilitada. Contacta al administrador."`). NO consulta `clients`.
-2. Si `accounts` no tiene fila para ese `id` → `SELECT id FROM clients WHERE id = ?` — si devuelve una fila, el caller es `{ID, Role: "client", ProfessionalID: nil, ClientID: &id}`.
-3. Si no hay fila en ninguna de las dos tablas, MUST retornar `ErrUnauthenticated` con mensaje en español (`"no te reconozco. Por favor registrate primero."`).
+2. **Si la cuenta existe y está activa** (paso 1 devolvió `is_active=1`) → ejecutar `SELECT id FROM clients WHERE id = ?` (1 query más). Si devuelve una fila, el `ClientID` del `Caller` se setea a `&id`. Esto cubre el caso de "admin/staff/owner que también es cliente" (un mismo phone con ambos roles).
+   - **Si NO existe en `clients`**: el `ClientID` queda `nil` (admin/staff/owner sin client row).
+3. **Si `accounts` no tiene fila** para ese `id` → ejecutar `SELECT id FROM clients WHERE id = ?`. Si devuelve una fila, el caller es `{ID, Role: "client", ProfessionalID: nil, ClientID: &id}`.
+4. **Si no hay fila en ninguna de las dos tablas**, MUST retornar `ErrUnauthenticated` con mensaje en español (`"no te reconozco. Por favor registrate primero."`).
+
+**Resumen de queries por caso:**
+- Caller solo en `clients` (1 query: clients)
+- Caller solo en `accounts` (1 query: accounts, ClientID=nil)
+- Caller en ambos (2 queries: accounts + clients, ClientID poblado) — el caso "admin/staff/owner que también es cliente"
+- Caller desconocido (2 queries: accounts + clients, ambas vacías)
+- Caller inactivo (1 query: accounts, retorna error)
 
 Esta función MUST ejecutarse dentro de un `*sql.DB` y MUST usar el `context.Context` recibido para cancelación. MUST NO ser un singleton global: vive en el middleware o en un helper inyectable.
 
@@ -185,6 +194,14 @@ Esta función MUST ejecutarse dentro de un `*sql.DB` y MUST usar el `context.Con
 - GIVEN ninguna fila en `accounts` con `id = '+5491100003333'`, y una fila en `clients` con `id = '+5491100003333'`
 - WHEN el resolver consulta con `'+5491100003333'`
 - THEN MUST retornar un `Caller{ID: '+5491100003333', Role: "client", ProfessionalID: nil, ClientID: &"+5491100003333"}`
+
+#### Scenario: Owner/admin que también es cliente (caso combinado)
+
+- GIVEN una fila en `accounts` con `id = '+5491100000000'`, `role = 'owner'`, `is_active = 1`
+- AND una fila en `clients` con `id = '+5491100000000'`
+- WHEN el resolver consulta con `'+5491100000000'`
+- THEN MUST retornar un `Caller{ID: '+5491100000000', Role: "owner", ProfessionalID: nil, ClientID: &"+5491100000000"}` (2 queries: accounts + clients)
+- AND el tool `create_booking` con `client_id=+5491100000000` puede crear el booking para el owner (porque tiene `ClientID` poblado)
 
 #### Scenario: Caller en ninguna tabla es rechazado
 

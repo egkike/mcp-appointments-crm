@@ -833,6 +833,40 @@ La gestión operacional de cuentas (admin/staff/owner) se realiza vía un **sub-
 - El `accounts` repo expone `Deactivate(ctx, id)` (en lugar de `Delete`) — soft delete que setea `is_active = 0`. Preserva historia; FKs siguen válidas. Hard delete solo se permite via sub-comando `purge-inactive` con confirmación extra (Fase 2+).
 - `Create` y `Deactivate` emiten audit log MUST via `*slog.Logger` estructurado con `{actor_id, target_id, target_role, ts}`. Defense-in-depth: incluso si el LLM escala, el log queda en el sistema.
 
+**Owner/admin/staff que también son clientes del negocio (mismo phone, doble rol):**
+
+> Decisión arquitectónica: ver [ADR-0011](../architecture/0011-owner-as-client.md).
+
+El dueño del negocio (y el staff) son **una persona real** que probablemente consume los servicios del negocio. Ej: el dueño de la peluquería quiere cortarse el pelo ahí; la peluquera del staff también se corta en su propio salón. El modelo debe reflejar la realidad: una persona puede ser admin del sistema Y cliente del negocio, **con el mismo `phone`** (que es el `X-Caller-Id` que Hermes inyecta desde el chat context).
+
+**Mecanismo:** el `CallerResolver` ejecuta **2 queries** cuando la cuenta existe en `accounts` y está activa:
+1. `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?`
+2. Si `is_active=1` → también `SELECT id FROM clients WHERE id = ?` para popular el `ClientID`
+
+**Resultado del resolver cuando el phone está en ambos (admin + client):**
+
+```
+Caller{
+    ID: "+5491100000000",           // mismo phone
+    Role: "owner",                  // gana el rol elevado
+    ProfessionalID: nil,
+    ClientID: &"+5491100000000"     // poblado desde clients
+}
+```
+
+Esto permite que el owner (o admin, o staff) use el mismo `X-Caller-Id` para:
+- **Gestionar el negocio** (vía tools MCP de admin): el `Role` es "owner" → tiene full access.
+- **Reservar como cliente** (vía `create_booking`, `list_my_bookings`, etc.): el `ClientID` está poblado → el repo filtra por su `client_id`.
+
+**Defense-in-depth intacta:** el LLM NO puede falsificar `X-Caller-Id`. El owner decide explícitamente qué tool usar según el contexto. El `Role` del `Caller` (no el `ClientID`) determina los permisos.
+
+**Setup del owner:** durante el TUI menú (Fase 2+), el owner tiene una opción "Add Yourself as Client" que crea el `client` row con su mismo phone. Idempotente. Si el owner se vuelve cliente del negocio, simplemente activa la opción.
+
+**Alternativas descartadas:**
+
+- *Self-service client creation en la primera reserva*: el sistema crea el `client` row cuando el admin hace su primera reserva. **Rechazado** por race conditions y por complicar el modelo (2 identidades implícitas para 1 phone).
+- *Admin/staff NO pueden reservar para sí mismos*: tienen que usar otro phone. **Rechazado** por fricción operacional absurda.
+
 ---
 
 ## 4. Usuarios y Personas
@@ -1180,3 +1214,4 @@ La gestión operacional de cuentas (admin/staff/owner) se realiza vía un **sub-
 | 2026-06-26 | 1.1 | Kike | ADR-0008: reemplazo de `config-wizard` TUI (Bubble Tea) por prompts interactivos en `install.sh` con checkpoint. RF1 reformulado, Fase 4 simplificada (M→S), eliminadas referencias a TUI/MVU/Bubble Tea del alcance y glosario. |
 | 2026-06-29 | 1.2 | Kike | ADR-0009: nuevo modelo de autorización. Nueva §3.8 "Modelo de Autorización" + nota en §3.7.12 clarificando que `business_profile.messenger_id` es el bot del negocio (no el admin). Tabla `accounts` como whitelist para admin/staff; clients identificados por su presencia en `clients`. Header `X-Caller-Id` inyectado por el cliente MCP (no por el LLM). 3 capas de enforcement: middleware coarse-grained + repos medium-grained + SQL fine-grained con `WHERE professional_id/client_id`. Defensa contra LLM comprometido (no puede falsificar el caller). Implementación ordenada como change SDD `feat-authorization` antes de PR 3 de `feat-db-layer`. |
 | 2026-06-29 | 1.3 | Kike | ADR-0009: refinamiento operacional del modelo de auth. Nuevo rol `owner` (con permisos de `admin` + capacidad exclusiva de crear/eliminar otros admins); single-owner invariant enforced a nivel DB via trigger SQLite + repo check. Soft delete via `Deactivate(ctx, id)` reemplaza hard delete (preserva historia). Audit log MUST via `*slog.Logger` estructurado en `Create`/`Deactivate`/`Update` (operaciones críticas). Nueva §3.8.8 "TUI menú operacional" — sub-comando `mcp-appointments-crm admin tui` (Fase 2+, otro proceso, no invocable por el LLM; defense-in-depth). RF9 actualizado: `install.sh` ahora captura el `X-Caller-Id` del dueño y crea el INSERT inicial en `accounts` con `role='owner'` (single-owner). Fase 2 ampliada para incluir el TUI menú. |
+| 2026-06-29 | 1.4 | Kike | ADR-0011: owner/admin/staff que también son clientes del negocio (mismo phone, doble rol). El `CallerResolver` ejecuta 2 queries cuando la cuenta existe en `accounts` (popular el `ClientID` desde `clients`). Permite que el dueño se corte el pelo en su propia peluquería sin fricción. Defense-in-depth intacta: el `Role` del `Caller` (no el `ClientID`) determina los permisos. Setup vía TUI menú "Add Yourself as Client" (Fase 2+). Nueva subsección en §3.8.8 documenta el caso. |
