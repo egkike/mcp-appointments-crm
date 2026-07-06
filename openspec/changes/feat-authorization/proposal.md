@@ -11,10 +11,11 @@ tendría los permisos del dueño.
 ## Scope
 
 ### In Scope
-- Tabla `accounts` (whitelist `admin`/`staff`) — schema PRD §3.8.2 / ADR-0009.
-- `internal/auth/`: `Caller`, `WithCaller(ctx, caller)`, `FromContext(ctx)`.
+- Tabla `accounts` (whitelist `owner`/`admin`/`staff`) — schema PRD §3.8.2 / ADR-0009, **con nuevo rol `owner`** que tiene los mismos permisos de `admin` + capacidad exclusiva de crear/eliminar otros admins (single-owner invariant enforced a nivel DB via trigger + repo check).
+- `internal/auth/`: `Caller` (con `Role string` que puede ser `owner`/`admin`/`staff`/`client`), `WithCaller(ctx, caller)`, `FromContext(ctx)`.
 - Middleware que resuelve `X-Caller-Id` → `Caller` (accounts → clients → `ErrUnauthenticated`).
-- `internal/repository/accounts.go` CRUD + `internal/model/account.go` + tests `go-sqlmock`.
+- `internal/repository/accounts.go` con 8 métodos: `Create` (con single-owner check), `Get`, `GetByRole`, `List`, `Update`, `Deactivate` (reemplaza `Delete` para soft delete; preserva historia), `IsActive`, `ListByProfessional`. Constructor recibe `*slog.Logger` para audit log.
+- Audit log MUST en `Create`/`Deactivate`/`Update` (operaciones críticas) via `*slog.Logger` estructurado con `actor_id`, `target_id`, `target_role`, `ts`.
 - Enforcement 3 capas: middleware (coarse) + repos (medium, role filtering) + SQL (`WHERE professional_id=?` / `client_id=?`, fine).
 - Mensajes semánticos al LLM en español (PRD §3.8.6).
 
@@ -22,17 +23,18 @@ tendría los permisos del dueño.
 - Handler/wiring del MCP server (Fase 2).
 - Cambios al cliente Hermes (inyecta `X-Caller-Id`; no se toca).
 - `feat-db-layer` PR 3 (BookingsRepo + check_availability) — integrará auth al implementarse.
-- Seed del admin vía `install.sh` y cache en memoria de accounts (Fase 2+).
+- TUI menú operacional (Fase 2) — sub-comando `mcp-appointments-crm admin tui` para gestión de cuentas (alta/baja de staff, desactivar, transferir ownership). No es invocable por el LLM; defense-in-depth. Ver `tasks.md` Future work.
+- Cache en memoria de accounts (Fase 2+).
 
 ## Capabilities
 
 > `openspec/specs/` vacío: todas son **NEW** → `openspec/specs/<name>/spec.md`.
 
 ### New Capabilities
-- `auth-identity`: `Caller` struct + propagación vía `context.Context` (`WithCaller`/`FromContext`).
-- `auth-roles`: roles `admin`/`staff`/`client` + tabla `accounts` (schema, CHECKs).
-- `auth-middleware`: middleware que resuelve `X-Caller-Id` a `Caller`.
-- `accounts-repo`: CRUD de `accounts` con prepared statements + tests `go-sqlmock`.
+- `auth-identity`: `Caller` struct + propagación vía `context.Context` (`WithCaller`/`FromContext`). `Caller.Role` puede ser `owner`, `admin`, `staff`, o `client` (el último solo implícito vía `clients`, no via `accounts`).
+- `auth-roles`: roles `owner`/`admin`/`staff` (todos en `accounts`; `client` implícito) + tabla `accounts` (schema, CHECKs, **single-owner trigger** para el role `owner`).
+- `auth-middleware`: middleware que resuelve `X-Caller-Id` a `Caller`. Nota: el TUI menú (Fase 2) es otro proceso y NO usa este middleware HTTP.
+- `accounts-repo`: CRUD + `Deactivate` + audit log de `accounts` con prepared statements + tests `go-sqlmock`. Soft delete (`Deactivate`) reemplaza hard delete.
 
 ### Modified Capabilities
 - Ninguna (no hay specs archivadas). La integración con `internal/repository` existente es por código, no delta spec.

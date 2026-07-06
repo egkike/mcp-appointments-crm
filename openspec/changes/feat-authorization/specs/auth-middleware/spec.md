@@ -8,6 +8,8 @@
 
 El sistema debe traducir cada MCP request entrante en un `Caller` autorizado, leyendo el header `X-Caller-Id` inyectado por el cliente MCP (Hermes), resolviéndolo contra las tablas `accounts` y `clients`, y adjuntándolo al `context.Context` antes de invocar el handler del tool. El middleware es la primera línea de defensa (capa "coarse-grained" del enforcement en 3 capas de PRD §3.8.4). Esta spec describe la CONTRATO del middleware en aislamiento: el wiring del HTTP server es una tarea separada (Fase 2).
 
+> **Nota sobre el TUI menú (Fase 2+)**: el sub-comando `mcp-appointments-crm admin tui` corre en la VPS como **otro proceso** (no es un MCP tool). El TUI no usa este middleware HTTP — el admin opera directamente contra `AccountsRepo` (bypasseando la capa HTTP). El TUI se cubre por `accounts-repo` y por la nueva sección §3.8.8 "TUI menú operacional" del PRD (Fase 2). El gatekeeper de seguridad del TUI es el **admin del OS** (SSH a la VPS); el spec del middleware HTTP no aplica al TUI.
+
 ## Requirements
 
 ### Requirement: Lectura del header `X-Caller-Id`

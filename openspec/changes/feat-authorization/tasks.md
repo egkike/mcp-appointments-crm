@@ -71,26 +71,41 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
 ### Task 1.1 — Add `accounts` table to schema
 
 - **Files**:
-  - `internal/db/database.go` (MODIFIED, ~+25 LOC: add `accounts` DDL to `domainTableDDL()` + update `seedDDL()` description)
-  - `internal/db/database_test.go` (MODIFIED, ~+70 LOC: integration tests)
+  - `internal/db/database.go` (MODIFIED, ~+30 LOC: add `accounts` DDL to `domainTableDDL()` + add single-owner trigger + update `seedDDL()` description)
+  - `internal/db/database_test.go` (MODIFIED, ~+80 LOC: integration tests)
 - **Spec scenarios satisfied**:
-  - `auth-roles` "Schema of `accounts` table" (Requirement 2)
+  - `auth-roles` "Schema of `accounts` table" (Requirement 2) — ahora con role `owner`
   - `auth-roles` "CHECK constraint de role en DB" (Requirement 4)
   - `auth-roles` "CHECK constraint staff-implica-professional_id" (Requirement 5)
+  - `auth-roles` "Single-owner invariant" (Requirement 8) — nuevo
 - **Key implementation**:
-  - Append a `CREATE TABLE IF NOT EXISTS accounts` statement to `domainTableDDL()` with the exact schema from PRD §3.8.2 / ADR-0009:
+  - Append a `CREATE TABLE IF NOT EXISTS accounts` statement to `domainTableDDL()`:
     ```sql
     CREATE TABLE IF NOT EXISTS accounts (
         id              TEXT PRIMARY KEY,
-        role            TEXT NOT NULL CHECK (role IN ('admin', 'staff')),
+        role            TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
         display_name    TEXT,
         professional_id TEXT,
         is_active       INTEGER NOT NULL DEFAULT 1,
         created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
         updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-        CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role = 'admin'))
+        CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
     )
     ```
+  - Add a SQLite trigger `accounts_single_owner` que fires on INSERT and UPDATE: rejects if the operation would result in more than one active `role='owner'` row. Pseudocode:
+    ```sql
+    CREATE TRIGGER accounts_single_owner_insert BEFORE INSERT ON accounts
+    WHEN NEW.role = 'owner' AND NEW.is_active = 1 AND
+         (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
+    BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END;
+    
+    CREATE TRIGGER accounts_single_owner_update BEFORE UPDATE ON accounts
+    WHEN NEW.role = 'owner' AND NEW.is_active = 1 AND
+         OLD.is_active = 0 AND  -- the row being activated was inactive
+         (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
+    BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END;
+    ```
+    (Adjust syntax: separate the two cases; the UPDATE trigger needs to handle both the activation case AND the role-change-into-owner case.)
   - Update `seedDDL()` description to reflect "10 domain tables + accounts per PRD §3.8 + schema_version + 6 FTS triggers + 4 secondary indexes".
 - **Tests** (integration test in `database_test.go` using real in-memory SQLite):
   - `TestAccountsTable_Exists` — `PRAGMA table_info(accounts)` includes all columns with expected types
@@ -98,8 +113,11 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
   - `TestAccountsTable_RoleInvalidRejected` — INSERT with `role='manager'` → CHECK constraint violation
   - `TestAccountsTable_ClientRoleRejected` — INSERT with `role='client'` → CHECK constraint violation
   - `TestAccountsTable_StaffRequiresProfessionalID` — INSERT with `role='staff'` and `professional_id=NULL` → CHECK constraint violation
-  - `TestAccountsTable_AdminAcceptsNullProfessionalID` — INSERT with `role='admin'` and `professional_id=NULL` → OK
+  - `TestAccountsTable_OwnerAcceptsNullProfessionalID` — INSERT with `role='owner'` and `professional_id=NULL` → OK
   - `TestAccountsTable_StaffWithProfessionalIDAccepted` — INSERT with `role='staff'` and `professional_id='p-001'` → OK
+  - `TestAccountsTable_SingleOwnerInsertOK` — first INSERT with `role='owner'` → OK
+  - `TestAccountsTable_SingleOwnerSecondOwnerRejected` — second INSERT with `role='owner'` while one is active → trigger raises ABORT
+  - `TestAccountsTable_SingleOwnerAfterDeactivationOK` — second INSERT after the first owner has `is_active=0` → OK
 - **Acceptance**:
   - `go test -v -race ./internal/db/...` passes
   - Coverage of new schema paths ≥ 80%
@@ -111,7 +129,7 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
 - **Spec scenarios satisfied**:
   - `accounts-repo` "Estructura del modelo `Account`" (Requirement 1)
 - **Key implementation**:
-  - Define `type Account struct` with fields: `ID string`, `Role string` (`"admin"`|`"staff"`), `DisplayName string`, `ProfessionalID *string` (nullable), `IsActive bool`, `CreatedAt string` (ISO 8601 UTC), `UpdatedAt string` (ISO 8601 UTC).
+  - Define `type Account struct` with fields: `ID string`, `Role string` (`"owner"`|`"admin"`|`"staff"`), `DisplayName string`, `ProfessionalID *string` (nullable), `IsActive bool`, `CreatedAt string` (ISO 8601 UTC), `UpdatedAt string` (ISO 8601 UTC).
   - No behavior methods; repos own the behavior.
 - **Tests**:
   - None required for pure struct (verified via repo tests).
@@ -119,25 +137,28 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
   - `go build -o /dev/null ./...` passes
   - `golangci-lint run ./...` clean
 
-### Task 1.3 — Implement `AccountsRepo` (CRUD with go-sqlmock)
+### Task 1.3 — Implement `AccountsRepo` (CRUD + Deactivate + audit log + single-owner check, with go-sqlmock)
 
 - **Files**:
-  - `internal/repository/accounts.go` (NEW, ~160 LOC)
-  - `internal/repository/accounts_test.go` (NEW, ~240 LOC)
+  - `internal/repository/accounts.go` (NEW, ~220 LOC)
+  - `internal/repository/accounts_test.go` (NEW, ~300 LOC including audit log capture)
 - **Spec scenarios satisfied**:
-  - `accounts-repo` (Requirements 2–13, 29 scenarios)
+  - `accounts-repo` (Requirements 2–17, ~37 scenarios including new owner/single-owner/Deactivate/audit log)
 - **Key implementation**:
-  - 8 methods: `Create`, `Get`, `GetByRole`, `List`, `Update`, `Delete`, `IsActive`, `ListByProfessional`.
-  - Constructor `NewAccountsRepo(db *sql.DB) *AccountsRepo` receives an already opened `*sql.DB`; it does not open connections or run migrations.
+  - 8 methods: `Create`, `Get`, `GetByRole`, `List`, `Update`, `Deactivate` (reemplaza `Delete`), `IsActive`, `ListByProfessional`. `Delete` se deprecaba; hard delete se mueve a un sub-comando administrativo del TUI (Fase 2).
+  - Constructor `NewAccountsRepo(db *sql.DB, logger *slog.Logger) *AccountsRepo` recibe un `*sql.DB` y un `*slog.Logger` ya configurados. El repo no abre conexiones ni ejecuta migrations.
   - All queries use `?` placeholders; no `fmt.Sprintf` or string concatenation for SQL values.
   - All errors wrap with `fmt.Errorf("...: %w", err)` using existing sentinels `ErrNotFound`, `ErrConflict`, `ErrInvalidInput`.
   - `Create` and `Update` validate before touching the DB:
     - `ID` not empty
-    - `Role` is `"admin"` or `"staff"`
+    - `Role` is `"owner"`, `"admin"` or `"staff"`
     - If `Role == "staff"`, `ProfessionalID` must be non-nil and non-empty
+  - **`Create` con `Role == "owner"`** ejecuta un `SELECT COUNT(*) FROM accounts WHERE role='owner' AND is_active=1` antes del INSERT. Si > 0, retorna `ErrConflict` con Spanish message. (Defense-in-depth con el trigger SQLite de Task 1.1.)
+  - **`Deactivate(ctx, id)`** ejecuta `UPDATE accounts SET is_active=0, updated_at=...` (soft delete; preserva historia). Idempotente (segunda llamada es no-op).
   - `is_active` is stored as `INTEGER` (0/1) and exposed as `bool`.
   - `Update` regenerates `updated_at` with `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
   - `IsActive` returns `(false, nil)` for missing rows (no `ErrNotFound`).
+  - **Audit log MUST** (vía `*slog.Logger`): `Create` y `Deactivate` emiten log estructurado. `Update` también. `Get`, `GetByRole`, `List`, `IsActive`, `ListByProfessional` no emiten (read-only). Si el `ctx` no tiene `auth.Caller`, el campo `actor_id` se omite (no es error). Tests capturan el output de `slog` con un `slog.Handler` de testing.
 - **Tests** (go-sqlmock, table-driven):
   - Each of the 29 scenarios in `accounts-repo/spec.md` becomes one subtest.
   - Cover happy path + error paths (DB error, not found, UNIQUE conflict, invalid input).
@@ -283,8 +304,10 @@ PR 1 must merge before PR 2 starts. PR 2 uses the `accounts` table in its go-sql
 
 ## Future work (NOT in this change)
 
-- **Fase 2**: Wire the middleware into the MCP server. Update `internal/mcp` to wrap handlers with `AuthMiddleware`, register per-tool `RequiredRoles`, and seed the admin account via `install.sh`.
+- **Fase 2**: Wire the middleware into the MCP server. Update `internal/mcp` to wrap handlers with `AuthMiddleware`, register per-tool `RequiredRoles`, and seed the owner account via `install.sh` (el `install.sh` debe preguntar el phone del dueño y crear el INSERT inicial en `accounts` con `role='owner'`).
+- **Fase 2+**: TUI menú operacional — sub-comando `mcp-appointments-crm admin tui` (binario principal, no binario separado). Sirve para gestión de cuentas (crear staff, desactivar cuentas, transferir ownership) sin exponer admin CRUD via MCP tools. Defense-in-depth: el TUI es otro proceso, no invocable por el LLM. Gatekeeper: admin del OS (SSH a la VPS). Implementación: Bubble Tea en Go (sin external runtime tools, compatible con ADR-0005).
 - **Fase 2+**: In-memory cache of active accounts with write-through invalidation to reduce the 1-2 queries per tool call.
+- **Fase 2+**: Sub-comando `mcp-appointments-crm admin purge-inactive` para hard-delete de cuentas con `is_active=0 AND updated_at < NOW() - INTERVAL '1 year'` (con confirmación extra). Permite cleanup operacional.
 
 ## References
 
