@@ -675,17 +675,18 @@ El sistema diferencia tres tipos de **caller** según quién está interactuando
 
 | Rol | Descripción | Tabla de identidad |
 |---|---|---|
-| `admin` | Dueño del negocio. Acceso total al sistema (configuración, reportes, gestión de staff, todos los datos de bookings/clients/professionals/services) | `accounts` (whitelist) |
+| `owner` | Dueño del negocio (single-owner invariant, ver ADR-0010). Mismos permisos que `admin` + capacidad exclusiva de crear/eliminar otros admins. | `accounts` (whitelist) |
+| `admin` | Dueño del negocio (alternativo al owner, ej: un manager). Acceso total al sistema (configuración, reportes, gestión de staff, todos los datos de bookings/clients/professionals/services) | `accounts` (whitelist) |
 | `staff` | Profesional del negocio. Acceso limitado a sus propias reservas y datos asociados (no puede ver/modificar otros profesionales) | `accounts` (whitelist) |
 | `client` | Cliente final. Acceso limitado a sus propios datos (sus reservas, su perfil). NO puede ver datos de otros clientes | `clients` (implícito) |
 
-#### 3.8.1 Por qué `accounts` solo contiene admin y staff
+#### 3.8.1 Por qué `accounts` solo contiene owner, admin y staff
 
 Los clientes finales **no** tienen un entry en la tabla `accounts`. Son identificados por su `id` (phone o handle del messenger) directamente en la tabla `clients`. Esto simplifica el modelo:
 
-- La tabla `accounts` actúa como **whitelist de permisos elevados** (admin y staff). El conjunto es cerrado y pequeño.
+- La tabla `accounts` actúa como **whitelist de permisos elevados** (owner, admin, staff). El conjunto es cerrado y pequeño.
 - Si un caller no está en `accounts`, se busca en `clients`. Si está, es un `client` con acceso limitado. Si no, se rechaza con `ErrUnauthenticated`.
-- Un cliente **no puede escalar a admin o staff** sin un INSERT explícito en `accounts`. La base de datos enforcea este invariante vía CHECK constraints.
+- Un cliente **no puede escalar a owner, admin o staff** sin un INSERT explícito en `accounts`. La base de datos enforcea este invariante vía CHECK constraints + trigger SQLite (single-owner).
 - Los clientes son un conjunto abierto: cualquiera puede registrarse como cliente. No tiene sentido enumerarlos en una whitelist.
 
 #### 3.8.2 Schema de la tabla `accounts`
@@ -693,14 +694,14 @@ Los clientes finales **no** tienen un entry en la tabla `accounts`. Son identifi
 ```sql
 CREATE TABLE accounts (
     id              TEXT PRIMARY KEY,        -- phone o handle del messenger del solicitante
-    role            TEXT NOT NULL,           -- 'admin' | 'staff'
+    role            TEXT NOT NULL,           -- 'owner' | 'admin' | 'staff'
     display_name    TEXT,
     professional_id TEXT,                    -- FK a professionals.id, solo si role='staff'
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    CHECK (role IN ('admin', 'staff')),
-    CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role = 'admin'))
+    CHECK (role IN ('owner', 'admin', 'staff')),
+    CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
 );
 ```
 
@@ -738,9 +739,9 @@ El `caller` se propaga vía `context.Context`:
 ```go
 type Caller struct {
     ID             string   // phone o handle
-    Role           string   // "admin" | "staff" | "client"
+    Role           string   // "owner" | "admin" | "staff" | "client"
     ProfessionalID *string  // FK a professionals, solo si role=staff
-    ClientID       *string  // FK a clients, solo si role=client
+    ClientID       *string  // FK a clients; populated if caller also exists in clients (owner/admin/staff can be clients per ADR-0011)
 }
 
 // Middleware
@@ -1109,7 +1110,7 @@ Override con otro caller_id (debug):
 - `cmd/mcp-server/main.go` con loop de SSE
 - `internal/mcp/server.go` con registro de tools y middleware de `auth.AuthMiddleware.Wrap(...)` aplicado al `http.ServeMux`
 - Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas). Cada tool se registra con `RequiredRoles` (e.g., `create_professional` requiere `admin` o `owner`).
-- **`cmd/mcp-server/admin_tui.go`** (o `cmd/admin-tui/`): sub-comando TUI menú que opera directamente sobre `AccountsRepo`. No es un MCP tool; es otro binario/proceso. **Nota de scope**: el TUI es opcional en Fase 2 (puede ser un follow-up si el alcance se vuelve grande). El MVP de Fase 2 puede enfocarse en el middleware de auth.
+- **`cmd/mcp-server/admin_tui.go`**: sub-comando TUI menú que opera directamente sobre `AccountsRepo` desde el binario principal (no es un binario separado). No es un MCP tool; es otro proceso. **Nota de scope**: el TUI es opcional en Fase 2 (puede ser un follow-up si el alcance se vuelve grande). El MVP de Fase 2 puede enfocarse en el middleware de auth.
 - Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`)
 
 **Definition of Done**:

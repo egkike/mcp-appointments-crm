@@ -47,7 +47,7 @@ Reglas de dependencia (no escritas, enforced por code review + `go vet`):
 | `internal/auth/middleware.go` | Create | `auth` | `AuthMiddleware` con `Wrap(next http.Handler) http.Handler` (o equivalente), RBAC config por tool, audit logging condicional para admin (spec `auth-middleware`) |
 | `internal/auth/middleware_test.go` | Create | `auth` | `httptest.NewRecorder` + `httptest.NewRequest` + go-sqlmock: 16 escenarios del middleware |
 | `internal/auth/doc.go` | Create | `auth` | Package comment: "Primitivas de autenticación: Caller, ctx propagation, resolver, middleware. Stdlib-only." |
-| `internal/repository/accounts.go` | Create | `repository` | `AccountsRepo` con `Create/Get/GetByRole/List/Update/Delete/IsActive/ListByProfessional` (spec `accounts-repo`) |
+| `internal/repository/accounts.go` | Create | `repository` | `AccountsRepo` con `Create/Get/GetByRole/List/Update/Deactivate/IsActive/ListByProfessional` (spec `accounts-repo`). Constructor recibe `*slog.Logger` para audit log MUST en `Create`/`Deactivate`/`Update`. |
 | `internal/repository/accounts_test.go` | Create | `repository` | go-sqlmock tests por cada método (29 escenarios), ≥80% cobertura |
 | `internal/model/account.go` | Create | `model` | `Account` struct (7 campos, `ProfessionalID *string`, `IsActive bool`) |
 | `internal/db/database.go` | Modify | `db` | Añadir `accounts` a `domainTableDDL()`; contar la nueva tabla en `seedDDL()` description |
@@ -65,13 +65,14 @@ import "context"
 
 type Caller struct {
     ID             string
-    Role           string   // uno de RoleAdmin/RoleStaff/RoleClient; validado en el resolver, no en el struct
+    Role           string   // uno de RoleOwner/RoleAdmin/RoleStaff/RoleClient; validado en el resolver, no en el struct
     ProfessionalID *string  // no-nil solo si Role == RoleStaff
     ClientID       *string  // no-nil solo si Role == RoleClient
 }
 
 const (
     RoleAdmin  = "admin"
+    RoleOwner  = "owner"
     RoleStaff  = "staff"
     RoleClient = "client"
 )
@@ -105,9 +106,12 @@ type CallerResolver struct {
 func NewCallerResolver(db *sql.DB) *CallerResolver
 // Resolve ejecuta 1-2 queries en orden:
 //   1. SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?
-//      - fila con is_active = 1 → Caller{Role: row.role, ProfessionalID: row.professional_id (si staff)}
+//      - fila con is_active = 1 → Caller{Role: row.role, ProfessionalID: row.professional_id (si staff), ClientID: <from-clients-if-exists>}
 //      - fila con is_active = 0 → ErrUnauthenticated + mensaje "tu cuenta está deshabilitada..."
-//   2. SELECT 1 FROM clients WHERE id = ?  (solo si accounts no tiene fila)
+//   2. SELECT id FROM clients WHERE id = ?  (si la cuenta existe y está activa en paso 1, para popular ClientID per ADR-0011)
+//      - fila → Caller.ClientID = &id (caller también es client)
+//      - no fila → Caller.ClientID = nil (admin/staff/owner sin client row)
+//   3. Si accounts no tiene fila → SELECT id FROM clients WHERE id = ?  (caller solo en clients)
 //      - fila → Caller{Role: RoleClient, ClientID: &id}
 //      - no fila → ErrUnauthenticated + mensaje "no te reconozco..."
 func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
@@ -116,11 +120,21 @@ func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
 **Decisión de diseño**: la query 1 **NO** filtra por `is_active` en SQL — lee la fila completa y decide en Go. Esto permite distinguir "inactivo" (fila con `is_active=0`) de "inexistente" (sin fila), retornando mensajes de error distintos en cada caso. El algoritmo final es:
 
 1. `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?` (sin filtro `is_active`):
-   - Fila con `is_active == 1` → construir `Caller` y retornar (1 query).
-   - Fila con `is_active == 0` → retornar `ErrUnauthenticated` con mensaje "tu cuenta está deshabilitada" (1 query). **NO consulta `clients`**.
-2. Si accounts no tiene fila → `SELECT id FROM clients WHERE id = ?` (1 query extra):
-   - Fila → `Caller{Role: RoleClient, ClientID: &id}` (2 queries total).
-   - No fila → `ErrUnauthenticated` con mensaje "no te reconozco" (2 queries total).
+   - Fila con `is_active == 1` → continuar con paso 2 (popular `ClientID` desde `clients`, per ADR-0011). Continúa con paso 2 incluso si no hay `clients` row (ClientID queda `nil`).
+   - Fila con `is_active == 0` → retornar `ErrUnauthenticated` con mensaje "cuenta deshabilitada" (1 query). **NO consulta `clients`**.
+2. Si paso 1 devolvió `is_active=1` → `SELECT id FROM clients WHERE id = ?` (1 query extra):
+   - Fila → `ClientID = &id` (caller es admin/staff/owner Y también cliente).
+   - No fila → `ClientID = nil` (admin/staff/owner sin client row).
+3. Si accounts no tiene fila → `SELECT id FROM clients WHERE id = ?` (1 query extra):
+   - Fila → `Caller{Role: RoleClient, ClientID: &id}` (1 query en clients, 1 query total).
+   - No fila → `ErrUnauthenticated` con mensaje "no te reconozco" (2 queries en accounts+clients).
+
+**Resumen de queries por caso:**
+- Caller solo en `clients`: 1 query.
+- Caller solo en `accounts`: 1 query a accounts + 1 query a clients (ClientID=nil).
+- Caller en ambos (admin+client, owner+client): 2 queries.
+- Caller desconocido: 2 queries.
+- Caller inactivo: 1 query a accounts (retorna error).
 
 Esto cumple el spec `auth-roles` Requirement "Determinación del role del caller" (paso 2: "Si la fila en `accounts` existe pero `is_active = 0`, el caller MUST ser rechazado") sin hacer `SELECT *` y luego descartar — el costo es el mismo (≤ 2 queries), y la lógica es explícita.
 
@@ -151,7 +165,7 @@ type AuthMiddleware struct {
 //   2. Si ausente o vacío tras trim → 401 + body "no se proporcionó X-Caller-Id".
 //   3. Resolver.Resolve(ctx, id) → si ErrUnauthenticated → 401 + body con el mensaje Spanish del error.
 //   4. Si el tool requiere roles y el caller no los cumple → 403 + body "no tienes permiso para realizar esta acción". **CRITICAL: RBAC check must happen BEFORE WithCaller + next.ServeHTTP.**
-//   5. Si caller.Role == RoleAdmin → emitir audit log ({ts, caller_id, tool}).
+//   5. Si caller.Role == RoleAdmin o RoleOwner → emitir audit log ({ts, caller_id, tool}).
 //   6. ctx = WithCaller(ctx, caller); next.ServeHTTP(w, r.WithContext(ctx)).
 func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler
 ```
@@ -180,14 +194,14 @@ type AccountsRepo struct {
     db *sql.DB
 }
 
-func NewAccountsRepo(db *sql.DB) *AccountsRepo
+func NewAccountsRepo(db *sql.DB, logger *slog.Logger) *AccountsRepo
 
 func (r *AccountsRepo) Create(ctx context.Context, a *model.Account) error
 func (r *AccountsRepo) Get(ctx context.Context, id string) (*model.Account, error)
 func (r *AccountsRepo) GetByRole(ctx context.Context, role string) ([]*model.Account, error)
 func (r *AccountsRepo) List(ctx context.Context) ([]*model.Account, error)
 func (r *AccountsRepo) Update(ctx context.Context, a *model.Account) error
-func (r *AccountsRepo) Delete(ctx context.Context, id string) error
+func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error
 func (r *AccountsRepo) IsActive(ctx context.Context, id string) (bool, error)
 func (r *AccountsRepo) ListByProfessional(ctx context.Context, professionalID string) ([]*model.Account, error)
 ```
@@ -370,7 +384,7 @@ Tabla operativa para `sdd-tasks` y `sdd-apply`. Cada scenario de spec → archiv
 | `auth-identity` | FromContext con ctx cancelado | same | unit |
 | `auth-identity` | Propagación a través de `WithCancel`/`WithTimeout`/`WithDeadline`/`WithValue` | same | unit table-driven |
 | `auth-identity` | Importaciones mínimas (sin `github.com/...`) | (static lint) | grep gate en GGA |
-| `auth-roles` | Constantes `RoleAdmin`/`RoleStaff`/`RoleClient` con valores exactos | `internal/auth/caller_test.go` (o `doc_test.go`) | unit |
+| `auth-roles` | Constantes `RoleOwner`/`RoleAdmin`/`RoleStaff`/`RoleClient` con valores exactos | `internal/auth/caller_test.go` (o `doc_test.go`) | unit |
 | `auth-roles` | Tabla `accounts` existe con todas las columnas | `internal/db/database_test.go` | SQLite in-memory (PRAGMA table_info) |
 | `auth-roles` | Default `is_active = 1` | `internal/db/database_test.go` | SQLite in-memory |
 | `auth-roles` | Insert con role inválido (`'manager'`) falla | `internal/db/database_test.go` | SQLite in-memory (CHECK) |
@@ -419,9 +433,10 @@ Tabla operativa para `sdd-tasks` y `sdd-apply`. Cada scenario de spec → archiv
 | `accounts-repo` | `Update` inexistente → ErrNotFound (rows affected 0) | same | go-sqlmock |
 | `accounts-repo` | `Update` role inválido → ErrInvalidInput sin query | same | go-sqlmock |
 | `accounts-repo` | `Update` regenera `updated_at` | same | go-sqlmock (assert placeholder de strftime) |
-| `accounts-repo` | `Delete` exitoso | same | go-sqlmock |
-| `accounts-repo` | `Delete` inexistente → ErrNotFound | same | go-sqlmock |
-| `accounts-repo` | `Delete` ID vacío → ErrInvalidInput sin query | same | go-sqlmock |
+| `accounts-repo` | `Deactivate` exitoso | same | go-sqlmock (audit log) |
+| `accounts-repo` | `Deactivate` idempotente (segunda llamada) | same | go-sqlmock |
+| `accounts-repo` | `Deactivate` inexistente → ErrNotFound | same | go-sqlmock |
+| `accounts-repo` | `Deactivate` ID vacío → ErrInvalidInput sin query | same | go-sqlmock |
 | `accounts-repo` | `IsActive` cuenta activa → `(true, nil)` | same | go-sqlmock |
 | `accounts-repo` | `IsActive` cuenta inactiva → `(false, nil)` | same | go-sqlmock |
 | `accounts-repo` | `IsActive` id inexistente → `(false, nil)` (no error) | same | go-sqlmock (sql.ErrNoRows) |

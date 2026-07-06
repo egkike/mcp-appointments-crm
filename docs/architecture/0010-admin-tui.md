@@ -42,7 +42,7 @@ La pregunta es: **¿quién hace estas operaciones y con qué herramienta?**
 
 - **Lenguaje**: Go (mismo binario que el MCP server, sin external runtime tools per ADR-0005).
 - **Librería TUI**: [Bubble Tea](https://github.com/charmbracelet/bubbletea) (Go puro, sin CGo, ~1.5MB al binario). **No es external runtime tool** — es una librería Go que compila dentro del binario.
-- **Entry point**: `cmd/mcp-server/admin_tui.go` (o `cmd/admin-tui/main.go` si se quiere un entry point separado). El sub-comando se activa con `mcp-appointments-crm admin tui`.
+- **Entry point**: `cmd/mcp-server/admin_tui.go` (sub-comando del binario principal `mcp-appointments-crm`). El sub-comando se activa con `mcp-appointments-crm admin tui`. **No es un binario separado** — el TUI vive en el mismo proceso que el MCP server; comparte el `*slog.Logger`, el `*sql.DB`, y el `*slog.Logger` para audit log.
 
 ### Enforcement en el TUI
 

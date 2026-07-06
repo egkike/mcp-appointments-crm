@@ -52,11 +52,18 @@ Si el header está ausente, o si su valor es la string vacía después de trim, 
 Una vez leído el `X-Caller-Id`, el middleware MUST resolver el caller siguiendo la cadena de búsqueda definida en `auth-roles` (Requirement "Determinación del role del caller"):
 
 1. Query 1: `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?`.
-2. Si la fila existe y `is_active = 1`, construir el `Caller` y terminar (sin segunda query).
-3. Si la fila existe pero `is_active = 0`, retornar 401 con mensaje de cuenta deshabilitada.
+2. Si la fila existe y `is_active = 1`, continuar con Query 2 (`SELECT id FROM clients WHERE id = ?`) para popular el `ClientID` (per ADR-0011, owner/admin/staff pueden ser clientes). Si `clients` no tiene fila, `ClientID` queda `nil`.
+3. Si la fila existe pero `is_active = 0`, retornar 401 con mensaje de cuenta deshabilitada (NO consulta `clients`).
 4. Si no hay fila en `accounts`, Query 2: `SELECT id FROM clients WHERE id = ?`.
 5. Si hay fila en `clients`, construir `Caller{Role: "client", ClientID: &id}` y terminar.
 6. Si no hay fila en ninguna tabla, retornar 401 con mensaje "no te reconozco".
+
+**Resumen de queries por caso (1-2 queries):**
+- Caller solo en `clients`: 1 query.
+- Caller solo en `accounts` (admin sin client row): 2 queries (accounts + clients vacío).
+- Caller en ambos (admin+client, owner+client): 2 queries, `ClientID` poblado.
+- Caller desconocido: 2 queries, ambas vacías.
+- Caller inactivo: 1 query (retorna error).
 
 Las queries MUST usar placeholders `?` (nunca concatenación). MUST usar el `context.Context` del request (con su timeout / cancelación). MUST emitir a lo sumo 2 queries por request. MUST NO usar cache en memoria en esta versión (la latencia adicional de 1-2 queries es aceptable per ADR-0009; cache diferida a Fase 2+).
 

@@ -43,15 +43,17 @@ Adicionalmente, la tabla `business_profile` ya tiene `messenger_id`, que identif
 ```sql
 CREATE TABLE accounts (
     id              TEXT PRIMARY KEY,
-    role            TEXT NOT NULL CHECK (role IN ('admin', 'staff')),
+    role            TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
     display_name    TEXT,
     professional_id TEXT,
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role = 'admin'))
+    CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
 );
 ```
+
+> **Status note (2026-06-29)**: el schema de `accounts` fue extendido por [ADR-0010](../architecture/0010-admin-tui.md) con el rol `owner` (single-owner invariant, soft delete via `Deactivate`, audit log MUST). El CHECK de role se actualizó a `IN ('owner', 'admin', 'staff')` y el segundo CHECK a `OR (role IN ('admin', 'owner'))`. Ver ADR-0010 para el refinamiento operacional completo.
 
 ## Consequences
 

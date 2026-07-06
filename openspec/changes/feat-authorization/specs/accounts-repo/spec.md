@@ -326,7 +326,9 @@ Las operaciones que mutan la tabla `accounts` MUST emitir un audit log estructur
 - `Deactivate(ctx, id)`: emite `slog.Info("account deactivated", "actor_id", <ctx caller>, "target_id", id, "ts", <ISO 8601 UTC>)`. **No emite** si la cuenta ya estaba desactivada (idempotencia).
 - `Update(ctx, account)`: emite `slog.Info("account updated", "actor_id", <ctx caller>, "target_id", account.ID, "ts", <ISO 8601 UTC>)`.
 
-`Get`, `GetByRole`, `List`, `ListByProfessional`, `IsActive`, `Create` que retorna error de UNIQUE conflict, `Create` que retorna error de single-owner violation — NO emiten audit log (son read-only o errores esperados, no operaciones exitosas que valen auditar).
+`Get`, `GetByRole`, `List`, `ListByProfessional`, `IsActive`, `Create` que retorna error de UNIQUE conflict — NO emiten audit log (son read-only o errores esperados, no operaciones exitosas que valen auditar).
+
+`Create` que retorna error de single-owner violation — **SÍ emite audit log** de intento (defense-in-depth: el log permite detectar patrones de ataque, ej: varios intentos de crear owner por un caller no-owner). El `actor_id` es el caller del ctx; el `target_role` es `"owner"`. El log es `slog.Warn` (no `slog.Info`) porque es un evento de seguridad.
 
 Si el `actor_id` no se puede obtener del `ctx` (no hay caller), el log se omite el campo (no es error).
 

@@ -169,12 +169,13 @@ La función de resolución del caller (referenciada por `auth-middleware` pero e
 
 Esta función MUST ejecutarse dentro de un `*sql.DB` y MUST usar el `context.Context` recibido para cancelación. MUST NO ser un singleton global: vive en el middleware o en un helper inyectable.
 
-#### Scenario: Caller en accounts como admin
+#### Scenario: Caller en accounts como admin (sin client row)
 
 - GIVEN una fila en `accounts` con `id = '+5491100000000'`, `role = 'admin'`, `is_active = 1`
+- AND NO hay fila en `clients` con ese id
 - WHEN el resolver consulta con `'+5491100000000'`
 - THEN MUST retornar un `Caller{ID: '+5491100000000', Role: "admin", ProfessionalID: nil, ClientID: nil}`
-- AND MUST NO consultar `clients`
+- AND el resolver ejecuta 2 queries: 1 a `accounts` (devuelve admin activo) + 1 a `clients` (devuelve vacío, así que `ClientID = nil`)
 
 #### Scenario: Caller en accounts como staff con professional_id
 

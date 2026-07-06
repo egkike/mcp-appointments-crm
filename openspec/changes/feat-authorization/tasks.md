@@ -179,7 +179,7 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
   - `auth-roles` "Tres roles canónicos como constantes" (Requirement 1)
 - **Key implementation**:
   - `type Caller struct { ID string; Role string; ProfessionalID *string; ClientID *string }`
-  - Role string constants: `RoleAdmin = "admin"`, `RoleStaff = "staff"`, `RoleClient = "client"`.
+  - Role string constants: `RoleOwner = "owner"`, `RoleAdmin = "admin"`, `RoleStaff = "staff"`, `RoleClient = "client"`.
   - Private context key (`type callerKey struct{}`) to avoid collisions.
   - `WithCaller(ctx context.Context, caller Caller) context.Context` returns a new context; never mutates input; no panic on zero value.
   - `FromContext(ctx context.Context) (Caller, bool)` returns zero `Caller` and `false` if absent; never panics, never returns error, never queries.
@@ -206,13 +206,16 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
   - Sentinel `ErrUnauthenticated = errors.New("unauthenticated")` plus a private `authError` wrapper that carries the Spanish message:
     - `"no te reconozco. Por favor registrate primero."` when not found in either table
     - `"tu cuenta está deshabilitada. Contacta al administrador."` when account exists but `is_active = 0`
-  - Resolution algorithm (≤ 2 queries):
+  - Resolution algorithm (≤ 2 queries, per auth-roles spec):
     1. `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?`
-    2. If row exists and `is_active == 1` → return `Caller{ID, Role: row.role, ProfessionalID: row.professional_id, ClientID: nil}`
-    3. If row exists and `is_active == 0` → return `ErrUnauthenticated` with disabled-account message
-    4. If no row in accounts → `SELECT id FROM clients WHERE id = ?`
-    5. If row in clients → return `Caller{ID, Role: RoleClient, ProfessionalID: nil, ClientID: &id}`
-    6. If no row in either → return `ErrUnauthenticated` with not-recognized message
+    2. If row exists and `is_active == 1` → continue with step 3 (populate `ClientID` from `clients`, per ADR-0011 owner/admin/staff can be clients)
+    3. `SELECT id FROM clients WHERE id = ?` (only if step 2 succeeded)
+       - If row found → `Caller{ID, Role: row.role (from accounts), ProfessionalID: row.professional_id, ClientID: &id}`
+       - If no row → `Caller{ID, Role: row.role, ProfessionalID: row.professional_id, ClientID: nil}` (admin/staff/owner without client row)
+    4. If row exists but `is_active == 0` → return `ErrUnauthenticated` with disabled-account message (NO query to clients)
+    5. If no row in accounts → `SELECT id FROM clients WHERE id = ?`
+       - If row → return `Caller{ID, Role: RoleClient, ProfessionalID: nil, ClientID: &id}`
+       - If no row → return `ErrUnauthenticated` with not-recognized message
 - **Tests** (go-sqlmock, table-driven):
   - Admin in accounts (1 query, no clients query)
   - Staff in accounts with `professional_id`
@@ -240,7 +243,7 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
     2. If missing or empty after `strings.TrimSpace` → write body with `http.Error(w, "no se proporcionó X-Caller-Id", http.StatusUnauthorized)`.
     3. Call `resolver.Resolve(ctx, id)`; if `ErrUnauthenticated` → write body with `http.Error(w, <spanish-message>, http.StatusUnauthorized)`.
     4. If the tool has `RequiredRoles` and the caller's role is not in the set → write body with `http.Error(w, "no tienes permiso para realizar esta acción", http.StatusForbidden)`. **CRITICAL: RBAC check must happen BEFORE `next.ServeHTTP` — otherwise the handler executes regardless of role.**
-    5. If `caller.Role == RoleAdmin` → emit audit log via `log/slog` with `ts` (ISO 8601 UTC), `caller_id`, and `tool`.
+    5. If `caller.Role == RoleAdmin` or `RoleOwner` → emit audit log via `log/slog` with `ts` (ISO 8601 UTC), `caller_id`, and `tool`.
     6. Inject caller into request context with `WithCaller` and call `next.ServeHTTP(w, r.WithContext(ctx))`.
   - Tool name default: `r.URL.Path`; allow injection of `toolNameFromRequest func(*http.Request) string` for Fase 2 wiring.
 - **Tests** (table-driven with `httptest.ResponseRecorder`):

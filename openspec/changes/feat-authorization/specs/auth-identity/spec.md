@@ -15,7 +15,7 @@ El sistema debe modelar la identidad del `caller` (admin / staff / client) como 
 El paquete `internal/auth` MUST exportar el struct `Caller` con los siguientes campos públicos (todos con tipos concretos, sin `any` ni `interface{}`):
 
 - `ID string` — phone o handle del messenger (PK en `accounts` o `clients`).
-- `Role string` — uno de `"admin"`, `"staff"`, `"client"`. La validación del valor vive en `auth-roles`; este spec NO enforza el conjunto permitido.
+- `Role string` — uno de `"owner"`, `"admin"`, `"staff"`, `"client"`. La validación del valor vive en `auth-roles`; este spec NO enforza el conjunto permitido.
 - `ProfessionalID *string` — FK a `professionals.id`; NO-nil solo si `Role == "staff"`.
 - `ClientID *string` — FK a `clients.id`; NO-nil solo si `Role == "client"`.
 
