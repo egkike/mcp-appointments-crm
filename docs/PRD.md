@@ -867,6 +867,52 @@ Esto permite que el owner (o admin, o staff) use el mismo `X-Caller-Id` para:
 - *Self-service client creation en la primera reserva*: el sistema crea el `client` row cuando el admin hace su primera reserva. **Rechazado** por race conditions y por complicar el modelo (2 identidades implícitas para 1 phone).
 - *Admin/staff NO pueden reservar para sí mismos*: tienen que usar otro phone. **Rechazado** por fricción operacional absurda.
 
+### 3.8.9 Canal "Chat de Hermes" (operación local, Fase 2+)
+
+> Decisión arquitectónica: ver [ADR-0012](../architecture/0012-hermes-chat-local.md).
+
+Además del bot de WhatsApp/Telegram (que recibe mensajes de **todos** los usuarios — clientes, staff, admin, owner), existe un **segundo canal de comunicación**: el **Chat nativo de Hermes**. Es la interfaz local del LLM agent (terminal, IDE, OpenCode Chat, etc.) que el owner usa directamente sin pasar por el bot.
+
+**Diferencia con el bot:**
+
+| Aspecto | Bot (WhatsApp/Telegram) | Chat de Hermes (local) |
+|---|---|---|
+| Quién escribe | Cualquier persona con acceso al bot | Solo el owner (single-user assumption en la VPS) |
+| Cómo se inyecta el `X-Caller-Id` | El bot lee el `from` del mensaje | El Chat lee `MCP_CALLER_ID` env var o `~/.config/mcp-appointments-crm/caller-id` |
+| Gatekeeper | El bot messenger (cualquiera puede escribir) | El admin del OS (SSH a la VPS) |
+| Multi-user | Sí (cualquier cliente puede escribir) | No (single-user por default) |
+| Loopback enforcement | El bot habla con el MCP server en loopback | El Chat también (no expone el MCP al exterior) |
+
+**Mecanismo del Chat de Hermes:**
+
+- **`install.sh` configura el caller_id del owner** durante el primer install (RF9). El `X-Caller-Id` del owner se guarda en `~/.config/mcp-appointments-crm/caller-id` (o en el `.env` que `install.sh` ya genera per §3.5). Esto se hace al mismo tiempo que se crea la fila del owner en `accounts`.
+- **El Chat de Hermes es un sub-comando del binario** (`mcp-appointments-crm hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000`, e inyecta el `X-Caller-Id` en cada tool call.
+- **Override con env var**: el owner puede exportar `MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat` para simular ser un cliente (debug, testing, o simular la perspectiva de un cliente).
+- **Multi-user via override**: el staff puede hacer SSH a la VPS y correr `MCP_CALLER_ID=+5491100002222 mcp-appointments-crm hermes chat` con su propio caller_id.
+
+**Salida del install.sh (extensión de RF9):**
+
+```bash
+[mcp-appointments-crm] Setup completado.
+Tu caller_id (admin del sistema): +5491100000000
+Para usar el Chat de Hermes, ejecuta:
+  mcp-appointments-crm hermes chat
+Override con otro caller_id (debug):
+  MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat
+```
+
+**Defense-in-depth intacta:**
+- El gatekeeper es el **admin del OS** (SSH a la VPS). El Chat corre en la VPS; no expone nada al exterior.
+- El LLM (Hermes) **no puede falsificar** el `MCP_CALLER_ID` — la env var se lee del shell del owner, no del LLM.
+- Loopback enforcement: el MCP server sigue en `127.0.0.1:3000`. El Chat de Hermes también es loopback.
+- El owner decide explícitamente qué tool usar según el contexto (gestionar vs reservar como cliente).
+
+**Alternativas descartadas:**
+
+- *Hermes local en la laptop del owner* (sin SSH a la VPS): requeriría exponer el MCP al exterior o un SSH tunnel; viola loopback. **Rechazado**.
+- *Single-user mode con caller_id hardcodeado* (sin override): inflexible, no soporta debug/testing. **Rechazado**.
+- *El Chat pregunta el caller_id al iniciar* (sin config): fricción cada vez que abre el Chat. **Rechazado** (la config se hace una vez en `install.sh`).
+
 ---
 
 ## 4. Usuarios y Personas
@@ -1215,3 +1261,4 @@ Esto permite que el owner (o admin, o staff) use el mismo `X-Caller-Id` para:
 | 2026-06-29 | 1.2 | Kike | ADR-0009: nuevo modelo de autorización. Nueva §3.8 "Modelo de Autorización" + nota en §3.7.12 clarificando que `business_profile.messenger_id` es el bot del negocio (no el admin). Tabla `accounts` como whitelist para admin/staff; clients identificados por su presencia en `clients`. Header `X-Caller-Id` inyectado por el cliente MCP (no por el LLM). 3 capas de enforcement: middleware coarse-grained + repos medium-grained + SQL fine-grained con `WHERE professional_id/client_id`. Defensa contra LLM comprometido (no puede falsificar el caller). Implementación ordenada como change SDD `feat-authorization` antes de PR 3 de `feat-db-layer`. |
 | 2026-06-29 | 1.3 | Kike | ADR-0009: refinamiento operacional del modelo de auth. Nuevo rol `owner` (con permisos de `admin` + capacidad exclusiva de crear/eliminar otros admins); single-owner invariant enforced a nivel DB via trigger SQLite + repo check. Soft delete via `Deactivate(ctx, id)` reemplaza hard delete (preserva historia). Audit log MUST via `*slog.Logger` estructurado en `Create`/`Deactivate`/`Update` (operaciones críticas). Nueva §3.8.8 "TUI menú operacional" — sub-comando `mcp-appointments-crm admin tui` (Fase 2+, otro proceso, no invocable por el LLM; defense-in-depth). RF9 actualizado: `install.sh` ahora captura el `X-Caller-Id` del dueño y crea el INSERT inicial en `accounts` con `role='owner'` (single-owner). Fase 2 ampliada para incluir el TUI menú. |
 | 2026-06-29 | 1.4 | Kike | ADR-0011: owner/admin/staff que también son clientes del negocio (mismo phone, doble rol). El `CallerResolver` ejecuta 2 queries cuando la cuenta existe en `accounts` (popular el `ClientID` desde `clients`). Permite que el dueño se corte el pelo en su propia peluquería sin fricción. Defense-in-depth intacta: el `Role` del `Caller` (no el `ClientID`) determina los permisos. Setup vía TUI menú "Add Yourself as Client" (Fase 2+). Nueva subsección en §3.8.8 documenta el caso. |
+| 2026-06-29 | 1.5 | Kike | ADR-0012: segundo canal de comunicación — el Chat nativo de Hermes (local CLI/IDE), además del bot de WhatsApp/Telegram. El `install.sh` ahora también guarda el `X-Caller-Id` del owner en `~/.config/mcp-appointments-crm/caller-id` o `.env`. El Chat es sub-comando del binario (`mcp-appointments-crm hermes chat`), corre en la VPS, se conecta al MCP server en loopback. Override con `MCP_CALLER_ID` env var (debug, multi-user). Defense-in-depth: admin del OS (SSH) sigue siendo el gatekeeper; el LLM no puede falsificar el caller_id. Nueva subsección §3.8.9 documenta el caso. |
