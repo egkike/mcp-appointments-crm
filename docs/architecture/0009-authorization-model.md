@@ -1,4 +1,4 @@
-# ADR-0009: Authorization model — `accounts` whitelist for admin/staff
+# ADR-0009: Authorization model — owner/admin/staff whitelist + clients by presence
 
 - **Status**: accepted
 - **Date**: 2026-06-29
@@ -20,13 +20,13 @@ Adicionalmente, la tabla `business_profile` ya tiene `messenger_id`, que identif
 
 ### Componentes
 
-1. **Nueva tabla `accounts`** con `role IN ('admin', 'staff')` y FK a `professionals` para staff. Los clientes NO tienen entry en esta tabla; se identifican por su presencia en `clients`.
+1. **Nueva tabla `accounts`** con `role IN ('owner', 'admin', 'staff')` y FK a `professionals` para staff. Los clientes NO tienen entry en esta tabla; se identifican por su presencia en `clients`.
 
 2. **Header `X-Caller-Id`** en cada MCP request, inyectado por el cliente MCP desde el contexto del chat. El LLM no manipula este header.
 
 3. **Middleware de autenticación** que:
    - Lee `X-Caller-Id`.
-   - Busca en `accounts`; si está, `caller = {role: admin|staff, ...}`.
+   - Busca en `accounts`; si está, `caller = {role: owner|admin|staff, ...}`.
    - Si no, busca en `clients`; si está, `caller = {role: client, client_id: id}`.
    - Si no está en ninguno, retorna `ErrUnauthenticated`.
    - Carga el `caller` en `context.Context`.
@@ -69,7 +69,7 @@ CREATE TABLE accounts (
 - Más complejidad: 3 capas de enforcement (middleware + repo + SQL) que deben mantenerse consistentes.
 - El `caller` debe propagarse vía `context.Context` consistentemente. Si un repo no chequea el ctx, se saltea el enforcement.
 - Requiere que el cliente MCP (Hermes) inyecte `X-Caller-Id` correctamente. Si el cliente no lo hace, todos los requests fallan con `ErrUnauthenticated`.
-- Tabla `accounts` adicional a mantener: inserción inicial del admin via `install.sh`, gestión via repo, desactivación (`is_active = 0`) cuando un staff deja el negocio.
+- Tabla `accounts` adicional a mantener: inserción inicial del owner via TUI menú operacional (`mcp-appointments-crm admin tui`, Fase 2 — no via `install.sh`), gestión via repo, desactivación (`is_active = 0`) cuando un staff deja el negocio.
 - Latencia adicional: 1-2 queries (accounts + clients) por cada tool call. Mitigable con cache en memoria.
 
 **Rejected alternatives**:
@@ -97,7 +97,7 @@ Orden:
 1. **`feat-authorization`** (este change, Fase 0) — schema, repo, middleware, integración con el flujo MCP
 2. **`feat-db-layer` PR 1a + PR 1b + PR 2** (ya mergeados en el tracker)
 3. **`feat-db-layer` PR 3** (Bookings + CheckAvailability) — ahora con la capa de auth integrada
-4. **Fase 2+** (handlers MCP, install.sh con seed del admin)
+4. **Fase 2+** (handlers MCP, TUI menú con seed del owner)
 
 ## References
 

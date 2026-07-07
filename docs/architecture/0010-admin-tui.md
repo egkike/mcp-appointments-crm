@@ -7,7 +7,7 @@
 
 ## Context
 
-El modelo de autorización (ADR-0009 + PRD §3.8) introduce la tabla `accounts` con roles `owner`/`admin`/`staff`. El primer `owner` se crea durante `install.sh` (seed). Después del setup inicial, el admin necesita poder:
+El modelo de autorización (ADR-0009 + PRD §3.8) introduce la tabla `accounts` con roles `owner`/`admin`/`staff`. El primer `owner` se crea vía TUI menú (seed en Fase 2). Después del setup inicial, el admin necesita poder:
 
 - Agregar staff (alta de cuentas con `role='staff'`, `professional_id` válido)
 - Desactivar cuentas (soft delete: `is_active=0`)

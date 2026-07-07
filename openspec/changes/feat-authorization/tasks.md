@@ -6,7 +6,7 @@
 
 ## Overview
 
-`feat-authorization` introduce la capa de autorización del MCP server. Añade la tabla `accounts` (whitelist `admin`/`staff`) al esquema existente, el modelo `Account`, el repositorio `AccountsRepo`, y el paquete `internal/auth/` con `Caller`, `CallerResolver` y `AuthMiddleware`. El trabajo se divide en **2 PRs encadenados**: PR 1 capa de datos (schema + model + repo) y PR 2 primitivas de auth (caller + resolver + middleware). El wiring del middleware al `*http.ServeMux` es Fase 2 y queda fuera de este change.
+`feat-authorization` introduce la capa de autorización del MCP server. Añade la tabla `accounts` (whitelist `owner`/`admin`/`staff`) al esquema existente, el modelo `Account`, el repositorio `AccountsRepo`, y el paquete `internal/auth/` con `Caller`, `CallerResolver` y `AuthMiddleware`. El trabajo se divide en **2 PRs encadenados**: PR 1 capa de datos (schema + model + repo) y PR 2 primitivas de auth (caller + resolver + middleware). El wiring del middleware al `*http.ServeMux` es Fase 2 y queda fuera de este change.
 
 ## Forecast
 
@@ -98,14 +98,15 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
     WHEN NEW.role = 'owner' AND NEW.is_active = 1 AND
          (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
     BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END;
-    
+
     CREATE TRIGGER accounts_single_owner_update BEFORE UPDATE ON accounts
     WHEN NEW.role = 'owner' AND NEW.is_active = 1 AND
-         OLD.is_active = 0 AND  -- the row being activated was inactive
-         (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
+         (OLD.role != 'owner' OR OLD.is_active = 0) AND  -- entering owner status
+         (SELECT COUNT(*) FROM accounts
+          WHERE role = 'owner' AND is_active = 1 AND id != NEW.id) >= 1
     BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END;
     ```
-    (Adjust syntax: separate the two cases; the UPDATE trigger needs to handle both the activation case AND the role-change-into-owner case.)
+    The UPDATE trigger covers both cases in a single WHEN clause: (a) activating an inactive owner (`OLD.is_active = 0`), and (b) changing the role of an already-active row to `'owner'` (`OLD.role != 'owner'`). The `id != NEW.id` exclusion prevents self-rejection when an existing owner row is updated without changing its owner status.
   - Update `seedDDL()` description to reflect "10 domain tables + accounts per PRD §3.8 + schema_version + 6 FTS triggers + 4 secondary indexes".
 - **Tests** (integration test in `database_test.go` using real in-memory SQLite):
   - `TestAccountsTable_Exists` — `PRAGMA table_info(accounts)` includes all columns with expected types
@@ -153,12 +154,12 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
     - `ID` not empty
     - `Role` is `"owner"`, `"admin"` or `"staff"`
     - If `Role == "staff"`, `ProfessionalID` must be non-nil and non-empty
-  - **`Create` con `Role == "owner"`** ejecuta un `SELECT COUNT(*) FROM accounts WHERE role='owner' AND is_active=1` antes del INSERT. Si > 0, retorna `ErrConflict` con Spanish message. (Defense-in-depth con el trigger SQLite de Task 1.1.)
+  - **`Create` con `Role == "owner"`** ejecuta un `SELECT COUNT(*) FROM accounts WHERE role='owner' AND is_active=1` antes del INSERT. Si > 0, retorna `ErrConflict` con Spanish message. On conflict (second owner attempted), the repo MUST emit a `slog.Warn` audit log with `actor_id` and a `result: 'rejected'` field before returning `ErrConflict`. (Defense-in-depth con el trigger SQLite de Task 1.1.)
   - **`Deactivate(ctx, id)`** ejecuta `UPDATE accounts SET is_active=0, updated_at=...` (soft delete; preserva historia). Idempotente (segunda llamada es no-op).
   - `is_active` is stored as `INTEGER` (0/1) and exposed as `bool`.
   - `Update` regenerates `updated_at` with `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`.
   - `IsActive` returns `(false, nil)` for missing rows (no `ErrNotFound`).
-  - **Audit log MUST** (vía `*slog.Logger`): `Create` y `Deactivate` emiten log estructurado. `Update` también. `Get`, `GetByRole`, `List`, `IsActive`, `ListByProfessional` no emiten (read-only). Si el `ctx` no tiene `auth.Caller`, el campo `actor_id` se omite (no es error). Tests capturan el output de `slog` con un `slog.Handler` de testing.
+     - **Audit log MUST** (vía `*slog.Logger`): `Create`, `Update` y `Deactivate` emiten log estructurado. `Get`, `GetByRole`, `List`, `IsActive`, `ListByProfessional` no emiten (read-only). Si el `ctx` no tiene `auth.Caller`, el campo `actor_id` se omite (no es error). Tests capturan el output de `slog` con un `slog.Handler` de testing.
 - **Tests** (go-sqlmock, table-driven):
   - Each of the 29 scenarios in `accounts-repo/spec.md` becomes one subtest.
   - Cover happy path + error paths (DB error, not found, UNIQUE conflict, invalid input).
@@ -176,7 +177,7 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
   - `internal/auth/caller_test.go` (NEW, ~80 LOC)
 - **Spec scenarios satisfied**:
   - `auth-identity` (5 requirements, 10 scenarios)
-  - `auth-roles` "Tres roles canónicos como constantes" (Requirement 1)
+   - `auth-roles` "Cuatro roles canónicos como constantes" (Requirement 1)
 - **Key implementation**:
   - `type Caller struct { ID string; Role string; ProfessionalID *string; ClientID *string }`
   - Role string constants: `RoleOwner = "owner"`, `RoleAdmin = "admin"`, `RoleStaff = "staff"`, `RoleClient = "client"`.
@@ -208,17 +209,18 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
     - `"tu cuenta está deshabilitada. Contacta al administrador."` when account exists but `is_active = 0`
   - Resolution algorithm (≤ 2 queries, per auth-roles spec):
     1. `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?`
-    2. If row exists and `is_active == 1` → continue with step 3 (populate `ClientID` from `clients`, per ADR-0011 owner/admin/staff can be clients)
-    3. `SELECT id FROM clients WHERE id = ?` (only if step 2 succeeded)
-       - If row found → `Caller{ID, Role: row.role (from accounts), ProfessionalID: row.professional_id, ClientID: &id}`
-       - If no row → `Caller{ID, Role: row.role, ProfessionalID: row.professional_id, ClientID: nil}` (admin/staff/owner without client row)
-    4. If row exists but `is_active == 0` → return `ErrUnauthenticated` with disabled-account message (NO query to clients)
-    5. If no row in accounts → `SELECT id FROM clients WHERE id = ?`
-       - If row → return `Caller{ID, Role: RoleClient, ProfessionalID: nil, ClientID: &id}`
-       - If no row → return `ErrUnauthenticated` with not-recognized message
+       - Row exists, `is_active == 1` → continue to step 2
+       - Row exists, `is_active == 0` → return `ErrUnauthenticated` with disabled-account message (NO query to clients)
+       - No row → jump to step 3
+    2. Query clients (only if step 1 found an active account): `SELECT id FROM clients WHERE id = ?`
+       - Row found → `Caller{ID, Role: row.role (from accounts), ProfessionalID: row.professional_id, ClientID: &id}`
+       - No row → `Caller{ID, Role: row.role, ProfessionalID: row.professional_id, ClientID: nil}` (admin/staff/owner without client row)
+    3. Query clients (only if step 1 found NO account row): `SELECT id FROM clients WHERE id = ?`
+       - Row found → return `Caller{ID, Role: RoleClient, ProfessionalID: nil, ClientID: &id}`
+       - No row → return `ErrUnauthenticated` with not-recognized message
 - **Tests** (go-sqlmock, table-driven):
-  - Admin in accounts (1 query, no clients query)
-  - Staff in accounts with `professional_id`
+   - Admin in accounts (2 queries: accounts + clients vacío, ClientID=nil)
+   - Staff in accounts with `professional_id` (2 queries: accounts + clients vacío, ClientID=nil)
   - Account exists but `is_active = 0` → `ErrUnauthenticated` + disabled message; no clients query
   - Client in clients (2 queries)
   - Unknown id → `ErrUnauthenticated` + not-recognized message
@@ -307,10 +309,10 @@ PR 1 must merge before PR 2 starts. PR 2 uses the `accounts` table in its go-sql
 
 ## Future work (NOT in this change)
 
-- **Fase 2**: Wire the middleware into the MCP server. Update `internal/mcp` to wrap handlers with `AuthMiddleware`, register per-tool `RequiredRoles`, and seed the owner account via `install.sh` (el `install.sh` debe preguntar el phone del dueño y crear el INSERT inicial en `accounts` con `role='owner'`).
+- **Fase 2**: TUI menu + seed del owner via TUI (not in this change; PRD RF9 Must, Fase 2). Wire the middleware into the MCP server. Update `internal/mcp` to wrap handlers with `AuthMiddleware`, register per-tool `RequiredRoles`.
 - **Fase 2+**: TUI menú operacional — sub-comando `mcp-appointments-crm admin tui` (binario principal, no binario separado). Sirve para gestión de cuentas (crear staff, desactivar cuentas, transferir ownership) sin exponer admin CRUD via MCP tools. Defense-in-depth: el TUI es otro proceso, no invocable por el LLM. Gatekeeper: admin del OS (SSH a la VPS). Implementación: Bubble Tea en Go (sin external runtime tools, compatible con ADR-0005).
 - **Fase 2+**: TUI opción "Add Yourself as Client" — el owner/admin puede auto-crearse un `client` row con su mismo phone. Esto cubre el caso "dueño de la peluquería que se corta el pelo ahí" (admin + client con mismo phone). Ver ADR-0011.
-- **Fase 2+**: Sub-comando `mcp-appointments-crm hermes chat` (Chat local de Hermes). El `install.sh` guarda el `X-Caller-Id` del owner en `~/.config/mcp-appointments-crm/caller-id` durante el seed. El Chat lee el caller_id al iniciar (override con `MCP_CALLER_ID` env var). Se conecta al MCP server en `127.0.0.1:3000` (loopback). Ver ADR-0012.
+- **Fase 2+**: Sub-comando `mcp-appointments-crm hermes chat` (Chat local de Hermes). El TUI menú guarda el `X-Caller-Id` del owner en `~/.config/mcp-appointments-crm/caller-id` durante el seed. El Chat lee el caller_id al iniciar (override con `MCP_CALLER_ID` env var). Se conecta al MCP server en `127.0.0.1:3000` (loopback). Ver ADR-0012.
 - **Fase 2+**: In-memory cache of active accounts with write-through invalidation to reduce the 1-2 queries per tool call.
 - **Fase 2+**: Sub-comando `mcp-appointments-crm admin purge-inactive` para hard-delete de cuentas con `is_active=0 AND updated_at < NOW() - INTERVAL '1 year'` (con confirmación extra). Permite cleanup operacional.
 

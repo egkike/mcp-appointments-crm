@@ -19,7 +19,7 @@ El paquete `internal/auth` MUST exportar cuatro constantes de tipo `string` con 
 - `RoleStaff  = "staff"`
 - `RoleClient = "client"` (esta constante existe pero NO se usa en `accounts.role`; los `client` se identifican por su presencia en `clients`)
 
-Estas constantes MUST ser los únicos valores válidos para `Caller.Role` en todo el sistema. `RoleOwner` y `RoleAdmin` son los únicos valores válidos para `accounts.role` (junto con `RoleStaff`); `RoleClient` es el valor implícito para callers identificados via `clients`. `owner` y `admin` tienen los mismos permisos operacionales; `owner` además tiene la capacidad exclusiva de crear/eliminar otros admins (single-owner invariant, ver auth-middleware RBAC).
+Estas constantes MUST ser los únicos valores válidos para `Caller.Role` en todo el sistema. `RoleOwner` y `RoleAdmin` son los únicos valores válidos para `accounts.role` (junto con `RoleStaff`); `RoleClient` es el valor implícito para callers identificados via `clients`. `owner` y `admin` tienen los mismos permisos operacionales; `owner` además tiene la capacidad exclusiva de crear/eliminar otros admins (single-owner invariant, ver Requirement "Single-owner invariant" en esta misma spec y `accounts-repo` spec).
 
 #### Scenario: Constantes exportadas con los valores correctos
 
@@ -161,8 +161,8 @@ La función de resolución del caller (referenciada por `auth-middleware` pero e
 4. **Si no hay fila en ninguna de las dos tablas**, MUST retornar `ErrUnauthenticated` con mensaje en español (`"no te reconozco. Por favor registrate primero."`).
 
 **Resumen de queries por caso:**
-- Caller solo en `clients` (1 query: clients)
-- Caller solo en `accounts` (1 query: accounts, ClientID=nil)
+- Caller solo en `clients` (2 queries: accounts vacío + clients)
+- Caller solo en `accounts` (2 queries: accounts + clients vacío, ClientID=nil)
 - Caller en ambos (2 queries: accounts + clients, ClientID poblado) — el caso "admin/staff/owner que también es cliente"
 - Caller desconocido (2 queries: accounts + clients, ambas vacías)
 - Caller inactivo (1 query: accounts, retorna error)

@@ -83,7 +83,7 @@ no hay migración de datos.
 
 - [ ] `accounts` creada con los CHECKs de PRD §3.8.2.
 - [ ] `Caller` propaga vía `context.Context`; `FromContext` retorna ok/false.
-- [ ] Middleware resuelve `admin`/`staff`/`client`/`unauthenticated` con mensajes §3.8.6.
+- [ ] Middleware resuelve `owner`/`admin`/`staff`/`client`/`unauthenticated` con mensajes §3.8.6.
 - [ ] `AccountsRepo` CRUD con `go-sqlmock`; cobertura ≥80% en `internal/auth/` y `accounts.go`.
 - [ ] `go test -v -race ./...`, `go build -o /dev/null ./...`, `go vet`, `golangci-lint` limpios.
 - [ ] TDD estricto; GGA limpio en cada commit.

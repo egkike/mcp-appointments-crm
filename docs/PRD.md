@@ -671,7 +671,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 > **Decisión arquitectónica**: ver [ADR-0009](../architecture/0009-authorization-model.md).
 
-El sistema diferencia tres tipos de **caller** según quién está interactuando con el bot del negocio:
+El sistema diferencia cuatro tipos de **caller** según quién está interactuando con el bot del negocio:
 
 | Rol | Descripción | Tabla de identidad |
 |---|---|---|
@@ -732,7 +732,7 @@ Hermes (cliente MCP)                           MCP Server
 |---|---|---|
 | **Coarse-grained** | Middleware MCP (intercepta cada tool call) | Valida que la cuenta existe y está activa. Rechaza con `ErrUnauthenticated` si no. Rechaza con `ErrForbidden` si el caller no tiene permiso para el tool. |
 | **Medium-grained** | Repositorios (cada método) | Chequea `caller.Role` desde el `context.Context` y filtra por `professional_id` o `client_id` cuando corresponde. |
-| **Fine-grained** | SQL queries | `WHERE professional_id = ?` o `WHERE client_id = ?` para staff/client; sin filtro para admin. |
+| **Fine-grained** | SQL queries | `WHERE professional_id = ?` o `WHERE client_id = ?` para staff/client; sin filtro para admin/owner. |
 
 El `caller` se propaga vía `context.Context`:
 
@@ -754,7 +754,7 @@ func (r *BookingsRepo) ListBookings(ctx context.Context) ([]*model.Booking, erro
         return nil, ErrUnauthenticated
     }
     switch caller.Role {
-    case "admin":
+    case "owner", "admin":
         return r.listAll(ctx)
     case "staff":
         return r.listByProfessional(ctx, *caller.ProfessionalID)
@@ -779,11 +779,11 @@ Un LLM (Hermes) comprometido o mal configurado **no puede escalar a admin** porq
 
 | Error | Mensaje (español) |
 |---|---|
-| Caller no identificado (no en `accounts` ni en `clients`) | `Error: no te reconozco. Por favor registrate primero.` |
-| Caller inactivo (`is_active = 0`) | `Error: tu cuenta está deshabilitada. Contacta al administrador.` |
-| Tool no permitido para el rol | `Error: no tienes permiso para realizar esta acción.` |
-| Cliente pide datos de otro cliente | `Error: solo puedes ver tus propias reservas.` |
-| Staff pide datos de otro profesional | `Error: solo puedes ver tus propias reservas.` |
+| Caller no identificado (no en `accounts` ni en `clients`) | `no te reconozco. Por favor registrate primero.` |
+| Caller inactivo (`is_active = 0`) | `tu cuenta está deshabilitada. Contacta al administrador.` |
+| Tool no permitido para el rol | `no tienes permiso para realizar esta acción` |
+| Cliente pide datos de otro cliente | `solo puedes ver tus propias reservas.` |
+| Staff pide datos de otro profesional | `solo puedes ver tus propias reservas.` |
 
 (Per coding standards: "no raw system dumps", "stack traces NEVER sent to LLM".)
 
@@ -794,7 +794,7 @@ La capa de autorización se implementa como un **change SDD separado** (`feat-au
 1. **`feat-authorization`** (Fase 0) — schema, repo, middleware, integración con el flujo MCP
 2. **`feat-db-layer` PR 1a + PR 1b + PR 2** (ya mergeados en el tracker)
 3. **`feat-db-layer` PR 3** (Bookings + CheckAvailability) — ahora con la capa de auth integrada
-4. **Fase 2+** (handlers MCP, install.sh con seed del owner, TUI menú operacional)
+4. **Fase 2+** (handlers MCP, TUI menú operacional con seed del owner)
 
 ### 3.8.8 TUI menú operacional (Fase 2+)
 
@@ -806,7 +806,7 @@ La gestión operacional de cuentas (admin/staff/owner) se realiza vía un **sub-
 
 - **Alta de staff** (`Add Staff`): el owner/admin ingresa `phone`, `display_name`, `professional_id`. Repo valida single-owner invariant si es owner, format del phone, etc.
 - **Desactivar cuenta** (`Deactivate`): setea `is_active = 0`. Soft delete (preserva historia).
-- **Transferir ownership** (`Transfer Ownership`): el owner actual se desactiva (`Deactivate`), después se crea un nuevo owner. Defense-in-depth: trigger SQLite rechaza 2 owners activos.
+- **Transferir ownership** (`Transfer Ownership`): el owner actual se desactiva (`Deactivate`), después se crea un nuevo owner. Defense-in-depth: trigger SQLite rechaza 2 owners activos. Additionally, the repository layer performs a `SELECT COUNT(*) FROM accounts WHERE role='owner' AND is_active=1` pre-check before `Create` and returns `ErrConflict` if > 0. Defense-in-depth: the trigger catches it as last resort, the repo provides a clean Spanish error message.
 - **Listar cuentas** (`List All`, `List Owners`, `List Admins`, `List Staff`): read-only views.
 - **Audit log view** (opcional): muestra los logs recientes de cambios de cuentas.
 
@@ -832,7 +832,7 @@ La gestión operacional de cuentas (admin/staff/owner) se realiza vía un **sub-
 **Cambio a `accounts` (soft delete + audit log):**
 
 - El `accounts` repo expone `Deactivate(ctx, id)` (en lugar de `Delete`) — soft delete que setea `is_active = 0`. Preserva historia; FKs siguen válidas. Hard delete solo se permite via sub-comando `purge-inactive` con confirmación extra (Fase 2+).
-- `Create` y `Deactivate` emiten audit log MUST via `*slog.Logger` estructurado con `{actor_id, target_id, target_role, ts}`. Defense-in-depth: incluso si el LLM escala, el log queda en el sistema.
+- `Create`, `Update` y `Deactivate` emiten audit log MUST via `*slog.Logger` estructurado con `{actor_id, target_id, target_role, ts}`. Defense-in-depth: incluso si el LLM escala, el log queda en el sistema.
 
 **Owner/admin/staff que también son clientes del negocio (mismo phone, doble rol):**
 
@@ -886,12 +886,12 @@ Además del bot de WhatsApp/Telegram (que recibe mensajes de **todos** los usuar
 
 **Mecanismo del Chat de Hermes:**
 
-- **`install.sh` configura el caller_id del owner** durante el primer install (RF9). El `X-Caller-Id` del owner se guarda en `~/.config/mcp-appointments-crm/caller-id` (o en el `.env` que `install.sh` ya genera per §3.5). Esto se hace al mismo tiempo que se crea la fila del owner en `accounts`.
+- **El TUI menú configura el caller_id del owner** durante la primera configuración (RF9, Fase 2). El `X-Caller-Id` del owner se guarda en `~/.config/mcp-appointments-crm/caller-id` cuando el operador ejecuta `mcp-appointments-crm admin tui` y confirma el phone del dueño. La fila del owner en `accounts` se crea en el mismo paso vía TUI menú.
 - **El Chat de Hermes es un sub-comando del binario** (`mcp-appointments-crm hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000`, e inyecta el `X-Caller-Id` en cada tool call.
 - **Override con env var**: el owner puede exportar `MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat` para simular ser un cliente (debug, testing, o simular la perspectiva de un cliente).
 - **Multi-user via override**: el staff puede hacer SSH a la VPS y correr `MCP_CALLER_ID=+5491100002222 mcp-appointments-crm hermes chat` con su propio caller_id.
 
-**Salida del install.sh (extensión de RF9):**
+**Salida del TUI menú operacional (extensión de RF9):**
 
 ```bash
 [mcp-appointments-crm] Setup completado.
@@ -912,7 +912,7 @@ Override con otro caller_id (debug):
 
 - *Hermes local en la laptop del owner* (sin SSH a la VPS): requeriría exponer el MCP al exterior o un SSH tunnel; viola loopback. **Rechazado**.
 - *Single-user mode con caller_id hardcodeado* (sin override): inflexible, no soporta debug/testing. **Rechazado**.
-- *El Chat pregunta el caller_id al iniciar* (sin config): fricción cada vez que abre el Chat. **Rechazado** (la config se hace una vez en `install.sh`).
+- *El Chat pregunta el caller_id al iniciar* (sin config): fricción cada vez que abre el Chat. **Rechazado** (la config se hace una vez en el TUI menú).
 
 ---
 
@@ -1011,16 +1011,16 @@ Override con otro caller_id (debug):
 - **Criterios de Aceptación**:
   - [ ] Dado que hay 50 clientes con al menos una reserva en el último mes, cuando Hermes invoca `get_loyalty_report("last_month")`, entonces el sistema retorna el Top N de clientes ordenados por cantidad de reservas descendente, junto con su `client_id`, `name`, `phone` y `booking_count`.
 
-**RF9: Despliegue automatizado con `install.sh` y seed del owner**
-- **Descripción**: El sistema debe proveer un script `install.sh` ejecutable vía `curl | bash` que instala el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular el script `backup.sh`. **Además, durante el primer install, el script debe capturar el `X-Caller-Id` del dueño** (phone o handle del messenger del admin) y crear el INSERT inicial en `accounts` con `role='owner'`, `is_active=1`, `display_name='Owner'`. El owner se crea con el phone que el admin ingresa (validado por regex); si el owner ya existe (segunda corrida de `install.sh`), se verifica que sigue activo y se omite el INSERT. **Este INSERT es la única manera de crear el primer owner** (single-owner invariant, §3.8.7).
-- **Prioridad**: Must
+**RF9: Despliegue automatizado con `install.sh` y seed del owner vía TUI menú**
+- **Descripción**: El sistema debe proveer un script `install.sh` ejecutable vía `curl | bash` que instala el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular el script `backup.sh`. **Además, el sistema debe proveer un mecanismo para crear el primer owner** (single-owner invariant, §3.8.7). **Este mecanismo es el TUI menú operacional (Fase 2)**, no el script `install.sh`. El TUI captura el `X-Caller-Id` del dueño (phone o handle del messenger del admin) y crea el INSERT inicial en `accounts` con `role='owner'`, `is_active=1`, `display_name='Owner'`. El owner se crea con el phone que el admin ingresa (validado por regex); si el owner ya existe, se verifica que sigue activo y se omite el INSERT.
+- **Prioridad**: Must, Fase 2 (el seed del owner se hace vía TUI menu en Fase 2, no durante install)
 - **Criterios de Aceptación**:
   - [ ] Dado que el script se ejecuta en una VPS Ubuntu limpia (sólo con `curl` y `bash`), cuando termina exitosamente, entonces el servicio `mcp-appointments-crm` está activo (`systemctl is-active` o equivalente) y el log final imprime `http://127.0.0.1:3000/mcp` y el log final muestra la línea sugerida para schedular `backup.sh` en `crontab` (u otro scheduler nativo según OS).
   - [ ] Dado que el script se ejecuta sin los archivos JSON de `setup/`, cuando el sistema valida los prerrequisitos, entonces imprime `Error: ejecute primero install.sh (que captura los datos del negocio) y vuelva a correrlo` y termina con exit code 1 sin instalar el binario ni registrar el servicio.
   - [ ] Dado que el script terminó exitosamente, cuando el operador revisa la salida, entonces encuentra al final un snippet sugerido para `crontab` con la frecuencia por defecto (1 vez al día, 03:00 hora local) que puede agregar manualmente.
   - [ ] Dado que `sqlite3` CLI no está instalado en el sistema, cuando el script `install.sh` termina exitosamente, entonces el log final incluye un bloque "Recommended additional tools" con el comando de instalación específico para el OS detectado, **sin ejecutar la instalación** (ver [ADR-0005](../architecture/0005-optional-external-tools.md)).
-  - [ ] **Nuevo**: Dado que es el primer install (tabla `accounts` vacía), cuando el script pregunta el `X-Caller-Id` del dueño y confirma, entonces se crea un INSERT en `accounts` con `role='owner'`, `is_active=1`, `display_name='Owner'`, y el script imprime `Owner creado: <phone>`. Si el owner ya existe (segunda corrida), se verifica que sigue activo y se omite el INSERT con un mensaje `Owner ya existe: <phone>`.
-  - [ ] **Nuevo**: Dado que el owner fue creado, cuando el admin opera el sistema, el LLM (Hermes) recibe el `X-Caller-Id` del owner desde el contexto del chat y el middleware lo resuelve correctamente a `Caller{Role: "owner"}` con `ErrUnauthenticated = nil`.
+  - [ ] **Nuevo**: Dado que el operador ejecuta `mcp-appointments-crm admin tui` en una VPS con la tabla `accounts` vacía, cuando confirma el phone del dueño, entonces se crea el owner vía `AccountsRepo.Create` con `role='owner'`, `is_active=1`, `display_name` capturado del prompt, y el `X-Caller-Id` se guarda en `~/.config/mcp-appointments-crm/caller-id` para uso del chat local (ADR-0012). Si el owner ya existe (segunda corrida), se verifica que sigue activo y se omite el INSERT con un mensaje `Owner ya existe: <phone>`.
+  - [ ] **Nuevo**: Dado que el owner fue creado vía TUI menú, cuando el admin opera el sistema, el LLM (Hermes) recibe el `X-Caller-Id` del owner desde el contexto del chat y el middleware lo resuelve correctamente a `Caller{Role: "owner"}` con `ErrUnauthenticated = nil`.
 
 > **Nota**: los criterios Gherkin de §5.1 se traducen a `scenarios` en el delta spec
 > (`openspec/changes/<fase>/specs/<domain>/spec.md`) usando el formato
@@ -1139,15 +1139,14 @@ Override con otro caller_id (debug):
 - [ ] El reporte de fidelización retorna el Top N correcto con datos agregados
 - [ ] `go test -v -race ./...` pasa
 
-### Fase 4: install.sh con prompts interactivos y seed del owner (Estimación: S)
+### Fase 4: install.sh con prompts interactivos (Estimación: S)
 
-**Objetivo**: extender `install.sh` con prompts interactivos para configurar `business_profile`, `professionals` iniciales y `services` iniciales, con validación por campo y checkpoint para cancelación. **Además, durante el primer install, capturar el `X-Caller-Id` del dueño y crear el INSERT inicial en `accounts` con `role='owner'`** (single-owner invariant, §3.8.7). Sin binario TUI separado (el TUI es Fase 2+).
+**Objetivo**: extender `install.sh` con prompts interactivos para configurar `business_profile`, `professionals` iniciales y `services` iniciales, con validación por campo y checkpoint para cancelación. Sin binario TUI separado (el TUI es Fase 2+).
 
 **Entregables**:
 - `install.sh` con bloque de prompts (read -p + regex validation)
 - Lógica de checkpoint en `~/.config/mcp-appointments-crm/setup.json.tmp` (escritura tras cada respuesta válida; lectura + oferta de resume en re-run)
 - Finalización atómica: 3 JSONs en `~/.config/mcp-appointments-crm/setup/` (business, staff, services) + borrado de `setup.json.tmp`
-- **Seed del owner**: prompt para el `X-Caller-Id` del dueño (validado por regex de phone/handle). Si la tabla `accounts` está vacía, INSERT con `role='owner'`, `is_active=1`, `display_name='Owner'`. Si el owner ya existe, validar que sigue activo y omitir el INSERT con un mensaje.
 - Cobertura de tests para `install.sh` (bats, shunit2, o equivalente)
 
 **Definition of Done**:
@@ -1155,7 +1154,6 @@ Override con otro caller_id (debug):
 - [ ] Cada campo valida antes de permitir avanzar (regex para email, formato `HH:MM` para horarios, coordenadas geográficas, IANA timezone, etc.)
 - [ ] Si el usuario cancela (`Ctrl+C`) a mitad, el último checkpoint queda en `setup.json.tmp`; re-ejecutar `install.sh` detecta el checkpoint y ofrece [R]esume / [S]tart over / [Q]uit
 - [ ] Al finalizar, los 3 JSON están en `~/.config/mcp-appointments-crm/setup/` con schema válido, y `setup.json.tmp` se borra
-- [ ] **Nuevo**: durante el primer install, el script pregunta el `X-Caller-Id` del dueño y crea el INSERT inicial en `accounts` con `role='owner'`. Tests: fresh install crea owner, segunda corrida detecta y omite, owner desactivado se puede reactivar con `Transfer Ownership` (Fase 2+).
 - [ ] Tests de los 3 escenarios: fresh install, cancel + resume, cancel + start-over pasan
 
 ### Fase 5: install-and-service (Estimación: S)
@@ -1260,6 +1258,6 @@ Override con otro caller_id (debug):
 | 2026-06-24 | 1.0 | Kike | Creación inicial del PRD a partir de `docs/SDD.md` y `docs/common/prd-template.md`. Incluye 9 RF (Must + Should), 11 RNF, 5 fases de roadmap y 7 riesgos identificados. |
 | 2026-06-26 | 1.1 | Kike | ADR-0008: reemplazo de `config-wizard` TUI (Bubble Tea) por prompts interactivos en `install.sh` con checkpoint. RF1 reformulado, Fase 4 simplificada (M→S), eliminadas referencias a TUI/MVU/Bubble Tea del alcance y glosario. |
 | 2026-06-29 | 1.2 | Kike | ADR-0009: nuevo modelo de autorización. Nueva §3.8 "Modelo de Autorización" + nota en §3.7.12 clarificando que `business_profile.messenger_id` es el bot del negocio (no el admin). Tabla `accounts` como whitelist para admin/staff; clients identificados por su presencia en `clients`. Header `X-Caller-Id` inyectado por el cliente MCP (no por el LLM). 3 capas de enforcement: middleware coarse-grained + repos medium-grained + SQL fine-grained con `WHERE professional_id/client_id`. Defensa contra LLM comprometido (no puede falsificar el caller). Implementación ordenada como change SDD `feat-authorization` antes de PR 3 de `feat-db-layer`. |
-| 2026-06-29 | 1.3 | Kike | ADR-0009: refinamiento operacional del modelo de auth. Nuevo rol `owner` (con permisos de `admin` + capacidad exclusiva de crear/eliminar otros admins); single-owner invariant enforced a nivel DB via trigger SQLite + repo check. Soft delete via `Deactivate(ctx, id)` reemplaza hard delete (preserva historia). Audit log MUST via `*slog.Logger` estructurado en `Create`/`Deactivate`/`Update` (operaciones críticas). Nueva §3.8.8 "TUI menú operacional" — sub-comando `mcp-appointments-crm admin tui` (Fase 2+, otro proceso, no invocable por el LLM; defense-in-depth). RF9 actualizado: `install.sh` ahora captura el `X-Caller-Id` del dueño y crea el INSERT inicial en `accounts` con `role='owner'` (single-owner). Fase 2 ampliada para incluir el TUI menú. |
+| 2026-06-29 | 1.3 | Kike | ADR-0009: refinamiento operacional del modelo de auth. Nuevo rol `owner` (con permisos de `admin` + capacidad exclusiva de crear/eliminar otros admins); single-owner invariant enforced a nivel DB via trigger SQLite + repo check. Soft delete via `Deactivate(ctx, id)` reemplaza hard delete (preserva historia). Audit log MUST via `*slog.Logger` estructurado en `Create`/`Deactivate`/`Update` (operaciones críticas). Nueva §3.8.8 "TUI menú operacional" — sub-comando `mcp-appointments-crm admin tui` (Fase 2+, otro proceso, no invocable por el LLM; defense-in-depth). Seed del owner movido a TUI menú (Fase 2). `install.sh` ya no crea la fila del owner; el operador la crea vía `mcp-appointments-crm admin tui` en la primera configuración. Fase 2 ampliada para incluir el TUI menú. |
 | 2026-06-29 | 1.4 | Kike | ADR-0011: owner/admin/staff que también son clientes del negocio (mismo phone, doble rol). El `CallerResolver` ejecuta 2 queries cuando la cuenta existe en `accounts` (popular el `ClientID` desde `clients`). Permite que el dueño se corte el pelo en su propia peluquería sin fricción. Defense-in-depth intacta: el `Role` del `Caller` (no el `ClientID`) determina los permisos. Setup vía TUI menú "Add Yourself as Client" (Fase 2+). Nueva subsección en §3.8.8 documenta el caso. |
-| 2026-06-29 | 1.5 | Kike | ADR-0012: segundo canal de comunicación — el Chat nativo de Hermes (local CLI/IDE), además del bot de WhatsApp/Telegram. El `install.sh` ahora también guarda el `X-Caller-Id` del owner en `~/.config/mcp-appointments-crm/caller-id` o `.env`. El Chat es sub-comando del binario (`mcp-appointments-crm hermes chat`), corre en la VPS, se conecta al MCP server en loopback. Override con `MCP_CALLER_ID` env var (debug, multi-user). Defense-in-depth: admin del OS (SSH) sigue siendo el gatekeeper; el LLM no puede falsificar el caller_id. Nueva subsección §3.8.9 documenta el caso. |
+| 2026-06-29 | 1.5 | Kike | ADR-0012: segundo canal de comunicación — el Chat nativo de Hermes (local CLI/IDE), además del bot de WhatsApp/Telegram. El TUI menú guarda el `X-Caller-Id` del owner en `~/.config/mcp-appointments-crm/caller-id` durante el seed (Fase 2). El Chat es sub-comando del binario (`mcp-appointments-crm hermes chat`), corre en la VPS, se conecta al MCP server en loopback. Override con `MCP_CALLER_ID` env var (debug, multi-user). Defense-in-depth: admin del OS (SSH) sigue siendo el gatekeeper; el LLM no puede falsificar el caller_id. Nueva subsección §3.8.9 documenta el caso. |

@@ -37,8 +37,8 @@ El `CallerResolver` ahora ejecuta **2 queries siempre que la cuenta existe en `a
 
 | Caso | Queries | Caller retornado |
 |---|---|---|
-| Phone solo en `clients` | 1 (clients) | `Role: "client", ClientID: &id` |
-| Phone solo en `accounts` (admin) | 1 (accounts) + 1 (clients vacío) | `Role: "admin", ClientID: nil` |
+| Phone solo en `clients` | 2 (accounts vacío + clients) | `Role: "client", ClientID: &id` |
+| Phone solo en `accounts` (admin) | 2 (accounts + clients vacío) | `Role: "admin", ClientID: nil` |
 | Phone en **ambos** (owner/client) | 2 (accounts + clients) | `Role: "owner", ClientID: &id` |
 | Phone desconocido | 2 (ambas vacías) | `ErrUnauthenticated` |
 | Phone inactivo en `accounts` | 1 (accounts) | `ErrUnauthenticated` (no consulta clients) |
@@ -68,7 +68,7 @@ El `CallerResolver` ahora ejecuta **2 queries siempre que la cuenta existe en `a
 
 ## Implementation order
 
-1. **`feat-authorization` PR 1** (data layer, en curso): ya incluye el `Caller` struct con `ClientID *string`. El spec de `auth-roles` ahora documenta el algoritmo de 2 queries para el caso combinado.
+1. **`feat-authorization` PR 2** (auth primitives): incluye el `Caller` struct con `ClientID *string`. El spec de `auth-roles` ahora documenta el algoritmo de 2 queries para el caso combinado.
 2. **`feat-authorization` PR 2** (auth primitives, en curso): el `CallerResolver` se implementa con la lógica de 2 queries cuando la cuenta existe en `accounts`.
 3. **Fase 2+**: el TUI menú operacional (ADR-0010) tiene una opción "Add Yourself as Client" para que el owner cree su `client` row durante el setup.
 4. **Fase 2+**: si el owner quiere reservar y NO tiene `client` row aún, el bot le dice: "Para reservar como cliente, primero regístrate como cliente del negocio" — o el TUI lo crea automáticamente con un `INSERT OR IGNORE` en el `clients` table.

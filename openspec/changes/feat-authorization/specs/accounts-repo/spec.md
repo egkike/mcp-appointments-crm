@@ -6,7 +6,7 @@
 
 ## Purpose
 
-El sistema debe persistir la whitelist de cuentas con permisos elevados (`admin` y `staff`) en la tabla `accounts` y exponer un repositorio que centralice el CRUD con prepared statements, sentinels de error y cobertura de tests ≥ 80% con `go-sqlmock`. Sin este repo no hay forma de gestionar la whitelist desde un futuro script de admin, TUI o handler MCP.
+El sistema debe persistir la whitelist de cuentas con permisos elevados (`owner`, `admin` y `staff`) en la tabla `accounts` y exponer un repositorio que centralice el CRUD con prepared statements, sentinels de error y cobertura de tests ≥ 80% con `go-sqlmock`. Sin este repo no hay forma de gestionar la whitelist desde un futuro script de admin, TUI o handler MCP.
 
 ## Requirements
 
@@ -40,7 +40,7 @@ type Account struct {
 
 ### Requirement: Constructor del repo recibe `*sql.DB` y `*slog.Logger` ya configurados
 
-`AccountsRepo` MUST ser un struct con `db *sql.DB` y `logger *slog.Logger` privados, y constructor `NewAccountsRepo(db *sql.DB, logger *slog.Logger) *AccountsRepo`. El constructor MUST NO abrir la conexión ni ejecutar migrations (per convención `data-access`). El logger se usa para audit log en `Create` y `Deactivate` (ver Requirement "Logging de auditoría MUST").
+`AccountsRepo` MUST ser un struct con `db *sql.DB` y `logger *slog.Logger` privados, y constructor `NewAccountsRepo(db *sql.DB, logger *slog.Logger) *AccountsRepo`. El constructor MUST NO abrir la conexión ni ejecutar migrations (per convención `data-access`). El logger se usa para audit log en `Create`, `Update` y `Deactivate` (ver Requirement "Logging de auditoría MUST").
 
 #### Scenario: Constructor no abre conexión
 
@@ -322,9 +322,9 @@ La suite MUST alcanzar cobertura de líneas ≥ 80% medida con `go test -cover`.
 
 Las operaciones que mutan la tabla `accounts` MUST emitir un audit log estructurado via `*slog.Logger` (inyectado por el constructor del repo, ver Requirement "Constructor del repo"). El log es **MUST**, no MAY. Operaciones cubiertas:
 
-- `Create(ctx, account)`: emite `slog.Info("account created", "actor_id", <ctx caller>, "target_id", account.ID, "target_role", account.Role, "ts", <ISO 8601 UTC>)`. **Excepción**: si el `Create` es del primer owner (durante `install.sh` o seed inicial), el `actor_id` puede ser `"install"` o `"system"` (no hay caller de ctx).
-- `Deactivate(ctx, id)`: emite `slog.Info("account deactivated", "actor_id", <ctx caller>, "target_id", id, "ts", <ISO 8601 UTC>)`. **No emite** si la cuenta ya estaba desactivada (idempotencia).
-- `Update(ctx, account)`: emite `slog.Info("account updated", "actor_id", <ctx caller>, "target_id", account.ID, "ts", <ISO 8601 UTC>)`.
+- `Create(ctx, account)`: emite `slog.Info("account created", "actor_id", <ctx caller>, "target_id", account.ID, "target_role", account.Role, "ts", <ISO 8601 UTC>)`. **Excepción**: si el `Create` es del primer owner (durante TUI menú o seed inicial), el `actor_id` puede ser `"tui"` o `"system"` (no hay caller de ctx).
+- `Deactivate(ctx, id)`: emite `slog.Info("account deactivated", "actor_id", <ctx caller>, "target_id", id, "target_role", <role of deactivated account>, "ts", <ISO 8601 UTC>)`. **No emite** si la cuenta ya estaba desactivada (idempotencia).
+- `Update(ctx, account)`: emite `slog.Info("account updated", "actor_id", <ctx caller>, "target_id", account.ID, "target_role", account.Role, "ts", <ISO 8601 UTC>)`.
 
 `Get`, `GetByRole`, `List`, `ListByProfessional`, `IsActive`, `Create` que retorna error de UNIQUE conflict — NO emiten audit log (son read-only o errores esperados, no operaciones exitosas que valen auditar).
 
@@ -343,7 +343,7 @@ Si el `actor_id` no se puede obtener del `ctx` (no hay caller), el log se omite 
 - GIVEN un `ctx` con `auth.Caller{ID: "+5491100000000", Role: "admin"}`
 - AND una cuenta activa con `id="+5491100002222"`, `role="staff"`
 - WHEN se llama `Deactivate(ctx, "+5491100002222")` exitosamente
-- THEN el logger MUST emitir un log con `msg="account deactivated"`, `actor_id="+5491100000000"`, `target_id="+5491100002222"`, `ts=<ISO 8601 UTC>`
+- THEN el logger MUST emitir un log con `msg="account deactivated"`, `actor_id="+5491100000000"`, `target_id="+5491100002222"`, `target_role="staff"`, `ts=<ISO 8601 UTC>`
 
 #### Scenario: Deactivate idempotente no emite audit log duplicado
 
@@ -353,7 +353,7 @@ Si el `actor_id` no se puede obtener del `ctx` (no hay caller), el log se omite 
 
 #### Scenario: Create sin caller en ctx omite actor_id
 
-- GIVEN un `ctx` sin `auth.Caller` (e.g., durante `install.sh` o seed)
+- GIVEN un `ctx` sin `auth.Caller` (e.g., durante TUI menú o seed inicial)
 - WHEN se llama `Create(ctx, &Account{...})` exitosamente
 - THEN el logger MUST emitir un log con `msg="account created"`, **sin** `actor_id`, pero con `target_id` y `target_role`
 

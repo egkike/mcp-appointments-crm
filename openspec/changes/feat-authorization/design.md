@@ -6,7 +6,7 @@
 
 ## Overview
 
-`feat-authorization` introduce la capa de autorización del MCP server (Fase 0 del roadmap). Añade la **tabla `accounts`** (whitelist `admin`/`staff`) al esquema existente de 10 tablas de dominio + `schema_version` (per `feat-db-layer` design, trae el total a 11 dominio + meta, + `accounts` = 12 con el nuevo schema), y crea el paquete `internal/auth/` con tres piezas: `Caller` (value type + propagación vía `context.Context`), `CallerResolver` (cadena de 1-2 queries `accounts` → `clients`), y `AuthMiddleware` (wrapper HTTP que lee `X-Caller-Id`, resuelve al caller, inyecta el `Caller` en el ctx y aplica RBAC coarse-grained por tool). Completa el cambio con `internal/repository/accounts.go` (8 métodos CRUD con prepared statements + sentinels) y `internal/model/account.go`. El diseño se entrega en **dos PRs encadenados** (per `tasks.md` Forecast table: PR 1 ~460 LOC, PR 2 ~520 LOC; el split es mandatory bajo el budget 400-LOC), y es el puente entre el **qué** (4 specs) y el **cómo** (las tasks de `sdd-tasks`/`sdd-apply`).
+`feat-authorization` introduce la capa de autorización del MCP server (Fase 0 del roadmap). Añade la **tabla `accounts`** (whitelist `owner`/`admin`/`staff`) al esquema existente de 10 tablas de dominio + `schema_version` (per `feat-db-layer` design, trae el total a 11 dominio + meta, + `accounts` = 12 con el nuevo schema), y crea el paquete `internal/auth/` con tres piezas: `Caller` (value type + propagación vía `context.Context`), `CallerResolver` (cadena de 1-2 queries `accounts` → `clients`), y `AuthMiddleware` (wrapper HTTP que lee `X-Caller-Id`, resuelve al caller, inyecta el `Caller` en el ctx y aplica RBAC coarse-grained por tool). Completa el cambio con `internal/repository/accounts.go` (8 métodos CRUD con prepared statements + sentinels) y `internal/model/account.go`. El diseño se entrega en **dos PRs encadenados** (per `tasks.md` Forecast table: PR 1 ~460 LOC, PR 2 ~520 LOC; el split es mandatory bajo el budget 400-LOC), y es el puente entre el **qué** (4 specs) y el **cómo** (las tasks de `sdd-tasks`/`sdd-apply`).
 
 El wiring del middleware al `*http.ServeMux` del MCP server es **out-of-scope** (Fase 2): este diseño fija el contrato del middleware en aislamiento para que el wiring sea un ejército de 3 líneas cuando llegue el momento. Sin nuevas dependencias externas (stdlib `context`/`net/http`/`database/sql`/`log/slog`), cumpliendo ADR-0005 y AGENTS.md.
 
@@ -33,14 +33,14 @@ flowchart TD
 Reglas de dependencia (no escritas, enforced por code review + `go vet`):
 - `internal/auth` NO importa a `internal/repository` ni a `internal/mcp`. Depende sólo de stdlib y, para el resolver, de `*sql.DB`. El resolver recibe `*sql.DB` (inyectado), no un repo concreto.
 - `internal/auth` importa a `internal/model` para `Account`? **No** — el resolver devuelve `Caller` (struct de `internal/auth`), no `*model.Account`. El modelo `Account` sólo lo toca `AccountsRepo`.
-- `internal/repository/accounts.go` importa `internal/model` (Account) y reutiliza los sentinels de `internal/repository/errors.go`. NO importa `internal/auth` (ortogonal: el repo sólo conoce strings).
+- `internal/repository/accounts.go` importa `internal/model` (Account) y reutiliza los sentinels de `internal/repository/errors.go`. Importa `internal/auth` únicamente para `auth.FromContext(ctx)` (lectura del caller desde ctx para audit log); no usa la API de `auth` para enforcement.
 - `internal/db/database.go` no importa nada nuevo — sólo agrega un string DDL más a `domainTableDDL()`.
 
 ## Package Layout
 
 | File | Action | Package | Responsibility |
 |------|--------|---------|----------------|
-| `internal/auth/caller.go` | Create | `auth` | `Caller` struct, `RoleAdmin/RoleStaff/RoleClient` constants, `WithCaller`/`FromContext` ctx helpers, clave de ctx privada |
+| `internal/auth/caller.go` | Create | `auth` | `Caller` struct, `RoleOwner`/`RoleAdmin`/`RoleStaff`/`RoleClient` constants, `WithCaller`/`FromContext` ctx helpers, clave de ctx privada |
 | `internal/auth/caller_test.go` | Create | `auth` | Table-driven tests de `WithCaller`/`FromContext` + propagación por wraps (`WithCancel`/`WithTimeout`) (spec `auth-identity`) |
 | `internal/auth/resolver.go` | Create | `auth` | `CallerResolver` struct + `Resolve(ctx, id) (Caller, error)`: cadena accounts → clients → `ErrUnauthenticated` (spec `auth-roles`) |
 | `internal/auth/resolver_test.go` | Create | `auth` | go-sqlmock tests de los 5 escenarios del resolver (admin, staff, desactivado, client, desconocido) |
@@ -67,7 +67,7 @@ type Caller struct {
     ID             string
     Role           string   // uno de RoleOwner/RoleAdmin/RoleStaff/RoleClient; validado en el resolver, no en el struct
     ProfessionalID *string  // no-nil solo si Role == RoleStaff
-    ClientID       *string  // no-nil solo si Role == RoleClient
+    ClientID       *string  // no-nil si el caller también existe en `clients` (owner/admin/staff pueden ser clientes per ADR-0011)
 }
 
 const (
@@ -130,7 +130,7 @@ func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
    - No fila → `ErrUnauthenticated` con mensaje "no te reconozco" (2 queries en accounts+clients).
 
 **Resumen de queries por caso:**
-- Caller solo en `clients`: 1 query.
+- Caller solo en `clients`: 2 queries (accounts vacío + clients).
 - Caller solo en `accounts`: 1 query a accounts + 1 query a clients (ClientID=nil).
 - Caller en ambos (admin+client, owner+client): 2 queries.
 - Caller desconocido: 2 queries.
@@ -174,7 +174,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler
 
 **Orden RBAC vs. WithCaller**: el RBAC check (step 4) ocurre **antes** de `WithCaller` (step 6). Esto es intencional — el check de roles no necesita el caller inyectado en el ctx (usa el `caller` retornado por el resolver directamente), y el orden asegura que el handler nunca se ejecute si el RBAC falla. Ver `tasks.md` Task 2.3 para los bodies de error y los tests.
 
-**Audit log**: el spec `auth-middleware` Requirement "Logging de auditoría" lo marca como MAY (opcional). El diseño fija: para `admin` se loguea (es la cuenta más sensible, defense-in-depth forense); para `staff`/`client` no se loguea en esta versión (diferible). El log usa `log/slog` con nivel `Info`, campos `ts` (ISO 8601 UTC), `caller_id`, `tool`. NO se loguea PII más allá del `caller_id` (que ya es el phone/handle — no hay secreto adicional).
+**Audit log**: el spec `auth-middleware` Requirement "Logging de auditoría" (L167) requiere que el middleware MUST emitir un registro de auditoría cuando el caller resuelto es `admin` o `owner`. Esta sección implementa ese MUST. Para `admin` se loguea (es la cuenta más sensible, defense-in-depth forense); para `staff`/`client` no se loguea en esta versión (diferible). El log usa `log/slog` con nivel `Info`, campos `ts` (ISO 8601 UTC), `caller_id`, `tool`. NO se loguea PII más allá del `caller_id` (que ya es el phone/handle — no hay secreto adicional).
 
 **Tool name extraction**: en Fase 0 el middleware acepta un `ToolRBAC` opcional y una función `toolNameFromRequest` (también opcional, default: `r.URL.Path`). Cuando Fase 2 wiree el `*http.ServeMux` con paths tipo `/tools/<name>`, la función default extrae el tool del path. El contrato queda fijo ahora para que el wiring sea trivial.
 
@@ -209,7 +209,7 @@ func (r *AccountsRepo) ListByProfessional(ctx context.Context, professionalID st
 **Dónde vive la validación de `role + professional_id`**: en **tres capas** (defense-in-depth, alineado con PRD §3.8.4):
 
 1. **Schema (SQLite CHECK constraints)** — última línea de defensa. Rejecta `role='manager'`, `role='client'`, y `staff` sin `professional_id`. Un INSERT directo vía SQL tampoco puede saltarse la invariante.
-2. **Repo (Go-level validation previa al INSERT)** — primera línea. `Create`/`Update` validan `role ∈ {admin, staff}` y "si staff → professional_id no-nil y no-vacío" **antes** de emitir el INSERT, retornando `ErrInvalidInput` sin tocar la DB. Razón: testing más rápido (sin round-trip a SQLite) y mensajes Spanish más específicos.
+2. **Repo (Go-level validation previa al INSERT)** — primera línea. `Create`/`Update` validan `role ∈ {owner, admin, staff}` y "si staff → professional_id no-nil y no-vacío" **antes** de emitir el INSERT, retornando `ErrInvalidInput` sin tocar la DB. Razón: testing más rápido (sin round-trip a SQLite) y mensajes Spanish más específicos.
 3. **CALLER (middleware/resolver)** — aplica en el flujo MCP, no en el repo. El resolver lee `role` de la fila ya validada por DB; no hay nada que validar de nuevo, porque el campo viene de `accounts` que sólo puede contener `admin`/`staff`.
 
 La doble validación (schema + repo) es intencional: si un futuro script de mantenimiento hace `INSERT` directo sin pasar por el repo, el schema lo enforcea; si el repo cae en desincronía con el schema (e.g., se agrega `manager` al schema pero no al repo), el repo sigue siendo conservador y rechaza. Trade-off aceptado: el happy path nunca ejecuta 2 veces la misma validación.
@@ -249,12 +249,12 @@ sequenceDiagram
             MW-->>Hermes: 401 + body Spanish
         end
     end
-    Note over MW: 2. ctx = WithCaller(ctx, caller)
-    Note over MW: 3. RBAC check si tool tiene RequiredRoles
+    Note over MW: 2. RBAC check si tool tiene RequiredRoles
     alt caller no permite para este tool
         MW-->>Hermes: 403 + "no tienes permiso para realizar esta acción"
     end
-    Note over MW: 4. Si caller.Role=='admin' → slog.Info audit log
+    Note over MW: 3. Si caller.Role=='admin' o 'owner' → slog.Info audit log
+    Note over MW: 4. ctx = WithCaller(ctx, caller)
     MW->>Handler: next.ServeHTTP(w, r.WithContext(ctx))
     Note over Handler: handler hace auth.FromContext(ctx)<br/>y pasa el caller al repo
 ```
@@ -281,7 +281,7 @@ Restate del PRD §3.8.4 + ADR-0009 con interfaces concretas de este diseño:
 
 **Alternativas rechazadas**: (a) `Caller` en `internal/model` — mezcla estado de flow con entidades de dominio, y rompería la regla "model no importa a nadie" (los repos caller-aware importarían `model` para `Caller`, ya lo hacen para entidades, pero `internal/auth` necesitaría importar `model` también → ciclos sutiles si futuro `auth` necesita tipos de `model`). (b) `Caller` en `internal/repository` — anti-patrón: el middleware (consumidor del caller) depende del paquete "data" → acoplamiento invertido.
 
-**Consecuencias**: los repos que enforcement medium-grained (Fase 2+) importarán `internal/auth` para `FromContext`. Es aceptable: `internal/auth` es un paquete foundational (sólo stdlib + `*sql.DB`), sin dependencias circulares. `internal/repository/accounts.go` **NO** importa `internal/auth` (ortogonal: el repo sólo conoce strings).
+**Consecuencias**: los repos que enforcement medium-grained (Fase 2+) importarán `internal/auth` para `FromContext`. Es aceptable: `internal/auth` es un paquete foundational (sólo stdlib + `*sql.DB`), sin dependencias circulares. `internal/repository/accounts.go` importa `internal/auth` solo para `FromContext(ctx)` (audit log); no usa la API de `auth` para enforcement de roles.
 
 ### Decisión 2: `CallerResolver` sin cache en memoria (Fase 0)
 
@@ -313,15 +313,15 @@ Restate del PRD §3.8.4 + ADR-0009 con interfaces concretas de este diseño:
 
 **Consecuencias**: el happy path hace 1 validación Go (rápida) + 1 INSERT; nunca se duplica el costo porque el happy path pasa ambas. Los tests prueban las dos rutas: go-sqlmock cubre el path Go (ExpectExec nunca llamado cuando ErrInvalidInput); `internal/db/database_test.go` (SQLite in-memory real) cubre el path schema CHECK (INSERT directo con `role='manager'` → SQLITE_CONSTRAINT_CHECK).
 
-### Decisión 5: `AccountsRepo` es caller-agnostic en este change
+### Decisión 5: `AccountsRepo` importa `internal/auth` solo para audit log
 
-**Contexto**: spec `accounts-repo` NO menciona ctx-propagated caller en ningún Requirement. El `Caller` se resuelve en el middleware y se usa en los repos business (`BookingsRepo`, `ClientsRepo`), no en el repo que gestiona la whitelist misma.
+**Contexto**: spec `accounts-repo` requiere audit log con `actor_id` del ctx. El `Caller` se resuelve en el middleware y se propaga vía `context.Context`.
 
-**Decisión**: `AccountsRepo` methods NO llaman `auth.FromContext`. Asumen que el caller ya está autorizado para gestionar la whitelist (en Fase 2, el handler que invoca `AccountsRepo.Create` tras pasar el middleware coarse con `RequiredRoles: ["admin"]`).
+**Decisión**: `AccountsRepo` no usa la API de `auth`; importa el paquete solo para `FromContext` (lectura del caller desde ctx para audit log). No hace enforcement de roles — eso es responsabilidad del middleware RBAC.
 
-**Alternativas rechazadas**: (a) `AccountsRepo` chequea `Caller.Role == RoleAdmin` — viola spec `accounts-repo` (no menciona caller) y complicaría los tests (necesitaría inyectar caller en cada test). (b) Defer a Fase 2 — no es una decisión contraria; es lo mismo: el chequeo de "sólo admin puede escribir `accounts`" es RBAC coarse, responsabilidad del middleware, no del repo.
+**Alternativas rechazadas**: (a) `AccountsRepo` chequea `Caller.Role == RoleAdmin` — viola spec `accounts-repo` (no menciona caller enforcement) y complicaría los tests. (b) No importar `auth` en absoluto — perdería el `actor_id` en el audit log, debilitando la trazabilidad forense.
 
-**Consecuencias**: `AccountsRepo` no importa `internal/auth`. Los tests go-sqlmock son limpios (sin setup de ctx con caller). El contrato está documentado: el handler Fase 2 debe register el `AccountsRepo` en una ruta con `RequiredRoles: ["admin"]` en el `ToolRBAC`.
+**Consecuencias**: `AccountsRepo` importa `internal/auth` únicamente para `auth.FromContext(ctx)`. Los tests go-sqlmock pueden inyectar un caller en el ctx para validar el `actor_id` del audit log. El contrato está documentado: el handler Fase 2 debe register el `AccountsRepo` en una ruta con `RequiredRoles: ["admin"]` en el `ToolRBAC`.
 
 ### Decisión 6: El schema de `accounts` NO hace FK explícita a `professionals`
 
@@ -353,9 +353,9 @@ func domainTableDDL() []string {
 
 **Idempotencia**: `CREATE TABLE IF NOT EXISTS` — el re-ejecutar `initSchema` tras el merge no falla (Decisión 10 de `feat-db-layer`: "initSchema is all-or-nothing en idempotencia, no transaccional"). Si la mitad de un arranque crea las 10 viejas y falla antes de `accounts`, el re-intento completa `accounts` con `IF NOT EXISTS`.
 
-### 4.2 Init order y seed del admin
+### 4.2 Init order y seed del owner
 
-`accounts` arranca **vacía**. El admin se crea vía `install.sh` (Fase 2, Out of Scope de este change). El `initSchema` NO hace `INSERT OR IGNORE INTO accounts` — no hay default admin en el schema, porque el phone del admin es data específica de la instalación del negocio.
+`accounts` arranca **vacía**. El owner se crea vía TUI menú (Fase 2, Out of Scope de este change). El `initSchema` NO hace `INSERT OR IGNORE INTO accounts` — no hay default admin en el schema, porque el phone del admin es data específica de la instalación del negocio.
 
 **`is_active = 1` default**: cubierto por el schema (`DEFAULT 1`). El primer `INSERT` del admin vía `AccountsRepo.Create` con `IsActive: true` funciona sin tocar la columna.
 
@@ -392,7 +392,7 @@ Tabla operativa para `sdd-tasks` y `sdd-apply`. Cada scenario de spec → archiv
 | `auth-roles` | Staff sin `professional_id` rechazado | `internal/db/database_test.go` | SQLite in-memory |
 | `auth-roles` | Admin con/without `professional_id` aceptado | `internal/db/database_test.go` | SQLite in-memory |
 | `auth-roles` | Staff con `professional_id` aceptado | `internal/db/database_test.go` | SQLite in-memory |
-| `auth-roles` | Resolver: admin en accounts (1 query) | `internal/auth/resolver_test.go` | go-sqlmock (1 ExpectQuery accounts, 0 clients) |
+| `auth-roles` | Resolver: admin en accounts (2 queries: accounts + clients vacío) | `internal/auth/resolver_test.go` | go-sqlmock (1 ExpectQuery accounts, 1 ExpectQuery clients vacío) |
 | `auth-roles` | Resolver: staff con professional_id | same | go-sqlmock |
 | `auth-roles` | Resolver: `is_active=0` → ErrUnauthenticated + "cuenta deshabilitada" | same | go-sqlmock |
 | `auth-roles` | Resolver: client en clients (2 queries) | same | go-sqlmock (1 accounts + 1 clients) |
@@ -401,8 +401,8 @@ Tabla operativa para `sdd-tasks` y `sdd-apply`. Cada scenario de spec → archiv
 | `auth-middleware` | Header ausente → 401 + "no se proporcionó X-Caller-Id" | same | `httptest` (no DB) |
 | `auth-middleware` | Header vacío/whitespace → 401 | same | `httptest` |
 | `auth-middleware` | Header case-insensitive | same | `httptest` |
-| `auth-middleware` | Admin encontrado (1 query) | same | `httptest` + go-sqlmock |
-| `auth-middleware` | Staff encontrado (1 query) | same | same |
+| `auth-middleware` | Admin encontrado (2 queries: accounts + clients vacío) | same | `httptest` + go-sqlmock |
+| `auth-middleware` | Staff encontrado (2 queries: accounts + clients vacío) | same | same |
 | `auth-middleware` | Cuenta desactivada → 401 + "cuenta deshabilitada" | same | same |
 | `auth-middleware` | Client encontrado (2 queries) | same | same |
 | `auth-middleware` | Desconocido → 401 + "no te reconozco" | same | same |
@@ -480,7 +480,7 @@ Property: el LLM nunca ve stack trace, el `caller_id` no se loguea en el body (y
 
 | Riesgo | Prob | Mitigación en este diseño |
 |--------|------|---------------------------|
-| **R1** — `AccountsRepo` caller-agnostic puede ser invocado sin chequeo de admin en Fase 2 | Media | Documentado en Decisión 5: el handler Fase 2 **debe** register `AccountsRepo` en ruta con `RequiredRoles: ["admin"]`. Guidance para `sdd-tasks` Fase 2: tarea explícita "Wiring: register AccountsRepo handlers with admin-only RBAC". |
+| **R1** — `AccountsRepo` puede ser invocado sin chequeo de admin en Fase 2 | Media | Documentado en Decisión 5: el handler Fase 2 **debe** register `AccountsRepo` en ruta con `RequiredRoles: ["admin"]`. Guidance para `sdd-tasks` Fase 2: tarea explícita "Wiring: register AccountsRepo handlers with admin-only RBAC". |
 | **R2** — Resolver hace `SELECT` sin `is_active` en la primera query para distinguir inactivo de inexistente | Media | Algoritmo documentado en §3.2: la query 1 lee `is_active`; si la fila existe y `is_active=0`, no se cae al client lookup. Costo: 1 query más en el path "inactivo" (aceptable, el inactivo es el caso patológico, no el hot path). |
 | **R3** — `accounts.professional_id` sin FK explícita a `professionals` | Baja | Decisión 6: replicar verbatim PRD. El invariant se enforce en uso (middleware Fase 2 puede validar `professionals.status`). Reversible con migration ligera. **Consumo por `feat-db-layer` PR 3** (actualizado 2026-06-29): los 4 repos complejos de PR 3 (Professionals, Schedules, Bookings, PendingAlerts) consumen `caller.ProfessionalID` para filtrar queries (medium-grained + fine-grained enforcement). La falta de FK explícita a `professionals.id` no es bloqueante porque los repos validan in-use (e.g., `ProfessionalsRepo.Get(caller.ProfessionalID)` valida que el id existe antes de usarlo en WHERE clauses). **Documentar en cada task de PR 3 que use el campo**: agregar nota explícita "validar que `professional_id` referencie un professional existente antes de usarlo en queries de filtrado". Migración ligera para agregar la FK es factible en el futuro si la invariante se quiere enforce a nivel de DB. |
 | **R4** — Wireamiento Fase 2 puede olvidar el middleware | Media | Contrato de `AuthMiddleware.Wrap` documentado ahora. `sdd-tasks` Fase 2** Guidance: "Wiring wrap is `mw.Wrap(mux)` — no bypassar". |
@@ -500,7 +500,7 @@ Hint del orden para la próxima fase. `sdd-tasks` refina con TDD estricto (test 
 5. **Resolver** — `internal/auth/resolver.go` + `_test.go` go-sqlmock (5 escenarios).
 6. **Middleware** — `internal/auth/middleware.go` + `_test.go` `httptest` + go-sqlmock (16 escenarios). Audit log sub-test con `slog` test handler.
 7. **Doc** — `internal/auth/doc.go` package comment.
-8. **(Future Fase 2)** — Wiring del middleware en el `*http.ServeMux`, handlers MCP caller-aware, `install.sh` seed del admin.
+8. **(Future Fase 2)** — Wiring del middleware en el `*http.ServeMux`, handlers MCP caller-aware, TUI menú seed del owner.
 
 Suma de LOC estimada: schema ~+15 (1 statement), model ~+25, repo ~+180 (8 métodos + validaciones), auth (caller+resolver+middleware+doc) ~+120, tests ~+200 (auth ~+150, repo ~+50 ya contado). Total prod+test excede el review budget 400-LOC (~980 LOC estimados), así que el split en **2 PRs encadenados es obligatorio** (no opcional). `sdd-tasks` materializa el split: PR 1 (data layer: schema + model + repo + integration test, ~460 LOC) → PR 2 (auth primitives: Caller + Resolver + Middleware, ~520 LOC). La spec no cambia; el código se entrega en 2 PRs encadenados con `feature-branch-chain`.
 

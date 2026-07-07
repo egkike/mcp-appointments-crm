@@ -1,6 +1,6 @@
 # Spec: auth-middleware
 
-> Reference: `docs/PRD.md` §3.8.3 (Flujo de identificación del caller), §3.8.5 (defensa contra LLM comprometido), §3.8.6 (mensajes de error al LLM); `docs/architecture/0009-authorization-model.md` Componente 3 (middleware)
+> Reference: `docs/PRD.md` §3.8.3 (Flujo de identificación del caller), §3.8.5 (defensa contra LLM comprometido), §3.8.6 (mensajes de error al LLM), §3.8.8 (audit log); `docs/architecture/0009-authorization-model.md` Componente 3 (middleware)
 > Change: feat-authorization
 > Status: NEW (no prior spec existed)
 
@@ -59,7 +59,7 @@ Una vez leído el `X-Caller-Id`, el middleware MUST resolver el caller siguiendo
 6. Si no hay fila en ninguna tabla, retornar 401 con mensaje "no te reconozco".
 
 **Resumen de queries por caso (1-2 queries):**
-- Caller solo en `clients`: 1 query.
+- Caller solo en `clients`: 2 queries (accounts vacío + clients).
 - Caller solo en `accounts` (admin sin client row): 2 queries (accounts + clients vacío).
 - Caller en ambos (admin+client, owner+client): 2 queries, `ClientID` poblado.
 - Caller desconocido: 2 queries, ambas vacías.
@@ -67,21 +67,22 @@ Una vez leído el `X-Caller-Id`, el middleware MUST resolver el caller siguiendo
 
 Las queries MUST usar placeholders `?` (nunca concatenación). MUST usar el `context.Context` del request (con su timeout / cancelación). MUST emitir a lo sumo 2 queries por request. MUST NO usar cache en memoria en esta versión (la latencia adicional de 1-2 queries es aceptable per ADR-0009; cache diferida a Fase 2+).
 
-#### Scenario: Caller admin encontrado en accounts (1 query)
+#### Scenario: Caller admin encontrado en accounts (2 queries)
 
 - GIVEN una fila en `accounts` con `id = '+5491100000000'`, `role = 'admin'`, `is_active = 1`
 - AND un request con `X-Caller-Id: +5491100000000`
 - WHEN el middleware procesa el request
-- THEN el middleware MUST emitir exactamente 1 query (`SELECT ... FROM accounts WHERE id = ?`)
-- AND MUST emitir 0 queries contra `clients`
+- THEN el middleware MUST emitir exactamente 2 queries (1 a `accounts` + 1 a `clients`)
+- AND `ClientID` se setea solo si la query a `clients` retorna un row (en este scenario: nil porque el row no existe)
 - AND el `Caller` resultante MUST tener `Role = "admin"`, `ProfessionalID == nil`, `ClientID == nil`
 
-#### Scenario: Caller staff encontrado en accounts (1 query)
+#### Scenario: Caller staff encontrado en accounts (2 queries)
 
 - GIVEN una fila en `accounts` con `id = '+5491100002222'`, `role = 'staff'`, `professional_id = 'p-001'`, `is_active = 1`
 - AND un request con `X-Caller-Id: +5491100002222`
 - WHEN el middleware procesa el request
-- THEN el middleware MUST emitir exactamente 1 query contra `accounts`
+- THEN el middleware MUST emitir exactamente 2 queries (1 a `accounts` + 1 a `clients`)
+- AND `ClientID` se setea solo si la query a `clients` retorna un row (en este scenario: nil porque el row no existe)
 - AND el `Caller` resultante MUST tener `Role = "staff"`, `ProfessionalID` apuntando a `"p-001"`, `ClientID == nil`
 
 #### Scenario: Cuenta desactivada retorna 401 con mensaje específico
@@ -163,13 +164,13 @@ El contrato del middleware en aislamiento es: dado un endpoint con `RequiredRole
 
 ### Requirement: Logging de auditoría para acciones privilegiadas
 
-Cuando el caller resuelto es `admin`, el middleware MAY loguear un registro de auditoría con al menos: timestamp ISO 8601 UTC, `caller_id`, y nombre del tool/ruta. Esto es defense-in-depth: si el LLM escala a admin (porque conoce un phone whitelisted), queda el rastro forense.
+Cuando el caller resuelto es `admin` o `owner`, el middleware MUST emitir un registro de auditoría con al menos: timestamp ISO 8601 UTC, `caller_id`, y nombre del tool/ruta. Esto es defense-in-depth: si el LLM escala a admin/owner (porque conoce un phone whitelisted), queda el rastro forense. Para callers `staff` y `client`, NO se emiten privileged audit logs.
 
 Para callers `staff` y `client`, el audit log es opcional y puede diferirse a Fase 2+. MUST NO loguear passwords, tokens, ni PII sensible más allá del `caller_id` (que ya es el phone/handle).
 
-#### Scenario: Admin accede a un tool → se emite audit log
+#### Scenario: Admin u owner accede a un tool → se emite audit log
 
-- GIVEN un caller con `Role = "admin"` que accede a un tool
+- GIVEN un caller con `Role = "admin"` o `Role = "owner"` que accede a un tool
 - WHEN el middleware autoriza el acceso
 - THEN el sistema MUST emitir (asynchronously o sincrónicamente) un log que incluya el `caller_id` y el nombre del tool
 - AND el log MUST tener timestamp ISO 8601 UTC

@@ -6,7 +6,7 @@
 
 ## Purpose
 
-El sistema debe modelar la identidad del `caller` (admin / staff / client) como un value type inmutable y propagarlo a través de las capas de la aplicación usando `context.Context`. Esta capacidad es la primitiva de bajo nivel sobre la que se construyen el middleware (`auth-middleware`) y el enforcement en repositorios; aísla la mecánica de propagación del modelo de roles y del header HTTP.
+El sistema debe modelar la identidad del `caller` (owner / admin / staff / client) como un value type inmutable y propagarlo a través de las capas de la aplicación usando `context.Context`. Esta capacidad es la primitiva de bajo nivel sobre la que se construyen el middleware (`auth-middleware`) y el enforcement en repositorios; aísla la mecánica de propagación del modelo de roles y del header HTTP.
 
 ## Requirements
 
@@ -17,7 +17,7 @@ El paquete `internal/auth` MUST exportar el struct `Caller` con los siguientes c
 - `ID string` — phone o handle del messenger (PK en `accounts` o `clients`).
 - `Role string` — uno de `"owner"`, `"admin"`, `"staff"`, `"client"`. La validación del valor vive en `auth-roles`; este spec NO enforza el conjunto permitido.
 - `ProfessionalID *string` — FK a `professionals.id`; NO-nil solo si `Role == "staff"`.
-- `ClientID *string` — FK a `clients.id`; NO-nil solo si `Role == "client"`.
+- `ClientID *string` — FK a `clients.id`; no-nil si el caller también existe en `clients` (owner/admin/staff pueden ser clientes per ADR-0011).
 
 `Caller` MUST ser comparable por valor (todos los campos tienen tipos comparables) y MUST ser seguro de copiar entre goroutines. La zero value (`Caller{}`) es válida y representa "caller ausente"; la presencia se distingue vía `FromContext`, no por inspección del struct.
 
@@ -117,5 +117,5 @@ El paquete `internal/auth` MUST importar únicamente la stdlib de Go (`context`,
 
 - Esta spec describe SOLO las primitivas de contexto. NO define los valores permitidos de `Role` (eso es `auth-roles`), ni cómo se obtiene el caller del request HTTP (eso es `auth-middleware`).
 - El uso de punteros (`*string`) para `ProfessionalID` y `ClientID` permite distinguir "ausente" de "string vacío" sin sentinels. El cero value de `*string` es `nil` y representa correctamente la ausencia.
-- `WithCaller` y `FromContext` se usan en pares. **En Fase 2+**, los repositorios business (BookingsRepo, ClientsRepo, etc.) deberían llamar `FromContext` al inicio de cada método público y rechazar (`ErrUnauthenticated`) si `ok == false` (ver `auth-middleware` para el caso típico). **AccountsRepo es una excepción en este change**: es caller-agnostic (no llama `FromContext`); el enforcement de admin-only se hace en el middleware Fase 2 (ver `design.md` Decisión 5).
+- `WithCaller` y `FromContext` se usan en pares. **En Fase 2+**, los repositorios business (BookingsRepo, ClientsRepo, etc.) deberían llamar `FromContext` al inicio de cada método público y rechazar (`ErrUnauthenticated`) si `ok == false` (ver `auth-middleware` para el caso típico). **AccountsRepo importa `internal/auth` únicamente para `auth.FromContext(ctx)`** (lectura del caller desde ctx para audit log); no usa la API de `auth` para enforcement. El enforcement de admin-only se hace en el middleware Fase 2 (ver `design.md` Decisión 5).
 - El coverage target para `internal/auth/` es ≥ 80% (per `data-access` meta-spec de `feat-db-layer` y la propuesta `feat-authorization` §Success Criteria).
