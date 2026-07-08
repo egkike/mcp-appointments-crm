@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"regexp"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -219,5 +220,61 @@ func TestAccountsTable_SingleOwnerAfterDeactivationOK(t *testing.T) {
 	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'owner')`)
 	if err != nil {
 		t.Fatalf("second owner after deactivation should succeed, got: %v", err)
+	}
+}
+
+// TestAccountsTable_SingleOwnerReactivateRejected verifies the UPDATE trigger
+// rejects reactivating a deactivated owner when another active owner exists.
+// Covers: activation case (OLD.is_active=0 → NEW.is_active=1) with another active owner.
+func TestAccountsTable_SingleOwnerReactivateRejected(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	// First owner A (active)
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
+	if err != nil {
+		t.Fatalf("first owner: %v", err)
+	}
+	// Second owner B (deactivated)
+	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role, is_active) VALUES ('+5491100001111', 'owner', 0)`)
+	if err != nil {
+		t.Fatalf("inactive owner: %v", err)
+	}
+	// Try to reactivate B while A is still active — must be rejected
+	_, err = db.ExecContext(ctx, `UPDATE accounts SET is_active = 1 WHERE id = '+5491100001111'`)
+	if err == nil {
+		t.Fatal("expected trigger to reject reactivation of owner B while A is active, got nil")
+	}
+	if !strings.Contains(err.Error(), "single-owner invariant") {
+		t.Errorf("expected single-owner trigger error, got: %v", err)
+	}
+}
+
+// TestAccountsTable_SingleOwnerRoleChangeRejected verifies the UPDATE trigger
+// rejects changing an active non-owner row's role to 'owner' when another active
+// owner exists. Covers: role-change case (OLD.role != 'owner' AND NEW.role='owner').
+func TestAccountsTable_SingleOwnerRoleChangeRejected(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	// First owner A (active)
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
+	if err != nil {
+		t.Fatalf("first owner: %v", err)
+	}
+	// Active admin B
+	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'admin')`)
+	if err != nil {
+		t.Fatalf("admin B: %v", err)
+	}
+	// Try to change B's role to owner while A is active — must be rejected
+	_, err = db.ExecContext(ctx, `UPDATE accounts SET role = 'owner' WHERE id = '+5491100001111'`)
+	if err == nil {
+		t.Fatal("expected trigger to reject role change to owner, got nil")
+	}
+	if !strings.Contains(err.Error(), "single-owner invariant") {
+		t.Errorf("expected single-owner trigger error, got: %v", err)
 	}
 }

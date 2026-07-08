@@ -45,6 +45,15 @@ func validateAccount(a *model.Account) error {
 	return nil
 }
 
+// actorFromContext extracts the actor ID from the context's auth.Caller.
+// Returns empty string when no Caller is present (omitted from audit log).
+func actorFromContext(ctx context.Context) string {
+	if caller, ok := auth.FromContext(ctx); ok {
+		return caller.ID
+	}
+	return ""
+}
+
 // auditAttrs builds the common audit log attributes, omitting actor_id when empty.
 func auditAttrs(actorID, targetID, targetRole string) []any {
 	attrs := make([]any, 0, 7)
@@ -59,20 +68,20 @@ func auditAttrs(actorID, targetID, targetRole string) []any {
 
 // Create inserts a new account. Validates before touching the DB.
 // For role "owner", performs a single-owner pre-check (defense-in-depth with the SQLite trigger).
-func (r *AccountsRepo) Create(ctx context.Context, a *model.Account, actorID string) error {
+func (r *AccountsRepo) Create(ctx context.Context, a *model.Account) error {
 	if err := validateAccount(a); err != nil {
 		return err
 	}
 
 	// Single-owner pre-check (defense-in-depth with SQLite trigger)
-	if a.Role == auth.RoleOwner {
+	if a.Role == auth.RoleOwner && a.IsActive {
 		var count int
 		if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1").Scan(&count); err != nil {
 			return fmt.Errorf("verificar owner activo: %w", err)
 		}
 		if count > 0 {
 			// Emit security audit log for the rejection attempt
-			attrs := auditAttrs(actorID, a.ID, a.Role)
+			attrs := auditAttrs(actorFromContext(ctx), a.ID, a.Role)
 			attrs = append(attrs, "result", "rejected")
 			r.logger.Warn("second active owner rejected", attrs...)
 			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", ErrConflict)
@@ -97,10 +106,13 @@ func (r *AccountsRepo) Create(ctx context.Context, a *model.Account, actorID str
 		if isUniqueViolation(err) {
 			return fmt.Errorf("crear cuenta: %w: ya existe una cuenta con id %q", ErrConflict, a.ID)
 		}
+		if isSingleOwnerViolation(err) {
+			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", ErrConflict)
+		}
 		return fmt.Errorf("crear cuenta: %w", err)
 	}
 
-	r.logger.Info("account created", auditAttrs(actorID, a.ID, a.Role)...)
+	r.logger.Info("account created", auditAttrs(actorFromContext(ctx), a.ID, a.Role)...)
 	return nil
 }
 
@@ -165,11 +177,21 @@ func (r *AccountsRepo) List(ctx context.Context) ([]*model.Account, error) {
 	return accounts, nil
 }
 
-// Update modifies an existing account. Returns ErrNotFound if 0 rows affected.
+// Update modifies an existing account. Returns ErrNotFound if the row does not exist.
 // Regenerates updated_at with SQLite strftime.
-func (r *AccountsRepo) Update(ctx context.Context, a *model.Account, actorID string) error {
+func (r *AccountsRepo) Update(ctx context.Context, a *model.Account) error {
 	if err := validateAccount(a); err != nil {
 		return err
+	}
+
+	// Verify the row exists before UPDATE so RowsAffected() == 0 unambiguously means
+	// "not found" (not "no-op update with same values").
+	var exists int
+	if err := r.db.QueryRowContext(ctx, `SELECT 1 FROM accounts WHERE id = ?`, a.ID).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("actualizar cuenta: %w: cuenta con id %q no encontrada", ErrNotFound, a.ID)
+		}
+		return fmt.Errorf("actualizar cuenta: verificar existencia: %w", err)
 	}
 
 	isActive := 0
@@ -187,24 +209,22 @@ func (r *AccountsRepo) Update(ctx context.Context, a *model.Account, actorID str
 		a.Role, a.DisplayName, profID, isActive, a.ID,
 	)
 	if err != nil {
+		if isSingleOwnerViolation(err) {
+			return fmt.Errorf("actualizar cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", ErrConflict)
+		}
 		return fmt.Errorf("actualizar cuenta: %w", err)
 	}
 
-	n, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("actualizar cuenta: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("actualizar cuenta: %w: cuenta con id %q no encontrada", ErrNotFound, a.ID)
-	}
+	// RowsAffected == 0 after a confirmed-existing row means no-op update (same values). Not an error.
+	_ = result
 
-	r.logger.Info("account updated", auditAttrs(actorID, a.ID, a.Role)...)
+	r.logger.Info("account updated", auditAttrs(actorFromContext(ctx), a.ID, a.Role)...)
 	return nil
 }
 
 // Deactivate soft-deletes an account by setting is_active=0. Idempotent: second call is no-op.
 // Returns ErrNotFound if the account does not exist. Returns nil if already deactivated.
-func (r *AccountsRepo) Deactivate(ctx context.Context, id string, actorID string) error {
+func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("desactivar cuenta: %w: el id no puede estar vacío", ErrInvalidInput)
 	}
@@ -234,7 +254,7 @@ func (r *AccountsRepo) Deactivate(ctx context.Context, id string, actorID string
 		return fmt.Errorf("desactivar cuenta: %w", err)
 	}
 
-	r.logger.Info("account deactivated", auditAttrs(actorID, id, role)...)
+	r.logger.Info("account deactivated", auditAttrs(actorFromContext(ctx), id, role)...)
 	return nil
 }
 
@@ -245,7 +265,7 @@ func (r *AccountsRepo) IsActive(ctx context.Context, id string) (bool, error) {
 		`SELECT is_active FROM accounts WHERE id = ?`, id,
 	).Scan(&isActive)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
 		return false, fmt.Errorf("verificar estado activo: %w", err)
@@ -290,7 +310,7 @@ func scanAccount(row *sql.Row) (*model.Account, error) {
 
 	err := row.Scan(&a.ID, &a.Role, &a.DisplayName, &profID, &isActive, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("cuenta no encontrada: %w", ErrNotFound)
 		}
 		return nil, fmt.Errorf("leer cuenta: %w", err)
@@ -323,4 +343,12 @@ func isUniqueViolation(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "UNIQUE constraint failed")
+}
+
+// isSingleOwnerViolation checks if the error is the SQLite single-owner trigger.
+func isSingleOwnerViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "single-owner invariant")
 }
