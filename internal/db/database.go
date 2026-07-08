@@ -1,9 +1,10 @@
 // Package db manages the SQLite database connection and schema lifecycle.
 //
-// The schema consists of 10 domain tables (per docs/PRD.md §3.7), 2 FTS5
-// virtual tables, 6 FTS sync triggers, 4 secondary indexes, and a
-// schema_version metadata table. All DDL is executed by initSchema, which
-// is idempotent (safe to call multiple times).
+// The schema consists of 9 domain tables (per docs/PRD.md §3.7) plus the
+// `accounts` authorization whitelist table (per PRD §3.8.2 and
+// ADR-0009), 2 FTS5 virtual tables, 6 FTS sync triggers, 4 secondary
+// indexes, and a schema_version metadata table. All DDL is executed by
+// initSchema, which is idempotent (safe to call multiple times).
 package db
 
 import (
@@ -189,7 +190,49 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 			created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 		)`,
 
-		// ── 9. schema_version ────────────────────────────────────────
+		// ── 9. accounts (feat-authorization) ─────────────────────────
+		// Authorization whitelist for owner/admin/staff per PRD §3.8.2 and
+		// ADR-0009. Clients are identified by their presence in the `clients`
+		// table, NOT by being in `accounts`. `accounts.role` is constrained
+		// to owner/admin/staff (clients are explicitly rejected at the DB
+		// layer). Staff requires a non-null professional_id.
+		`CREATE TABLE IF NOT EXISTS accounts (
+			id              TEXT PRIMARY KEY,
+			role            TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
+			display_name    TEXT,
+			professional_id TEXT,
+			is_active       INTEGER NOT NULL DEFAULT 1,
+			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
+		)`,
+
+		// Single-owner invariant: INSERT trigger rejects a second active owner.
+		`CREATE TRIGGER IF NOT EXISTS accounts_single_owner_insert
+			BEFORE INSERT ON accounts
+			WHEN NEW.role = 'owner' AND NEW.is_active = 1
+			 AND (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
+		BEGIN
+			SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed');
+		END`,
+
+		// Single-owner invariant: UPDATE trigger covers BOTH activation
+		// (OLD.is_active=0 → NEW.is_active=1) and role-change-into-owner
+		// (OLD.role != 'owner' → NEW.role='owner') cases. id != NEW.id
+		// prevents self-rejection when updating an existing owner without
+		// changing the role/is_active (defense-in-depth with the repo
+		// pre-check in AccountsRepo.Create and .Update).
+		`CREATE TRIGGER IF NOT EXISTS accounts_single_owner_update
+			BEFORE UPDATE ON accounts
+			WHEN NEW.role = 'owner' AND NEW.is_active = 1
+			 AND (OLD.role != 'owner' OR OLD.is_active = 0)
+			 AND (SELECT COUNT(*) FROM accounts
+			      WHERE role = 'owner' AND is_active = 1 AND id != NEW.id) >= 1
+		BEGIN
+			SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed');
+		END`,
+
+		// ── 10. schema_version ───────────────────────────────────────
 		`CREATE TABLE IF NOT EXISTS schema_version (
 			version      INTEGER PRIMARY KEY,
 			applied_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -267,7 +310,7 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 
 		// ── Seed schema_version v1 (idempotent) ──────────────────────
 		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
-			(1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')`,
+			(1, 'initial schema: 9 domain tables per PRD §3.7 + accounts (auth, PRD §3.8.2) + schema_version + 6 FTS sync triggers + 4 secondary indexes')`,
 	}
 
 	for _, stmt := range stmts {
