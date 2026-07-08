@@ -79,7 +79,7 @@ func (db *DB) initSchema(ctx context.Context) error {
 		phone TEXT UNIQUE NOT NULL,
 		email TEXT,
 		messenger_platform TEXT, -- 'whatsapp', 'telegram', etc.
-		messenger_id TEXT,       // ID único de la plataforma de mensajería
+		messenger_id TEXT,       -- ID único de la plataforma de mensajería
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -114,8 +114,35 @@ func (db *DB) initSchema(ctx context.Context) error {
 	CREATE VIRTUAL TABLE IF NOT EXISTS services_fts USING fts5(
 		name,
 		content='services',
-		rowid='id'
+		content_rowid='id'
 	);
+
+	-- Authorization: accounts whitelist (owner/admin/staff) per PRD §3.8.2
+	CREATE TABLE IF NOT EXISTS accounts (
+		id              TEXT PRIMARY KEY,
+		role            TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
+		display_name    TEXT,
+		professional_id TEXT,
+		is_active       INTEGER NOT NULL DEFAULT 1,
+		created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+		CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
+	);
+
+	-- Single-owner invariant: reject INSERT of second active owner
+	CREATE TRIGGER IF NOT EXISTS accounts_single_owner_insert BEFORE INSERT ON accounts
+	WHEN NEW.role = 'owner' AND NEW.is_active = 1
+	 AND (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
+	BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END;
+
+	-- Single-owner invariant: reject UPDATE that would create second active owner
+	-- Covers: (a) activating an inactive owner, (b) changing role to owner on active row.
+	-- id != NEW.id prevents self-rejection when updating an existing owner without changing status.
+	CREATE TRIGGER IF NOT EXISTS accounts_single_owner_update BEFORE UPDATE ON accounts
+	WHEN NEW.role = 'owner' AND NEW.is_active = 1
+	 AND (OLD.role != 'owner' OR OLD.is_active = 0)
+	 AND (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1 AND id != NEW.id) >= 1
+	BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END;
 	`
 
 	if _, err := db.Conn.ExecContext(ctx, schema); err != nil {
