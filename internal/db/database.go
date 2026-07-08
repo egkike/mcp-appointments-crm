@@ -1,9 +1,9 @@
 // Package db manages the SQLite database connection and schema lifecycle.
 //
-// The schema consists of 9 domain tables (per docs/PRD.md §3.7) plus the
-// `accounts` authorization whitelist table (per PRD §3.8.2 and
-// ADR-0009), 2 FTS5 virtual tables, 6 FTS sync triggers, 4 secondary
-// indexes, and a schema_version metadata table. All DDL is executed by
+// The schema consists of 8 domain tables (per docs/PRD.md §3.7) plus the
+// `accounts` authorization whitelist (PRD §3.8.2 / ADR-0009), 2 FTS5
+// virtual tables, 6 FTS sync triggers, 2 secondary indexes, 2 single-owner
+// triggers, and a schema_version metadata table. All DDL is executed by
 // initSchema, which is idempotent (safe to call multiple times).
 package db
 
@@ -11,31 +11,84 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
+
+// busyTimeoutMillis is the SQLite busy_timeout value in milliseconds.
+// It is embedded in the DSN so every connection in the pool inherits it,
+// fixing the per-connection pragma leakage that occurred when pragmas were
+// set via ExecContext on a pooled *sql.DB.
+const busyTimeoutMillis = 5000
 
 // DB wraps a *sql.DB connection to the SQLite database.
 type DB struct {
 	Conn *sql.DB
 }
 
-// NewDatabase opens the SQLite database at dbPath, configures production
-// pragmas (WAL, foreign_keys, busy_timeout), and runs initSchema.
+// buildDSN appends modernc.org/sqlite _pragma query parameters to dbPath so
+// that per-connection pragmas (foreign_keys, busy_timeout, journal_mode,
+// synchronous) are applied to every connection in the pool.
+// For non-URL paths like ":memory:", it falls back to direct concatenation.
+// The path component is parsed by net/url, so paths containing "?" or "#"
+// may be misinterpreted as URI components — callers should avoid such
+// characters in dbPath. For typical Linux/macOS XDG paths, this is safe.
+func buildDSN(dbPath string) string {
+	u, err := url.Parse(dbPath)
+	if err != nil {
+		// Fallback for paths that aren't valid URLs (e.g., ":memory:").
+		// Safe because ":memory:" contains no URL-special characters.
+		return dbPath + "?" + pragmaQuery()
+	}
+	q := u.Query()
+	for _, p := range pragmaParams() {
+		q.Add("_pragma", p)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// pragmaParams returns the 4 production pragma values applied to every connection.
+func pragmaParams() []string {
+	return []string{
+		"foreign_keys(1)",
+		fmt.Sprintf("busy_timeout(%d)", busyTimeoutMillis),
+		"journal_mode(WAL)",
+		"synchronous(NORMAL)",
+	}
+}
+
+// pragmaQuery returns the pragma parameters as a URL query string (without leading '?').
+func pragmaQuery() string {
+	params := pragmaParams()
+	parts := make([]string, len(params))
+	for i, p := range params {
+		parts[i] = "_pragma=" + p
+	}
+	return strings.Join(parts, "&")
+}
+
+// NewDatabase opens the SQLite database at dbPath, verifies production
+// pragmas (WAL), and runs initSchema. Per-connection pragmas (foreign_keys,
+// busy_timeout) are set via the DSN (see buildDSN) so they apply to every
+// connection in the pool.
 func NewDatabase(ctx context.Context, dbPath string) (*DB, error) {
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
 	}
 
-	conn, err := sql.Open("sqlite", dbPath)
+	dsn := buildDSN(dbPath)
+	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	if err := configurePragmas(ctx, conn); err != nil {
+	if err := verifyPragmas(ctx, conn); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -56,268 +109,115 @@ func (db *DB) Close() error {
 	return nil
 }
 
-// configurePragmas sets the production pragmas on the connection.
-func configurePragmas(ctx context.Context, conn *sql.DB) error {
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON;",
-		"PRAGMA journal_mode = WAL;",
-		"PRAGMA synchronous = NORMAL;",
-		"PRAGMA busy_timeout = 5000;",
+// verifyPragmas asserts that critical SQLite pragmas are active on the
+// connection: WAL journal mode, synchronous NORMAL, foreign_keys enabled,
+// and busy_timeout set.
+func verifyPragmas(ctx context.Context, conn *sql.DB) error {
+	var mode string
+	if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+		return fmt.Errorf("query journal_mode: %w", err)
 	}
-	for _, p := range pragmas {
-		if _, err := conn.ExecContext(ctx, p); err != nil {
-			return fmt.Errorf("apply pragma %q: %w", p, err)
-		}
+	if mode != "wal" {
+		return fmt.Errorf("expected WAL journal mode, got %q", mode)
 	}
+
+	// synchronous: 0=OFF, 1=NORMAL, 2=FULL, 3=EXTRA.
+	// PRD §3.1 requires NORMAL for performance with acceptable durability.
+	var sync int
+	if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&sync); err != nil {
+		return fmt.Errorf("query synchronous: %w", err)
+	}
+	if sync != 1 {
+		return fmt.Errorf("expected synchronous=NORMAL (1), got %d", sync)
+	}
+
+	var fk int
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+		return fmt.Errorf("query foreign_keys: %w", err)
+	}
+	if fk != 1 {
+		return fmt.Errorf("expected foreign_keys=1, got %d", fk)
+	}
+
+	var timeout int
+	if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+		return fmt.Errorf("query busy_timeout: %w", err)
+	}
+	if timeout != busyTimeoutMillis {
+		return fmt.Errorf("expected busy_timeout=%d, got %d", busyTimeoutMillis, timeout)
+	}
+
 	return nil
 }
 
+// firstLine returns the first line of s, trimmed of leading/trailing whitespace.
+// Used in error messages to identify which DDL statement failed.
+func firstLine(s string) string {
+	for i, c := range s {
+		if c == '\n' {
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
 // initSchema creates all tables, FTS virtual tables, triggers, and indexes.
+//
+// Legacy schema migration: if the legacy "appointments" table is found in
+// sqlite_master, the database contains a pre-release schema with incompatible
+// column types. All legacy tables (business_profile, clients, services,
+// appointments, clients_fts, services_fts) are dropped before the new DDL
+// runs. This is safe because no production data existed before the new schema,
+// and the schema-version spec explicitly permits destructive replace when
+// legacy tables are detected.
+//
 // It is idempotent: calling it N times produces the same state as calling it
 // once. All DDL uses IF NOT EXISTS for safety on partial-failure retries.
-//
 // Schema version tracking: after all DDL succeeds, a row with version=1 is
 // inserted into schema_version (INSERT OR IGNORE for idempotency).
 func initSchema(ctx context.Context, db *sql.DB) error {
-	stmts := []string{
-		// ── 1. business_profile (singleton) ──────────────────────────
-		`CREATE TABLE IF NOT EXISTS business_profile (
-			id                          TEXT PRIMARY KEY DEFAULT 'singleton',
-			name                        TEXT NOT NULL DEFAULT '',
-			industry                    TEXT,
-			country                     TEXT,
-			address                     TEXT,
-			latitude                    REAL,
-			longitude                   REAL,
-			cover_photo_url             TEXT,
-			public_phone                TEXT,
-			messenger_platform          TEXT,
-			messenger_id                TEXT,
-			contact_email               TEXT,
-			website_url                 TEXT,
-			general_description         TEXT,
-			currency_code               TEXT NOT NULL DEFAULT 'ARS',
-			currency_symbol             TEXT NOT NULL DEFAULT '$',
-			accepted_payment_methods    TEXT,
-			timezone                    TEXT NOT NULL DEFAULT 'UTC',
-			slot_interval_minutes       INTEGER NOT NULL DEFAULT 30,
-			business_hours              TEXT NOT NULL DEFAULT '{}',
-			created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			CHECK (id = 'singleton')
-		)`,
-
-		// ── 2. business_hours_exception ──────────────────────────────
-		`CREATE TABLE IF NOT EXISTS business_hours_exception (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
-			exception_date  TEXT NOT NULL UNIQUE,
-			is_closed       BOOLEAN NOT NULL DEFAULT 1,
-			open_time       TEXT,
-			close_time      TEXT,
-			reason          TEXT,
-			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-		)`,
-
-		// ── 3. professionals ─────────────────────────────────────────
-		`CREATE TABLE IF NOT EXISTS professionals (
-			id              TEXT PRIMARY KEY,
-			name            TEXT NOT NULL,
-			role_specialty  TEXT,
-			status          TEXT NOT NULL DEFAULT 'active',
-			email           TEXT,
-			phone           TEXT,
-			specialties     TEXT,
-			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-		)`,
-
-		// ── 4. schedules ─────────────────────────────────────────────
-		`CREATE TABLE IF NOT EXISTS schedules (
-			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-			professional_id     TEXT NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
-			day_of_week         INTEGER NOT NULL,
-			start_time          TEXT NOT NULL,
-			end_time            TEXT NOT NULL,
-			UNIQUE(professional_id, day_of_week)
-		)`,
-
-		// ── 5. services ──────────────────────────────────────────────
-		`CREATE TABLE IF NOT EXISTS services (
-			id               TEXT PRIMARY KEY,
-			name             TEXT NOT NULL,
-			description      TEXT,
-			duration_minutes INTEGER NOT NULL,
-			price            REAL NOT NULL,
-			is_active        BOOLEAN NOT NULL DEFAULT 1,
-			created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-		)`,
-
-		// ── 6. clients ───────────────────────────────────────────────
-		`CREATE TABLE IF NOT EXISTS clients (
-			id           TEXT PRIMARY KEY,
-			name         TEXT NOT NULL,
-			phone        TEXT NOT NULL UNIQUE,
-			email        TEXT,
-			preferences  TEXT,
-			created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-		)`,
-
-		// ── 7. bookings ──────────────────────────────────────────────
-		`CREATE TABLE IF NOT EXISTS bookings (
-			id               TEXT PRIMARY KEY,
-			client_id        TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
-			professional_id  TEXT NOT NULL REFERENCES professionals(id) ON DELETE RESTRICT,
-			service_id       TEXT NOT NULL REFERENCES services(id) ON DELETE RESTRICT,
-			start_datetime   TEXT NOT NULL,
-			end_datetime     TEXT NOT NULL,
-			status           TEXT NOT NULL DEFAULT 'pending',
-			notes            TEXT,
-			payment_method   TEXT,
-			created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-		)`,
-
-		// ── 8. pending_alerts ────────────────────────────────────────
-		`CREATE TABLE IF NOT EXISTS pending_alerts (
-			id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-			type                TEXT NOT NULL,
-			message             TEXT NOT NULL,
-			scheduled_datetime  TEXT NOT NULL,
-			status              TEXT NOT NULL DEFAULT 'pending',
-			related_booking_id  TEXT REFERENCES bookings(id),
-			created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-		)`,
-
-		// ── 9. accounts (feat-authorization) ─────────────────────────
-		// Authorization whitelist for owner/admin/staff per PRD §3.8.2 and
-		// ADR-0009. Clients are identified by their presence in the `clients`
-		// table, NOT by being in `accounts`. `accounts.role` is constrained
-		// to owner/admin/staff (clients are explicitly rejected at the DB
-		// layer). Staff requires a non-null professional_id.
-		`CREATE TABLE IF NOT EXISTS accounts (
-			id              TEXT PRIMARY KEY,
-			role            TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
-			display_name    TEXT,
-			professional_id TEXT,
-			is_active       INTEGER NOT NULL DEFAULT 1,
-			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
-		)`,
-
-		// Single-owner invariant: INSERT trigger rejects a second active owner.
-		`CREATE TRIGGER IF NOT EXISTS accounts_single_owner_insert
-			BEFORE INSERT ON accounts
-			WHEN NEW.role = 'owner' AND NEW.is_active = 1
-			 AND (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
-		BEGIN
-			SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed');
-		END`,
-
-		// Single-owner invariant: UPDATE trigger covers BOTH activation
-		// (OLD.is_active=0 → NEW.is_active=1) and role-change-into-owner
-		// (OLD.role != 'owner' → NEW.role='owner') cases. id != NEW.id
-		// prevents self-rejection when updating an existing owner without
-		// changing the role/is_active (defense-in-depth with the repo
-		// pre-check in AccountsRepo.Create and .Update).
-		`CREATE TRIGGER IF NOT EXISTS accounts_single_owner_update
-			BEFORE UPDATE ON accounts
-			WHEN NEW.role = 'owner' AND NEW.is_active = 1
-			 AND (OLD.role != 'owner' OR OLD.is_active = 0)
-			 AND (SELECT COUNT(*) FROM accounts
-			      WHERE role = 'owner' AND is_active = 1 AND id != NEW.id) >= 1
-		BEGIN
-			SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed');
-		END`,
-
-		// ── 10. schema_version ───────────────────────────────────────
-		`CREATE TABLE IF NOT EXISTS schema_version (
-			version      INTEGER PRIMARY KEY,
-			applied_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-			description  TEXT
-		)`,
-
-		// ── FTS5 virtual tables ──────────────────────────────────────
-		`CREATE VIRTUAL TABLE IF NOT EXISTS clients_fts USING fts5(
-			name,
-			preferences,
-			content='clients',
-			content_rowid='rowid'
-		)`,
-
-		`CREATE VIRTUAL TABLE IF NOT EXISTS services_fts USING fts5(
-			name,
-			description,
-			content='services',
-			content_rowid='rowid'
-		)`,
-
-		// ── 6 FTS sync triggers ──────────────────────────────────────
-		// clients_fts: AFTER INSERT
-		`CREATE TRIGGER IF NOT EXISTS clients_fts_ai AFTER INSERT ON clients BEGIN
-			INSERT INTO clients_fts(rowid, name, preferences)
-			VALUES (new.rowid, new.name, new.preferences);
-		END`,
-
-		// clients_fts: AFTER DELETE
-		`CREATE TRIGGER IF NOT EXISTS clients_fts_ad AFTER DELETE ON clients BEGIN
-			INSERT INTO clients_fts(clients_fts, rowid, name, preferences)
-			VALUES ('delete', old.rowid, old.name, old.preferences);
-		END`,
-
-		// clients_fts: AFTER UPDATE
-		`CREATE TRIGGER IF NOT EXISTS clients_fts_au AFTER UPDATE ON clients BEGIN
-			INSERT INTO clients_fts(clients_fts, rowid, name, preferences)
-			VALUES ('delete', old.rowid, old.name, old.preferences);
-			INSERT INTO clients_fts(rowid, name, preferences)
-			VALUES (new.rowid, new.name, new.preferences);
-		END`,
-
-		// services_fts: AFTER INSERT
-		`CREATE TRIGGER IF NOT EXISTS services_fts_ai AFTER INSERT ON services BEGIN
-			INSERT INTO services_fts(rowid, name, description)
-			VALUES (new.rowid, new.name, new.description);
-		END`,
-
-		// services_fts: AFTER DELETE
-		`CREATE TRIGGER IF NOT EXISTS services_fts_ad AFTER DELETE ON services BEGIN
-			INSERT INTO services_fts(services_fts, rowid, name, description)
-			VALUES ('delete', old.rowid, old.name, old.description);
-		END`,
-
-		// services_fts: AFTER UPDATE
-		`CREATE TRIGGER IF NOT EXISTS services_fts_au AFTER UPDATE ON services BEGIN
-			INSERT INTO services_fts(services_fts, rowid, name, description)
-			VALUES ('delete', old.rowid, old.name, old.description);
-			INSERT INTO services_fts(rowid, name, description)
-			VALUES (new.rowid, new.name, new.description);
-		END`,
-
-		// ── 4 secondary indexes ──────────────────────────────────────
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_hours_exception_date
-			ON business_hours_exception(exception_date)`,
-
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_schedules_professional_day
-			ON schedules(professional_id, day_of_week)`,
-
-		`CREATE INDEX IF NOT EXISTS idx_bookings_overlap
-			ON bookings(professional_id, start_datetime, end_datetime)`,
-
-		`CREATE INDEX IF NOT EXISTS idx_pending_alerts_scheduled_status
-			ON pending_alerts(scheduled_datetime, status)`,
-
-		// ── Seed schema_version v1 (idempotent) ──────────────────────
-		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
-			(1, 'initial schema: 9 domain tables per PRD §3.7 + accounts (auth, PRD §3.8.2) + schema_version + 6 FTS sync triggers + 4 secondary indexes')`,
+	// If the legacy "appointments" table exists, this is a pre-release DB
+	// with an incompatible schema. Drop all legacy tables (including FTS
+	// virtual tables) so the new DDL can create tables with the correct
+	// column types. The "appointments" table is used as a marker because it
+	// exists ONLY in the legacy schema — it is never created by the new DDL.
+	// This check is safe under concurrency: on a fresh DB, "appointments"
+	// does not exist so no drops run; on a legacy DB, all goroutines drop
+	// the same tables with IF EXISTS (idempotent).
+	var hasLegacy int
+	err := db.QueryRowContext(ctx,
+		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='appointments'",
+	).Scan(&hasLegacy)
+	if err != nil {
+		return fmt.Errorf("initSchema: check legacy tables: %w", err)
 	}
-
-	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("exec schema statement: %w", err)
+	if hasLegacy > 0 {
+		// Drop base tables first (auto-drops associated triggers),
+		// then FTS virtual tables.
+		legacyTables := []string{
+			"business_profile", "clients", "services", "appointments",
+			"clients_fts", "services_fts",
+		}
+		for _, table := range legacyTables {
+			stmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", table)
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("initSchema: drop legacy table %s: %w", table, err)
+			}
 		}
 	}
 
+	ddl := make([]string, 0, 100)
+	ddl = append(ddl, domainTableDDL()...)
+	ddl = append(ddl, ftsTableDDL()...)
+	ddl = append(ddl, ftsTriggerDDL()...)
+	ddl = append(ddl, secondaryIndexDDL()...)
+	ddl = append(ddl, accountTriggerDDL()...)
+	ddl = append(ddl, seedDDL()...)
+
+	for _, stmt := range ddl {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("initSchema: failed to execute %q: %w", firstLine(stmt), err)
+		}
+	}
 	return nil
 }

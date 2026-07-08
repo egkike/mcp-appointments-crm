@@ -190,7 +190,7 @@ type CreateBookingResult struct {
   - `schema-version` "Multiple InitSchema Calls", "Schema Initialization Idempotency", "Version Tracking Reserved for Future Migrations"
 - **Implementation**:
   - CREATE TABLE `schema_version` per `schema-version` spec (y ver ADR-0006 Decisión 8)
-  - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
+  - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
 - **Acceptance**:
   - After `initSchema`, exactly 1 row exists in `schema_version` with `version=1`
   - Re-running `initSchema` is a no-op (idempotent)
@@ -269,6 +269,8 @@ type CreateBookingResult struct {
 
 ### Task 2.1 — Implement `BusinessProfileRepo` with lazy-init
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/business_profile.go` (NEW, ~50 LOC)
   - `internal/repository/business_profile_test.go` (NEW, ~80 LOC)
@@ -293,6 +295,8 @@ type CreateBookingResult struct {
 
 ### Task 2.2 — Implement `ServicesRepo`
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/services.go` (NEW, ~50 LOC)
   - `internal/repository/services_test.go` (NEW, ~80 LOC)
@@ -306,6 +310,8 @@ type CreateBookingResult struct {
   - All scenarios pass; coverage ≥ 80%
 
 ### Task 2.3 — Implement `ClientsRepo`
+
+- [x] Completed
 
 - **Files**:
   - `internal/repository/clients.go` (NEW, ~60 LOC)
@@ -321,6 +327,8 @@ type CreateBookingResult struct {
   - All scenarios pass; coverage ≥ 80%
 
 ### Task 2.4 — Implement `BusinessHoursExceptionRepo`
+
+- [x] Completed
 
 - **Files**:
   - `internal/repository/business_hours_exception.go` (NEW, ~40 LOC)

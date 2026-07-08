@@ -131,7 +131,7 @@ func TestSchemaVersion_RowInserted(t *testing.T) {
 	if version != 1 {
 		t.Errorf("version = %d; want 1", version)
 	}
-	wantDesc := "initial schema: 9 domain tables per PRD §3.7 + accounts (auth, PRD §3.8.2) + schema_version + 6 FTS sync triggers + 4 secondary indexes"
+	wantDesc := "initial schema: 8 domain tables per PRD §3.7 + accounts (auth, PRD §3.8.2) + schema_version + 6 FTS sync triggers + 2 secondary indexes + 2 single-owner triggers"
 	if description != wantDesc {
 		t.Errorf("description = %q; want %q", description, wantDesc)
 	}
@@ -325,10 +325,13 @@ func TestSecondaryIndexes_Exist(t *testing.T) {
 		table string
 		index string
 	}{
-		{"business_hours_exception", "idx_business_hours_exception_date"},
-		{"schedules", "idx_schedules_professional_day"},
 		{"bookings", "idx_bookings_overlap"},
 		{"pending_alerts", "idx_pending_alerts_scheduled_status"},
+		// Note: idx_business_hours_exception_date and idx_schedules_professional_day
+		// were removed in favor of UNIQUE constraints in the DDL
+		// (business_hours_exception.UNIQUE(exception_date) and
+		// schedules.UNIQUE(professional_id, day_of_week)) which create
+		// implicit indexes. SQLite enforces them as automatic indexes.
 	}
 
 	for _, ei := range expectedIndexes {
