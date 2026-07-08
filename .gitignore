@@ -23,3 +23,8 @@ coverage.html
 *.swo
 *~
 *.bak
+# Local skill-registry state
+.atl/
+
+# Local codegraph knowledge graph (regenerate with `codegraph init`)
+.codegraph/

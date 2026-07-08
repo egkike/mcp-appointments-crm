@@ -485,7 +485,7 @@ Per [ADR-0004](../architecture/0004-naming-conventions.md):
 - Tabla de reservas: `bookings` (no `appointments`)
 - Campo de duración: `duration_minutes` (no `duration_mins`)
 - Fechas de inicio/fin: `start_datetime` / `end_datetime` (no `start_time` / `end_time`)
-- Messenger fields: `messenger_platform`, `messenger_id` en `business_profile` (no en `clients`)
+- Messenger fields: `messenger_platform`, `messenger_id` en `business_profile` (canal del bot del negocio, no en `clients`). Las cuentas con permisos elevados (admin, staff) se modelan en la nueva tabla `accounts` (ver §3.8).
 - Repos Go: plural para colecciones (`BookingsRepo`), singular para agregados (`Booking`)
 
 > **Convención `updated_at`**: Los repos son responsables de incluir
@@ -667,6 +667,255 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 ---
 
+### 3.8 Modelo de Autorización
+
+> **Decisión arquitectónica**: ver [ADR-0009](../architecture/0009-authorization-model.md).
+
+El sistema diferencia cuatro tipos de **caller** según quién está interactuando con el bot del negocio:
+
+| Rol | Descripción | Tabla de identidad |
+|---|---|---|
+| `owner` | Dueño del negocio (single-owner invariant, ver ADR-0010). Mismos permisos que `admin` + capacidad exclusiva de crear/eliminar otros admins. | `accounts` (whitelist) |
+| `admin` | Dueño del negocio (alternativo al owner, ej: un manager). Acceso total al sistema (configuración, reportes, gestión de staff, todos los datos de bookings/clients/professionals/services) | `accounts` (whitelist) |
+| `staff` | Profesional del negocio. Acceso limitado a sus propias reservas y datos asociados (no puede ver/modificar otros profesionales) | `accounts` (whitelist) |
+| `client` | Cliente final. Acceso limitado a sus propios datos (sus reservas, su perfil). NO puede ver datos de otros clientes | `clients` (implícito) |
+
+#### 3.8.1 Por qué `accounts` solo contiene owner, admin y staff
+
+Los clientes finales **no** tienen un entry en la tabla `accounts`. Son identificados por su `id` (phone o handle del messenger) directamente en la tabla `clients`. Esto simplifica el modelo:
+
+- La tabla `accounts` actúa como **whitelist de permisos elevados** (owner, admin, staff). El conjunto es cerrado y pequeño.
+- Si un caller no está en `accounts`, se busca en `clients`. Si está, es un `client` con acceso limitado. Si no, se rechaza con `ErrUnauthenticated`.
+- Un cliente **no puede escalar a owner, admin o staff** sin un INSERT explícito en `accounts`. La base de datos enforcea este invariante vía CHECK constraints + trigger SQLite (single-owner).
+- Los clientes son un conjunto abierto: cualquiera puede registrarse como cliente. No tiene sentido enumerarlos en una whitelist.
+
+#### 3.8.2 Schema de la tabla `accounts`
+
+```sql
+CREATE TABLE accounts (
+    id              TEXT PRIMARY KEY,        -- phone o handle del messenger del solicitante
+    role            TEXT NOT NULL,           -- 'owner' | 'admin' | 'staff'
+    display_name    TEXT,
+    professional_id TEXT,                    -- FK a professionals.id, solo si role='staff'
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    CHECK (role IN ('owner', 'admin', 'staff')),
+    CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
+);
+```
+
+> **Nota**: el campo `business_profile.messenger_id` (en `§3.7.1`) identifica la **cuenta del bot del negocio** (no la cuenta del admin ni la de los staff). El bot es el canal que recibe mensajes de TODAS las cuentas (admin, staff, clients) a través de WhatsApp Business / Telegram.
+
+#### 3.8.3 Flujo de identificación del caller
+
+Cada MCP tool call incluye un header `X-Caller-Id: <phone|handle>`. El cliente MCP (Hermes) inyecta este header **automáticamente** desde el contexto del chat. El LLM no decide ni manipula el `caller_id` — esto es crítico para seguridad.
+
+```
+Hermes (cliente MCP)                           MCP Server
+  │                                                │
+  │  Tool call: create_booking(...)                │
+  │  Header: X-Caller-Id: +5491155554444          │
+  │  Header: X-Caller-Channel: whatsapp           │
+  │ ──────────────────────────────────────────►   │
+  │                                                │  Middleware de autenticación:
+  │                                                │  1. Lee X-Caller-Id
+  │                                                │  2. SELECT * FROM accounts WHERE id = ?
+  │                                                │  3. Si no, SELECT * FROM clients WHERE id = ?
+  │                                                │  4. Carga `caller` en context.Context
+  │                                                │  5. Invoca el handler del tool
+```
+
+#### 3.8.4 Enforcement en 3 capas
+
+| Capa | Dónde | Qué enforza |
+|---|---|---|
+| **Coarse-grained** | Middleware MCP (intercepta cada tool call) | Valida que la cuenta existe y está activa. Rechaza con `ErrUnauthenticated` si no. Rechaza con `ErrForbidden` si el caller no tiene permiso para el tool. |
+| **Medium-grained** | Repositorios (cada método) | Chequea `caller.Role` desde el `context.Context` y filtra por `professional_id` o `client_id` cuando corresponde. |
+| **Fine-grained** | SQL queries | `WHERE professional_id = ?` o `WHERE client_id = ?` para staff/client; sin filtro para admin/owner. |
+
+El `caller` se propaga vía `context.Context`:
+
+```go
+type Caller struct {
+    ID             string   // phone o handle
+    Role           string   // "owner" | "admin" | "staff" | "client"
+    ProfessionalID *string  // FK a professionals, solo si role=staff
+    ClientID       *string  // FK a clients; populated if caller also exists in clients (owner/admin/staff can be clients per ADR-0011)
+}
+
+// Middleware
+ctx = auth.WithCaller(ctx, caller)
+
+// Repositorio
+func (r *BookingsRepo) ListBookings(ctx context.Context) ([]*model.Booking, error) {
+    caller, ok := auth.FromContext(ctx)
+    if !ok {
+        return nil, ErrUnauthenticated
+    }
+    switch caller.Role {
+    case "owner", "admin":
+        return r.listAll(ctx)
+    case "staff":
+        return r.listByProfessional(ctx, *caller.ProfessionalID)
+    case "client":
+        return r.listByClient(ctx, *caller.ClientID)
+    default:
+        return nil, fmt.Errorf("rol desconocido: %s", caller.Role)
+    }
+}
+```
+
+#### 3.8.5 Defensa contra LLM comprometido
+
+Un LLM (Hermes) comprometido o mal configurado **no puede escalar a admin** porque:
+
+- El `X-Caller-Id` se inyecta desde el contexto del chat, **no del LLM**. El LLM no puede falsificarlo.
+- Para actuar como admin, el atacante necesitaría conocer el phone number de una cuenta whitelisted en `accounts`. El handshake inicial del bot (que identifica al caller antes de que el LLM intervenga) verifica la cuenta.
+- La base de datos enforcea el invariante vía CHECK constraints: sin INSERT en `accounts`, no hay role elevado.
+- Los timestamps dan trazabilidad: cada request queda loggeado con su `caller_id` para auditoría.
+
+#### 3.8.6 Mensajes de error al LLM
+
+| Error | Mensaje (español) |
+|---|---|
+| Caller no identificado (no en `accounts` ni en `clients`) | `no te reconozco. Por favor registrate primero.` |
+| Caller inactivo (`is_active = 0`) | `tu cuenta está deshabilitada. Contacta al administrador.` |
+| Tool no permitido para el rol | `no tienes permiso para realizar esta acción` |
+| Cliente pide datos de otro cliente | `solo puedes ver tus propias reservas.` |
+| Staff pide datos de otro profesional | `solo puedes ver tus propias reservas.` |
+
+(Per coding standards: "no raw system dumps", "stack traces NEVER sent to LLM".)
+
+#### 3.8.7 Orden de implementación
+
+La capa de autorización se implementa como un **change SDD separado** (`feat-authorization`) **antes** de los PRs complejos de `feat-db-layer` (sobre todo antes de PR 3, que expone datos de staff y clients via `check_availability`). El orden propuesto:
+
+1. **`feat-authorization`** (Fase 0) — schema, repo, middleware, integración con el flujo MCP
+2. **`feat-db-layer` PR 1a + PR 1b + PR 2** (ya mergeados en el tracker)
+3. **`feat-db-layer` PR 3** (Bookings + CheckAvailability) — ahora con la capa de auth integrada
+4. **Fase 2+** (handlers MCP, TUI menú operacional con seed del owner)
+
+### 3.8.8 TUI menú operacional (Fase 2+)
+
+> Decisión arquitectónica: ver [ADR-0010](../architecture/0010-admin-tui.md).
+
+La gestión operacional de cuentas (admin/staff/owner) se realiza vía un **sub-comando TUI menú** del binario principal: `mcp-appointments-crm admin tui`. El TUI es **otro proceso** (corre en la VPS como sub-comando del binario), no un MCP tool. No usa el middleware HTTP de §3.8.3 — opera directamente contra `AccountsRepo`.
+
+**Capacidades del TUI:**
+
+- **Alta de staff** (`Add Staff`): el owner/admin ingresa `phone`, `display_name`, `professional_id`. Repo valida single-owner invariant si es owner, format del phone, etc.
+- **Desactivar cuenta** (`Deactivate`): setea `is_active = 0`. Soft delete (preserva historia).
+- **Transferir ownership** (`Transfer Ownership`): el owner actual se desactiva (`Deactivate`), después se crea un nuevo owner. Defense-in-depth: trigger SQLite rechaza 2 owners activos. Additionally, the repository layer performs a `SELECT COUNT(*) FROM accounts WHERE role='owner' AND is_active=1` pre-check before `Create` and returns `ErrConflict` if > 0. Defense-in-depth: the trigger catches it as last resort, the repo provides a clean Spanish error message.
+- **Listar cuentas** (`List All`, `List Owners`, `List Admins`, `List Staff`): read-only views.
+- **Audit log view** (opcional): muestra los logs recientes de cambios de cuentas.
+
+**Modelo de roles operacional:**
+
+| Rol | Puede crear | Puede desactivar | Single-owner |
+|---|---|---|---|
+| `owner` | Otros owners (con desactivar anterior), admins, staff | Cualquier cuenta (incluido otros owners) | N/A (es el owner) |
+| `admin` | Staff (nunca owners, nunca otros admins) | Solo staff | N/A (no puede tocar owners) |
+| `staff` | N/A (no es admin) | N/A (no es admin) | N/A |
+
+**Gatekeeper de seguridad:**
+
+- **El admin del OS** (SSH a la VPS) es el gatekeeper primario. El TUI es "internal admin tooling" que corre en la VPS; no expone nada al exterior. Sin passphrase explícita (la passphrase se puede agregar como opcional en Fase 2+ si el user quiere defense-in-depth).
+- **El LLM NO puede invocar el TUI**: el TUI es un sub-comando del binario, no un tool MCP. El LLM (Hermes) solo ve los tools MCP que el middleware HTTP expone. Defense-in-depth: aunque el LLM esté comprometido, no puede escalar privilegios vía el TUI.
+
+**Alternativas descartadas:**
+
+- *CLI de bash con sub-comandos*: bash es menos type-safe; el TUI es más amigable. Descartado.
+- *LLM hace admin CRUD*: defense-in-depth débil. El LLM comprometido puede escalar. Descartado.
+- *Dashboard web*: proyecto grande (Fase 6+). El TUI es suficiente para Fase 2.
+
+**Cambio a `accounts` (soft delete + audit log):**
+
+- El `accounts` repo expone `Deactivate(ctx, id)` (en lugar de `Delete`) — soft delete que setea `is_active = 0`. Preserva historia; FKs siguen válidas. Hard delete solo se permite via sub-comando `purge-inactive` con confirmación extra (Fase 2+).
+- `Create`, `Update` y `Deactivate` emiten audit log MUST via `*slog.Logger` estructurado con `{actor_id, target_id, target_role, ts}`. Defense-in-depth: incluso si el LLM escala, el log queda en el sistema.
+
+**Owner/admin/staff que también son clientes del negocio (mismo phone, doble rol):**
+
+> Decisión arquitectónica: ver [ADR-0011](../architecture/0011-owner-as-client.md).
+
+El dueño del negocio (y el staff) son **una persona real** que probablemente consume los servicios del negocio. Ej: el dueño de la peluquería quiere cortarse el pelo ahí; la peluquera del staff también se corta en su propio salón. El modelo debe reflejar la realidad: una persona puede ser admin del sistema Y cliente del negocio, **con el mismo `phone`** (que es el `X-Caller-Id` que Hermes inyecta desde el chat context).
+
+**Mecanismo:** el `CallerResolver` ejecuta **2 queries** cuando la cuenta existe en `accounts` y está activa:
+1. `SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?`
+2. Si `is_active=1` → también `SELECT id FROM clients WHERE id = ?` para popular el `ClientID`
+
+**Resultado del resolver cuando el phone está en ambos (admin + client):**
+
+```
+Caller{
+    ID: "+5491100000000",           // mismo phone
+    Role: "owner",                  // gana el rol elevado
+    ProfessionalID: nil,
+    ClientID: &"+5491100000000"     // poblado desde clients
+}
+```
+
+Esto permite que el owner (o admin, o staff) use el mismo `X-Caller-Id` para:
+- **Gestionar el negocio** (vía tools MCP de admin): el `Role` es "owner" → tiene full access.
+- **Reservar como cliente** (vía `create_booking`, `list_my_bookings`, etc.): el `ClientID` está poblado → el repo filtra por su `client_id`.
+
+**Defense-in-depth intacta:** el LLM NO puede falsificar `X-Caller-Id`. El owner decide explícitamente qué tool usar según el contexto. El `Role` del `Caller` (no el `ClientID`) determina los permisos.
+
+**Setup del owner:** durante el TUI menú (Fase 2+), el owner tiene una opción "Add Yourself as Client" que crea el `client` row con su mismo phone. Idempotente. Si el owner se vuelve cliente del negocio, simplemente activa la opción.
+
+**Alternativas descartadas:**
+
+- *Self-service client creation en la primera reserva*: el sistema crea el `client` row cuando el admin hace su primera reserva. **Rechazado** por race conditions y por complicar el modelo (2 identidades implícitas para 1 phone).
+- *Admin/staff NO pueden reservar para sí mismos*: tienen que usar otro phone. **Rechazado** por fricción operacional absurda.
+
+### 3.8.9 Canal "Chat de Hermes" (operación local, Fase 2+)
+
+> Decisión arquitectónica: ver [ADR-0012](../architecture/0012-hermes-chat-local.md).
+
+Además del bot de WhatsApp/Telegram (que recibe mensajes de **todos** los usuarios — clientes, staff, admin, owner), existe un **segundo canal de comunicación**: el **Chat nativo de Hermes**. Es la interfaz local del LLM agent (terminal, IDE, OpenCode Chat, etc.) que el owner usa directamente sin pasar por el bot.
+
+**Diferencia con el bot:**
+
+| Aspecto | Bot (WhatsApp/Telegram) | Chat de Hermes (local) |
+|---|---|---|
+| Quién escribe | Cualquier persona con acceso al bot | Solo el owner (single-user assumption en la VPS) |
+| Cómo se inyecta el `X-Caller-Id` | El bot lee el `from` del mensaje | El Chat lee `MCP_CALLER_ID` env var o `~/.config/mcp-appointments-crm/caller-id` |
+| Gatekeeper | El bot messenger (cualquiera puede escribir) | El admin del OS (SSH a la VPS) |
+| Multi-user | Sí (cualquier cliente puede escribir) | No (single-user por default) |
+| Loopback enforcement | El bot habla con el MCP server en loopback | El Chat también (no expone el MCP al exterior) |
+
+**Mecanismo del Chat de Hermes:**
+
+- **El TUI menú configura el caller_id del owner** durante la primera configuración (RF9, Fase 2). El `X-Caller-Id` del owner se guarda en `~/.config/mcp-appointments-crm/caller-id` cuando el operador ejecuta `mcp-appointments-crm admin tui` y confirma el phone del dueño. La fila del owner en `accounts` se crea en el mismo paso vía TUI menú.
+- **El Chat de Hermes es un sub-comando del binario** (`mcp-appointments-crm hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000`, e inyecta el `X-Caller-Id` en cada tool call.
+- **Override con env var**: el owner puede exportar `MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat` para simular ser un cliente (debug, testing, o simular la perspectiva de un cliente).
+- **Multi-user via override**: el staff puede hacer SSH a la VPS y correr `MCP_CALLER_ID=+5491100002222 mcp-appointments-crm hermes chat` con su propio caller_id.
+
+**Salida del TUI menú operacional (extensión de RF9):**
+
+```bash
+[mcp-appointments-crm] Setup completado.
+Tu caller_id (admin del sistema): +5491100000000
+Para usar el Chat de Hermes, ejecuta:
+  mcp-appointments-crm hermes chat
+Override con otro caller_id (debug):
+  MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat
+```
+
+**Defense-in-depth intacta:**
+- El gatekeeper es el **admin del OS** (SSH a la VPS). El Chat corre en la VPS; no expone nada al exterior.
+- El LLM (Hermes) **no puede falsificar** el `MCP_CALLER_ID` — la env var se lee del shell del owner, no del LLM.
+- Loopback enforcement: el MCP server sigue en `127.0.0.1:3000`. El Chat de Hermes también es loopback.
+- El owner decide explícitamente qué tool usar según el contexto (gestionar vs reservar como cliente).
+
+**Alternativas descartadas:**
+
+- *Hermes local en la laptop del owner* (sin SSH a la VPS): requeriría exponer el MCP al exterior o un SSH tunnel; viola loopback. **Rechazado**.
+- *Single-user mode con caller_id hardcodeado* (sin override): inflexible, no soporta debug/testing. **Rechazado**.
+- *El Chat pregunta el caller_id al iniciar* (sin config): fricción cada vez que abre el Chat. **Rechazado** (la config se hace una vez en el TUI menú).
+
+---
+
 ## 4. Usuarios y Personas
 
 ### 4.1 Personas
@@ -762,14 +1011,16 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 - **Criterios de Aceptación**:
   - [ ] Dado que hay 50 clientes con al menos una reserva en el último mes, cuando Hermes invoca `get_loyalty_report("last_month")`, entonces el sistema retorna el Top N de clientes ordenados por cantidad de reservas descendente, junto con su `client_id`, `name`, `phone` y `booking_count`.
 
-**RF9: Despliegue automatizado con `install.sh`**
-- **Descripción**: El sistema debe proveer un script `install.sh` ejecutable vía `curl | bash` que instala el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular el script `backup.sh`.
-- **Prioridad**: Must
+**RF9: Despliegue automatizado con `install.sh` y seed del owner vía TUI menú**
+- **Descripción**: El sistema debe proveer un script `install.sh` ejecutable vía `curl | bash` que instala el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular el script `backup.sh`. **Además, el sistema debe proveer un mecanismo para crear el primer owner** (single-owner invariant, §3.8.7). **Este mecanismo es el TUI menú operacional (Fase 2)**, no el script `install.sh`. El TUI captura el `X-Caller-Id` del dueño (phone o handle del messenger del admin) y crea el INSERT inicial en `accounts` con `role='owner'`, `is_active=1`, `display_name='Owner'`. El owner se crea con el phone que el admin ingresa (validado por regex); si el owner ya existe, se verifica que sigue activo y se omite el INSERT.
+- **Prioridad**: Must, Fase 2 (el seed del owner se hace vía TUI menu en Fase 2, no durante install)
 - **Criterios de Aceptación**:
   - [ ] Dado que el script se ejecuta en una VPS Ubuntu limpia (sólo con `curl` y `bash`), cuando termina exitosamente, entonces el servicio `mcp-appointments-crm` está activo (`systemctl is-active` o equivalente) y el log final imprime `http://127.0.0.1:3000/mcp` y el log final muestra la línea sugerida para schedular `backup.sh` en `crontab` (u otro scheduler nativo según OS).
   - [ ] Dado que el script se ejecuta sin los archivos JSON de `setup/`, cuando el sistema valida los prerrequisitos, entonces imprime `Error: ejecute primero install.sh (que captura los datos del negocio) y vuelva a correrlo` y termina con exit code 1 sin instalar el binario ni registrar el servicio.
   - [ ] Dado que el script terminó exitosamente, cuando el operador revisa la salida, entonces encuentra al final un snippet sugerido para `crontab` con la frecuencia por defecto (1 vez al día, 03:00 hora local) que puede agregar manualmente.
   - [ ] Dado que `sqlite3` CLI no está instalado en el sistema, cuando el script `install.sh` termina exitosamente, entonces el log final incluye un bloque "Recommended additional tools" con el comando de instalación específico para el OS detectado, **sin ejecutar la instalación** (ver [ADR-0005](../architecture/0005-optional-external-tools.md)).
+  - [ ] **Nuevo**: Dado que el operador ejecuta `mcp-appointments-crm admin tui` en una VPS con la tabla `accounts` vacía, cuando confirma el phone del dueño, entonces se crea el owner vía `AccountsRepo.Create` con `role='owner'`, `is_active=1`, `display_name` capturado del prompt, y el `X-Caller-Id` se guarda en `~/.config/mcp-appointments-crm/caller-id` para uso del chat local (ADR-0012). Si el owner ya existe (segunda corrida), se verifica que sigue activo y se omite el INSERT con un mensaje `Owner ya existe: <phone>`.
+  - [ ] **Nuevo**: Dado que el owner fue creado vía TUI menú, cuando el admin opera el sistema, el LLM (Hermes) recibe el `X-Caller-Id` del owner desde el contexto del chat y el middleware lo resuelve correctamente a `Caller{Role: "owner"}` con `ErrUnauthenticated = nil`.
 
 > **Nota**: los criterios Gherkin de §5.1 se traducen a `scenarios` en el delta spec
 > (`openspec/changes/<fase>/specs/<domain>/spec.md`) usando el formato
@@ -853,12 +1104,13 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 ### Fase 2: mcp-server-core (Estimación: L)
 
-**Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía SSE en `127.0.0.1:3000`.
+**Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía SSE en `127.0.0.1:3000`. **Además, integrar la capa de `auth` (incluye el middleware HTTP con el header `X-Caller-Id`)** y el **TUI menú operacional** (sub-comando `mcp-appointments-crm admin tui` para gestión de cuentas admin/staff/owner — ver §3.8.8).
 
 **Entregables**:
 - `cmd/mcp-server/main.go` con loop de SSE
-- `internal/mcp/server.go` con registro de tools
-- Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas)
+- `internal/mcp/server.go` con registro de tools y middleware de `auth.AuthMiddleware.Wrap(...)` aplicado al `http.ServeMux`
+- Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas). Cada tool se registra con `RequiredRoles` (e.g., `create_professional` requiere `admin` o `owner`).
+- **`cmd/mcp-server/admin_tui.go`**: sub-comando TUI menú que opera directamente sobre `AccountsRepo` desde el binario principal (no es un binario separado). No es un MCP tool; es otro proceso. **Nota de scope**: el TUI es opcional en Fase 2 (puede ser un follow-up si el alcance se vuelve grande). El MVP de Fase 2 puede enfocarse en el middleware de auth.
 - Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`)
 
 **Definition of Done**:
@@ -889,7 +1141,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 
 ### Fase 4: install.sh con prompts interactivos (Estimación: S)
 
-**Objetivo**: extender `install.sh` con prompts interactivos para configurar `business_profile`, `professionals` iniciales y `services` iniciales, con validación por campo y checkpoint para cancelación. Sin binario TUI separado.
+**Objetivo**: extender `install.sh` con prompts interactivos para configurar `business_profile`, `professionals` iniciales y `services` iniciales, con validación por campo y checkpoint para cancelación. Sin binario TUI separado (el TUI es Fase 2+).
 
 **Entregables**:
 - `install.sh` con bloque de prompts (read -p + regex validation)
@@ -1005,3 +1257,7 @@ Hermes consumirá esta alerta con `get_pending_alerts()` y la marcará como envi
 |-------|---------|-------|---------|
 | 2026-06-24 | 1.0 | Kike | Creación inicial del PRD a partir de `docs/SDD.md` y `docs/common/prd-template.md`. Incluye 9 RF (Must + Should), 11 RNF, 5 fases de roadmap y 7 riesgos identificados. |
 | 2026-06-26 | 1.1 | Kike | ADR-0008: reemplazo de `config-wizard` TUI (Bubble Tea) por prompts interactivos en `install.sh` con checkpoint. RF1 reformulado, Fase 4 simplificada (M→S), eliminadas referencias a TUI/MVU/Bubble Tea del alcance y glosario. |
+| 2026-06-29 | 1.2 | Kike | ADR-0009: nuevo modelo de autorización. Nueva §3.8 "Modelo de Autorización" + nota en §3.7.12 clarificando que `business_profile.messenger_id` es el bot del negocio (no el admin). Tabla `accounts` como whitelist para admin/staff; clients identificados por su presencia en `clients`. Header `X-Caller-Id` inyectado por el cliente MCP (no por el LLM). 3 capas de enforcement: middleware coarse-grained + repos medium-grained + SQL fine-grained con `WHERE professional_id/client_id`. Defensa contra LLM comprometido (no puede falsificar el caller). Implementación ordenada como change SDD `feat-authorization` antes de PR 3 de `feat-db-layer`. |
+| 2026-06-29 | 1.3 | Kike | ADR-0009: refinamiento operacional del modelo de auth. Nuevo rol `owner` (con permisos de `admin` + capacidad exclusiva de crear/eliminar otros admins); single-owner invariant enforced a nivel DB via trigger SQLite + repo check. Soft delete via `Deactivate(ctx, id)` reemplaza hard delete (preserva historia). Audit log MUST via `*slog.Logger` estructurado en `Create`/`Deactivate`/`Update` (operaciones críticas). Nueva §3.8.8 "TUI menú operacional" — sub-comando `mcp-appointments-crm admin tui` (Fase 2+, otro proceso, no invocable por el LLM; defense-in-depth). Seed del owner movido a TUI menú (Fase 2). `install.sh` ya no crea la fila del owner; el operador la crea vía `mcp-appointments-crm admin tui` en la primera configuración. Fase 2 ampliada para incluir el TUI menú. |
+| 2026-06-29 | 1.4 | Kike | ADR-0011: owner/admin/staff que también son clientes del negocio (mismo phone, doble rol). El `CallerResolver` ejecuta 2 queries cuando la cuenta existe en `accounts` (popular el `ClientID` desde `clients`). Permite que el dueño se corte el pelo en su propia peluquería sin fricción. Defense-in-depth intacta: el `Role` del `Caller` (no el `ClientID`) determina los permisos. Setup vía TUI menú "Add Yourself as Client" (Fase 2+). Nueva subsección en §3.8.8 documenta el caso. |
+| 2026-06-29 | 1.5 | Kike | ADR-0012: segundo canal de comunicación — el Chat nativo de Hermes (local CLI/IDE), además del bot de WhatsApp/Telegram. El TUI menú guarda el `X-Caller-Id` del owner en `~/.config/mcp-appointments-crm/caller-id` durante el seed (Fase 2). El Chat es sub-comando del binario (`mcp-appointments-crm hermes chat`), corre en la VPS, se conecta al MCP server en loopback. Override con `MCP_CALLER_ID` env var (debug, multi-user). Defense-in-depth: admin del OS (SSH) sigue siendo el gatekeeper; el LLM no puede falsificar el caller_id. Nueva subsección §3.8.9 documenta el caso. |

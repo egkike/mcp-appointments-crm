@@ -27,3 +27,7 @@ We use a lightweight ADR format inspired by Michael Nygard's template:
 | [0006](./0006-data-model-and-reservations.md) | Data model and reservation flow design | accepted | 2026-06-25 |
 | [0007](./0007-server-config.md) | Server bind and port configuration | accepted | 2026-06-25 |
 | [0008](./0008-install-prompts.md) | Inline prompts in install.sh (no separate config-wizard TUI) | accepted | 2026-06-26 |
+| [0009](./0009-authorization-model.md) | Authorization model — `accounts` whitelist for owner/admin/staff, `X-Caller-Id` header injection | accepted | 2026-06-29 |
+| [0010](./0010-admin-tui.md) | TUI menú operacional (`mcp-appointments-crm admin tui`) for owner/admin/staff account management | accepted | 2026-06-29 |
+| [0011](./0011-owner-as-client.md) | Owner/admin/staff pueden ser clientes del negocio (mismo phone, doble rol) — `CallerResolver` combina accounts+clients info | accepted | 2026-06-29 |
+| [0012](./0012-hermes-chat-local.md) | Segundo canal de comunicación — Chat nativo de Hermes (operación local, sub-comando del binario) con `MCP_CALLER_ID` env var override | accepted | 2026-06-29 |
