@@ -7,7 +7,7 @@
 
 ## Context
 
-El sistema MCP recibe tool calls de un LLM (Hermes) que actúa como intermediario entre los clientes del negocio y el bot de WhatsApp Business / Telegram. El LLM (o un atacante que lo comprometa) podría solicitar datos sensibles sin restricción. ADR-0009 introduce una capa de autorización con la tabla `accounts` como whitelist para admin/staff y un mecanismo de header `X-Caller-Id` para identificar al caller.
+El sistema MCP recibe tool calls de un LLM (Hermes) que actúa como intermediario entre los clientes del negocio y el bot de WhatsApp Business / Telegram. El LLM (o un atacante que lo comprometa) podría solicitar datos sensibles sin restricción. ADR-0009 introduce una capa de autorización con la tabla `accounts` como whitelist para owner/admin/staff y un mecanismo de header `X-Caller-Id` para identificar al caller.
 
 **Pero hay un caso operacional importante que no estaba cubierto:**
 

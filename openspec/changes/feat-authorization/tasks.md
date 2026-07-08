@@ -250,7 +250,7 @@ Dentro de cada PR las tareas son seriales. PR 2 depende de PR 1 (necesita la tab
   - Tool name default: `r.URL.Path`; allow injection of `toolNameFromRequest func(*http.Request) string` for Fase 2 wiring.
 - **Tests** (table-driven with `httptest.ResponseRecorder`):
   - Each of the 16 scenarios in `auth-middleware/spec.md` becomes a subtest.
-  - Cover: missing header, empty/whitespace header, case-insensitive header, admin/staff/client resolution, deactivated account, unknown caller, RBAC allow/deny, endpoint without RequiredRoles, caller present in downstream ctx.
+  - Cover: missing header, empty/whitespace header, case-insensitive header, owner/admin/staff/client resolution, deactivated account, unknown caller, RBAC allow/deny, endpoint without RequiredRoles, caller present in downstream ctx.
   - Audit log subtest captures `slog` output for admin access.
 - **Acceptance**:
   - `go test -v -race ./internal/auth/...` passes

@@ -59,7 +59,7 @@ CREATE TABLE accounts (
 
 **Positive**:
 - Defense-in-depth real: el LLM no puede escalar a admin sin conocer un phone whitelisted.
-- Separación clara de identidades: bot (en `business_profile.messenger_id`), admin/staff (en `accounts`), clients (en `clients`).
+- Separación clara de identidades: bot (en `business_profile.messenger_id`), owner/admin/staff (en `accounts`), clients (en `clients`).
 - Mensajes semánticos al LLM (español), sin stack traces.
 - El middleware coarse-grained filtra el 80% de los requests no autorizados antes de llegar al repo.
 - Queries SQL con `WHERE professional_id = ?` / `WHERE client_id = ?` enforza row-level access.

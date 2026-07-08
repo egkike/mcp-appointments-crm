@@ -1,4 +1,4 @@
-# ADR-0010: TUI menú operacional para gestión de cuentas admin/staff
+# ADR-0010: TUI menú operacional para gestión de cuentas owner/admin/staff
 
 - **Status**: accepted
 - **Date**: 2026-06-29

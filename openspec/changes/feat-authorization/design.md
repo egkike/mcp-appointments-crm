@@ -126,7 +126,7 @@ func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
    - Fila → `ClientID = &id` (caller es admin/staff/owner Y también cliente).
    - No fila → `ClientID = nil` (admin/staff/owner sin client row).
 3. Si accounts no tiene fila → `SELECT id FROM clients WHERE id = ?` (1 query extra):
-   - Fila → `Caller{Role: RoleClient, ClientID: &id}` (1 query en clients, 1 query total).
+   - Fila → `Caller{Role: RoleClient, ClientID: &id}` (1 query en clients, 2 queries en total).
    - No fila → `ErrUnauthenticated` con mensaje "no te reconozco" (2 queries en accounts+clients).
 
 **Resumen de queries por caso:**
