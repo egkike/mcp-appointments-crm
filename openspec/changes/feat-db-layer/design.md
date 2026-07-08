@@ -244,7 +244,7 @@ El handler hace `errors.As(err, &sErr)` para extraer el `Code` y el `Message` y 
 
 **Contexto**: spec `schema-version` + propuesta "Schema version + estrategia de migración". Fase 1 introduce la tabla para tracking; el runner incremental es Fase 2+.
 
-**Decisión**: `database.go` crea `schema_version` y en el primer arranque inserta fila `(version=1, 'initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')`. `initSchema` usa la presencia de esa fila como señal de "ya inicializado" → idempotente (`CREATE TABLE IF NOT EXISTS` + `INSERT ... WHERE NOT EXISTS` style).
+**Decisión**: `database.go` crea `schema_version` y en el primer arranque inserta fila `(version=1, 'initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')`. `initSchema` usa la presencia de esa fila como señal de "ya inicializado" → idempotente (`CREATE TABLE IF NOT EXISTS` + `INSERT ... WHERE NOT EXISTS` style).
 
 **Alternativas rechazadas**: introducir un runner de migraciones en Fase 1 (over-engineering para base sin datos — propuesta rechazó explícitamente).
 
@@ -514,7 +514,7 @@ Ver `openspec/changes/feat-authorization/design.md` para los detalles completos 
 
 - `openspec/changes/feat-db-layer/proposal.md` (commit `7d0dc77`)
 - `openspec/changes/feat-db-layer/specs/<capability>/spec.md` (commits `29f1d9b`, `5b13740`) — todas las 10 capabilities
-- `docs/PRD.md` §3.7 (esquema 10 tablas de dominio + `schema_version`), §3.7.10 (6 triggers FTS + naming triggers), §3.7.13 (cadena 5 pasos)
+- `docs/PRD.md` §3.7 (esquema 8 tablas de dominio + `schema_version`), §3.7.10 (6 triggers FTS + naming triggers), §3.7.13 (cadena 5 pasos)
 - `docs/architecture/0006-data-model-and-reservations.md` (ADR-0006 — 5 decisiones)
 - `docs/architecture/0004-naming-conventions.md` (ADR-0004)
 - `docs/architecture/0005-optional-external-tools.md` (ADR-0005)

@@ -1,61 +1,107 @@
+// Package db manages the SQLite database connection and schema lifecycle.
+//
+// The schema consists of 8 domain tables (per docs/PRD.md §3.7) plus the
+// `accounts` authorization whitelist (PRD §3.8.2 / ADR-0009), 2 FTS5
+// virtual tables, 6 FTS sync triggers, 2 secondary indexes, 2 single-owner
+// triggers, and a schema_version metadata table. All DDL is executed by
+// initSchema, which is idempotent (safe to call multiple times).
 package db
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
 
-// DB Wrapper para centralizar las operaciones de la base de datos
+// busyTimeoutMillis is the SQLite busy_timeout value in milliseconds.
+// It is embedded in the DSN so every connection in the pool inherits it,
+// fixing the per-connection pragma leakage that occurred when pragmas were
+// set via ExecContext on a pooled *sql.DB.
+const busyTimeoutMillis = 5000
+
+// DB wraps a *sql.DB connection to the SQLite database.
 type DB struct {
 	Conn *sql.DB
 }
 
-// NewDatabase inicializa la conexión, activa WAL y ejecuta las migraciones base
+// buildDSN appends modernc.org/sqlite _pragma query parameters to dbPath so
+// that per-connection pragmas (foreign_keys, busy_timeout, journal_mode,
+// synchronous) are applied to every connection in the pool.
+// For non-URL paths like ":memory:", it falls back to direct concatenation.
+// The path component is parsed by net/url, so paths containing "?" or "#"
+// may be misinterpreted as URI components — callers should avoid such
+// characters in dbPath. For typical Linux/macOS XDG paths, this is safe.
+func buildDSN(dbPath string) string {
+	u, err := url.Parse(dbPath)
+	if err != nil {
+		// Fallback for paths that aren't valid URLs (e.g., ":memory:").
+		// Safe because ":memory:" contains no URL-special characters.
+		return dbPath + "?" + pragmaQuery()
+	}
+	q := u.Query()
+	for _, p := range pragmaParams() {
+		q.Add("_pragma", p)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// pragmaParams returns the 4 production pragma values applied to every connection.
+func pragmaParams() []string {
+	return []string{
+		"foreign_keys(1)",
+		fmt.Sprintf("busy_timeout(%d)", busyTimeoutMillis),
+		"journal_mode(WAL)",
+		"synchronous(NORMAL)",
+	}
+}
+
+// pragmaQuery returns the pragma parameters as a URL query string (without leading '?').
+func pragmaQuery() string {
+	params := pragmaParams()
+	parts := make([]string, len(params))
+	for i, p := range params {
+		parts[i] = "_pragma=" + p
+	}
+	return strings.Join(parts, "&")
+}
+
+// NewDatabase opens the SQLite database at dbPath, verifies production
+// pragmas (WAL), and runs initSchema. Per-connection pragmas (foreign_keys,
+// busy_timeout) are set via the DSN (see buildDSN) so they apply to every
+// connection in the pool.
 func NewDatabase(ctx context.Context, dbPath string) (*DB, error) {
-	// Asegurar que el directorio de la BD exista
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0750); err != nil {
-		return nil, fmt.Errorf("error al crear directorio de BD: %w", err)
+		return nil, fmt.Errorf("create database directory: %w", err)
 	}
 
-	// Abrir conexión usando el driver puro de Go (modernc)
-	conn, err := sql.Open("sqlite", dbPath)
+	dsn := buildDSN(dbPath)
+	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("error al abrir sqlite: %w", err)
+		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	// Configurar optimizaciones críticas (Pragmas)
-	pragmas := []string{
-		"PRAGMA foreign_keys = ON;",    // Forzar integridad referencial
-		"PRAGMA journal_mode = WAL;",   // Modo WAL para alta concurrencia
-		"PRAGMA synchronous = NORMAL;", // Balance óptimo entre seguridad y velocidad
-		"PRAGMA busy_timeout = 5000;",  // Esperar hasta 5s si la BD está bloqueada
-	}
-
-	for _, pragma := range pragmas {
-		if _, err := conn.ExecContext(ctx, pragma); err != nil {
-			_ = conn.Close()
-			return nil, fmt.Errorf("error aplicando pragma (%s): %w", pragma, err)
-		}
-	}
-
-	db := &DB{Conn: conn}
-
-	// Ejecutar la creación de tablas
-	if err := db.initSchema(ctx); err != nil {
+	if err := verifyPragmas(ctx, conn); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
 
-	return db, nil
+	if err := initSchema(ctx, conn); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("init schema: %w", err)
+	}
+
+	return &DB{Conn: conn}, nil
 }
 
-// Close cierra la conexión de manera segura
+// Close releases the underlying database connection.
 func (db *DB) Close() error {
 	if db.Conn != nil {
 		return db.Conn.Close()
@@ -63,91 +109,115 @@ func (db *DB) Close() error {
 	return nil
 }
 
-// initSchema define las tablas del sistema e inicializa FTS5
-func (db *DB) initSchema(ctx context.Context) error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS business_profile (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		slots_config TEXT NOT NULL, -- Guardado como JSON (ej: días, horas, duración)
-		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-
-	CREATE TABLE IF NOT EXISTS clients (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		phone TEXT UNIQUE NOT NULL,
-		email TEXT,
-		messenger_platform TEXT, -- 'whatsapp', 'telegram', etc.
-		messenger_id TEXT,       -- ID único de la plataforma de mensajería
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);
-
-	CREATE TABLE IF NOT EXISTS services (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL,
-		duration_mins INTEGER NOT NULL,
-		price REAL NOT NULL,
-		is_active INTEGER DEFAULT 1
-	);
-
-	CREATE TABLE IF NOT EXISTS appointments (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		client_id INTEGER NOT NULL,
-		service_id INTEGER NOT NULL,
-		start_time DATETIME NOT NULL,
-		end_time DATETIME NOT NULL,
-		status TEXT DEFAULT 'pending', -- 'pending', 'confirmed', 'cancelled'
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
-		FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE RESTRICT
-	);
-
-	-- Tablas Virtuales FTS5 para búsquedas instantáneas
-	CREATE VIRTUAL TABLE IF NOT EXISTS clients_fts USING fts5(
-		name,
-		phone,
-		content='clients',
-		content_rowid='id'
-	);
-
-	CREATE VIRTUAL TABLE IF NOT EXISTS services_fts USING fts5(
-		name,
-		content='services',
-		content_rowid='id'
-	);
-
-	-- Authorization: accounts whitelist (owner/admin/staff) per PRD §3.8.2
-	CREATE TABLE IF NOT EXISTS accounts (
-		id              TEXT PRIMARY KEY,
-		role            TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
-		display_name    TEXT,
-		professional_id TEXT,
-		is_active       INTEGER NOT NULL DEFAULT 1,
-		created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-		updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-		CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
-	);
-
-	-- Single-owner invariant: reject INSERT of second active owner
-	CREATE TRIGGER IF NOT EXISTS accounts_single_owner_insert BEFORE INSERT ON accounts
-	WHEN NEW.role = 'owner' AND NEW.is_active = 1
-	 AND (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
-	BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END;
-
-	-- Single-owner invariant: reject UPDATE that would create second active owner
-	-- Covers: (a) activating an inactive owner, (b) changing role to owner on active row.
-	-- id != NEW.id prevents self-rejection when updating an existing owner without changing status.
-	CREATE TRIGGER IF NOT EXISTS accounts_single_owner_update BEFORE UPDATE ON accounts
-	WHEN NEW.role = 'owner' AND NEW.is_active = 1
-	 AND (OLD.role != 'owner' OR OLD.is_active = 0)
-	 AND (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1 AND id != NEW.id) >= 1
-	BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END;
-	`
-
-	if _, err := db.Conn.ExecContext(ctx, schema); err != nil {
-		return fmt.Errorf("error al inicializar el esquema de tablas: %w", err)
+// verifyPragmas asserts that critical SQLite pragmas are active on the
+// connection: WAL journal mode, synchronous NORMAL, foreign_keys enabled,
+// and busy_timeout set.
+func verifyPragmas(ctx context.Context, conn *sql.DB) error {
+	var mode string
+	if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+		return fmt.Errorf("query journal_mode: %w", err)
+	}
+	if mode != "wal" {
+		return fmt.Errorf("expected WAL journal mode, got %q", mode)
 	}
 
+	// synchronous: 0=OFF, 1=NORMAL, 2=FULL, 3=EXTRA.
+	// PRD §3.1 requires NORMAL for performance with acceptable durability.
+	var sync int
+	if err := conn.QueryRowContext(ctx, "PRAGMA synchronous").Scan(&sync); err != nil {
+		return fmt.Errorf("query synchronous: %w", err)
+	}
+	if sync != 1 {
+		return fmt.Errorf("expected synchronous=NORMAL (1), got %d", sync)
+	}
+
+	var fk int
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+		return fmt.Errorf("query foreign_keys: %w", err)
+	}
+	if fk != 1 {
+		return fmt.Errorf("expected foreign_keys=1, got %d", fk)
+	}
+
+	var timeout int
+	if err := conn.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
+		return fmt.Errorf("query busy_timeout: %w", err)
+	}
+	if timeout != busyTimeoutMillis {
+		return fmt.Errorf("expected busy_timeout=%d, got %d", busyTimeoutMillis, timeout)
+	}
+
+	return nil
+}
+
+// firstLine returns the first line of s, trimmed of leading/trailing whitespace.
+// Used in error messages to identify which DDL statement failed.
+func firstLine(s string) string {
+	for i, c := range s {
+		if c == '\n' {
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+// initSchema creates all tables, FTS virtual tables, triggers, and indexes.
+//
+// Legacy schema migration: if the legacy "appointments" table is found in
+// sqlite_master, the database contains a pre-release schema with incompatible
+// column types. All legacy tables (business_profile, clients, services,
+// appointments, clients_fts, services_fts) are dropped before the new DDL
+// runs. This is safe because no production data existed before the new schema,
+// and the schema-version spec explicitly permits destructive replace when
+// legacy tables are detected.
+//
+// It is idempotent: calling it N times produces the same state as calling it
+// once. All DDL uses IF NOT EXISTS for safety on partial-failure retries.
+// Schema version tracking: after all DDL succeeds, a row with version=1 is
+// inserted into schema_version (INSERT OR IGNORE for idempotency).
+func initSchema(ctx context.Context, db *sql.DB) error {
+	// If the legacy "appointments" table exists, this is a pre-release DB
+	// with an incompatible schema. Drop all legacy tables (including FTS
+	// virtual tables) so the new DDL can create tables with the correct
+	// column types. The "appointments" table is used as a marker because it
+	// exists ONLY in the legacy schema — it is never created by the new DDL.
+	// This check is safe under concurrency: on a fresh DB, "appointments"
+	// does not exist so no drops run; on a legacy DB, all goroutines drop
+	// the same tables with IF EXISTS (idempotent).
+	var hasLegacy int
+	err := db.QueryRowContext(ctx,
+		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='appointments'",
+	).Scan(&hasLegacy)
+	if err != nil {
+		return fmt.Errorf("initSchema: check legacy tables: %w", err)
+	}
+	if hasLegacy > 0 {
+		// Drop base tables first (auto-drops associated triggers),
+		// then FTS virtual tables.
+		legacyTables := []string{
+			"business_profile", "clients", "services", "appointments",
+			"clients_fts", "services_fts",
+		}
+		for _, table := range legacyTables {
+			stmt := fmt.Sprintf("DROP TABLE IF EXISTS %s", table)
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("initSchema: drop legacy table %s: %w", table, err)
+			}
+		}
+	}
+
+	ddl := make([]string, 0, 100)
+	ddl = append(ddl, domainTableDDL()...)
+	ddl = append(ddl, ftsTableDDL()...)
+	ddl = append(ddl, ftsTriggerDDL()...)
+	ddl = append(ddl, secondaryIndexDDL()...)
+	ddl = append(ddl, accountTriggerDDL()...)
+	ddl = append(ddl, seedDDL()...)
+
+	for _, stmt := range ddl {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("initSchema: failed to execute %q: %w", firstLine(stmt), err)
+		}
+	}
 	return nil
 }

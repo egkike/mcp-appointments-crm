@@ -10,14 +10,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// newTestDB creates an in-memory SQLite database with all pragmas and schema applied.
+// newTestDB creates an in-memory SQLite DB with pragmas matching production
+// and the full schema applied (idempotent).
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	ctx := context.Background()
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
-		t.Fatalf("abrir sqlite in-memory: %v", err)
+		t.Fatalf("open in-memory sqlite: %v", err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 
 	pragmas := []string{
 		"PRAGMA foreign_keys = ON;",
@@ -27,23 +29,334 @@ func newTestDB(t *testing.T) *sql.DB {
 	}
 	for _, p := range pragmas {
 		if _, err := db.ExecContext(ctx, p); err != nil {
-			t.Fatalf("aplicar pragma %q: %v", p, err)
+			t.Fatalf("pragma %q: %v", p, err)
 		}
 	}
 
-	d := &DB{Conn: db}
-	if err := d.initSchema(ctx); err != nil {
+	if err := initSchema(ctx, db); err != nil {
 		t.Fatalf("initSchema: %v", err)
 	}
 	return db
 }
 
-func TestAccountsTable_Exists(t *testing.T) {
+// skipIfNoFTS5 skips the test when the driver lacks FTS5 or JSON1 support.
+func skipIfNoFTS5(t *testing.T, db *sql.DB) {
+	t.Helper()
 	ctx := context.Background()
+	var hasFTS5 int
+	if err := db.QueryRowContext(ctx, "SELECT sqlite_compileoption_used('ENABLE_FTS5')").Scan(&hasFTS5); err != nil || hasFTS5 == 0 {
+		t.Skipf("driver does not support FTS5 (compile option ENABLE_FTS5)")
+	}
+	var result string
+	if err := db.QueryRowContext(ctx, `SELECT json_extract('{"a":1}', '$.a')`).Scan(&result); err != nil {
+		t.Skipf("driver does not support JSON1: %v", err)
+	}
+}
+
+func TestInitSchema_CreatesAllTables(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("initSchema: %v", err)
+	}
+
+	expectedTables := []string{
+		"business_profile",
+		"business_hours_exception",
+		"professionals",
+		"schedules",
+		"services",
+		"clients",
+		"bookings",
+		"pending_alerts",
+		"schema_version",
+	}
+	for _, table := range expectedTables {
+		var name string
+		err := db.QueryRowContext(ctx,
+			"SELECT name FROM sqlite_master WHERE type='table' AND name=?", table,
+		).Scan(&name)
+		if err != nil {
+			t.Errorf("table %q not found: %v", table, err)
+		}
+	}
+
+	// FTS virtual tables (sqlite_master reports them as type='table')
+	for _, fts := range []string{"clients_fts", "services_fts"} {
+		var name string
+		err := db.QueryRowContext(ctx,
+			"SELECT name FROM sqlite_master WHERE name=? AND sql LIKE 'CREATE VIRTUAL TABLE%'", fts,
+		).Scan(&name)
+		if err != nil {
+			t.Errorf("virtual table %q not found: %v", fts, err)
+		}
+	}
+}
+
+func TestInitSchema_Idempotent(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("first initSchema: %v", err)
+	}
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("second initSchema (should be idempotent): %v", err)
+	}
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("third initSchema (should be idempotent): %v", err)
+	}
+}
+
+func TestSchemaVersion_RowInserted(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("initSchema: %v", err)
+	}
+
+	var version int
+	var description string
+	var appliedAt string
+	err := db.QueryRowContext(ctx, "SELECT version, applied_at, description FROM schema_version WHERE version=1").
+		Scan(&version, &appliedAt, &description)
+	if err != nil {
+		t.Fatalf("schema_version row not found: %v", err)
+	}
+	if version != 1 {
+		t.Errorf("version = %d; want 1", version)
+	}
+	wantDesc := "initial schema: 8 domain tables per PRD §3.7 + accounts (auth, PRD §3.8.2) + schema_version + 6 FTS sync triggers + 2 secondary indexes + 2 single-owner triggers"
+	if description != wantDesc {
+		t.Errorf("description = %q; want %q", description, wantDesc)
+	}
+	if appliedAt == "" {
+		t.Error("applied_at is empty; want ISO 8601 UTC timestamp")
+	}
+}
+
+func TestSchemaVersion_NoDuplicateOnReInit(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	_ = initSchema(ctx, db)
+	_ = initSchema(ctx, db)
+
+	var count int
+	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM schema_version").Scan(&count); err != nil {
+		t.Fatalf("count schema_version: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("schema_version row count = %d; want 1", count)
+	}
+}
+
+func TestFTS_ClientsSync(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("initSchema: %v", err)
+	}
+
+	// INSERT → FTS row appears
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO clients (id, name, phone) VALUES ('c-001', 'María García', '+5491112345678')`)
+	if err != nil {
+		t.Fatalf("insert client: %v", err)
+	}
+
+	var count int
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'María'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("after INSERT: fts count = %d; want 1", count)
+	}
+
+	// UPDATE → FTS row updated
+	_, err = db.ExecContext(ctx,
+		`UPDATE clients SET name='María López', preferences='alérgica a penicilina' WHERE id='c-001'`)
+	if err != nil {
+		t.Fatalf("update client: %v", err)
+	}
+
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'López'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query after update: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("after UPDATE: fts count for 'López' = %d; want 1", count)
+	}
+
+	// Old name should be gone
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'García'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query for old name: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("after UPDATE: fts count for 'García' = %d; want 0", count)
+	}
+
+	// DELETE → FTS row removed
+	_, err = db.ExecContext(ctx, `DELETE FROM clients WHERE id='c-001'`)
+	if err != nil {
+		t.Fatalf("delete client: %v", err)
+	}
+
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'López'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query after delete: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("after DELETE: fts count for 'López' = %d; want 0", count)
+	}
+}
+
+func TestFTS_ServicesSync(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("initSchema: %v", err)
+	}
+
+	// INSERT → FTS row appears
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO services (id, name, description, duration_minutes, price)
+		 VALUES ('s-001', 'Consulta Veterinaria', 'Revisión general de mascotas', 30, 5000.00)`)
+	if err != nil {
+		t.Fatalf("insert service: %v", err)
+	}
+
+	var count int
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'Veterinaria'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("after INSERT: fts count = %d; want 1", count)
+	}
+
+	// Also searchable by description
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'mascotas'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query description: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("after INSERT: fts count for description = %d; want 1", count)
+	}
+
+	// UPDATE → FTS row updated
+	_, err = db.ExecContext(ctx,
+		`UPDATE services SET name='Consulta General', description='Revisión perros y gatos' WHERE id='s-001'`)
+	if err != nil {
+		t.Fatalf("update service: %v", err)
+	}
+
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'General'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query after update: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("after UPDATE: fts count for 'General' = %d; want 1", count)
+	}
+
+	// Old name should be gone
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'Veterinaria'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query for old name: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("after UPDATE: fts count for 'Veterinaria' = %d; want 0", count)
+	}
+
+	// DELETE → FTS row removed
+	_, err = db.ExecContext(ctx, `DELETE FROM services WHERE id='s-001'`)
+	if err != nil {
+		t.Fatalf("delete service: %v", err)
+	}
+
+	err = db.QueryRowContext(ctx, `SELECT count(*) FROM services_fts WHERE services_fts MATCH 'General'`).Scan(&count)
+	if err != nil {
+		t.Fatalf("fts query after delete: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("after DELETE: fts count for 'General' = %d; want 0", count)
+	}
+}
+
+func TestBusinessProfile_SingletonConstraint(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("initSchema: %v", err)
+	}
+
+	// Inserting with id != 'singleton' must fail due to CHECK constraint
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO business_profile (id, name) VALUES ('not-singleton', 'Test')`)
+	if err == nil {
+		t.Fatal("expected CHECK constraint violation for id != 'singleton'; got nil")
+	}
+}
+
+func TestSecondaryIndexes_Exist(t *testing.T) {
+	db := newTestDB(t)
+	skipIfNoFTS5(t, db)
+	ctx := context.Background()
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("initSchema: %v", err)
+	}
+
+	expectedIndexes := []struct {
+		table string
+		index string
+	}{
+		{"bookings", "idx_bookings_overlap"},
+		{"pending_alerts", "idx_pending_alerts_scheduled_status"},
+		// Note: idx_business_hours_exception_date and idx_schedules_professional_day
+		// were removed in favor of UNIQUE constraints in the DDL
+		// (business_hours_exception.UNIQUE(exception_date) and
+		// schedules.UNIQUE(professional_id, day_of_week)) which create
+		// implicit indexes. SQLite enforces them as automatic indexes.
+	}
+
+	for _, ei := range expectedIndexes {
+		var name string
+		err := db.QueryRowContext(ctx,
+			"SELECT name FROM sqlite_master WHERE type='index' AND name=?", ei.index,
+		).Scan(&name)
+		if err != nil {
+			t.Errorf("index %q on table %q not found: %v", ei.index, ei.table, err)
+		}
+	}
+}
+
+// ─── feat-authorization: accounts table (per PRD §3.8.2) ──────────────
+// The following 12 tests verify the accounts table added by feat-authorization:
+// schema, CHECK constraints, default is_active, ISO 8601 timestamps, and the
+// single-owner invariant (INSERT and UPDATE triggers). The tests were
+// introduced in PR #5 (feat-authorization) and retroactively added to
+// feat-db-layer PR 1 to reconcile the schema.
+
+func TestAccountsTable_Exists(t *testing.T) {
 	db := newTestDB(t)
 	defer func() { _ = db.Close() }()
 
-	rows, err := db.QueryContext(ctx, "PRAGMA table_info(accounts)")
+	rows, err := db.QueryContext(context.Background(), "PRAGMA table_info(accounts)")
 	if err != nil {
 		t.Fatalf("PRAGMA table_info: %v", err)
 	}
@@ -210,13 +523,11 @@ func TestAccountsTable_SingleOwnerAfterDeactivationOK(t *testing.T) {
 		t.Fatalf("first owner: %v", err)
 	}
 
-	// Deactivate the first owner
 	_, err = db.ExecContext(ctx, `UPDATE accounts SET is_active = 0 WHERE id = '+5491100000000'`)
 	if err != nil {
 		t.Fatalf("deactivate first owner: %v", err)
 	}
 
-	// Second owner should now succeed
 	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'owner')`)
 	if err != nil {
 		t.Fatalf("second owner after deactivation should succeed, got: %v", err)
@@ -225,23 +536,19 @@ func TestAccountsTable_SingleOwnerAfterDeactivationOK(t *testing.T) {
 
 // TestAccountsTable_SingleOwnerReactivateRejected verifies the UPDATE trigger
 // rejects reactivating a deactivated owner when another active owner exists.
-// Covers: activation case (OLD.is_active=0 → NEW.is_active=1) with another active owner.
 func TestAccountsTable_SingleOwnerReactivateRejected(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
 	defer func() { _ = db.Close() }()
 
-	// First owner A (active)
 	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
 	if err != nil {
 		t.Fatalf("first owner: %v", err)
 	}
-	// Second owner B (deactivated)
 	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role, is_active) VALUES ('+5491100001111', 'owner', 0)`)
 	if err != nil {
 		t.Fatalf("inactive owner: %v", err)
 	}
-	// Try to reactivate B while A is still active — must be rejected
 	_, err = db.ExecContext(ctx, `UPDATE accounts SET is_active = 1 WHERE id = '+5491100001111'`)
 	if err == nil {
 		t.Fatal("expected trigger to reject reactivation of owner B while A is active, got nil")
@@ -252,24 +559,21 @@ func TestAccountsTable_SingleOwnerReactivateRejected(t *testing.T) {
 }
 
 // TestAccountsTable_SingleOwnerRoleChangeRejected verifies the UPDATE trigger
-// rejects changing an active non-owner row's role to 'owner' when another active
-// owner exists. Covers: role-change case (OLD.role != 'owner' AND NEW.role='owner').
+// rejects changing an active non-owner row's role to 'owner' when another
+// active owner exists.
 func TestAccountsTable_SingleOwnerRoleChangeRejected(t *testing.T) {
 	ctx := context.Background()
 	db := newTestDB(t)
 	defer func() { _ = db.Close() }()
 
-	// First owner A (active)
 	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
 	if err != nil {
 		t.Fatalf("first owner: %v", err)
 	}
-	// Active admin B
 	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'admin')`)
 	if err != nil {
 		t.Fatalf("admin B: %v", err)
 	}
-	// Try to change B's role to owner while A is active — must be rejected
 	_, err = db.ExecContext(ctx, `UPDATE accounts SET role = 'owner' WHERE id = '+5491100001111'`)
 	if err == nil {
 		t.Fatal("expected trigger to reject role change to owner, got nil")

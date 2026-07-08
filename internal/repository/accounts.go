@@ -336,15 +336,6 @@ func scanAccountRow(rows *sql.Rows) (*model.Account, error) {
 	return &a, nil
 }
 
-// isUniqueViolation checks if the error is a SQLite UNIQUE constraint violation.
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE constraint failed")
-}
-
 // isSingleOwnerViolation checks if the error is the SQLite single-owner trigger.
 func isSingleOwnerViolation(err error) bool {
 	if err == nil {

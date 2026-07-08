@@ -115,6 +115,8 @@ type CreateBookingResult struct {
 
 ### Task 1.1 — Rewrite `internal/db/database.go` to the 11-table schema
 
+- [x] Completed
+
 - **Files**:
   - `internal/db/database.go` (rewrite; ~150 LOC)
 - **Spec scenarios satisfied**:
@@ -160,9 +162,11 @@ type CreateBookingResult struct {
   - All 11 tables can be created via `initSchema(ctx, db)` on a fresh SQLite file
   - The 6 FTS sync triggers are created (see Task 1.2)
   - `foreign_keys=ON`, WAL mode and `_busy_timeout=5000` remain active
-  - [ ] `go mod tidy` ejecutado; `go-sqlmock` y `google/uuid` son dependencias directas (sin `// indirect`)
+   - [x] `go mod tidy` ejecutado; `go-sqlmock` y `google/uuid` son dependencias directas (sin `// indirect`)
 
 ### Task 1.2 — Add 6 FTS sync triggers to `database.go`
+
+- [x] Completed
 
 - **Files**:
   - `internal/db/database.go` (extend; ~30 LOC for the triggers)
@@ -178,19 +182,23 @@ type CreateBookingResult struct {
 
 ### Task 1.3 — Add `schema_version` table + initial INSERT
 
+- [x] Completed
+
 - **Files**:
   - `internal/db/database.go` (extend; ~5 LOC)
 - **Spec scenarios satisfied**:
   - `schema-version` "Multiple InitSchema Calls", "Schema Initialization Idempotency", "Version Tracking Reserved for Future Migrations"
 - **Implementation**:
   - CREATE TABLE `schema_version` per `schema-version` spec (y ver ADR-0006 Decisión 8)
-  - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 10 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
+  - At the end of the `initSchema` batch, INSERT `(version=1, description='initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')` — use `INSERT OR IGNORE` for idempotency
 - **Acceptance**:
   - After `initSchema`, exactly 1 row exists in `schema_version` with `version=1`
   - Re-running `initSchema` is a no-op (idempotent)
   - Partial-failure retry leaves DB eventually consistent
 
 ### Task 1.4 — Create 8 domain model files and update `internal/model/doc.go`
+
+- [x] Completed
 
 - **Files**:
   - `internal/model/business_profile.go` (~30 LOC)
@@ -213,6 +221,8 @@ type CreateBookingResult struct {
 
 ### Task 1.5 — Create `internal/repository/errors.go` (sentinels + SemanticError)
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/errors.go` (~50 LOC)
 - **Spec scenarios satisfied**:
@@ -229,6 +239,8 @@ type CreateBookingResult struct {
   - `repository` package does NOT import `internal/validation` (no circular dep, per ADR-0005)
 
 ### Task 1.6 — Add FTS trigger integration test in `internal/db/database_test.go`
+
+- [x] Completed
 
 - **Files**:
   - `internal/db/database_test.go` (NEW, ~100 LOC)
@@ -257,6 +269,8 @@ type CreateBookingResult struct {
 
 ### Task 2.1 — Implement `BusinessProfileRepo` with lazy-init
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/business_profile.go` (NEW, ~50 LOC)
   - `internal/repository/business_profile_test.go` (NEW, ~80 LOC)
@@ -281,6 +295,8 @@ type CreateBookingResult struct {
 
 ### Task 2.2 — Implement `ServicesRepo`
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/services.go` (NEW, ~50 LOC)
   - `internal/repository/services_test.go` (NEW, ~80 LOC)
@@ -294,6 +310,8 @@ type CreateBookingResult struct {
   - All scenarios pass; coverage ≥ 80%
 
 ### Task 2.3 — Implement `ClientsRepo`
+
+- [x] Completed
 
 - **Files**:
   - `internal/repository/clients.go` (NEW, ~60 LOC)
@@ -309,6 +327,8 @@ type CreateBookingResult struct {
   - All scenarios pass; coverage ≥ 80%
 
 ### Task 2.4 — Implement `BusinessHoursExceptionRepo`
+
+- [x] Completed
 
 - **Files**:
   - `internal/repository/business_hours_exception.go` (NEW, ~40 LOC)
