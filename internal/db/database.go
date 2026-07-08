@@ -1,9 +1,10 @@
 // Package db manages the SQLite database connection and schema lifecycle.
 //
-// The schema consists of 8 domain tables (per docs/PRD.md §3.7), 2 FTS5
-// virtual tables, 6 FTS sync triggers, 4 secondary indexes, and a
-// schema_version metadata table. All DDL is executed by initSchema, which
-// is idempotent (safe to call multiple times).
+// The schema consists of 8 domain tables (per docs/PRD.md §3.7) plus the
+// `accounts` authorization whitelist (PRD §3.8.2 / ADR-0009), 2 FTS5
+// virtual tables, 6 FTS sync triggers, 2 secondary indexes, 2 single-owner
+// triggers, and a schema_version metadata table. All DDL is executed by
+// initSchema, which is idempotent (safe to call multiple times).
 package db
 
 import (
@@ -69,13 +70,6 @@ func pragmaQuery() string {
 		parts[i] = "_pragma=" + p
 	}
 	return strings.Join(parts, "&")
-}
-
-// buildSharedCacheDSN returns a DSN for a shared-cache in-memory database
-// with the same pragma parameters as buildDSN. The name parameter is the
-// in-memory database identifier (e.g., from t.Name()).
-func buildSharedCacheDSN(name string) string {
-	return "file:" + name + "?mode=memory&cache=shared&" + pragmaQuery()
 }
 
 // NewDatabase opens the SQLite database at dbPath, verifies production
@@ -217,6 +211,7 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 	ddl = append(ddl, ftsTableDDL()...)
 	ddl = append(ddl, ftsTriggerDDL()...)
 	ddl = append(ddl, secondaryIndexDDL()...)
+	ddl = append(ddl, accountTriggerDDL()...)
 	ddl = append(ddl, seedDDL()...)
 
 	for _, stmt := range ddl {

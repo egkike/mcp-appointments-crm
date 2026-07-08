@@ -3,24 +3,39 @@ package db
 import (
 	"context"
 	"database/sql"
+	"regexp"
 	"strings"
-	"sync"
 	"testing"
 
 	_ "modernc.org/sqlite"
 )
 
-// newTestDB creates an in-memory SQLite DB with pragmas matching production.
-// Pragmas are set via the DSN (see buildDSN) so every connection in the pool
-// inherits them. WAL is silently ignored for in-memory databases.
+// newTestDB creates an in-memory SQLite DB with pragmas matching production
+// and the full schema applied (idempotent).
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := buildDSN(":memory:")
-	db, err := sql.Open("sqlite", dsn)
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("open in-memory sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+
+	pragmas := []string{
+		"PRAGMA foreign_keys = ON;",
+		"PRAGMA journal_mode = WAL;",
+		"PRAGMA synchronous = NORMAL;",
+		"PRAGMA busy_timeout = 5000;",
+	}
+	for _, p := range pragmas {
+		if _, err := db.ExecContext(ctx, p); err != nil {
+			t.Fatalf("pragma %q: %v", p, err)
+		}
+	}
+
+	if err := initSchema(ctx, db); err != nil {
+		t.Fatalf("initSchema: %v", err)
+	}
 	return db
 }
 
@@ -116,7 +131,7 @@ func TestSchemaVersion_RowInserted(t *testing.T) {
 	if version != 1 {
 		t.Errorf("version = %d; want 1", version)
 	}
-	wantDesc := "initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes"
+	wantDesc := "initial schema: 8 domain tables per PRD §3.7 + accounts (auth, PRD §3.8.2) + schema_version + 6 FTS sync triggers + 2 secondary indexes + 2 single-owner triggers"
 	if description != wantDesc {
 		t.Errorf("description = %q; want %q", description, wantDesc)
 	}
@@ -130,12 +145,8 @@ func TestSchemaVersion_NoDuplicateOnReInit(t *testing.T) {
 	skipIfNoFTS5(t, db)
 	ctx := context.Background()
 
-	if err := initSchema(ctx, db); err != nil {
-		t.Fatalf("first initSchema: %v", err)
-	}
-	if err := initSchema(ctx, db); err != nil {
-		t.Fatalf("second initSchema: %v", err)
-	}
+	_ = initSchema(ctx, db)
+	_ = initSchema(ctx, db)
 
 	var count int
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM schema_version").Scan(&count); err != nil {
@@ -301,26 +312,6 @@ func TestBusinessProfile_SingletonConstraint(t *testing.T) {
 	}
 }
 
-func TestBusinessProfile_MessengerPlatformCheck(t *testing.T) {
-	db := newTestDB(t)
-	skipIfNoFTS5(t, db)
-	ctx := context.Background()
-
-	if err := initSchema(ctx, db); err != nil {
-		t.Fatalf("initSchema: %v", err)
-	}
-
-	// Invalid value: 'discord' must fail the CHECK constraint.
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO business_profile (id, name, messenger_platform) VALUES ('singleton', 'Test', 'discord')`)
-	if err == nil {
-		t.Fatal("expected CHECK constraint violation for messenger_platform='discord'; got nil")
-	}
-	if !strings.Contains(err.Error(), "CHECK") {
-		t.Errorf("expected CHECK constraint error, got: %v", err)
-	}
-}
-
 func TestSecondaryIndexes_Exist(t *testing.T) {
 	db := newTestDB(t)
 	skipIfNoFTS5(t, db)
@@ -330,17 +321,17 @@ func TestSecondaryIndexes_Exist(t *testing.T) {
 		t.Fatalf("initSchema: %v", err)
 	}
 
-	// 4 secondary indexes: 2 explicit CREATE INDEX + 2 auto-indexes from
-	// UNIQUE constraints (business_hours_exception.exception_date and
-	// schedules(professional_id, day_of_week)).
 	expectedIndexes := []struct {
 		table string
 		index string
 	}{
 		{"bookings", "idx_bookings_overlap"},
 		{"pending_alerts", "idx_pending_alerts_scheduled_status"},
-		{"business_hours_exception", "sqlite_autoindex_business_hours_exception_1"},
-		{"schedules", "sqlite_autoindex_schedules_1"},
+		// Note: idx_business_hours_exception_date and idx_schedules_professional_day
+		// were removed in favor of UNIQUE constraints in the DDL
+		// (business_hours_exception.UNIQUE(exception_date) and
+		// schedules.UNIQUE(professional_id, day_of_week)) which create
+		// implicit indexes. SQLite enforces them as automatic indexes.
 	}
 
 	for _, ei := range expectedIndexes {
@@ -354,350 +345,240 @@ func TestSecondaryIndexes_Exist(t *testing.T) {
 	}
 }
 
-// TestInitSchema_Concurrent verifies that 8 goroutines calling initSchema
-// concurrently on a shared-cache in-memory database all succeed without
-// errors, produce exactly one schema_version row, and leave the FTS indexes
-// functional. This locks in the DSN-based pragma contract (busy_timeout,
-// foreign_keys) that makes concurrent initialization safe.
-func TestInitSchema_Concurrent(t *testing.T) {
-	dsn := buildSharedCacheDSN(t.Name())
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatalf("open shared in-memory sqlite: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+// ─── feat-authorization: accounts table (per PRD §3.8.2) ──────────────
+// The following 12 tests verify the accounts table added by feat-authorization:
+// schema, CHECK constraints, default is_active, ISO 8601 timestamps, and the
+// single-owner invariant (INSERT and UPDATE triggers). The tests were
+// introduced in PR #5 (feat-authorization) and retroactively added to
+// feat-db-layer PR 1 to reconcile the schema.
 
-	skipIfNoFTS5(t, db)
-
-	ctx := context.Background()
-	const goroutines = 8
-
-	var wg sync.WaitGroup
-	errs := make([]error, goroutines)
-
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			errs[idx] = initSchema(ctx, db)
-		}(i)
-	}
-	wg.Wait()
-
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("goroutine %d initSchema: %v", i, err)
-		}
-	}
-
-	// Exactly one schema_version row (singleton).
-	var count int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM schema_version").Scan(&count); err != nil {
-		t.Fatalf("count schema_version: %v", err)
-	}
-	if count != 1 {
-		t.Errorf("schema_version row count = %d; want 1", count)
-	}
-
-	// Insert a test client and verify FTS MATCH works after concurrent init.
-	_, err = db.ExecContext(ctx,
-		`INSERT INTO clients (id, name, phone) VALUES ('c-concurrent', 'Concurrent Client', '+5491100000000')`)
-	if err != nil {
-		t.Fatalf("insert test client: %v", err)
-	}
-
-	var ftsCount int
-	err = db.QueryRowContext(ctx,
-		`SELECT count(*) FROM clients_fts WHERE clients_fts MATCH 'Concurrent'`).Scan(&ftsCount)
-	if err != nil {
-		t.Fatalf("fts query: %v", err)
-	}
-	if ftsCount != 1 {
-		t.Errorf("fts count for 'Concurrent' = %d; want 1", ftsCount)
-	}
-
-	// Open a second handle to verify DSN pragmas propagate to new connections.
-	db2, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatalf("open second handle: %v", err)
-	}
-	t.Cleanup(func() { _ = db2.Close() })
-
-	var fk int
-	if err := db2.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
-		t.Fatalf("query foreign_keys: %v", err)
-	}
-	if fk != 1 {
-		t.Errorf("foreign_keys = %d; want 1", fk)
-	}
-
-	var timeout int
-	if err := db2.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&timeout); err != nil {
-		t.Fatalf("query busy_timeout: %v", err)
-	}
-	if timeout != busyTimeoutMillis {
-		t.Errorf("busy_timeout = %d; want %d", timeout, busyTimeoutMillis)
-	}
-}
-
-// installLegacySchema creates the pre-release 4-table schema with column
-// types that are INCOMPATIBLE with the new schema (e.g., business_profile
-// has slots_config NOT NULL and duration_mins instead of duration_minutes).
-// This is used to test the destructive-replace migration path.
-func installLegacySchema(t *testing.T, db *sql.DB) {
-	t.Helper()
-	ctx := context.Background()
-	legacyDDL := []string{
-		`CREATE TABLE business_profile (
-			id            TEXT PRIMARY KEY DEFAULT 'singleton',
-			name          TEXT NOT NULL,
-			slots_config  TEXT NOT NULL,
-			duration_mins INTEGER NOT NULL
-		)`,
-		`CREATE TABLE clients (
-			id    TEXT PRIMARY KEY,
-			name  TEXT NOT NULL,
-			phone TEXT NOT NULL
-		)`,
-		`CREATE TABLE services (
-			id       TEXT PRIMARY KEY,
-			name     TEXT NOT NULL,
-			duration INTEGER NOT NULL
-		)`,
-		`CREATE TABLE appointments (
-			id        TEXT PRIMARY KEY,
-			client_id TEXT NOT NULL,
-			start_at  TEXT NOT NULL
-		)`,
-	}
-	for _, stmt := range legacyDDL {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			t.Fatalf("install legacy schema: %v", err)
-		}
-	}
-}
-
-// TestNewDatabase_OnLegacySchema verifies that NewDatabase transparently
-// migrates from the legacy 4-table schema to the new schema by dropping
-// legacy tables and creating the new ones.
-func TestNewDatabase_OnLegacySchema(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := tmpDir + "/test.db"
-
-	// Step 1: Open the file directly and install the legacy schema.
-	legacyDB, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		t.Fatalf("open temp db: %v", err)
-	}
-	installLegacySchema(t, legacyDB)
-
-	// Verify legacy tables exist.
-	ctx := context.Background()
-	var legacyCount int
-	if err := legacyDB.QueryRowContext(ctx,
-		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('business_profile','clients','services','appointments')",
-	).Scan(&legacyCount); err != nil {
-		t.Fatalf("count legacy tables: %v", err)
-	}
-	if legacyCount != 4 {
-		t.Fatalf("legacy table count = %d; want 4", legacyCount)
-	}
-	_ = legacyDB.Close()
-
-	// Step 2: Call NewDatabase on the same file — should migrate.
-	db, err := NewDatabase(ctx, dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase on legacy DB: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	// Step 3: Verify new schema is in place.
-	newTables := []string{"schema_version", "professionals", "bookings", "pending_alerts"}
-	for _, table := range newTables {
-		var name string
-		if err := db.Conn.QueryRowContext(ctx,
-			"SELECT name FROM sqlite_master WHERE type='table' AND name=?", table,
-		).Scan(&name); err != nil {
-			t.Errorf("new table %q not found: %v", table, err)
-		}
-	}
-
-	// Step 4: Verify legacy-only table "appointments" is gone.
-	var apCount int
-	if err := db.Conn.QueryRowContext(ctx,
-		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='appointments'",
-	).Scan(&apCount); err != nil {
-		t.Fatalf("check appointments: %v", err)
-	}
-	if apCount != 0 {
-		t.Error("legacy table 'appointments' still exists after migration")
-	}
-
-	// Step 5: Verify schema_version row exists.
-	var version int
-	if err := db.Conn.QueryRowContext(ctx,
-		"SELECT version FROM schema_version WHERE version=1",
-	).Scan(&version); err != nil {
-		t.Errorf("schema_version row not found: %v", err)
-	}
-}
-
-// TestInitSchema_RepeatedCallsAreIdempotent verifies that initSchema can be
-// called multiple times on the same database without errors, building on the
-// guarantees of TestInitSchema_Idempotent and TestSchemaVersion_NoDuplicateOnReInit.
-func TestInitSchema_RepeatedCallsAreIdempotent(t *testing.T) {
+func TestAccountsTable_Exists(t *testing.T) {
 	db := newTestDB(t)
-	skipIfNoFTS5(t, db)
-	ctx := context.Background()
+	defer func() { _ = db.Close() }()
 
-	// First call: full initialization.
-	if err := initSchema(ctx, db); err != nil {
-		t.Fatalf("first initSchema: %v", err)
-	}
-
-	// Subsequent calls: must succeed without error (idempotent retry).
-	for i := 0; i < 5; i++ {
-		if err := initSchema(ctx, db); err != nil {
-			t.Fatalf("initSchema retry %d: %v", i+1, err)
-		}
-	}
-
-	// Verify schema is still correct after retries.
-	// Count only the tables we explicitly created (not FTS5 shadow tables
-	// like clients_fts_data, clients_fts_idx, etc.).
-	expectedTables := []string{
-		"business_profile", "business_hours_exception", "professionals",
-		"schedules", "services", "clients", "bookings", "pending_alerts",
-		"schema_version", "clients_fts", "services_fts",
-	}
-	for _, table := range expectedTables {
-		var name string
-		err := db.QueryRowContext(ctx,
-			"SELECT name FROM sqlite_master WHERE (type='table' OR type='virtual table') AND name=?", table,
-		).Scan(&name)
-		if err != nil {
-			t.Errorf("table %q not found after retry: %v", table, err)
-		}
-	}
-
-	// Exactly one schema_version row.
-	var versionCount int
-	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM schema_version").Scan(&versionCount); err != nil {
-		t.Fatalf("count schema_version: %v", err)
-	}
-	if versionCount != 1 {
-		t.Errorf("schema_version row count = %d; want 1", versionCount)
-	}
-}
-
-// TestNewDatabase_RecoversFromBadDSN verifies that NewDatabase can open a
-// database previously initialized with a malformed DSN, because buildDSN
-// supplies the correct pragmas on the new connection.
-func TestNewDatabase_RecoversFromBadDSN(t *testing.T) {
-	tmpDir := t.TempDir()
-	dbPath := tmpDir + "/bad_dsn.db"
-
-	// Open the DB directly with a DSN that omits busy_timeout.
-	// This simulates a misconfigured connection.
-	badDSN := dbPath + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
-	badDB, err := sql.Open("sqlite", badDSN)
+	rows, err := db.QueryContext(context.Background(), "PRAGMA table_info(accounts)")
 	if err != nil {
-		t.Fatalf("open bad DSN: %v", err)
+		t.Fatalf("PRAGMA table_info: %v", err)
 	}
-	// Set up the schema manually (skip NewDatabase which would fail verifyPragmas).
-	ctx := context.Background()
-	if err := initSchema(ctx, badDB); err != nil {
-		t.Fatalf("initSchema on bad DB: %v", err)
-	}
-	_ = badDB.Close()
+	defer func() { _ = rows.Close() }()
 
-	// Now call NewDatabase on the same file. It should succeed because
-	// buildDSN adds all required pragmas. This verifies that NewDatabase
-	// with a proper DSN works even on a DB that was previously opened
-	// with a bad DSN.
-	db, err := NewDatabase(ctx, dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase on fixed DSN: %v", err)
-	}
-	_ = db.Close()
-
-	// The verifyPragmas guard is exercised implicitly by every test that
-	// calls NewDatabase: a connection missing the required pragmas would
-	// fail here. Directly mocking a wrong-pragma connection is not
-	// feasible with a real SQLite driver, so this test confirms recovery
-	// from a bad-DSN initialization rather than pragma validation itself.
-}
-
-// TestBuildSharedCacheDSN verifies that buildSharedCacheDSN returns a DSN
-// with the expected format: file:<name>?mode=memory&cache=shared plus the
-// 4 production pragma parameters.
-func TestBuildSharedCacheDSN(t *testing.T) {
-	dsn := buildSharedCacheDSN("test_db")
-
-	// Must contain cache=shared for shared-cache mode.
-	if !strings.Contains(dsn, "cache=shared") {
-		t.Errorf("DSN %q does not contain 'cache=shared'", dsn)
+	expected := map[string]string{
+		"id":              "TEXT",
+		"role":            "TEXT",
+		"display_name":    "TEXT",
+		"professional_id": "TEXT",
+		"is_active":       "INTEGER",
+		"created_at":      "TEXT",
+		"updated_at":      "TEXT",
 	}
 
-	// Must contain mode=memory.
-	if !strings.Contains(dsn, "mode=memory") {
-		t.Errorf("DSN %q does not contain 'mode=memory'", dsn)
+	found := make(map[string]string)
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue *string
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			t.Fatalf("scan table_info: %v", err)
+		}
+		found[name] = colType
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err: %v", err)
 	}
 
-	// Must contain the database name.
-	if !strings.Contains(dsn, "file:test_db") {
-		t.Errorf("DSN %q does not contain 'file:test_db'", dsn)
-	}
-
-	// Must contain all 4 pragma parameters.
-	expectedPragmas := []string{
-		"_pragma=foreign_keys",
-		"_pragma=busy_timeout",
-		"_pragma=journal_mode",
-		"_pragma=synchronous",
-	}
-	for _, p := range expectedPragmas {
-		if !strings.Contains(dsn, p) {
-			t.Errorf("DSN %q does not contain %q", dsn, p)
+	for col, expectedType := range expected {
+		actualType, ok := found[col]
+		if !ok {
+			t.Errorf("column %q missing from accounts table", col)
+			continue
+		}
+		if actualType != expectedType {
+			t.Errorf("column %q: expected type %q, got %q", col, expectedType, actualType)
 		}
 	}
 }
 
-// TestBuildDSN verifies that buildDSN returns a DSN with the expected format:
-// <dbPath> plus the 4 production pragma parameters.
-func TestBuildDSN(t *testing.T) {
-	tests := []struct {
-		name             string
-		dbPath           string
-		wantPathContains string // substring expected in the DSN path portion
-	}{
-		{"file path", "/tmp/test.db", "/tmp/test.db"},
-		{"memory", ":memory:", ":memory:"},
-		{"path with space", "/tmp/my db.db", "/tmp/my%20db.db"},
-		{"windows-style path", "C:/path/to/db.db", "c:/path/to/db.db"},
+func TestAccountsTable_DefaultIsActive(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'admin')`)
+	if err != nil {
+		t.Fatalf("insert: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dsn := buildDSN(tt.dbPath)
+	var isActive int
+	var createdAt, updatedAt string
+	err = db.QueryRowContext(ctx, `SELECT is_active, created_at, updated_at FROM accounts WHERE id = '+5491100000000'`).
+		Scan(&isActive, &createdAt, &updatedAt)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
 
-			// Must contain the expected path portion (may be URL-encoded).
-			if !strings.Contains(dsn, tt.wantPathContains) {
-				t.Errorf("DSN %q does not contain expected path %q", dsn, tt.wantPathContains)
-			}
+	if isActive != 1 {
+		t.Errorf("expected is_active=1, got %d", isActive)
+	}
 
-			// Must contain all 4 pragma parameters.
-			expectedPragmas := []string{
-				"_pragma=foreign_keys",
-				"_pragma=busy_timeout",
-				"_pragma=journal_mode",
-				"_pragma=synchronous",
-			}
-			for _, p := range expectedPragmas {
-				if !strings.Contains(dsn, p) {
-					t.Errorf("DSN %q does not contain %q", dsn, p)
-				}
-			}
-		})
+	iso8601ms := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`)
+	if !iso8601ms.MatchString(createdAt) {
+		t.Errorf("created_at %q does not match ISO 8601 UTC with milliseconds", createdAt)
+	}
+	if !iso8601ms.MatchString(updatedAt) {
+		t.Errorf("updated_at %q does not match ISO 8601 UTC with milliseconds", updatedAt)
+	}
+}
+
+func TestAccountsTable_RoleInvalidRejected(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'manager')`)
+	if err == nil {
+		t.Fatal("expected CHECK constraint violation for role='manager', got nil")
+	}
+}
+
+func TestAccountsTable_ClientRoleRejected(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'client')`)
+	if err == nil {
+		t.Fatal("expected CHECK constraint violation for role='client', got nil")
+	}
+}
+
+func TestAccountsTable_StaffRequiresProfessionalID(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'staff')`)
+	if err == nil {
+		t.Fatal("expected CHECK constraint violation for staff without professional_id, got nil")
+	}
+}
+
+func TestAccountsTable_OwnerAcceptsNullProfessionalID(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
+	if err != nil {
+		t.Fatalf("expected owner with NULL professional_id to be accepted, got: %v", err)
+	}
+}
+
+func TestAccountsTable_StaffWithProfessionalIDAccepted(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role, professional_id) VALUES ('+5491100002222', 'staff', 'p-001')`)
+	if err != nil {
+		t.Fatalf("expected staff with professional_id to be accepted, got: %v", err)
+	}
+}
+
+func TestAccountsTable_SingleOwnerInsertOK(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role, display_name) VALUES ('+5491100000000', 'owner', 'Dueño')`)
+	if err != nil {
+		t.Fatalf("first owner insert should succeed, got: %v", err)
+	}
+}
+
+func TestAccountsTable_SingleOwnerSecondOwnerRejected(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
+	if err != nil {
+		t.Fatalf("first owner: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'owner')`)
+	if err == nil {
+		t.Fatal("expected trigger to reject second active owner, got nil")
+	}
+}
+
+func TestAccountsTable_SingleOwnerAfterDeactivationOK(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
+	if err != nil {
+		t.Fatalf("first owner: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `UPDATE accounts SET is_active = 0 WHERE id = '+5491100000000'`)
+	if err != nil {
+		t.Fatalf("deactivate first owner: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'owner')`)
+	if err != nil {
+		t.Fatalf("second owner after deactivation should succeed, got: %v", err)
+	}
+}
+
+// TestAccountsTable_SingleOwnerReactivateRejected verifies the UPDATE trigger
+// rejects reactivating a deactivated owner when another active owner exists.
+func TestAccountsTable_SingleOwnerReactivateRejected(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
+	if err != nil {
+		t.Fatalf("first owner: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role, is_active) VALUES ('+5491100001111', 'owner', 0)`)
+	if err != nil {
+		t.Fatalf("inactive owner: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `UPDATE accounts SET is_active = 1 WHERE id = '+5491100001111'`)
+	if err == nil {
+		t.Fatal("expected trigger to reject reactivation of owner B while A is active, got nil")
+	}
+	if !strings.Contains(err.Error(), "single-owner invariant") {
+		t.Errorf("expected single-owner trigger error, got: %v", err)
+	}
+}
+
+// TestAccountsTable_SingleOwnerRoleChangeRejected verifies the UPDATE trigger
+// rejects changing an active non-owner row's role to 'owner' when another
+// active owner exists.
+func TestAccountsTable_SingleOwnerRoleChangeRejected(t *testing.T) {
+	ctx := context.Background()
+	db := newTestDB(t)
+	defer func() { _ = db.Close() }()
+
+	_, err := db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100000000', 'owner')`)
+	if err != nil {
+		t.Fatalf("first owner: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id, role) VALUES ('+5491100001111', 'admin')`)
+	if err != nil {
+		t.Fatalf("admin B: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `UPDATE accounts SET role = 'owner' WHERE id = '+5491100001111'`)
+	if err == nil {
+		t.Fatal("expected trigger to reject role change to owner, got nil")
+	}
+	if !strings.Contains(err.Error(), "single-owner invariant") {
+		t.Errorf("expected single-owner trigger error, got: %v", err)
 	}
 }

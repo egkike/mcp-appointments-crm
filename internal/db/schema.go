@@ -3,7 +3,7 @@
 package db
 
 // domainTableDDL returns CREATE TABLE statements for the 8 PRD domain tables
-// plus schema_version.
+// plus the feat-authorization `accounts` whitelist and schema_version.
 func domainTableDDL() []string {
 	return []string{
 		`CREATE TABLE IF NOT EXISTS business_profile (
@@ -118,6 +118,19 @@ func domainTableDDL() []string {
 			CHECK (status IN ('pending', 'sent', 'cancelled'))
 		)`,
 
+		// feat-authorization: accounts whitelist for owner/admin/staff
+		// per PRD §3.8.2 and ADR-0009. Clients are NOT in this table.
+		`CREATE TABLE IF NOT EXISTS accounts (
+			id              TEXT PRIMARY KEY,
+			role            TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'staff')),
+			display_name    TEXT,
+			professional_id TEXT,
+			is_active       INTEGER NOT NULL DEFAULT 1,
+			created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+			CHECK ((role = 'staff' AND professional_id IS NOT NULL) OR (role IN ('admin', 'owner')))
+		)`,
+
 		`CREATE TABLE IF NOT EXISTS schema_version (
 			version      INTEGER PRIMARY KEY,
 			applied_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -197,10 +210,40 @@ func secondaryIndexDDL() []string {
 	}
 }
 
+// accountTriggerDDL returns the 2 BEFORE triggers for the feat-authorization
+// `accounts` table that enforce the single-owner invariant at the DB layer
+// (defense-in-depth with the AccountsRepo.Create / .Update pre-check).
+func accountTriggerDDL() []string {
+	return []string{
+		// INSERT: reject a second active owner at insert time.
+		`CREATE TRIGGER IF NOT EXISTS accounts_single_owner_insert
+			BEFORE INSERT ON accounts
+			WHEN NEW.role = 'owner' AND NEW.is_active = 1
+			 AND (SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1) >= 1
+		BEGIN
+			SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed');
+		END`,
+
+		// UPDATE: covers BOTH activation (OLD.is_active=0 → NEW.is_active=1)
+		// and role-change-into-owner (OLD.role != 'owner' → NEW.role='owner')
+		// cases. id != NEW.id prevents self-rejection when updating an
+		// existing active owner (no role/status change).
+		`CREATE TRIGGER IF NOT EXISTS accounts_single_owner_update
+			BEFORE UPDATE ON accounts
+			WHEN NEW.role = 'owner' AND NEW.is_active = 1
+			 AND (OLD.role != 'owner' OR OLD.is_active = 0)
+			 AND (SELECT COUNT(*) FROM accounts
+			      WHERE role = 'owner' AND is_active = 1 AND id != NEW.id) >= 1
+		BEGIN
+			SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed');
+		END`,
+	}
+}
+
 // seedDDL returns the initial INSERT statement for schema_version (version 1).
 func seedDDL() []string {
 	return []string{
 		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
-			(1, 'initial schema: 8 domain tables per PRD §3.7 + schema_version + 6 FTS sync triggers + 4 secondary indexes')`,
+			(1, 'initial schema: 8 domain tables per PRD §3.7 + accounts (auth, PRD §3.8.2) + schema_version + 6 FTS sync triggers + 2 secondary indexes + 2 single-owner triggers')`,
 	}
 }
