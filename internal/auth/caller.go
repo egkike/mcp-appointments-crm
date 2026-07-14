@@ -1,15 +1,16 @@
-// Package auth provides authentication and authorization primitives for the
-// MCP server. This file contains the Caller value type and context propagation
-// helpers used by the middleware (PR 2) and by repositories for audit logging.
 package auth
 
 import "context"
 
-// Role constants for the authorization model.
+// Canonical role names for the authorization model.
 const (
-	RoleOwner  = "owner"
-	RoleAdmin  = "admin"
-	RoleStaff  = "staff"
+	// RoleOwner is the role assigned to the single owner of the system.
+	RoleOwner = "owner"
+	// RoleAdmin is the role for administrative staff (subset of owner powers).
+	RoleAdmin = "admin"
+	// RoleStaff is the role for service professionals.
+	RoleStaff = "staff"
+	// RoleClient is the role for end customers, identified by presence in the clients table.
 	RoleClient = "client"
 )
 
