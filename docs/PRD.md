@@ -635,6 +635,40 @@ WHERE NOT EXISTS (
 
 Si `RowsAffected() == 0`, el insert no ocurrió porque existe un overlap. El repositorio retorna `&SemanticError{Code: ErrCodeBookingOverlap, Message: "el Profesional {name} ya tiene una reserva de {a} a {b}."}`.
 
+##### Paso 4b — `reschedule_booking` (atomic UPDATE con disambiguation)
+
+`reschedule_booking` sigue la **misma filosofía de atomic overlap check** que `create_booking`, pero vía `UPDATE ... WHERE NOT EXISTS` en lugar de `INSERT ... WHERE NOT EXISTS`:
+
+```sql
+UPDATE bookings
+SET start_datetime = ?, end_datetime = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE id = ?
+  AND status != 'cancelled'
+  AND NOT EXISTS (
+    SELECT 1 FROM bookings
+    WHERE id != ?
+      AND professional_id = ?
+      AND status != 'cancelled'
+      AND start_datetime < ?
+      AND end_datetime   > ?
+  );
+```
+
+La **bypass assumption** es la misma que en `create_booking`: no se ejecutan 3a/3b/3c/3e — solo el overlap atómico (3d). Las validaciones de negocio deben correr vía `check_availability` antes de llamar a `reschedule_booking`.
+
+**Disambiguation de `RowsAffected() == 0`**: a diferencia de `create_booking` (donde `rowsAffected==0` solo puede ser overlap), en `reschedule_booking` el resultado puede deberse a tres causas distintas:
+
+1. **True overlap** con otra reserva no cancelada del mismo profesional → `&SemanticError{Code: ErrCodeBookingOverlap}`.
+2. **Cancelación concurrente**: otro caller canceló la reserva entre el `SELECT` previo y este `UPDATE` (el `WHERE status != 'cancelled'` ya no matchea) → `&SemanticError{Code: ErrCodeInvalidInput, Message: "no se puede reprogramar una reserva cancelada"}`.
+3. **Borrado concurrente**: la reserva fue borrada entre el `SELECT` y el `UPDATE` (la fila ya no existe) → `&SemanticError{Code: ErrNotFound, Message: "reprogramar reserva %s: resource not found"}`.
+
+Para diferenciar (2) y (3) de (1), el repositorio ejecuta un `SELECT status FROM bookings WHERE id = ?` **después** del `UPDATE` cuando `rowsAffected == 0`:
+- Si la fila ya no existe (sql.ErrNoRows) → caso (3) `ErrCodeNotFound`.
+- Si el status es `cancelled` → caso (2) `ErrCodeInvalidInput`.
+- Si el status es `pending` o `confirmed` → caso (1) `ErrCodeBookingOverlap`.
+
+Este disambiguation pattern está implementado en `internal/repository/bookings.go` (líneas 407-430) y testeado con 3 subtests (overlap, cancelación concurrente, borrado concurrente).
+
 ##### Paso 5 — Generar alerta pendiente
 
 ```sql
@@ -747,22 +781,34 @@ type Caller struct {
 // Middleware
 ctx = auth.WithCaller(ctx, caller)
 
-// Repositorio
-func (r *BookingsRepo) ListBookings(ctx context.Context) ([]*model.Booking, error) {
+// Repositorio (ejemplo de GetBooking con dynamic WHERE auth — ver §3.7.13)
+func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Booking, error) {
     caller, ok := auth.FromContext(ctx)
     if !ok {
         return nil, ErrUnauthenticated
     }
+    query := `SELECT ... FROM bookings WHERE id = ?`
+    args := []any{id}
     switch caller.Role {
     case "owner", "admin":
-        return r.listAll(ctx)
+        // no extra filter — ven todo
     case "staff":
-        return r.listByProfessional(ctx, *caller.ProfessionalID)
+        if caller.ProfessionalID == nil {
+            return nil, ErrUnauthenticated
+        }
+        query += ` AND professional_id = ?`
+        args = append(args, *caller.ProfessionalID)
     case "client":
-        return r.listByClient(ctx, *caller.ClientID)
+        if caller.ClientID == nil {
+            return nil, ErrUnauthenticated
+        }
+        query += ` AND client_id = ?`
+        args = append(args, *caller.ClientID)
     default:
         return nil, fmt.Errorf("rol desconocido: %s", caller.Role)
     }
+    // Cross-tenant y no-existente colapsan ambos a ErrNotFound (no oracle)
+    return r.queryOne(ctx, query, args...)
 }
 ```
 
@@ -789,12 +835,17 @@ Un LLM (Hermes) comprometido o mal configurado **no puede escalar a admin** porq
 
 #### 3.8.7 Orden de implementación
 
-La capa de autorización se implementa como un **change SDD separado** (`feat-authorization`) **antes** de los PRs complejos de `feat-db-layer` (sobre todo antes de PR 3, que expone datos de staff y clients via `check_availability`). El orden propuesto:
+La capa de autorización se implementa como un **change SDD separado** (`feat-authorization`) **antes** de los PRs complejos de `feat-db-layer` (sobre todo antes de PR 3, que expone datos de staff y clients via `check_availability`).
 
-1. **`feat-authorization`** (Fase 0) — schema, repo, middleware, integración con el flujo MCP
-2. **`feat-db-layer` PR 1a + PR 1b + PR 2** (ya mergeados en el tracker)
-3. **`feat-db-layer` PR 3** (Bookings + CheckAvailability) — ahora con la capa de auth integrada
-4. **Fase 2+** (handlers MCP, TUI menú operacional con seed del owner)
+**Estado al 2026-07-16:**
+
+1. ✅ **`feat-authorization`** (Fase 0) — schema, repo (`internal/auth/`), middleware (`AuthMiddleware`), integración con el flujo MCP. Mergeado en main como PR #8 (commit `c235ed5 feat(auth): add auth primitives`).
+2. ✅ **`feat-db-layer` PR 1 + PR 2** — schema de 10 tablas + 5 repos simples (`accounts`, `business_profile`, `services`, `clients`, `business_hours_exception`). Mergeado en main como PR #7 (commit `2c1ffd8 feat(db-layer): integrate PR 1 + PR 2 + feat-authorization reconciliation`).
+3. ✅ **`feat-db-layer` PR 3a** — 5 repos complejos con `auth.Caller` integration (`professionals`, `schedules`, `pending_alerts`, `bookings`, `datetime` helpers + `auth_helpers`). Mergeado en main como PR #9 (commit `1fc3eb1 feat(repository): add 5 repos with auth.Caller wiring`).
+4. ⏳ **`feat-db-layer` PR 3b** — `BookingsRepo.CheckAvailability` (5-step chain, §3.7.13). Pendiente. Cuando mergee, la Fase 1 queda cerrada.
+5. **Fase 2+** (handlers MCP, TUI menú operacional con seed del owner)
+
+**Nota sobre la integración de auth en repos de PR 2:** los 5 repos de PR 1+2 fueron escritos antes de que `feat-authorization` estuviera mergeado, por lo que 3 de ellos (`services`, `clients`, `business_hours_exception`) aún **no tienen `auth.Caller` wiring**. Solo `accounts` (PR 1) y los 4 repos de PR 3a lo tienen integrado. Un change de follow-up `feat-repository-auth-integration` está planeado para cerrar esta deuda antes de Fase 2 (cuando los handlers MCP empiecen a invocar los métodos de los repos de PR 2).
 
 ### 3.8.8 TUI menú operacional (Fase 2+)
 
@@ -1102,6 +1153,20 @@ Override con otro caller_id (debug):
 - [ ] `golangci-lint run ./...` pasa
 - [ ] Aprobado en code review + pasa CI
 
+**Estado al 2026-07-16** (3 de 3 PRs mergeados, fase en cierre):
+
+- ✅ **PR 1** (foundation: schema 10-tablas + 8 models + sentinels + FTS5 integration test) — mergeado en main como parte de PR #7 (commit `2c1ffd8`).
+- ✅ **PR 2** (4 repos simples: `BusinessProfile`, `Services`, `Clients`, `BusinessHoursException`) — mergeado en main como parte de PR #7.
+- ✅ **PR 3a** (4 repos complejos con `auth.Caller` integration: `Professionals`, `Schedules`, `PendingAlerts`, `Bookings` + `datetime` helpers) — mergeado en main como PR #9 (commit `1fc3eb1`).
+- ⏳ **PR 3b** (`BookingsRepo.CheckAvailability` — 5-step chain §3.7.13) — **pendiente**. Cuando mergee, la Fase 1 queda cerrada. PR 3b ya está planeado: branch `feat/feat-db-layer-apply-pr3b` desde main, ~220 LOC, single dominant lens reliability, 10 scenarios como subtests.
+
+**Stats actuales de Fase 1** (post PR 3a, antes de 3b):
+- 9 repos implementados (de 10 totales — falta `BookingsRepo.CheckAvailability`)
+- 407 tests passing, 88.7% coverage en `internal/repository`
+- 16 archivos modificados en PR 3a, 3666 insertions
+- 4 bounded corrections aplicadas durante el review 4R (atomic overlap guards, dynamic WHERE auth, fail-secure nil checks, contract drift fixes)
+- Final review lineage: `review-87f235a54c011761`, `state: approved`
+
 ### Fase 2: mcp-server-core (Estimación: L)
 
 **Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía SSE en `127.0.0.1:3000`. **Además, integrar la capa de `auth` (incluye el middleware HTTP con el header `X-Caller-Id`)** y el **TUI menú operacional** (sub-comando `mcp-appointments-crm admin tui` para gestión de cuentas admin/staff/owner — ver §3.8.8).
@@ -1261,3 +1326,4 @@ Override con otro caller_id (debug):
 | 2026-06-29 | 1.3 | Kike | ADR-0009: refinamiento operacional del modelo de auth. Nuevo rol `owner` (con permisos de `admin` + capacidad exclusiva de crear/eliminar otros admins); single-owner invariant enforced a nivel DB via trigger SQLite + repo check. Soft delete via `Deactivate(ctx, id)` reemplaza hard delete (preserva historia). Audit log MUST via `*slog.Logger` estructurado en `Create`/`Deactivate`/`Update` (operaciones críticas). Nueva §3.8.8 "TUI menú operacional" — sub-comando `mcp-appointments-crm admin tui` (Fase 2+, otro proceso, no invocable por el LLM; defense-in-depth). Seed del owner movido a TUI menú (Fase 2). `install.sh` ya no crea la fila del owner; el operador la crea vía `mcp-appointments-crm admin tui` en la primera configuración. Fase 2 ampliada para incluir el TUI menú. |
 | 2026-06-29 | 1.4 | Kike | ADR-0011: owner/admin/staff que también son clientes del negocio (mismo phone, doble rol). El `CallerResolver` ejecuta 2 queries cuando la cuenta existe en `accounts` (popular el `ClientID` desde `clients`). Permite que el dueño se corte el pelo en su propia peluquería sin fricción. Defense-in-depth intacta: el `Role` del `Caller` (no el `ClientID`) determina los permisos. Setup vía TUI menú "Add Yourself as Client" (Fase 2+). Nueva subsección en §3.8.8 documenta el caso. |
 | 2026-06-29 | 1.5 | Kike | ADR-0012: segundo canal de comunicación — el Chat nativo de Hermes (local CLI/IDE), además del bot de WhatsApp/Telegram. El TUI menú guarda el `X-Caller-Id` del owner en `~/.config/mcp-appointments-crm/caller-id` durante el seed (Fase 2). El Chat es sub-comando del binario (`mcp-appointments-crm hermes chat`), corre en la VPS, se conecta al MCP server en loopback. Override con `MCP_CALLER_ID` env var (debug, multi-user). Defense-in-depth: admin del OS (SSH) sigue siendo el gatekeeper; el LLM no puede falsificar el caller_id. Nueva subsección §3.8.9 documenta el caso. |
+| 2026-07-16 | 1.6 | Kike | PR 3a de `feat-db-layer` mergeado en main (commit `1fc3eb1`, PR #9): 5 repos nuevos con `auth.Caller` integration (`Professionals`, `Schedules`, `PendingAlerts`, `Bookings` + `datetime` helpers + `auth_helpers`). `BookingsRepo.RescheduleBooking` ahora usa el mismo atomic `UPDATE ... WHERE NOT EXISTS` que `CreateBooking`, con disambiguation post-UPDATE (overlap vs cancelación concurrente vs borrado concurrente, vía re-query de `status`). `GetBooking`/`CancelBooking`/`RescheduleBooking` usan dynamic WHERE auth (cross-tenant y not-found colapsan a `ErrNotFound` — no existence oracle). §3.8.4: ejemplo de código actualizado de `ListBookings` (no implementado) a `GetBooking` (implementado, con switch por role y filtro WHERE). §3.8.7: orden de implementación documenta que `feat-authorization` + `feat-db-layer` PR 1+2+3a están mergeados, falta PR 3b para cerrar Fase 1. §3.7.13: nuevo "Paso 4b" documenta el atomic guard + disambiguation de `reschedule_booking`. §7: status de Fase 1 actualizado (3 de 3 PRs mergeados, falta `CheckAvailability` para cerrar la fase). **Deuda de auth pendiente**: los 3 repos de PR 2 (`services`, `clients`, `business_hours_exception`) aún no tienen `auth.Caller` wiring; un change de follow-up `feat-repository-auth-integration` está planeado antes de Fase 2. |
