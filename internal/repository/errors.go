@@ -39,6 +39,16 @@ const (
 	ErrCodeConflict               ErrCode = "CONFLICT"
 	ErrCodeInvalidInput           ErrCode = "INVALID_INPUT"
 	ErrCodeInternal               ErrCode = "INTERNAL"
+	// ErrCodeUnauthenticated is used for two distinct HTTP-level scenarios:
+	//   1. No caller in context (401 — missing authentication).
+	//   2. Caller exists but is not authorized for the operation (403-ish).
+	//
+	// To avoid the 401-vs-403 confusion, the preferred approach is dynamic-WHERE
+	// authorization (see GetBooking): the query itself filters by caller scope,
+	// so cross-tenant and non-existent rows both return ErrNotFound. Post-fetch
+	// auth is acceptable for admin/owner-only operations but should be avoided
+	// for client/staff-gated reads.
+	ErrCodeUnauthenticated ErrCode = "UNAUTHENTICATED"
 )
 
 // SemanticError represents a business-domain error with a machine-readable

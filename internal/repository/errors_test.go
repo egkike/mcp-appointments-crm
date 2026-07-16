@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os/exec"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -164,5 +166,21 @@ func TestIsUniqueViolation(t *testing.T) {
 				t.Errorf("isUniqueViolation(%v) = %v; want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestRepositoryDoesNotImportValidation verifies that the repository package
+// does NOT import internal/validation (per design Decisión 5 and ADR-0005).
+// This is a structural assertion to prevent circular dependencies.
+func TestRepositoryDoesNotImportValidation(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "go", "list", "-f", "{{.Imports}}", "github.com/egkike/mcp-appointments-crm/internal/repository")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list imports: %v\n%s", err, out)
+	}
+	imports := string(out)
+	if strings.Contains(imports, "internal/validation") {
+		t.Errorf("repository package must NOT import internal/validation (ADR-0005); found in: %s", imports)
 	}
 }
