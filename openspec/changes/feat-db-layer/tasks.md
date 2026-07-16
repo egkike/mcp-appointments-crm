@@ -349,6 +349,8 @@ type CreateBookingResult struct {
 
 ### Task 3.1 — Implement `ProfessionalsRepo`
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/professionals.go` (NEW, ~50 LOC)
   - `internal/repository/professionals_test.go` (NEW, ~60 LOC)
@@ -361,6 +363,8 @@ type CreateBookingResult struct {
   - All scenarios pass; coverage ≥ 80%
 
 ### Task 3.2 — Implement `SchedulesRepo`
+
+- [x] Completed
 
 - **Files**:
   - `internal/repository/schedules.go` (NEW, ~40 LOC)
@@ -377,6 +381,8 @@ type CreateBookingResult struct {
 
 ### Task 3.3 — Implement `PendingAlertsRepo`
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/pending_alerts.go` (NEW, ~50 LOC)
   - `internal/repository/pending_alerts_test.go` (NEW, ~70 LOC)
@@ -390,6 +396,8 @@ type CreateBookingResult struct {
   - All scenarios pass; coverage ≥ 80%
 
 ### Task 3.4 — Implement `BookingsRepo` (CRUD only, no CheckAvailability)
+
+- [x] Completed
 
 - **Files**:
   - `internal/repository/bookings.go` (NEW, ~120 LOC for CRUD; the centerpiece)
@@ -444,6 +452,8 @@ type CreateBookingResult struct {
 
 ### Task 3.6 — Implement datetime parsing helpers
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/datetime.go` (NEW, ~30 LOC)
   - `internal/repository/datetime_test.go` (NEW, ~40 LOC)
@@ -461,6 +471,8 @@ type CreateBookingResult struct {
   - Used by Tasks 3.4 and 3.5
 
 ### Task 3.7 — `SemanticError` integration tests
+
+- [x] Completed
 
 - **Files**:
   - `internal/repository/errors_test.go` (NEW, ~30 LOC)
