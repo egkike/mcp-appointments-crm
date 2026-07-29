@@ -431,6 +431,8 @@ type CreateBookingResult struct {
 
 ### Task 3.5 — Implement `BookingsRepo.CheckAvailability` (the 5-step chain)
 
+- [x] Completed
+
 - **Files**:
   - `internal/repository/bookings.go` (extend, ~100 LOC for the chain)
   - `internal/repository/bookings_test.go` (extend, ~120 LOC for the chain tests)
