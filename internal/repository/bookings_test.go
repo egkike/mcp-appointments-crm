@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -805,6 +806,497 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 		}
 		if !errors.Is(err, ErrNotFound) {
 			t.Errorf("expected errors.Is(err, ErrNotFound) = true, got false; err = %v", err)
+		}
+	})
+}
+
+func TestBookingsRepo_CheckAvailability(t *testing.T) {
+	// setupBaseMocks sets up the input-resolution mocks used by almost every test.
+	// service: svc-1 → Corte (30 min), professional: p-1 → Ana, timezone: UTC.
+	setupBaseMocks := func(mock sqlmock.Sqlmock, serviceID, professionalID string) {
+		mock.ExpectQuery(`SELECT duration_minutes, name FROM services WHERE id = \? AND is_active = 1`).
+			WithArgs(serviceID).
+			WillReturnRows(sqlmock.NewRows([]string{"duration_minutes", "name"}).AddRow(30, "Corte"))
+		mock.ExpectQuery(`SELECT name FROM professionals WHERE id = \? AND status = 'active'`).
+			WithArgs(professionalID).
+			WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Ana"))
+		mock.ExpectQuery(`SELECT timezone FROM business_profile WHERE id = 'singleton'`).
+			WillReturnRows(sqlmock.NewRows([]string{"timezone"}).AddRow("UTC"))
+	}
+
+	// Spanish weekday index matches Go Weekday(): 0=Sunday, 1=Monday, etc.
+
+	t.Run("3a-closed-by-exception", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: exception row with is_closed=1 and reason
+		// July 13, 2026 is a Monday → date "2026-07-13"
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-07-13").
+			WillReturnRows(sqlmock.NewRows([]string{"is_closed", "open_time", "close_time", "reason"}).
+				AddRow(true, nil, nil, "Navidad"))
+
+		// No 3b query should be executed — short-circuit
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-07-13T10:00:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeBusinessClosed {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBusinessClosed)
+		}
+		if !strings.Contains(sErr.Message, "Navidad") {
+			t.Errorf("message should mention reason, got: %s", sErr.Message)
+		}
+	})
+
+	t.Run("3a-closed-by-JSON", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a.1: no exception → ErrNoRows
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-07-13").
+			WillReturnError(sql.ErrNoRows)
+
+		// 3a.2: JSON returns NULL (business closed on Monday)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow(nil, nil))
+
+		// No 3b query should be executed — short-circuit
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-07-13T10:00:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeBusinessClosed {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBusinessClosed)
+		}
+		if !strings.Contains(sErr.Message, "lunes") {
+			t.Errorf("message should mention 'lunes', got: %s", sErr.Message)
+		}
+	})
+
+	t.Run("3b-pro-not-working", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a.1: no exception
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-07-13").
+			WillReturnError(sql.ErrNoRows)
+
+		// 3a.2: JSON returns valid hours for Monday
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: no schedule → ErrNoRows (short-circuit)
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 1). // Monday
+			WillReturnError(sql.ErrNoRows)
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-07-13T10:00:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeProfessionalNotWorking {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeProfessionalNotWorking)
+		}
+		if !strings.Contains(sErr.Message, "Ana") || !strings.Contains(sErr.Message, "lunes") {
+			t.Errorf("message should mention Ana and lunes, got: %s", sErr.Message)
+		}
+	})
+
+	t.Run("3c-slot-out-of-hours", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: no exception, JSON says 09:00-18:00
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-07-13").
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: schedule 09:00-18:00
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 1).
+			WillReturnRows(sqlmock.NewRows([]string{"start_time", "end_time"}).AddRow("09:00", "18:00"))
+
+		// 3c: slot 17:45-18:15 exceeds effective close 18:00
+		// No 3d/3e queries → short-circuit
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-07-13T17:45:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeSlotOutOfHours {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeSlotOutOfHours)
+		}
+		if !strings.Contains(sErr.Message, "solo quedan 15") {
+			t.Errorf("message should mention remaining=15, got: %s", sErr.Message)
+		}
+	})
+
+	t.Run("3c-before-pro-start", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: no exception, JSON says 09:00-18:00
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-07-13").
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: pro schedule 10:00-18:00 (starts later than business)
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 1).
+			WillReturnRows(sqlmock.NewRows([]string{"start_time", "end_time"}).AddRow("10:00", "18:00"))
+
+		// 3c: slot 09:30-10:00 is after business open (09:00) but before pro start (10:00)
+		// Message: "el Profesional Ana empieza a las 10:00"
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-07-13T09:30:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeSlotOutOfHours {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeSlotOutOfHours)
+		}
+		if !strings.Contains(sErr.Message, "Ana empieza a las 10:00") {
+			t.Errorf("message should mention pro start, got: %s", sErr.Message)
+		}
+	})
+
+	t.Run("3c-slot-starts-before-business-opening", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: no exception, JSON says 09:00-18:00
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-07-13").
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: pro schedule 10:00-18:00
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 1).
+			WillReturnRows(sqlmock.NewRows([]string{"start_time", "end_time"}).AddRow("10:00", "18:00"))
+
+		// 3c: slot 08:30-09:00 is before business open (09:00)
+		// Message: "el horario de atención comienza a las 09:00"
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-07-13T08:30:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeSlotOutOfHours {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeSlotOutOfHours)
+		}
+		if !strings.Contains(sErr.Message, "atención comienza a las 09:00") {
+			t.Errorf("message should mention business opening, got: %s", sErr.Message)
+		}
+	})
+
+	t.Run("3d-overlap", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: no exception, JSON 09:00-18:00
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-07-13").
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: schedule 09:00-18:00
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 1).
+			WillReturnRows(sqlmock.NewRows([]string{"start_time", "end_time"}).AddRow("09:00", "18:00"))
+
+		// 3d: overlap detected (existing booking 10:00-12:00)
+		mock.ExpectQuery(`SELECT start_datetime, end_datetime FROM bookings WHERE professional_id = \? AND status != 'cancelled' AND start_datetime < \? AND end_datetime > \? LIMIT 1`).
+			WithArgs("p-1", "2026-07-13T10:30:00.000Z", "2026-07-13T10:00:00.000Z").
+			WillReturnRows(sqlmock.NewRows([]string{"start_datetime", "end_datetime"}).
+				AddRow("2026-07-13T10:00:00.000Z", "2026-07-13T12:00:00.000Z"))
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-07-13T10:00:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeBookingOverlap {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBookingOverlap)
+		}
+		if !strings.Contains(sErr.Message, "Ana") || !strings.Contains(sErr.Message, "10:00") {
+			t.Errorf("message should mention pro and existing times, got: %s", sErr.Message)
+		}
+	})
+
+	t.Run("3d-ignores-cancelled", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: no exception, JSON 09:00-18:00
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2027-01-01").
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: schedule 09:00-18:00 (Friday = 5)
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 5).
+			WillReturnRows(sqlmock.NewRows([]string{"start_time", "end_time"}).AddRow("09:00", "18:00"))
+
+		// 3d: no overlap (cancelled booking is ignored) → ErrNoRows
+		mock.ExpectQuery(`SELECT start_datetime, end_datetime FROM bookings WHERE professional_id = \? AND status != 'cancelled' AND start_datetime < \? AND end_datetime > \? LIMIT 1`).
+			WithArgs("p-1", "2027-01-01T10:30:00.000Z", "2027-01-01T10:00:00.000Z").
+			WillReturnError(sql.ErrNoRows)
+
+		// 3e: slot in the future → passes
+
+		result, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2027-01-01T10:00:00.000Z",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Available {
+			t.Error("expected Available: true")
+		}
+	})
+
+	t.Run("3e-past", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: no exception, JSON 09:00-18:00
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2025-01-01").
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: schedule 09:00-18:00 (Wednesday = 3)
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 3).
+			WillReturnRows(sqlmock.NewRows([]string{"start_time", "end_time"}).AddRow("09:00", "18:00"))
+
+		// 3d: no overlap
+		mock.ExpectQuery(`SELECT start_datetime, end_datetime FROM bookings WHERE professional_id = \? AND status != 'cancelled' AND start_datetime < \? AND end_datetime > \? LIMIT 1`).
+			WithArgs("p-1", "2025-01-01T10:30:00.000Z", "2025-01-01T10:00:00.000Z").
+			WillReturnError(sql.ErrNoRows)
+
+		// 3e: slot in the past → error
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2025-01-01T10:00:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeSlotInPast {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeSlotInPast)
+		}
+	})
+
+	t.Run("happy-path-all-5-pass", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: no exception, JSON 09:00-18:00
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2027-01-01").
+			WillReturnError(sql.ErrNoRows)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: schedule 09:00-18:00 (Friday = 5)
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 5).
+			WillReturnRows(sqlmock.NewRows([]string{"start_time", "end_time"}).AddRow("09:00", "18:00"))
+
+		// 3d: no overlap
+		mock.ExpectQuery(`SELECT start_datetime, end_datetime FROM bookings WHERE professional_id = \? AND status != 'cancelled' AND start_datetime < \? AND end_datetime > \? LIMIT 1`).
+			WithArgs("p-1", "2027-01-01T10:30:00.000Z", "2027-01-01T10:00:00.000Z").
+			WillReturnError(sql.ErrNoRows)
+
+		// 3e: slot in the future → passes
+
+		result, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2027-01-01T10:00:00.000Z",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Available {
+			t.Error("expected Available: true")
+		}
+	})
+
+	t.Run("first-failure-wins", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+		setupBaseMocks(mock, "svc-1", "p-1")
+
+		// 3a: exception with is_closed=1 → immediate failure
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-07-13").
+			WillReturnRows(sqlmock.NewRows([]string{"is_closed", "open_time", "close_time", "reason"}).
+				AddRow(true, nil, nil, "Feriado"))
+
+		// No 3b or any subsequent query should be executed
+		// If the implementation incorrectly proceeds past 3a, go-sqlmock will fail
+		// because there are no expectations for 3b/3c/3d/3e queries.
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-07-13T10:00:00.000Z",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != ErrCodeBusinessClosed {
+			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBusinessClosed)
+		}
+		// The test implicitly verifies first-failure-wins because no further
+		// expectations are set — any attempt to query 3b would fail the mock.
+	})
+
+	t.Run("timezone-cross-midnight", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewBookingsRepo(db)
+
+		// Base mocks: use America/Argentina/Buenos_Aires (-03:00)
+		mock.ExpectQuery(`SELECT duration_minutes, name FROM services WHERE id = \? AND is_active = 1`).
+			WithArgs("svc-1").
+			WillReturnRows(sqlmock.NewRows([]string{"duration_minutes", "name"}).AddRow(30, "Corte"))
+		mock.ExpectQuery(`SELECT name FROM professionals WHERE id = \? AND status = 'active'`).
+			WithArgs("p-1").
+			WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Ana"))
+		mock.ExpectQuery(`SELECT timezone FROM business_profile WHERE id = 'singleton'`).
+			WillReturnRows(sqlmock.NewRows([]string{"timezone"}).AddRow("America/Argentina/Buenos_Aires"))
+
+		// Input: 2026-06-25T23:00:00-03:00
+		// Local time in ART: 23:00 on June 25 = Thursday (4)
+		// UTC equivalent: 2026-06-26T02:00:00Z = Friday (5)
+
+		// 3a: exception query must use date "2026-06-25" (local), NOT "2026-06-26"
+		mock.ExpectQuery(`SELECT is_closed.*FROM business_hours_exception.*exception_date = \?`).
+			WithArgs("2026-06-25").
+			WillReturnError(sql.ErrNoRows)
+
+		// 3a.2: JSON for Thursday (4), not Friday (5)
+		mock.ExpectQuery(`SELECT json_extract\(business_hours.*FROM business_profile`).
+			WillReturnRows(sqlmock.NewRows([]string{"open", "close"}).AddRow("09:00", "18:00"))
+
+		// 3b: schedule with day_of_week=4 (Thursday), not 5
+		mock.ExpectQuery(`SELECT start_time, end_time FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("p-1", 4). // Thursday local, NOT Friday
+			WillReturnRows(sqlmock.NewRows([]string{"start_time", "end_time"}).AddRow("09:00", "18:00"))
+
+		// 3c: slot 23:00-23:30 is after close 18:00 → short-circuit
+		// This is expected — the test verifies correct day_of_week was used in 3b
+
+		_, err := repo.CheckAvailability(context.Background(), &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "p-1",
+			StartDatetime:  "2026-06-25T23:00:00-03:00",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sErr *SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+		}
+		// The chain should fail at 3c (slot after close), proving 3b used correct day_of_week
+		if sErr.Code != ErrCodeSlotOutOfHours {
+			t.Errorf("got Code=%q, want %q (expected slot out of hours after close)", sErr.Code, ErrCodeSlotOutOfHours)
 		}
 	})
 }
