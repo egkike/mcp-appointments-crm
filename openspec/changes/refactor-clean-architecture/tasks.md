@@ -72,10 +72,14 @@ For each domain aggregate, create `internal/domain/repository/{name}.go`:
 
 ### P1.4 — Create domain service: AvailabilityService
 
-- [ ] P1.4a — Create `internal/domain/service/availability.go`
-- [ ] P1.4b — Move CheckAvailability business rules from `BookingsRepo.CheckAvailability` into the domain service
-- [ ] P1.4c — Domain service receives repo interfaces as method arguments (not constructor)
-- [ ] P1.4d — Write pure unit tests for availability service with mock repo interface
+- [x] P1.4a — Create `internal/domain/service/availability.go`
+  > Actual impl: 219 LOC, `AvailabilityService` struct (stateless) + `CheckAvailability(ctx, params, deps) (*Result, error)` method, plus `CheckAvailabilityParams`/`CheckAvailabilityResult`/`AvailabilityDeps` types. Pure Go, zero infra imports.
+- [x] P1.4b — Move CheckAvailability business rules from `BookingsRepo.CheckAvailability` into the domain service
+  > Actual impl: 5-step chain ported byte-for-byte (input resolution, 3a business hours, 3b pro schedule, 3c slot within hours, 3d overlap, 3e past). Same error codes and same Spanish messages as `repository/bookings.go:CheckAvailability` (one minor deviation: overlap message uses `time.RFC3339` instead of infra `FormatStorage`).
+- [x] P1.4c — Domain service receives repo interfaces as method arguments (not constructor)
+  > Actual impl: chose `AvailabilityDeps` struct over 6 individual method args (readability, extensibility, easier mocking). Deps has 6 fields: `Services`, `Professionals`, `BusinessProfile`, `BusinessHoursExceptions`, `Schedules`, `Bookings`. Constructor `NewAvailabilityService()` is a no-arg factory.
+- [x] P1.4d — Write pure unit tests for availability service with mock repo interface
+  > Actual impl: 12 `CheckAvailability` table-driven scenarios (happy path + 11 error cases) + 4 `hhmmToMinutes` cases. 16/16 subtests pass. Mocks are hand-rolled (no third-party mocking lib) using function-table style in `mocks_test.go` (100 LOC).
 
 ### P1.5 — Verify Phase 1
 

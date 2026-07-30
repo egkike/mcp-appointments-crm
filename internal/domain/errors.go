@@ -14,6 +14,8 @@ type ErrCode string
 const (
 	ErrCodeBusinessClosed         ErrCode = "BUSINESS_CLOSED"
 	ErrCodeProfessionalNotWorking ErrCode = "PROFESSIONAL_NOT_WORKING"
+	ErrCodeServiceNotActive       ErrCode = "SERVICE_NOT_ACTIVE"
+	ErrCodeProfessionalNotActive  ErrCode = "PROFESSIONAL_NOT_ACTIVE"
 	ErrCodeSlotOutOfHours         ErrCode = "SLOT_OUT_OF_HOURS"
 	ErrCodeBookingOverlap         ErrCode = "BOOKING_OVERLAP"
 	ErrCodeSlotInPast             ErrCode = "SLOT_IN_PAST"
