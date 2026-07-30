@@ -27,11 +27,11 @@ For each model, create `internal/domain/entity/{name}.go`:
 | `domain/entity/schedule.go` | Schedule | `IncludesTime(hhmm string)` |
 | `domain/entity/account.go` | Account | `IsActive()`, `HasRole(role)` |
 
-- [ ] P1.1a — Create `domain/entity/booking.go` with CanCancel, CanReschedule, IsOverlapping
+- [x] P1.1a — Create `domain/entity/booking.go` with CanCancel, CanReschedule, IsOverlapping
 - [ ] P1.1b — Create `domain/entity/client.go` with IsActive, HasValidPhone
 - [ ] P1.1c — Create `domain/entity/professional.go` with IsActive, HasSpecialty
 - [ ] P1.1d — Create `domain/entity/service.go` with IsActive, Duration
-- [ ] P1.1e — Create `domain/entity/business_profile.go` with IsOpenOn, GetOpenClose
+- [x] P1.1e — Create `domain/entity/business_profile.go` with IsOpenOn, GetOpenClose
 - [ ] P1.1f — Create `domain/entity/business_hours_exception.go` with IsClosed, EffectiveHours
 - [ ] P1.1g — Create `domain/entity/pending_alert.go` with IsDue, CanBeSent
 - [ ] P1.1h — Create `domain/entity/schedule.go` with IncludesTime
@@ -39,10 +39,10 @@ For each model, create `internal/domain/entity/{name}.go`:
 
 ### P1.2 — Create domain errors
 
-- [ ] P1.2a — Create `internal/domain/errors.go` with SemanticError struct + sentinel errors + error codes
-- [ ] P1.2b — Ensure all error codes from `internal/repository/errors.go` are duplicated (don't delete originals yet)
-- [ ] P1.2c — Consolidate the two `ErrUnauthenticated` definitions: pick one canonical message ("caller not authenticated") and use it in `domain/errors.go`; the repo version (`auth_helpers.go:14`) and auth version (`resolver.go:12`) will be deleted/updated in Phase 3
-- [ ] P1.2d — Note: `ErrCode` from repo/errors.go and `ErrCode` from domain/errors.go are distinct types. P3.4a must update all consumers to use the domain type, with explicit string conversion at the repo boundary (`domain.ErrCode(originalCode)`)
+- [x] P1.2a — Create `internal/domain/errors.go` with SemanticError struct + sentinel errors + error codes
+- [x] P1.2b — Ensure all error codes from `internal/repository/errors.go` are duplicated (don't delete originals yet)
+- [x] P1.2c — Consolidate the two `ErrUnauthenticated` definitions: pick one canonical message ("caller not authenticated") and use it in `domain/errors.go`; the repo version (`auth_helpers.go:14`) and auth version (`resolver.go:12`) will be deleted/updated in Phase 3
+- [x] P1.2d — Note: `ErrCode` from repo/errors.go and `ErrCode` from domain/errors.go are distinct types. P3.4a must update all consumers to use the domain type, with explicit string conversion at the repo boundary (`domain.ErrCode(originalCode)`)
 
 ### P1.3 — Create domain repository interfaces
 
