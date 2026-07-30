@@ -48,18 +48,27 @@ For each model, create `internal/domain/entity/{name}.go`:
 
 For each domain aggregate, create `internal/domain/repository/{name}.go`:
 
-- [ ] P1.3a — `domain/repository/bookings.go` (FindByID, Create, Update, Cancel, Reschedule, FindOverlapping, FindByStaffAndRange, ListBookingsForRange, SearchByNotes, UpdateStatus)
+- [x] P1.3a — `domain/repository/bookings.go` (FindByID, Create, Update, Cancel, Reschedule, FindOverlapping, FindByStaffAndRange, ListBookingsForRange, SearchByNotes, UpdateStatus)
   > Must cover all methods that use cases and domain service need (create, cancel, reschedule, check_availability, get_booking, list, search). Mirror the current BookingsRepo method set with domain-centric naming. `Save` is split into `Create` (insert-only) and `Update` (status changes) to match the SQL boundary.
-- [ ] P1.3b — `domain/repository/clients.go` (FindByID, FindByPhone, Save)
-- [ ] P1.3c — `domain/repository/professionals.go` (FindByID, FindActive, Save, Update)
-- [ ] P1.3d — `domain/repository/services.go` (FindByID, FindActive, Save, Update, Delete)
-- [ ] P1.3e — `domain/repository/business_profile.go` (Get, Update)
-- [ ] P1.3f — `domain/repository/business_hours_exception.go` (Get, Create, List, Delete)
+  > Actual impl: 10 methods, all use `context.Context` as first arg; `id` is `string` (matches `Booking.ID string`). 46 LOC.
+- [x] P1.3b — `domain/repository/clients.go` (FindByID, FindByPhone, Save)
+  > Actual impl: 3 methods, `id` is `string` (matches `Client.ID string`). 20 LOC.
+- [x] P1.3c — `domain/repository/professionals.go` (FindByID, FindActive, Save, Update)
+  > Actual impl: 4 methods, `id` is `string` (matches `Professional.ID string`). 23 LOC.
+- [x] P1.3d — `domain/repository/services.go` (FindByID, FindActive, Save, Update, Delete)
+  > Actual impl: 5 methods, `id` is `string` (matches `Service.ID string`). 26 LOC.
+- [x] P1.3e — `domain/repository/business_profile.go` (Get, Update)
+  > Actual impl: 2 methods, no ID arg (singleton aggregate). 18 LOC.
+- [x] P1.3f — `domain/repository/business_hours_exception.go` (Get, Create, List, Delete)
   > Current codebase has no `FindByDate` method. If needed by a use case, add in Phase 2 with new SQL.
-- [ ] P1.3g — `domain/repository/pending_alerts.go` (Save, FindPending, MarkAsSent, Cancel)
-- [ ] P1.3h — `domain/repository/schedules.go` (FindByProfessionalAndDay, Upsert, Delete)
-- [ ] P1.3i — `domain/repository/accounts.go` (FindByID, Create, GetByRole, List, Update, Deactivate, IsActive, ListByProfessional)
+  > Actual impl: 4 methods. `Get`/`Delete` use `id int` (matches `BusinessHoursException.ID int`); `List` uses `from, to time.Time` range. 25 LOC.
+- [x] P1.3g — `domain/repository/pending_alerts.go` (Save, FindPending, MarkAsSent, Cancel)
+  > Actual impl: 4 methods. `MarkAsSent`/`Cancel` use `id int` (matches `PendingAlert.ID int`); `FindPending` uses `now time.Time` cutoff. 24 LOC.
+- [x] P1.3h — `domain/repository/schedules.go` (FindByProfessionalAndDay, Upsert, Delete)
+  > Actual impl: 3 methods. `FindByProfessionalAndDay` and `Delete` use `day int` (matches `Schedule.DayOfWeek int` 0-6, not `time.Weekday`). 20 LOC.
+- [x] P1.3i — `domain/repository/accounts.go` (FindByID, Create, GetByRole, List, Update, Deactivate, IsActive, ListByProfessional)
   > Note: no `FindByEmail` exists in the current codebase. If required, add in Phase 5 with new SQL/endpoint. The interface must cover ALL methods the use cases need: `Create`, `Get`, `Update`, `Deactivate`, `IsActive`, `GetByRole`, `List`, `ListByProfessional`.
+  > Actual impl: 8 methods. `GetByRole(ctx, role string)` uses plain `string` (no `AccountRole` type exists in entity — `Account.Role string` with comment `"owner" | "admin" | "staff"`). **Follow-up in P1.5**: introduce `type AccountRole string` in `entity/account.go` for type-safety and update `GetByRole` to `entity.AccountRole`. `ListByProfessional(professionalID string)`. 37 LOC.
 
 ### P1.4 — Create domain service: AvailabilityService
 
