@@ -17,8 +17,8 @@ type AccountsRepo interface {
 	Create(ctx context.Context, a *entity.Account) error
 
 	// GetByRole returns all accounts with the given role.
-	// Valid roles: "owner", "admin", "staff".
-	GetByRole(ctx context.Context, role string) ([]*entity.Account, error)
+	// Valid roles: entity.RoleOwner, entity.RoleAdmin, entity.RoleStaff.
+	GetByRole(ctx context.Context, role entity.AccountRole) ([]*entity.Account, error)
 
 	// List returns all accounts.
 	List(ctx context.Context) ([]*entity.Account, error)
