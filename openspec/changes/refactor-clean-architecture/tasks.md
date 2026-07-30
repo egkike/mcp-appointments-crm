@@ -28,14 +28,14 @@ For each model, create `internal/domain/entity/{name}.go`:
 | `domain/entity/account.go` | Account | `IsActive()`, `HasRole(role)` |
 
 - [x] P1.1a — Create `domain/entity/booking.go` with CanCancel, CanReschedule, IsOverlapping
-- [ ] P1.1b — Create `domain/entity/client.go` with IsActive, HasValidPhone
-- [ ] P1.1c — Create `domain/entity/professional.go` with IsActive, HasSpecialty
-- [ ] P1.1d — Create `domain/entity/service.go` with IsActive, Duration
+- [x] P1.1b — Create `domain/entity/client.go` with IsActive, HasValidPhone
+- [x] P1.1c — Create `domain/entity/professional.go` with IsActive, HasSpecialty
+- [x] P1.1d — Create `domain/entity/service.go` with IsActive, Duration
 - [x] P1.1e — Create `domain/entity/business_profile.go` with IsOpenOn, GetOpenClose
-- [ ] P1.1f — Create `domain/entity/business_hours_exception.go` with IsClosed, EffectiveHours
-- [ ] P1.1g — Create `domain/entity/pending_alert.go` with IsDue, CanBeSent
-- [ ] P1.1h — Create `domain/entity/schedule.go` with IncludesTime
-- [ ] P1.1i — Create `domain/entity/account.go` with IsActive, HasRole
+- [x] P1.1f — Create `domain/entity/business_hours_exception.go` with IsClosed, EffectiveHours
+- [x] P1.1g — Create `domain/entity/pending_alert.go` with IsDue, CanBeSent
+- [x] P1.1h — Create `domain/entity/schedule.go` with IncludesTime
+- [x] P1.1i — Create `domain/entity/account.go` with IsActive, HasRole
 
 ### P1.2 — Create domain errors
 
