@@ -102,10 +102,11 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 ### 3.5 Affected Areas
 
 - `cmd/mcp-server/` — entry point del servidor MCP.
-- `internal/db/` — conexión, pragmas, schema (ya existe `database.go`). Incluye la tabla `schema_version` para tracking de versión del esquema (ver spec `openspec/changes/feat-db-layer/specs/schema-version/spec.md`).
-- `internal/repository/` — nuevo: repos por tabla con prepared statements.
-- `internal/mcp/` — nuevo: handlers de tools MCP, registro del server.
-- `internal/model/` — nuevo: structs de dominio (Client, Service, Booking, etc.).
+- `internal/db/` — conexión, pragmas, schema (ya existe `database.go`). Incluye la tabla `schema_version` para tracking de versión del esquema.
+- `internal/domain/` — nuevo (refactor): entidades con comportamiento (`entity/`), interfaces de repositorio (`repository/`), servicios de dominio (`service/`) y errores de dominio (`errors.go`). Dependencia cero de infraestructura.
+- `internal/repository/` — repos por tabla con prepared statements. En refactor para implementar interfaces de `internal/domain/repository/`.
+- `internal/model/` — structs de dominio originales. **En migración**: reemplazados progresivamente por `internal/domain/entity/`.
+- `internal/mcp/` — futuro: handlers de tools MCP, registro del server.
 - `scripts/install.sh` — script de despliegue para VPS del cliente.
 - `scripts/backup.sh` — nuevo: script bash portable de backup (usa `sqlite3 .backup` para consistencia).
 - `setup/service/` — templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`).
@@ -1160,21 +1161,43 @@ Override con otro caller_id (debug):
 - ✅ **PR 3a** (4 repos complejos con `auth.Caller` integration: `Professionals`, `Schedules`, `PendingAlerts`, `Bookings` + `datetime` helpers) — mergeado en main como PR #9 (commit `1fc3eb1`).
 - ⏳ **PR 3b** (`BookingsRepo.CheckAvailability` — 5-step chain §3.7.13) — **pendiente**. Cuando mergee, la Fase 1 queda cerrada. PR 3b ya está planeado: branch `feat/feat-db-layer-apply-pr3b` desde main, ~220 LOC, single dominant lens reliability, 10 scenarios como subtests.
 
-**Stats actuales de Fase 1** (post PR 3a, antes de 3b):
-- 9 repos implementados (de 10 totales — falta `BookingsRepo.CheckAvailability`)
-- 407 tests passing, 88.7% coverage en `internal/repository`
-- 16 archivos modificados en PR 3a, 3666 insertions
-- 4 bounded corrections aplicadas durante el review 4R (atomic overlap guards, dynamic WHERE auth, fail-secure nil checks, contract drift fixes)
-- Final review lineage: `review-87f235a54c011761`, `state: approved`
+**Stats finales de Fase 1** (post PR 3b, Fase 1 cerrada):
+- 10 repos implementados (todos, incluido `BookingsRepo.CheckAvailability`)
+- 418 tests passing, 87.4% coverage
+- 3 PRs mergeados: PR #7 (foundation + 4 repos simples), PR #9 (5 repos complejos), PR #10 (CheckAvailability)
+- Fase 1 cerrada y archivada en `openspec/changes/archive/2026-07-29-feat-db-layer/`
+
+**Siguiente**: Fase 1b (clean-architecture-refactor) — en progreso. 4 sub-fases, ~2000 LOC, 7 PRs planeados. Ver `openspec/changes/refactor/clean-architecture/`.
+
+### Fase 1b: clean-architecture-refactor (Estimación: M)
+
+**Objetivo**: refactor incremental hacia Clean/Hexagonal Architecture sin cambiar el comportamiento del sistema ni el modelo de datos. Extraer una capa de dominio (`internal/domain/`) con entidades con comportamiento, interfaces de repositorio y errores de dominio; una capa de aplicación (`internal/application/`) con use cases y DTOs; y migrar los repositorios existentes a implementar las interfaces de dominio.
+
+**Motivación**: la Fase 1 (db-layer) creó repositorios sólidos pero con lógica de negocio mezclada en infraestructura. La refactor permite testear reglas de negocio sin sqlmock, desacoplar el dominio del SQL, y preparar el terreno para que Fase 2 (mcp-server) consuma use cases en lugar de repos directos.
+
+**Entregables** (4 sub-fases, 7 PRs, ~2000 LOC):
+- **P1 Domain** (additive): `internal/domain/entity/` (9 entidades con métodos), `internal/domain/repository/` (9 interfaces), `internal/domain/service/availability.go`, `internal/domain/errors.go`
+- **P2 Application** (additive): `internal/application/usecase/` (5 use cases), `internal/application/dto/` (5 DTOs)
+- **P3 Refactor repos** (modifica): repos implementan interfaces de dominio, lógica de negocio movida a dominio, `internal/model/` eliminado
+- **P4 DI wiring**: `cmd/mcp-server/main.go` con inyección manual
+
+**Definition of Done**:
+- [ ] `internal/domain/` tiene zero dependencias de infraestructura (`grep -r 'database/sql' internal/domain/` vacío)
+- [ ] Todos los repos implementan interfaces de dominio (`var _ domain.XxxRepository = (*Impl)(nil)`)
+- [ ] `go test -race ./...` pasa en cada commit
+- [ ] `internal/model/` eliminado (consumidores migrados a `internal/domain/entity/`)
+- [ ] `internal/repository/errors.go` y `auth_helpers.go` eliminados (contenido migrado)
+
+> **Nota**: esta refactor es transparente para el modelo de datos, los tools MCP y el producto. El roadmap de producto (Fase 2→5) no cambia.
 
 ### Fase 2: mcp-server-core (Estimación: L)
 
-**Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía SSE en `127.0.0.1:3000`. **Además, integrar la capa de `auth` (incluye el middleware HTTP con el header `X-Caller-Id`)** y el **TUI menú operacional** (sub-comando `mcp-appointments-crm admin tui` para gestión de cuentas admin/staff/owner — ver §3.8.8).
+**Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía SSE en `127.0.0.1:3000`. **Además, integrar la capa de `auth` (incluye el middleware HTTP con el header `X-Caller-Id`)** y el **TUI menú operacional** (sub-comando `mcp-appointments-crm admin tui` para gestión de cuentas admin/staff/owner — ver §3.8.8). Los use cases de `internal/application/` se inyectan directamente en los handlers MCP.
 
 **Entregables**:
-- `cmd/mcp-server/main.go` con loop de SSE
+- `cmd/mcp-server/main.go` con DI: construye repos concretos, los inyecta en use cases, los use cases se inyectan en handlers MCP
 - `internal/mcp/server.go` con registro de tools y middleware de `auth.AuthMiddleware.Wrap(...)` aplicado al `http.ServeMux`
-- Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas). Cada tool se registra con `RequiredRoles` (e.g., `create_professional` requiere `admin` o `owner`).
+- Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas). Cada tool recibe un use case por constructor, no un repo directamente. Cada tool se registra con `RequiredRoles` (e.g., `create_professional` requiere `admin` o `owner`).
 - **`cmd/mcp-server/admin_tui.go`**: sub-comando TUI menú que opera directamente sobre `AccountsRepo` desde el binario principal (no es un binario separado). No es un MCP tool; es otro proceso. **Nota de scope**: el TUI es opcional en Fase 2 (puede ser un follow-up si el alcance se vuelve grande). El MVP de Fase 2 puede enfocarse en el middleware de auth.
 - Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`)
 
@@ -1185,6 +1208,7 @@ Override con otro caller_id (debug):
 - [ ] El puerto 3000 NO es accesible desde la red del host (`curl 192.168.x.x:3000` falla)
 - [ ] Todos los errores lógicos retornan mensajes en español, sin stack traces
 - [ ] `go test -v -race ./...` pasa
+- [ ] Todos los handlers MCP consumen use cases, no repos directos (verificable: ningún handler importa `internal/repository/`)
 - [ ] Documentación breve en `docs/` sobre cómo conectar Hermes
 
 ### Fase 3: mcp-server-advanced (Estimación: M)
