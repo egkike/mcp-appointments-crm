@@ -24,16 +24,16 @@ func TestAccount_IsActive(t *testing.T) {
 func TestAccount_HasRole(t *testing.T) {
 	tests := []struct {
 		name  string
-		role  string
-		check string
+		role  AccountRole
+		check AccountRole
 		want  bool
 	}{
-		{"owner matches owner", "owner", "owner", true},
-		{"admin matches admin", "admin", "admin", true},
-		{"staff matches staff", "staff", "staff", true},
-		{"owner does not match admin", "owner", "admin", false},
-		{"client does not match staff", "client", "staff", false},
-		{"empty role does not match", "", "owner", false},
+		{"owner matches owner", RoleOwner, RoleOwner, true},
+		{"admin matches admin", RoleAdmin, RoleAdmin, true},
+		{"staff matches staff", RoleStaff, RoleStaff, true},
+		{"owner does not match admin", RoleOwner, RoleAdmin, false},
+		{"client does not match staff", AccountRole("client"), RoleStaff, false},
+		{"empty role does not match", AccountRole(""), RoleOwner, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

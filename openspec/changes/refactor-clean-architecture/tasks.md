@@ -83,10 +83,16 @@ For each domain aggregate, create `internal/domain/repository/{name}.go`:
 
 ### P1.5 — Verify Phase 1
 
-- [ ] P1.5a — `go build ./...` passes (old code still works)
-- [ ] P1.5b — `go test -race ./...` passes
-- [ ] P1.5c — `grep -r 'database/sql' internal/domain/` returns empty
-- [ ] P1.5d — Save progress to engram
+- [x] P1.5a — `go build ./...` passes (old code still works)
+  > Verified: build clean after AccountRole typing.
+- [x] P1.5b — `go test -race ./...` passes
+  > Verified: all packages pass with -race. 7 packages OK, 0 failures.
+- [x] P1.5c — `grep -r 'database/sql' internal/domain/` returns empty
+  > Verified: only an explanatory comment in entity/errors.go about zero-dependency rule. No actual imports.
+- [x] P1.5d — Save progress to engram
+  > Done: mem_save patterns for JD round 1+2, GGA 5-warning amend flow, sdd-attempt ledger quirks; mem_session_summary at end of session.
+- [x] P1.5e — Type `AccountRole` as `entity.AccountRole` enum (follow-up from P1.3i)
+  > Actual impl: added `type AccountRole string` with `RoleOwner`/`RoleAdmin`/`RoleStaff` constants in `entity/account.go`. Changed `Account.Role` and `HasRole(role)` to use `AccountRole`. Updated `AccountsRepo.GetByRole` signature. Updated `account_test.go` table to use constants.
 
 > **Datetime type handling**: As each entity file is created, convert string datetime fields to `time.Time`. The `string ↔ time.Time` conversion happens at the repo SQL-scan boundary (unchanged in Phase 1 since repos still work with model structs). Exceptions: date-only and time-of-day fields (`BusinessHoursException.Date`, `BusinessProfile.OpenTime/CloseTime`, `Schedule.StartTime/EndTime`) keep `string` with format validation.
 
