@@ -102,11 +102,11 @@ For each domain aggregate, create `internal/domain/repository/{name}.go`:
 
 ### P2.1 — Create DTOs
 
-- [ ] P2.1a — Create `internal/application/dto/create_booking.go` (CreateBookingInput, CreateBookingResult)
-- [ ] P2.1b — Create `internal/application/dto/cancel_booking.go`
-- [ ] P2.1c — Create `internal/application/dto/reschedule_booking.go`
-- [ ] P2.1d — Create `internal/application/dto/check_availability.go` (CheckAvailabilityParams, CheckAvailabilityResult)
-- [ ] P2.1e — Create `internal/application/dto/get_booking.go`
+- [x] P2.1a — Create `internal/application/dto/create_booking.go` (CreateBookingInput, CreateBookingResult)
+- [x] P2.1b — Create `internal/application/dto/cancel_booking.go`
+- [x] P2.1c — Create `internal/application/dto/reschedule_booking.go`
+- [x] P2.1d — Create `internal/application/dto/check_availability.go` (CheckAvailabilityParams, CheckAvailabilityResult)
+- [x] P2.1e — Create `internal/application/dto/get_booking.go`
 
 ### P2.2 — Create use cases
 
