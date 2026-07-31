@@ -32,7 +32,7 @@ func NewCheckAvailabilityUseCase(
 //
 // Domain service errors (business closed, professional not working, slot out of
 // hours, overlap, past) propagate as-is.
-func (uc *CheckAvailabilityUseCase) Execute(ctx context.Context, input dto.CheckAvailabilityParams) (*dto.CheckAvailabilityResult, error) {
+func (uc *CheckAvailabilityUseCase) Execute(ctx context.Context, input dto.CheckAvailabilityInput) (*dto.CheckAvailabilityResult, error) {
 	params := &service.CheckAvailabilityParams{
 		ServiceID:      input.ServiceID,
 		ProfessionalID: input.ProfessionalID,

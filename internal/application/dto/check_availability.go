@@ -6,10 +6,10 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 )
 
-// CheckAvailabilityParams holds the parameters for querying whether a specific
+// CheckAvailabilityInput holds the parameters for querying whether a specific
 // datetime is available for booking. The Caller field carries the authenticated
 // actor for authorization; it is not serialized to JSON.
-type CheckAvailabilityParams struct {
+type CheckAvailabilityInput struct {
 	// Caller is the authenticated actor requesting the availability check.
 	Caller auth.Caller `json:"-"`
 	// ServiceID identifies the service being queried.

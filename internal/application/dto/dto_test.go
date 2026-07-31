@@ -20,7 +20,7 @@ func TestDTOPackageCompiles(t *testing.T) {
 	_ = CancelBookingResult{}
 	_ = RescheduleBookingInput{}
 	_ = RescheduleBookingResult{}
-	_ = CheckAvailabilityParams{}
+	_ = CheckAvailabilityInput{}
 	_ = CheckAvailabilityResult{}
 	_ = GetBookingInput{}
 	_ = GetBookingResult{}
@@ -36,7 +36,7 @@ func TestCallerFieldNotSerialized(t *testing.T) {
 		CreateBookingInput{Caller: caller, ClientID: "c1"},
 		CancelBookingInput{Caller: caller, BookingID: "b1"},
 		RescheduleBookingInput{Caller: caller, BookingID: "b1"},
-		CheckAvailabilityParams{Caller: caller, ServiceID: "s1"},
+		CheckAvailabilityInput{Caller: caller, ServiceID: "s1"},
 		GetBookingInput{Caller: caller, BookingID: "b1"},
 	}
 	for _, input := range inputs {
@@ -118,8 +118,8 @@ func TestDTOFieldTags(t *testing.T) {
 			},
 		},
 		{
-			name:   "CheckAvailabilityParams",
-			target: CheckAvailabilityParams{},
+			name:   "CheckAvailabilityInput",
+			target: CheckAvailabilityInput{},
 			fields: []fieldSpec{
 				{"Caller", "-"},
 				{"ServiceID", "service_id"},

@@ -87,7 +87,7 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		m := newAvailabilityMocks()
 		uc := m.newUseCase()
 
-		result, err := uc.Execute(context.Background(), dto.CheckAvailabilityParams{
+		result, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
 			ProfessionalID: "p1",
 			StartDatetime:  mondayFuture,
@@ -104,7 +104,7 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		m := newAvailabilityMocks()
 		uc := m.newUseCase()
 
-		result, err := uc.Execute(context.Background(), dto.CheckAvailabilityParams{
+		result, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			Caller:         emptyCaller(),
 			ServiceID:      "s1",
 			ProfessionalID: "p1",
@@ -125,7 +125,7 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 		uc := m.newUseCase()
 
-		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityParams{
+		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s-nonexistent",
 			ProfessionalID: "p1",
 			StartDatetime:  mondayFuture,
@@ -148,7 +148,7 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 		uc := m.newUseCase()
 
-		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityParams{
+		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
 			ProfessionalID: "p-nonexistent",
 			StartDatetime:  mondayFuture,
@@ -174,7 +174,7 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 		uc := m.newUseCase()
 
-		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityParams{
+		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
 			ProfessionalID: "p1",
 			StartDatetime:  mondayFuture,
@@ -200,7 +200,7 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 
 		// 07:00 UTC is before 09:00 business open
 		earlyTime := time.Date(2026, 8, 3, 7, 0, 0, 0, time.UTC)
-		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityParams{
+		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
 			ProfessionalID: "p1",
 			StartDatetime:  earlyTime,
@@ -223,7 +223,7 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 
 		// 2025-01-06 is a Monday, 10:00 UTC — within hours but in the past
 		pastTime := time.Date(2025, 1, 6, 10, 0, 0, 0, time.UTC)
-		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityParams{
+		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
 			ProfessionalID: "p1",
 			StartDatetime:  pastTime,
@@ -256,7 +256,7 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 		uc := m.newUseCase()
 
-		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityParams{
+		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
 			ProfessionalID: "p1",
 			StartDatetime:  mondayFuture,
