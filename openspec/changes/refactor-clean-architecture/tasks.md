@@ -118,10 +118,10 @@ For each domain aggregate, create `internal/domain/repository/{name}.go`:
 
 ### P2.3 — Verify Phase 2
 
-- [ ] P2.3a — `go build ./...` passes
-- [ ] P2.3b — `go test -race ./...` passes
-- [ ] P2.3c — No infra imports in `internal/application/`
-- [ ] P2.3d — Write use case unit tests with mock repos
+- [x] P2.3a — `go build ./...` passes
+- [x] P2.3b — `go test -race ./...` passes
+- [x] P2.3c — No infra imports in `internal/application/`
+- [x] P2.3d — Write use case unit tests with mock repos
 
 ---
 
