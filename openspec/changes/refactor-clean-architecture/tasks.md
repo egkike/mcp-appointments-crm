@@ -110,11 +110,11 @@ For each domain aggregate, create `internal/domain/repository/{name}.go`:
 
 ### P2.2 — Create use cases
 
-- [ ] P2.2a — Create `internal/application/usecase/create_booking.go` (constructor + Execute)
-- [ ] P2.2b — Create `internal/application/usecase/cancel_booking.go`
-- [ ] P2.2c — Create `internal/application/usecase/reschedule_booking.go`
-- [ ] P2.2d — Create `internal/application/usecase/check_availability.go`
-- [ ] P2.2e — Create `internal/application/usecase/get_booking.go`
+- [x] P2.2a — Create `internal/application/usecase/create_booking.go` (constructor + Execute)
+- [x] P2.2b — Create `internal/application/usecase/cancel_booking.go`
+- [x] P2.2c — Create `internal/application/usecase/reschedule_booking.go`
+- [x] P2.2d — Create `internal/application/usecase/check_availability.go`
+- [x] P2.2e — Create `internal/application/usecase/get_booking.go`
 
 ### P2.3 — Verify Phase 2
 
