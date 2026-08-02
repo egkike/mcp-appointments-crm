@@ -129,11 +129,11 @@ For each domain aggregate, create `internal/domain/repository/{name}.go`:
 
 ### P3.1 — Move auth helpers to auth
 
-- [ ] P3.1a — Export `requireCaller`, `requireRole`, and `requireClientMatch` from `internal/auth/`
-- [ ] P3.1b — Update `internal/repository/*.go` to import auth helpers from `internal/auth/` instead of local package
-- [ ] P3.1c — Consolidate `ErrUnauthenticated`: use the canonical one from `internal/domain/errors.go`, delete the definitions in `auth_helpers.go` and `auth/resolver.go`
-- [ ] P3.1d — Move `internal/repository/auth_helpers_test.go` (260 lines) to `internal/auth/auth_helpers_test.go` and update imports
-- [ ] P3.1e — Delete `internal/repository/auth_helpers.go`
+- [x] P3.1a — Export `requireCaller`, `requireRole`, and `requireClientMatch` from `internal/auth/`
+- [x] P3.1b — Update `internal/repository/*.go` to import auth helpers from `internal/auth/` instead of local package
+- [x] P3.1c — Consolidate `ErrUnauthenticated`: use the canonical one from `internal/domain/errors.go`, delete the definitions in `auth_helpers.go` and `auth/resolver.go`
+- [x] P3.1d — Move `internal/repository/auth_helpers_test.go` (260 lines) to `internal/auth/auth_helpers_test.go` and update imports
+- [x] P3.1e — Delete `internal/repository/auth_helpers.go`
 
 ### P3.2 — Implement domain interfaces in repos
 
