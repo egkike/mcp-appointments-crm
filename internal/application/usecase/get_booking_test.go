@@ -147,7 +147,7 @@ func TestGetBookingUseCase(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "el cliente solo puede acceder a sus propias reservas") {
+		if !strings.Contains(err.Error(), "Cliente solo puede acceder a sus propias reservas") {
 			t.Errorf("expected Spanish message; got %q", err.Error())
 		}
 	})
@@ -169,7 +169,7 @@ func TestGetBookingUseCase(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if !strings.Contains(err.Error(), "el personal solo puede acceder a las reservas de su profesional asignado") {
+		if !strings.Contains(err.Error(), "Personal solo puede acceder a las reservas de su profesional asignado") {
 			t.Errorf("expected Spanish message; got %q", err.Error())
 		}
 	})

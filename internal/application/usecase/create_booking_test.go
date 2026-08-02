@@ -129,7 +129,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 		if sem.Code != domain.ErrCodeUnauthenticated {
 			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeUnauthenticated)
 		}
-		if !strings.Contains(sem.Message, "el cliente solo puede crear reservas para") {
+		if !strings.Contains(sem.Message, "Cliente solo puede crear reservas para") {
 			t.Errorf("expected Spanish message; got %q", sem.Message)
 		}
 	})
@@ -153,7 +153,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 		if sem.Code != domain.ErrCodeUnauthenticated {
 			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeUnauthenticated)
 		}
-		if !strings.Contains(sem.Message, "el personal solo puede crear reservas para su profesional asignado") {
+		if !strings.Contains(sem.Message, "Personal solo puede crear reservas para su profesional asignado") {
 			t.Errorf("expected Spanish message; got %q", sem.Message)
 		}
 	})
@@ -279,7 +279,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 		if sem.Code != domain.ErrCodeInvalidInput {
 			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeInvalidInput)
 		}
-		if !strings.Contains(sem.Message, "cliente") {
+		if !strings.Contains(sem.Message, "Cliente") {
 			t.Errorf("expected message to mention client; got %q", sem.Message)
 		}
 	})
@@ -304,7 +304,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 		if sem.Code != domain.ErrCodeInvalidInput {
 			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeInvalidInput)
 		}
-		if !strings.Contains(sem.Message, "servicio") {
+		if !strings.Contains(sem.Message, "Servicio") {
 			t.Errorf("expected message to mention service; got %q", sem.Message)
 		}
 	})

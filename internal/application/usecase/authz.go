@@ -22,15 +22,15 @@ func authorizeBookingAccess(caller auth.Caller, booking *entity.Booking) error {
 	switch caller.Role {
 	case auth.RoleClient:
 		if caller.ClientID == nil || *caller.ClientID != booking.ClientID {
-			return &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "el cliente solo puede acceder a sus propias reservas", Cause: domain.ErrUnauthenticated}
+			return &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "Cliente solo puede acceder a sus propias reservas", Cause: domain.ErrUnauthenticated}
 		}
 	case auth.RoleStaff:
 		if caller.ProfessionalID == nil || *caller.ProfessionalID != booking.ProfessionalID {
-			return &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "el personal solo puede acceder a las reservas de su profesional asignado", Cause: domain.ErrUnauthenticated}
+			return &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "Personal solo puede acceder a las reservas de su profesional asignado", Cause: domain.ErrUnauthenticated}
 		}
 	case auth.RoleAdmin, auth.RoleOwner:
 	default:
-		return &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: fmt.Sprintf("el rol %q no puede acceder a las reservas", caller.Role), Cause: domain.ErrUnauthenticated}
+		return &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: fmt.Sprintf("Rol %q no puede acceder a las reservas", caller.Role), Cause: domain.ErrUnauthenticated}
 	}
 	return nil
 }
