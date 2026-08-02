@@ -9,83 +9,20 @@ import (
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 )
-
-// availabilityMocks holds all mocks needed for CheckAvailabilityUseCase tests.
-type availabilityMocks struct {
-	services      *mockServicesRepo
-	professionals *mockProfessionalsRepo
-	profile       *mockBusinessProfileRepo
-	exceptions    *mockBusinessHoursExceptionRepo
-	schedules     *mockSchedulesRepo
-	bookings      *mockBookingsRepo
-}
 
 // mondayFuture is 2026-08-03 10:00 UTC, a Monday within business hours.
 var mondayFuture = time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 
-// newAvailabilityMocks returns mocks pre-configured for the happy path
-// (Monday 10:00 UTC, all entities active, no exceptions, no overlaps).
-func newAvailabilityMocks() *availabilityMocks {
-	m := &availabilityMocks{
-		services: &mockServicesRepo{
-			FindByIDFn: func(_ context.Context, _ string) (*entity.Service, error) {
-				return activeService(), nil
-			},
-		},
-		professionals: &mockProfessionalsRepo{
-			FindByIDFn: func(_ context.Context, _ string) (*entity.Professional, error) {
-				return &entity.Professional{ID: "p1", Name: "Juan", Status: "active"}, nil
-			},
-		},
-		profile: &mockBusinessProfileRepo{
-			GetFn: func(_ context.Context) (*entity.BusinessProfile, error) {
-				return &entity.BusinessProfile{
-					Timezone:      "UTC",
-					BusinessHours: `{"1":{"open":"09:00","close":"18:00"}}`,
-				}, nil
-			},
-		},
-		exceptions: &mockBusinessHoursExceptionRepo{
-			GetFn: func(_ context.Context, _ time.Time) (*entity.BusinessHoursException, error) {
-				return nil, domain.ErrNotFound
-			},
-		},
-		schedules: &mockSchedulesRepo{
-			FindByProfessionalAndDayFn: func(_ context.Context, _ string, _ int) (*entity.Schedule, error) {
-				return &entity.Schedule{ProfessionalID: "p1", DayOfWeek: 1, StartTime: "09:00", EndTime: "18:00"}, nil
-			},
-		},
-		bookings: &mockBookingsRepo{
-			FindOverlappingFn: func(_ context.Context, _ string, _, _ time.Time) ([]*entity.Booking, error) {
-				return nil, nil
-			},
-		},
-	}
-	return m
-}
-
-func (m *availabilityMocks) deps() service.AvailabilityDeps {
-	return service.AvailabilityDeps{
-		Services:                m.services,
-		Professionals:           m.professionals,
-		BusinessProfile:         m.profile,
-		BusinessHoursExceptions: m.exceptions,
-		Schedules:               m.schedules,
-		Bookings:                m.bookings,
-	}
-}
-
-func (m *availabilityMocks) newUseCase() *CheckAvailabilityUseCase {
-	return NewCheckAvailabilityUseCase(service.NewAvailabilityService(), m.deps())
-}
-
 func TestCheckAvailabilityUseCase(t *testing.T) {
 	t.Run("happy path returns available true", func(t *testing.T) {
-		m := newAvailabilityMocks()
-		uc := m.newUseCase()
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				return &service.CheckAvailabilityResult{Available: true}, nil
+			},
+		}
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
 
 		result, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
@@ -100,9 +37,45 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 	})
 
+	t.Run("zero StartDatetime returns ErrCodeInvalidInput", func(t *testing.T) {
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				t.Fatal("checker should not be called when StartDatetime is zero")
+				return nil, nil
+			},
+		}
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
+
+		result, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
+			ServiceID:      "s1",
+			ProfessionalID: "p1",
+			StartDatetime:  time.Time{},
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if result != nil {
+			t.Errorf("expected nil result; got %+v", result)
+		}
+		var semErr *domain.SemanticError
+		if !errors.As(err, &semErr) {
+			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
+		}
+		if semErr.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("expected ErrCodeInvalidInput; got %v", semErr.Code)
+		}
+		if !strings.Contains(semErr.Message, "start_datetime") {
+			t.Errorf("expected message to mention start_datetime; got %q", semErr.Message)
+		}
+	})
+
 	t.Run("empty caller does not trigger auth error", func(t *testing.T) {
-		m := newAvailabilityMocks()
-		uc := m.newUseCase()
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				return &service.CheckAvailabilityResult{Available: true}, nil
+			},
+		}
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
 
 		result, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			Caller:         emptyCaller(),
@@ -118,61 +91,48 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 	})
 
-	t.Run("service not found", func(t *testing.T) {
-		m := newAvailabilityMocks()
-		m.services.FindByIDFn = func(_ context.Context, _ string) (*entity.Service, error) {
-			return nil, domain.ErrNotFound
+	t.Run("maps input to service params correctly", func(t *testing.T) {
+		var gotParams *service.CheckAvailabilityParams
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, params *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				gotParams = params
+				return &service.CheckAvailabilityResult{Available: true}, nil
+			},
 		}
-		uc := m.newUseCase()
-
-		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
-			ServiceID:      "s-nonexistent",
-			ProfessionalID: "p1",
-			StartDatetime:  mondayFuture,
-		})
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		if !errors.Is(err, domain.ErrNotFound) {
-			t.Errorf("expected errors.Is(err, ErrNotFound); got %v", err)
-		}
-		if !strings.Contains(err.Error(), "consultar servicio") {
-			t.Errorf("expected error to mention service lookup; got %q", err.Error())
-		}
-	})
-
-	t.Run("professional not found", func(t *testing.T) {
-		m := newAvailabilityMocks()
-		m.professionals.FindByIDFn = func(_ context.Context, _ string) (*entity.Professional, error) {
-			return nil, domain.ErrNotFound
-		}
-		uc := m.newUseCase()
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
 
 		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
-			ProfessionalID: "p-nonexistent",
+			ProfessionalID: "p1",
 			StartDatetime:  mondayFuture,
 		})
-		if err == nil {
-			t.Fatal("expected error, got nil")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if !errors.Is(err, domain.ErrNotFound) {
-			t.Errorf("expected errors.Is(err, ErrNotFound); got %v", err)
+		if gotParams == nil {
+			t.Fatal("expected CheckAvailability to be called with params")
 		}
-		if !strings.Contains(err.Error(), "consultar profesional") {
-			t.Errorf("expected error to mention professional lookup; got %q", err.Error())
+		if gotParams.ServiceID != "s1" {
+			t.Errorf("params.ServiceID = %q; want %q", gotParams.ServiceID, "s1")
+		}
+		if gotParams.ProfessionalID != "p1" {
+			t.Errorf("params.ProfessionalID = %q; want %q", gotParams.ProfessionalID, "p1")
+		}
+		if gotParams.StartDatetime != mondayFuture.Format(time.RFC3339) {
+			t.Errorf("params.StartDatetime = %q; want %q", gotParams.StartDatetime, mondayFuture.Format(time.RFC3339))
 		}
 	})
 
-	t.Run("business closed on exception date", func(t *testing.T) {
-		m := newAvailabilityMocks()
-		m.exceptions.GetFn = func(_ context.Context, _ time.Time) (*entity.BusinessHoursException, error) {
-			return &entity.BusinessHoursException{
-				IsClosed: true,
-				Reason:   ptr("feriado"),
-			}, nil
+	t.Run("business closed error propagates", func(t *testing.T) {
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				return nil, &domain.SemanticError{
+					Code:    domain.ErrCodeBusinessClosed,
+					Message: "el negocio está cerrado el lunes (feriado).",
+				}
+			},
 		}
-		uc := m.newUseCase()
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
 
 		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
@@ -194,11 +154,17 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 	})
 
-	t.Run("slot before business open hours", func(t *testing.T) {
-		m := newAvailabilityMocks()
-		uc := m.newUseCase()
+	t.Run("slot out of hours error propagates", func(t *testing.T) {
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				return nil, &domain.SemanticError{
+					Code:    domain.ErrCodeSlotOutOfHours,
+					Message: "el horario de atención comienza a las 09:00.",
+				}
+			},
+		}
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
 
-		// 07:00 UTC is before 09:00 business open
 		earlyTime := time.Date(2026, 8, 3, 7, 0, 0, 0, time.UTC)
 		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
@@ -217,11 +183,17 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 	})
 
-	t.Run("slot in the past", func(t *testing.T) {
-		m := newAvailabilityMocks()
-		uc := m.newUseCase()
+	t.Run("slot in the past error propagates", func(t *testing.T) {
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				return nil, &domain.SemanticError{
+					Code:    domain.ErrCodeSlotInPast,
+					Message: "no se puede reservar en el pasado.",
+				}
+			},
+		}
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
 
-		// 2025-01-06 is a Monday, 10:00 UTC — within hours but in the past
 		pastTime := time.Date(2025, 1, 6, 10, 0, 0, 0, time.UTC)
 		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
@@ -243,18 +215,16 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 	})
 
-	t.Run("overlap with existing booking", func(t *testing.T) {
-		m := newAvailabilityMocks()
-		m.bookings.FindOverlappingFn = func(_ context.Context, _ string, _, _ time.Time) ([]*entity.Booking, error) {
-			return []*entity.Booking{
-				{
-					ProfessionalID: "p1",
-					StartDatetime:  mondayFuture,
-					EndDatetime:    mondayFuture.Add(60 * time.Minute),
-				},
-			}, nil
+	t.Run("overlap error propagates", func(t *testing.T) {
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				return nil, &domain.SemanticError{
+					Code:    domain.ErrCodeBookingOverlap,
+					Message: "el Profesional Juan ya tiene una reserva de 2026-08-03T10:00:00Z a 2026-08-03T11:00:00Z.",
+				}
+			},
 		}
-		uc := m.newUseCase()
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
 
 		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
 			ServiceID:      "s1",
@@ -273,6 +243,30 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		}
 		if !strings.Contains(sem.Message, "ya tiene una reserva") {
 			t.Errorf("expected Spanish overlap message; got %q", sem.Message)
+		}
+	})
+
+	t.Run("service not found error wraps with context", func(t *testing.T) {
+		checker := &mockAvailabilityChecker{
+			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+				return nil, domain.ErrNotFound
+			},
+		}
+		uc := NewCheckAvailabilityUseCase(checker, service.AvailabilityDeps{})
+
+		_, err := uc.Execute(context.Background(), dto.CheckAvailabilityInput{
+			ServiceID:      "s-nonexistent",
+			ProfessionalID: "p1",
+			StartDatetime:  mondayFuture,
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected errors.Is(err, ErrNotFound); got %v", err)
+		}
+		if !strings.Contains(err.Error(), "consultar disponibilidad") {
+			t.Errorf("expected error to mention availability context; got %q", err.Error())
 		}
 	})
 }

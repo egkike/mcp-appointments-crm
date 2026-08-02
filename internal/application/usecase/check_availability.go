@@ -6,22 +6,23 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 )
 
-// CheckAvailabilityUseCase delegates to the domain AvailabilityService.
+// CheckAvailabilityUseCase delegates to the domain AvailabilityChecker.
 type CheckAvailabilityUseCase struct {
-	svc  *service.AvailabilityService
-	deps service.AvailabilityDeps
+	checker service.AvailabilityChecker
+	deps    service.AvailabilityDeps
 }
 
 // NewCheckAvailabilityUseCase constructs a CheckAvailabilityUseCase with the
-// given domain service and its pre-assembled dependency struct.
+// given availability checker and its pre-assembled dependency struct.
 func NewCheckAvailabilityUseCase(
-	svc *service.AvailabilityService,
+	checker service.AvailabilityChecker,
 	deps service.AvailabilityDeps,
 ) *CheckAvailabilityUseCase {
-	return &CheckAvailabilityUseCase{svc: svc, deps: deps}
+	return &CheckAvailabilityUseCase{checker: checker, deps: deps}
 }
 
 // Execute checks whether the requested datetime is available for booking.
@@ -33,12 +34,18 @@ func NewCheckAvailabilityUseCase(
 // Domain service errors (business closed, professional not working, slot out of
 // hours, overlap, past) propagate as-is.
 func (uc *CheckAvailabilityUseCase) Execute(ctx context.Context, input dto.CheckAvailabilityInput) (*dto.CheckAvailabilityResult, error) {
+	if input.StartDatetime.IsZero() {
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "El campo start_datetime es obligatorio.",
+		}
+	}
 	params := &service.CheckAvailabilityParams{
 		ServiceID:      input.ServiceID,
 		ProfessionalID: input.ProfessionalID,
 		StartDatetime:  input.StartDatetime.Format(time.RFC3339),
 	}
-	result, err := uc.svc.CheckAvailability(ctx, params, uc.deps)
+	result, err := uc.checker.CheckAvailability(ctx, params, uc.deps)
 	if err != nil {
 		return nil, fmt.Errorf("consultar disponibilidad: %w", err)
 	}
