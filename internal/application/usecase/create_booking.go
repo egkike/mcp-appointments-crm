@@ -31,21 +31,21 @@ func NewCreateBookingUseCase(bookings repository.BookingsRepo, services reposito
 // themselves, staff for their professional, admin/owner for anyone.
 // Returns the new booking ID or a *domain.SemanticError.
 func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBookingInput) (*dto.CreateBookingResult, error) {
-	if err := requireAuthenticated(input.Caller); err != nil {
+	if err := auth.RequireAuthenticated(input.Caller); err != nil {
 		return nil, err
 	}
 	switch input.Caller.Role {
 	case auth.RoleClient:
 		if input.Caller.ClientID == nil || *input.Caller.ClientID != input.ClientID {
-			return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "Cliente solo puede crear reservas para sí mismo", Cause: domain.ErrUnauthenticated}
+			return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "Cliente solo puede crear reservas para sí mismo", Cause: domain.ErrForbidden}
 		}
 	case auth.RoleStaff:
 		if input.Caller.ProfessionalID == nil || *input.Caller.ProfessionalID != input.ProfessionalID {
-			return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "Personal solo puede crear reservas para su profesional asignado", Cause: domain.ErrUnauthenticated}
+			return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "Personal solo puede crear reservas para su profesional asignado", Cause: domain.ErrForbidden}
 		}
 	case auth.RoleAdmin, auth.RoleOwner:
 	default:
-		return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: fmt.Sprintf("Rol %q no puede crear reservas", input.Caller.Role), Cause: domain.ErrUnauthenticated}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: fmt.Sprintf("Rol %q no puede crear reservas", input.Caller.Role), Cause: domain.ErrForbidden}
 	}
 
 	// ─── Input validation ──────────────────────────────────────────────

@@ -117,8 +117,8 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
 		}
 	})
 }
@@ -351,8 +351,8 @@ func TestPendingAlertsRepo_Cancel(t *testing.T) {
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
 		}
 	})
 }

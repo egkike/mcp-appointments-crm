@@ -27,7 +27,8 @@ func RequireCaller(ctx context.Context) (*Caller, error) {
 
 // RequireRole checks that the caller's role is in the allowed set.
 // Returns *domain.SemanticError{Code: ErrCodeUnauthenticated} if no caller is present
-// or the caller's role is not authorized.
+// (truly missing auth) or *domain.SemanticError{Code: ErrCodeForbidden} if the
+// caller's role is not authorized (authenticated but lacks permission).
 func RequireRole(ctx context.Context, roles ...string) (*Caller, error) {
 	caller, err := RequireCaller(ctx)
 	if err != nil {
@@ -39,9 +40,9 @@ func RequireRole(ctx context.Context, roles ...string) (*Caller, error) {
 		}
 	}
 	return nil, &domain.SemanticError{
-		Code:    domain.ErrCodeUnauthenticated,
+		Code:    domain.ErrCodeForbidden,
 		Message: fmt.Sprintf("Rol %q no tiene permiso para esta operación", caller.Role),
-		Cause:   domain.ErrUnauthenticated,
+		Cause:   domain.ErrForbidden,
 	}
 }
 
@@ -63,9 +64,9 @@ func RequireClientMatch(ctx context.Context, inputClientID, inputProfessionalID 
 	if caller.Role == RoleStaff {
 		if caller.ProfessionalID == nil || *caller.ProfessionalID != inputProfessionalID {
 			return &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
+				Code:    domain.ErrCodeForbidden,
 				Message: "Profesional no tiene permiso para operar en este calendario",
-				Cause:   domain.ErrUnauthenticated,
+				Cause:   domain.ErrForbidden,
 			}
 		}
 		return nil
@@ -74,17 +75,17 @@ func RequireClientMatch(ctx context.Context, inputClientID, inputProfessionalID 
 	if caller.Role == RoleClient {
 		if caller.ClientID == nil || *caller.ClientID != inputClientID {
 			return &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
+				Code:    domain.ErrCodeForbidden,
 				Message: "no tiene permiso para operar en nombre de otro cliente",
-				Cause:   domain.ErrUnauthenticated,
+				Cause:   domain.ErrForbidden,
 			}
 		}
 		return nil
 	}
 	// Unknown role — deny
 	return &domain.SemanticError{
-		Code:    domain.ErrCodeUnauthenticated,
+		Code:    domain.ErrCodeForbidden,
 		Message: fmt.Sprintf("Rol %q no tiene permiso para esta operación", caller.Role),
-		Cause:   domain.ErrUnauthenticated,
+		Cause:   domain.ErrForbidden,
 	}
 }

@@ -112,8 +112,8 @@ func TestCancelBookingUseCase(t *testing.T) {
 		if !errors.As(err, &sem) {
 			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
 		}
-		if sem.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeUnauthenticated)
+		if sem.Code != domain.ErrCodeForbidden {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeForbidden)
 		}
 		if !strings.Contains(sem.Message, "Cliente solo puede acceder a sus propias reservas") {
 			t.Errorf("expected Spanish message; got %q", sem.Message)
@@ -141,8 +141,8 @@ func TestCancelBookingUseCase(t *testing.T) {
 		if !errors.As(err, &sem) {
 			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
 		}
-		if sem.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeUnauthenticated)
+		if sem.Code != domain.ErrCodeForbidden {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeForbidden)
 		}
 		if !strings.Contains(sem.Message, "Personal solo puede acceder a las reservas de su profesional asignado") {
 			t.Errorf("expected Spanish message; got %q", sem.Message)

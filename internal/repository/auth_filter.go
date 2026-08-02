@@ -31,9 +31,9 @@ func applyAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []any) (str
 	case auth.RoleClient:
 		if caller.ClientID == nil {
 			return "", nil, &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
+				Code:    domain.ErrCodeForbidden,
 				Message: "Cliente no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
+				Cause:   domain.ErrForbidden,
 			}
 		}
 		query += " AND client_id = ?"
@@ -41,9 +41,9 @@ func applyAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []any) (str
 	case auth.RoleStaff:
 		if caller.ProfessionalID == nil {
 			return "", nil, &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
+				Code:    domain.ErrCodeForbidden,
 				Message: "Profesional no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
+				Cause:   domain.ErrForbidden,
 			}
 		}
 		query += " AND professional_id = ?"
@@ -52,9 +52,9 @@ func applyAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []any) (str
 		// no extra filter
 	default:
 		return "", nil, &domain.SemanticError{
-			Code:    domain.ErrCodeUnauthenticated,
+			Code:    domain.ErrCodeForbidden,
 			Message: fmt.Sprintf("Rol %q no tiene permiso para acceder a reservas", caller.Role),
-			Cause:   domain.ErrUnauthenticated,
+			Cause:   domain.ErrForbidden,
 		}
 	}
 

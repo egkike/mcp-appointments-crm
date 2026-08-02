@@ -46,8 +46,8 @@ func TestApplyAuthFilter(t *testing.T) {
 		if !errors.As(err, &semErr) {
 			t.Fatalf("expected *domain.SemanticError; got %T", err)
 		}
-		if semErr.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("code = %q; want %q", semErr.Code, domain.ErrCodeUnauthenticated)
+		if semErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("code = %q; want %q", semErr.Code, domain.ErrCodeForbidden)
 		}
 		if !strings.Contains(semErr.Message, "Cliente no tiene ID") {
 			t.Errorf("message = %q; want contains 'Cliente no tiene ID'", semErr.Message)
@@ -84,8 +84,8 @@ func TestApplyAuthFilter(t *testing.T) {
 		if !errors.As(err, &semErr) {
 			t.Fatalf("expected *domain.SemanticError; got %T", err)
 		}
-		if semErr.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("code = %q; want %q", semErr.Code, domain.ErrCodeUnauthenticated)
+		if semErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("code = %q; want %q", semErr.Code, domain.ErrCodeForbidden)
 		}
 	})
 
@@ -130,8 +130,8 @@ func TestApplyAuthFilter(t *testing.T) {
 		if !errors.As(err, &semErr) {
 			t.Fatalf("expected *domain.SemanticError; got %T", err)
 		}
-		if semErr.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("code = %q; want %q", semErr.Code, domain.ErrCodeUnauthenticated)
+		if semErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("code = %q; want %q", semErr.Code, domain.ErrCodeForbidden)
 		}
 		if !strings.Contains(semErr.Message, "superadmin") {
 			t.Errorf("message = %q; want contains role name 'superadmin'", semErr.Message)
