@@ -5,13 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
 
-// ErrUnauthenticated is the sentinel error for authentication failures.
-// The middleware translates this to HTTP 401 with a Spanish message.
-var ErrUnauthenticated = errors.New("unauthenticated")
-
-// authError wraps ErrUnauthenticated with a user-facing Spanish message.
+// authError wraps domain.ErrUnauthenticated with a user-facing Spanish message.
 // Error() returns the Spanish message (never stack traces or internal details).
 type authError struct {
 	msg   string
@@ -41,14 +39,14 @@ func NewCallerResolver(db *sql.DB) *CallerResolver {
 // Resolve looks up the caller by ID. Algorithm (≤ 2 queries):
 //  1. SELECT from accounts WHERE id = ?
 //     - Row with is_active=1 → continue to step 2
-//     - Row with is_active=0 → ErrUnauthenticated (disabled), no clients query
+//     - Row with is_active=0 → domain.ErrUnauthenticated (disabled), no clients query
 //     - No row → go to step 3
 //  2. SELECT from clients WHERE id = ? (only if step 1 found active account)
 //     - Row found → Caller with ClientID = &id
 //     - No row → Caller with ClientID = nil
 //  3. SELECT from clients WHERE id = ? (only if step 1 found no account)
 //     - Row found → Caller{Role: RoleClient, ClientID: &id}
-//     - No row → ErrUnauthenticated (not recognized)
+//     - No row → domain.ErrUnauthenticated (not recognized)
 func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error) {
 	// Step 1: query accounts
 	var role string
@@ -56,14 +54,14 @@ func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
 	var isActive int
 
 	err := r.db.QueryRowContext(ctx,
-		"SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?", id,
-	).Scan(&id, &role, &profID, &isActive)
+		"SELECT role, professional_id, is_active FROM accounts WHERE id = ?", id,
+	).Scan(&role, &profID, &isActive)
 
 	switch {
 	case err == nil:
 		// Account found
 		if isActive == 0 {
-			return Caller{}, &authError{msg: msgDisabled, inner: ErrUnauthenticated}
+			return Caller{}, &authError{msg: msgDisabled, inner: domain.ErrUnauthenticated}
 		}
 
 		// Active account — check if also a client (ADR-0011)
@@ -95,7 +93,7 @@ func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
 			return Caller{ID: id, Role: RoleClient, ClientID: &clientID}, nil
 		}
 		if errors.Is(err, sql.ErrNoRows) {
-			return Caller{}, &authError{msg: msgNotRecognized, inner: ErrUnauthenticated}
+			return Caller{}, &authError{msg: msgNotRecognized, inner: domain.ErrUnauthenticated}
 		}
 		return Caller{}, fmt.Errorf("resolve caller %q: %w", id, err)
 

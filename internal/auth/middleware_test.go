@@ -58,10 +58,10 @@ func newMiddlewareWithMock(t *testing.T, rbac ToolRBAC, logger *slog.Logger) (*A
 
 // expectAdminResolved sets up mock expectations for an active admin with no client row.
 func expectAdminResolved(mock sqlmock.Sqlmock, id string) {
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}).
-			AddRow(id, "admin", nil, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("admin", nil, 1))
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
@@ -69,9 +69,9 @@ func expectAdminResolved(mock sqlmock.Sqlmock, id string) {
 
 // expectClientResolved sets up mock expectations for a client-only caller.
 func expectClientResolved(mock sqlmock.Sqlmock, id string) {
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}))
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(id))
@@ -79,10 +79,10 @@ func expectClientResolved(mock sqlmock.Sqlmock, id string) {
 
 // expectStaffResolved sets up mock expectations for an active staff with professional_id.
 func expectStaffResolved(mock sqlmock.Sqlmock, id, profID string) {
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}).
-			AddRow(id, "staff", profID, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("staff", profID, 1))
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
@@ -90,17 +90,17 @@ func expectStaffResolved(mock sqlmock.Sqlmock, id, profID string) {
 
 // expectDisabledAccount sets up mock expectations for a disabled account.
 func expectDisabledAccount(mock sqlmock.Sqlmock, id string) {
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}).
-			AddRow(id, "admin", nil, 0))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("admin", nil, 0))
 }
 
 // expectUnknownCaller sets up mock expectations for an unknown caller.
 func expectUnknownCaller(mock sqlmock.Sqlmock, id string) {
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}))
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
 		WithArgs(id).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
@@ -536,8 +536,8 @@ func TestMiddleware_AuditLog_Admin(t *testing.T) {
 		attrs[a.Key] = a.Value.Any()
 		return true
 	})
-	if attrs["caller_id"] != id {
-		t.Errorf("audit caller_id = %v; want %q", attrs["caller_id"], id)
+	if attrs["caller_hash"] != hashCallerID(id) {
+		t.Errorf("audit caller_hash = %v; want %q", attrs["caller_hash"], hashCallerID(id))
 	}
 	if attrs["tool"] != "/tools/admin-tool" {
 		t.Errorf("audit tool = %v; want %q", attrs["tool"], "/tools/admin-tool")
@@ -559,7 +559,7 @@ func TestMiddleware_ResolverDBError_Returns500(t *testing.T) {
 	mw, mock := newMiddlewareWithMock(t, nil, logger)
 
 	id := "+5491100000000"
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
 		WillReturnError(errors.New("connection refused"))
 

@@ -3,6 +3,8 @@ package repository
 import (
 	"fmt"
 	"time"
+
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
 
 // ParseBusinessTimezone loads an IANA timezone location by name.
@@ -10,11 +12,11 @@ import (
 // Does NOT silently default to UTC — callers must handle the error.
 func ParseBusinessTimezone(s string) (*time.Location, error) {
 	if s == "" {
-		return nil, fmt.Errorf("la zona horaria no puede estar vacía: %w", ErrInvalidInput)
+		return nil, fmt.Errorf("la zona horaria no puede estar vacía: %w", domain.ErrInvalidInput)
 	}
 	loc, err := time.LoadLocation(s)
 	if err != nil {
-		return nil, fmt.Errorf("la zona horaria %q no es válida: %w", s, ErrInvalidInput)
+		return nil, fmt.Errorf("la zona horaria %q no es válida: %w", s, domain.ErrInvalidInput)
 	}
 	return loc, nil
 }
@@ -28,7 +30,7 @@ func ParseStartDatetime(input string, loc *time.Location) (time.Time, error) {
 	if err != nil {
 		dt, err = time.ParseInLocation("2006-01-02T15:04:05.000Z07:00", input, loc)
 		if err != nil {
-			return time.Time{}, fmt.Errorf("el formato de fecha/hora %q no es válido (se espera RFC3339): %w", input, ErrInvalidInput)
+			return time.Time{}, fmt.Errorf("el formato de fecha/hora %q no es válido (se espera RFC3339): %w", input, domain.ErrInvalidInput)
 		}
 	}
 	return dt, nil

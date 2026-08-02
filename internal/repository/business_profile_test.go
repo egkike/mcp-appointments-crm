@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -189,7 +190,7 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
@@ -207,8 +208,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 
 		profile := &model.BusinessProfile{ID: "singleton", Name: "Ghost"}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
@@ -242,15 +243,15 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid messenger_platform returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid messenger_platform returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
 		platform := "facebook"
 		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for invalid platform, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for invalid platform, got %v", err)
 		}
 	})
 
@@ -284,27 +285,27 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid JSON accepted_payment_methods returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid JSON accepted_payment_methods returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
 		methods := `not-json`
 		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for invalid JSON, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for invalid JSON, got %v", err)
 		}
 	})
 
-	t.Run("accepted_payment_methods with empty string returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("accepted_payment_methods with empty string returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
 		methods := `["cash",""]`
 		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for empty string in array, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for empty string in array, got %v", err)
 		}
 	})
 
@@ -368,7 +369,7 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid business_hours JSON returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid business_hours JSON returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
@@ -378,12 +379,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			BusinessHours: `{invalid`,
 		}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for malformed JSON, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for malformed JSON, got %v", err)
 		}
 	})
 
-	t.Run("business_hours as JSON array returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("business_hours as JSON array returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
@@ -393,12 +394,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			BusinessHours: `["not","an","object"]`,
 		}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for JSON array, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for JSON array, got %v", err)
 		}
 	})
 
-	t.Run("business_hours as JSON string returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("business_hours as JSON string returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
@@ -408,8 +409,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			BusinessHours: `"just a string"`,
 		}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for JSON string, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for JSON string, got %v", err)
 		}
 	})
 
@@ -445,7 +446,7 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid timezone returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid timezone returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
@@ -455,12 +456,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			Timezone: "Not/A/Real/Zone",
 		}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for invalid timezone, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for invalid timezone, got %v", err)
 		}
 	})
 
-	t.Run("accepted_payment_methods JSON null returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("accepted_payment_methods JSON null returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
@@ -471,8 +472,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			AcceptedPaymentMethods: &methods,
 		}
 		err := repo.UpdateBusinessProfile(context.Background(), profile)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for JSON null, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for JSON null, got %v", err)
 		}
 	})
 }

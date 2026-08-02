@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -32,7 +33,7 @@ func validateBusinessProfile(p *model.BusinessProfile) error {
 		v := *p.MessengerPlatform
 		if v != "whatsapp" && v != "telegram" {
 			return fmt.Errorf("actualizar perfil del negocio: la plataforma de mensajería debe ser \"whatsapp\" o \"telegram\", se recibió: %q: %w",
-				v, ErrInvalidInput)
+				v, domain.ErrInvalidInput)
 		}
 	}
 
@@ -95,7 +96,7 @@ func (r *BusinessProfileRepo) GetBusinessProfile(ctx context.Context) (*model.Bu
 	return p, nil
 }
 
-// UpdateBusinessProfile updates the singleton row. Returns ErrNotFound if
+// UpdateBusinessProfile updates the singleton row. Returns domain.ErrNotFound if
 // no row matches (should not happen in practice due to lazy-init).
 func (r *BusinessProfileRepo) UpdateBusinessProfile(ctx context.Context, p *model.BusinessProfile) error {
 	if err := validateBusinessProfile(p); err != nil {
@@ -127,7 +128,7 @@ func (r *BusinessProfileRepo) UpdateBusinessProfile(ctx context.Context, p *mode
 		return fmt.Errorf("actualizar perfil del negocio: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("actualizar perfil del negocio: %w", ErrNotFound)
+		return fmt.Errorf("actualizar perfil del negocio: %w", domain.ErrNotFound)
 	}
 	return nil
 }

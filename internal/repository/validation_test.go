@@ -3,6 +3,8 @@ package repository
 import (
 	"errors"
 	"testing"
+
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
 
 func TestValidateExceptionDate(t *testing.T) {
@@ -29,8 +31,8 @@ func TestValidateExceptionDate(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("validateExceptionDate(%q) expected error, got nil", tt.date)
-				} else if !errors.Is(err, ErrInvalidInput) {
-					t.Errorf("validateExceptionDate(%q) = %v; want ErrInvalidInput", tt.date, err)
+				} else if !errors.Is(err, domain.ErrInvalidInput) {
+					t.Errorf("validateExceptionDate(%q) = %v; want domain.ErrInvalidInput", tt.date, err)
 				}
 			} else if err != nil {
 				t.Errorf("validateExceptionDate(%q) unexpected error: %v", tt.date, err)
@@ -107,8 +109,8 @@ func TestValidateFTSQuery(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("validateFTSQuery(%q) expected error, got nil", tt.query)
-				} else if !errors.Is(err, ErrInvalidInput) {
-					t.Errorf("validateFTSQuery(%q) = %v; want ErrInvalidInput", tt.query, err)
+				} else if !errors.Is(err, domain.ErrInvalidInput) {
+					t.Errorf("validateFTSQuery(%q) = %v; want domain.ErrInvalidInput", tt.query, err)
 				}
 			} else if err != nil {
 				t.Errorf("validateFTSQuery(%q) unexpected error: %v", tt.query, err)
@@ -138,8 +140,8 @@ func TestValidateBusinessHoursJSON(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("validateBusinessHoursJSON(%q) expected error, got nil", tt.input)
-				} else if !errors.Is(err, ErrInvalidInput) {
-					t.Errorf("validateBusinessHoursJSON(%q) = %v; want ErrInvalidInput", tt.input, err)
+				} else if !errors.Is(err, domain.ErrInvalidInput) {
+					t.Errorf("validateBusinessHoursJSON(%q) = %v; want domain.ErrInvalidInput", tt.input, err)
 				}
 			} else if err != nil {
 				t.Errorf("validateBusinessHoursJSON(%q) unexpected error: %v", tt.input, err)
@@ -167,8 +169,8 @@ func TestValidateTimezone(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("validateTimezone(%q) expected error, got nil", tt.tz)
-				} else if !errors.Is(err, ErrInvalidInput) {
-					t.Errorf("validateTimezone(%q) = %v; want ErrInvalidInput", tt.tz, err)
+				} else if !errors.Is(err, domain.ErrInvalidInput) {
+					t.Errorf("validateTimezone(%q) = %v; want domain.ErrInvalidInput", tt.tz, err)
 				}
 			} else if err != nil {
 				t.Errorf("validateTimezone(%q) unexpected error: %v", tt.tz, err)
@@ -198,8 +200,8 @@ func TestValidateAcceptedPaymentMethodsJSON(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("validateAcceptedPaymentMethodsJSON(%q) expected error, got nil", tt.input)
-				} else if !errors.Is(err, ErrInvalidInput) {
-					t.Errorf("validateAcceptedPaymentMethodsJSON(%q) = %v; want ErrInvalidInput", tt.input, err)
+				} else if !errors.Is(err, domain.ErrInvalidInput) {
+					t.Errorf("validateAcceptedPaymentMethodsJSON(%q) = %v; want domain.ErrInvalidInput", tt.input, err)
 				}
 			} else if err != nil {
 				t.Errorf("validateAcceptedPaymentMethodsJSON(%q) unexpected error: %v", tt.input, err)

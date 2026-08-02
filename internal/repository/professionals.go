@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -27,26 +28,26 @@ func NewProfessionalsRepo(db *sql.DB) *ProfessionalsRepo {
 // validateProfessional checks business-rule invariants for a professional.
 func validateProfessional(p *model.Professional) error {
 	if strings.TrimSpace(p.Name) == "" {
-		return fmt.Errorf("el nombre no puede estar vacío: %w", ErrInvalidInput)
+		return fmt.Errorf("el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	if p.Status != "active" && p.Status != "inactive" {
-		return fmt.Errorf("el estado %q no es válido (debe ser 'active' o 'inactive'): %w", p.Status, ErrInvalidInput)
+		return fmt.Errorf("el estado %q no es válido (debe ser 'active' o 'inactive'): %w", p.Status, domain.ErrInvalidInput)
 	}
 	return nil
 }
 
 // Create inserts a new professional. The ID is auto-assigned as a UUID v4.
 // If Status is empty, it defaults to "active".
-// Returns ErrInvalidInput if name is empty or status is invalid.
-// Returns ErrNotFound if a specialty references a non-existent service.
+// Returns domain.ErrInvalidInput if name is empty or status is invalid.
+// Returns domain.ErrNotFound if a specialty references a non-existent service.
 // Requires admin or owner role.
 func (r *ProfessionalsRepo) Create(ctx context.Context, p *model.Professional) error {
-	if _, err := requireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("crear profesional: %w", err)
 	}
 
 	if strings.TrimSpace(p.Name) == "" {
-		return fmt.Errorf("crear profesional: el nombre no puede estar vacío: %w", ErrInvalidInput)
+		return fmt.Errorf("crear profesional: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 
 	// Default status to "active" if not specified (per spec)
@@ -55,14 +56,14 @@ func (r *ProfessionalsRepo) Create(ctx context.Context, p *model.Professional) e
 	}
 
 	if p.Status != "active" && p.Status != "inactive" {
-		return fmt.Errorf("crear profesional: el estado %q no es válido (debe ser 'active' o 'inactive'): %w", p.Status, ErrInvalidInput)
+		return fmt.Errorf("crear profesional: el estado %q no es válido (debe ser 'active' o 'inactive'): %w", p.Status, domain.ErrInvalidInput)
 	}
 
 	// Validate specialties: each service_id must exist in the services table
 	if p.Specialties != nil && *p.Specialties != "" {
 		var serviceIDs []string
 		if err := json.Unmarshal([]byte(*p.Specialties), &serviceIDs); err != nil {
-			return fmt.Errorf("crear profesional: specialties debe ser un array JSON válido: %w", ErrInvalidInput)
+			return fmt.Errorf("crear profesional: specialties debe ser un array JSON válido: %w", domain.ErrInvalidInput)
 		}
 		for _, svcID := range serviceIDs {
 			var count int
@@ -71,7 +72,7 @@ func (r *ProfessionalsRepo) Create(ctx context.Context, p *model.Professional) e
 				return fmt.Errorf("crear profesional: verificar servicio %s: %w", svcID, err)
 			}
 			if count == 0 {
-				return fmt.Errorf("crear profesional: el servicio %s no existe: %w", svcID, ErrNotFound)
+				return fmt.Errorf("crear profesional: el servicio %s no existe: %w", svcID, domain.ErrNotFound)
 			}
 		}
 	}
@@ -89,20 +90,20 @@ func (r *ProfessionalsRepo) Create(ctx context.Context, p *model.Professional) e
 	return nil
 }
 
-// Get returns a professional by ID. Returns ErrNotFound if not found.
+// Get returns a professional by ID. Returns domain.ErrNotFound if not found.
 // Staff callers can only retrieve their own professional record.
 func (r *ProfessionalsRepo) Get(ctx context.Context, id string) (*model.Professional, error) {
-	caller, err := requireCaller(ctx)
+	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("obtener profesional %s: %w", id, err)
 	}
 	// Staff restricted to their own row
 	if caller.Role == auth.RoleStaff {
 		if caller.ProfessionalID == nil || *caller.ProfessionalID != id {
-			return nil, &SemanticError{
-				Code:    ErrCodeUnauthenticated,
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeUnauthenticated,
 				Message: "no tiene permiso para ver este profesional",
-				Cause:   ErrUnauthenticated,
+				Cause:   domain.ErrUnauthenticated,
 			}
 		}
 	}
@@ -115,7 +116,7 @@ func (r *ProfessionalsRepo) Get(ctx context.Context, id string) (*model.Professi
 		&p.Specialties, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener profesional %s: %w", id, ErrNotFound)
+			return nil, fmt.Errorf("obtener profesional %s: %w", id, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("obtener profesional %s: %w", id, err)
 	}
@@ -125,7 +126,7 @@ func (r *ProfessionalsRepo) Get(ctx context.Context, id string) (*model.Professi
 // GetActive returns all professionals with status='active', ordered by name.
 // Staff callers see only their own professional record.
 func (r *ProfessionalsRepo) GetActive(ctx context.Context) ([]*model.Professional, error) {
-	caller, err := requireCaller(ctx)
+	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listar profesionales activos: %w", err)
 	}
@@ -160,11 +161,11 @@ func (r *ProfessionalsRepo) GetActive(ctx context.Context) ([]*model.Professiona
 	return professionals, nil
 }
 
-// Update updates an existing professional. Returns ErrInvalidInput for invalid
-// fields, ErrNotFound if no row matches or if a specialty references a non-existent service.
+// Update updates an existing professional. Returns domain.ErrInvalidInput for invalid
+// fields, domain.ErrNotFound if no row matches or if a specialty references a non-existent service.
 // Requires admin or owner role.
 func (r *ProfessionalsRepo) Update(ctx context.Context, p *model.Professional) error {
-	if _, err := requireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("actualizar profesional: %w", err)
 	}
 
@@ -176,7 +177,7 @@ func (r *ProfessionalsRepo) Update(ctx context.Context, p *model.Professional) e
 	if p.Specialties != nil && *p.Specialties != "" {
 		var serviceIDs []string
 		if err := json.Unmarshal([]byte(*p.Specialties), &serviceIDs); err != nil {
-			return fmt.Errorf("actualizar profesional: specialties debe ser un array JSON válido: %w", ErrInvalidInput)
+			return fmt.Errorf("actualizar profesional: specialties debe ser un array JSON válido: %w", domain.ErrInvalidInput)
 		}
 		for _, svcID := range serviceIDs {
 			var count int
@@ -185,7 +186,7 @@ func (r *ProfessionalsRepo) Update(ctx context.Context, p *model.Professional) e
 				return fmt.Errorf("actualizar profesional: verificar servicio %s: %w", svcID, err)
 			}
 			if count == 0 {
-				return fmt.Errorf("actualizar profesional: el servicio %s no existe: %w", svcID, ErrNotFound)
+				return fmt.Errorf("actualizar profesional: el servicio %s no existe: %w", svcID, domain.ErrNotFound)
 			}
 		}
 	}
@@ -205,7 +206,7 @@ func (r *ProfessionalsRepo) Update(ctx context.Context, p *model.Professional) e
 		return fmt.Errorf("actualizar profesional: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("actualizar profesional: %w", ErrNotFound)
+		return fmt.Errorf("actualizar profesional: %w", domain.ErrNotFound)
 	}
 	return nil
 }

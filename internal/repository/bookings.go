@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -54,18 +55,18 @@ type CreateBookingResult struct {
 // 2. Parses start_datetime to time.Time (UTC)
 // 3. Computes end_datetime = start + duration
 // 4. Executes atomic INSERT ... WHERE NOT EXISTS (overlap subquery)
-// 5. If RowsAffected() == 0, returns SemanticError{Code: ErrCodeBookingOverlap}
+// 5. If RowsAffected() == 0, returns domain.SemanticError{Code: domain.ErrCodeBookingOverlap}
 //
-// Returns ErrNotFound if the service does not exist.
-// Returns ErrInvalidInput if start_datetime is empty or malformed.
-// Returns *SemanticError{Code: ErrCodeBookingOverlap} if the slot overlaps.
+// Returns domain.ErrNotFound if the service does not exist.
+// Returns domain.ErrInvalidInput if start_datetime is empty or malformed.
+// Returns *domain.SemanticError{Code: domain.ErrCodeBookingOverlap} if the slot overlaps.
 func (r *BookingsRepo) CreateBooking(ctx context.Context, input *CreateBookingInput) (*CreateBookingResult, error) {
 	if strings.TrimSpace(input.StartDatetime) == "" {
-		return nil, fmt.Errorf("crear reserva: start_datetime no puede estar vacío: %w", ErrInvalidInput)
+		return nil, fmt.Errorf("crear reserva: start_datetime no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 
 	// Auth: client can only create for themselves; staff must match their professional; admin/owner can create for any client
-	if err := requireClientMatch(ctx, input.ClientID, input.ProfessionalID); err != nil {
+	if err := auth.RequireClientMatch(ctx, input.ClientID, input.ProfessionalID); err != nil {
 		return nil, fmt.Errorf("crear reserva: %w", err)
 	}
 
@@ -76,7 +77,7 @@ func (r *BookingsRepo) CreateBooking(ctx context.Context, input *CreateBookingIn
 	).Scan(&durationMinutes)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("crear reserva: el servicio %s no existe: %w", input.ServiceID, ErrNotFound)
+			return nil, fmt.Errorf("crear reserva: el servicio %s no existe: %w", input.ServiceID, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("crear reserva: consultar servicio: %w", err)
 	}
@@ -123,8 +124,8 @@ func (r *BookingsRepo) CreateBooking(ctx context.Context, input *CreateBookingIn
 	}
 
 	if rowsAffected == 0 {
-		return nil, &SemanticError{
-			Code:    ErrCodeBookingOverlap,
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeBookingOverlap,
 			Message: fmt.Sprintf("el Profesional %s ya tiene una reserva en ese horario.", input.ProfessionalID),
 		}
 	}
@@ -145,14 +146,14 @@ func (r *BookingsRepo) CreateBooking(ctx context.Context, input *CreateBookingIn
 	return &CreateBookingResult{Booking: booking}, nil
 }
 
-// GetBooking returns a booking by ID. Returns ErrNotFound if not found or if
+// GetBooking returns a booking by ID. Returns domain.ErrNotFound if not found or if
 // the caller does not have access (unified — no existence oracle).
 // Auth: dynamic WHERE filters by caller scope (per design.md §500).
 //   - client: WHERE id = ? AND client_id = ?
 //   - staff: WHERE id = ? AND professional_id = ?
 //   - admin/owner: WHERE id = ?
 func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Booking, error) {
-	caller, err := requireCaller(ctx)
+	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("obtener reserva %s: %w", id, err)
 	}
@@ -164,20 +165,20 @@ func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Bookin
 	switch caller.Role {
 	case auth.RoleClient:
 		if caller.ClientID == nil {
-			return nil, &SemanticError{
-				Code:    ErrCodeUnauthenticated,
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeUnauthenticated,
 				Message: "el cliente no tiene ID asignado",
-				Cause:   ErrUnauthenticated,
+				Cause:   domain.ErrUnauthenticated,
 			}
 		}
 		query += ` AND client_id = ?`
 		args = append(args, *caller.ClientID)
 	case auth.RoleStaff:
 		if caller.ProfessionalID == nil {
-			return nil, &SemanticError{
-				Code:    ErrCodeUnauthenticated,
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeUnauthenticated,
 				Message: "el profesional no tiene ID asignado",
-				Cause:   ErrUnauthenticated,
+				Cause:   domain.ErrUnauthenticated,
 			}
 		}
 		query += ` AND professional_id = ?`
@@ -185,10 +186,10 @@ func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Bookin
 	case auth.RoleAdmin, auth.RoleOwner:
 		// no extra filter
 	default:
-		return nil, &SemanticError{
-			Code:    ErrCodeUnauthenticated,
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeUnauthenticated,
 			Message: fmt.Sprintf("el rol %q no tiene permiso para acceder a reservas", caller.Role),
-			Cause:   ErrUnauthenticated,
+			Cause:   domain.ErrUnauthenticated,
 		}
 	}
 
@@ -199,7 +200,7 @@ func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Bookin
 		&b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener reserva %s: %w", id, ErrNotFound)
+			return nil, fmt.Errorf("obtener reserva %s: %w", id, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("obtener reserva %s: %w", id, err)
 	}
@@ -209,38 +210,38 @@ func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Bookin
 
 // CancelBooking transitions a booking to "cancelled" status.
 // Allowed transitions: pending→cancelled, confirmed→cancelled.
-// Returns *SemanticError{Code: ErrCodeInvalidInput} for cancelled→cancelled.
-// Returns ErrNotFound if the booking does not exist.
+// Returns *domain.SemanticError{Code: domain.ErrCodeInvalidInput} for cancelled→cancelled.
+// Returns domain.ErrNotFound if the booking does not exist.
 // Auth: client callers can only cancel their own bookings; staff callers can
 // only cancel bookings for their professional; admin/owner see all.
 func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
-	caller, err := requireCaller(ctx)
+	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return fmt.Errorf("cancelar reserva %s: %w", id, err)
 	}
 
 	// Dynamic WHERE: auth filter in query itself (same pattern as GetBooking).
-	// Cross-tenant and non-existent rows both return ErrNotFound (no oracle).
+	// Cross-tenant and non-existent rows both return domain.ErrNotFound (no oracle).
 	query := `SELECT status FROM bookings WHERE id = ?`
 	args := []any{id}
 
 	switch caller.Role {
 	case auth.RoleClient:
 		if caller.ClientID == nil {
-			return &SemanticError{
-				Code:    ErrCodeUnauthenticated,
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeUnauthenticated,
 				Message: "el cliente no tiene ID asignado",
-				Cause:   ErrUnauthenticated,
+				Cause:   domain.ErrUnauthenticated,
 			}
 		}
 		query += ` AND client_id = ?`
 		args = append(args, *caller.ClientID)
 	case auth.RoleStaff:
 		if caller.ProfessionalID == nil {
-			return &SemanticError{
-				Code:    ErrCodeUnauthenticated,
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeUnauthenticated,
 				Message: "el profesional no tiene ID asignado",
-				Cause:   ErrUnauthenticated,
+				Cause:   domain.ErrUnauthenticated,
 			}
 		}
 		query += ` AND professional_id = ?`
@@ -248,10 +249,10 @@ func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
 	case auth.RoleAdmin, auth.RoleOwner:
 		// no extra filter
 	default:
-		return &SemanticError{
-			Code:    ErrCodeUnauthenticated,
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeUnauthenticated,
 			Message: fmt.Sprintf("el rol %q no tiene permiso para acceder a reservas", caller.Role),
-			Cause:   ErrUnauthenticated,
+			Cause:   domain.ErrUnauthenticated,
 		}
 	}
 
@@ -259,15 +260,15 @@ func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
 	err = r.db.QueryRowContext(ctx, query, args...).Scan(&currentStatus)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("cancelar reserva %s: %w", id, ErrNotFound)
+			return fmt.Errorf("cancelar reserva %s: %w", id, domain.ErrNotFound)
 		}
 		return fmt.Errorf("cancelar reserva %s: consultar estado: %w", id, err)
 	}
 
 	// Validate FSM transition
 	if !currentStatus.IsValidTransition(model.BookingStatusCancelled) {
-		return &SemanticError{
-			Code:    ErrCodeInvalidInput,
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
 			Message: fmt.Sprintf("la transición de %q a 'cancelled' no está permitida.", currentStatus),
 		}
 	}
@@ -287,39 +288,39 @@ func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
 // Uses an atomic UPDATE ... WHERE NOT EXISTS overlap guard (same shape as
 // CreateBooking). If RowsAffected() == 0, the new slot overlaps with an
 // existing non-cancelled booking for the same professional.
-// Returns *SemanticError{Code: ErrCodeBookingOverlap} if the new slot overlaps.
-// Returns *SemanticError{Code: ErrCodeInvalidInput} if the booking is cancelled.
-// Returns ErrNotFound if the booking does not exist.
+// Returns *domain.SemanticError{Code: domain.ErrCodeBookingOverlap} if the new slot overlaps.
+// Returns *domain.SemanticError{Code: domain.ErrCodeInvalidInput} if the booking is cancelled.
+// Returns domain.ErrNotFound if the booking does not exist.
 // Auth: client callers can only reschedule their own bookings; staff callers can
 // only reschedule bookings for their professional; admin/owner see all.
 func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStartDatetime string) error {
-	caller, err := requireCaller(ctx)
+	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return fmt.Errorf("reprogramar reserva %s: %w", id, err)
 	}
 
 	// Dynamic WHERE: auth filter in query itself (same pattern as GetBooking).
-	// Cross-tenant and non-existent rows both return ErrNotFound (no oracle).
+	// Cross-tenant and non-existent rows both return domain.ErrNotFound (no oracle).
 	query := `SELECT service_id, status, professional_id FROM bookings WHERE id = ?`
 	args := []any{id}
 
 	switch caller.Role {
 	case auth.RoleClient:
 		if caller.ClientID == nil {
-			return &SemanticError{
-				Code:    ErrCodeUnauthenticated,
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeUnauthenticated,
 				Message: "el cliente no tiene ID asignado",
-				Cause:   ErrUnauthenticated,
+				Cause:   domain.ErrUnauthenticated,
 			}
 		}
 		query += ` AND client_id = ?`
 		args = append(args, *caller.ClientID)
 	case auth.RoleStaff:
 		if caller.ProfessionalID == nil {
-			return &SemanticError{
-				Code:    ErrCodeUnauthenticated,
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeUnauthenticated,
 				Message: "el profesional no tiene ID asignado",
-				Cause:   ErrUnauthenticated,
+				Cause:   domain.ErrUnauthenticated,
 			}
 		}
 		query += ` AND professional_id = ?`
@@ -327,10 +328,10 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 	case auth.RoleAdmin, auth.RoleOwner:
 		// no extra filter
 	default:
-		return &SemanticError{
-			Code:    ErrCodeUnauthenticated,
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeUnauthenticated,
 			Message: fmt.Sprintf("el rol %q no tiene permiso para acceder a reservas", caller.Role),
-			Cause:   ErrUnauthenticated,
+			Cause:   domain.ErrUnauthenticated,
 		}
 	}
 
@@ -339,15 +340,15 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 	err = r.db.QueryRowContext(ctx, query, args...).Scan(&serviceID, &currentStatus, &professionalID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("reprogramar reserva %s: %w", id, ErrNotFound)
+			return fmt.Errorf("reprogramar reserva %s: %w", id, domain.ErrNotFound)
 		}
 		return fmt.Errorf("reprogramar reserva %s: consultar: %w", id, err)
 	}
 
 	// Cannot reschedule cancelled bookings
 	if currentStatus == model.BookingStatusCancelled {
-		return &SemanticError{
-			Code:    ErrCodeInvalidInput,
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
 			Message: "no se puede reprogramar una reserva cancelada.",
 		}
 	}
@@ -359,7 +360,7 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 	).Scan(&durationMinutes)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("reprogramar reserva %s: el servicio %s no existe: %w", id, serviceID, ErrNotFound)
+			return fmt.Errorf("reprogramar reserva %s: el servicio %s no existe: %w", id, serviceID, domain.ErrNotFound)
 		}
 		return fmt.Errorf("reprogramar reserva %s: consultar servicio: %w", id, err)
 	}
@@ -413,19 +414,19 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 		).Scan(&recheckStatus)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("reprogramar reserva %s: %w", id, ErrNotFound)
+				return fmt.Errorf("reprogramar reserva %s: %w", id, domain.ErrNotFound)
 			}
 			return fmt.Errorf("reprogramar reserva %s: verificar estado: %w", id, err)
 		}
 		if recheckStatus == model.BookingStatusCancelled {
-			return &SemanticError{
-				Code:    ErrCodeInvalidInput,
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeInvalidInput,
 				Message: "no se puede reprogramar una reserva cancelada",
 			}
 		}
 		// status is pending or confirmed, so rowsAffected==0 means overlap
-		return &SemanticError{
-			Code:    ErrCodeBookingOverlap,
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeBookingOverlap,
 			Message: fmt.Sprintf("el Profesional %s ya tiene una reserva en ese horario.", professionalID),
 		}
 	}
@@ -468,7 +469,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 	).Scan(&durationMinutes, &serviceName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("check_availability: el servicio %s no existe o está inactivo: %w", params.ServiceID, ErrNotFound)
+			return nil, fmt.Errorf("check_availability: el servicio %s no existe o está inactivo: %w", params.ServiceID, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("check_availability: consultar servicio: %w", err)
 	}
@@ -481,7 +482,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 	).Scan(&professionalName)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("check_availability: el profesional %s no existe o no está activo: %w", params.ProfessionalID, ErrNotFound)
+			return nil, fmt.Errorf("check_availability: el profesional %s no existe o no está activo: %w", params.ProfessionalID, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("check_availability: consultar profesional: %w", err)
 	}
@@ -493,7 +494,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 	).Scan(&timezone)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("check_availability: perfil de negocio no encontrado: %w", ErrNotFound)
+			return nil, fmt.Errorf("check_availability: perfil de negocio no encontrado: %w", domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("check_availability: consultar zona horaria: %w", err)
 	}
@@ -539,8 +540,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 				reason = exceptionReason.String
 			}
 			return nil, fmt.Errorf("check_availability: %w",
-				&SemanticError{
-					Code:    ErrCodeBusinessClosed,
+				&domain.SemanticError{
+					Code:    domain.ErrCodeBusinessClosed,
 					Message: fmt.Sprintf("el negocio está cerrado el %s (%s).", dateStr, reason),
 				})
 		}
@@ -568,8 +569,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 		}
 		if !bizOpenSQL.Valid || !bizCloseSQL.Valid || bizOpenSQL.String == "" || bizCloseSQL.String == "" {
 			return nil, fmt.Errorf("check_availability: %w",
-				&SemanticError{
-					Code:    ErrCodeBusinessClosed,
+				&domain.SemanticError{
+					Code:    domain.ErrCodeBusinessClosed,
 					Message: fmt.Sprintf("el negocio no abre los %s.", spanishDays[dayOfWeek]),
 				})
 		}
@@ -587,8 +588,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("check_availability: %w",
-				&SemanticError{
-					Code:    ErrCodeProfessionalNotWorking,
+				&domain.SemanticError{
+					Code:    domain.ErrCodeProfessionalNotWorking,
 					Message: fmt.Sprintf("el Profesional %s no trabaja los %s.", professionalName, spanishDays[dayOfWeek]),
 				})
 		}
@@ -621,8 +622,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 			remaining = 0
 		}
 		return nil, fmt.Errorf("check_availability: %w",
-			&SemanticError{
-				Code:    ErrCodeSlotOutOfHours,
+			&domain.SemanticError{
+				Code:    domain.ErrCodeSlotOutOfHours,
 				Message: fmt.Sprintf("el servicio dura %d minutos pero solo quedan %d antes del cierre a las %s.", durationMinutes, remaining, effectiveCloseHHMM),
 			})
 	}
@@ -630,8 +631,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 	// 3c.2 — Slot starts before business opening?
 	if slotStartHHMM < businessOpenHHMM {
 		return nil, fmt.Errorf("check_availability: %w",
-			&SemanticError{
-				Code:    ErrCodeSlotOutOfHours,
+			&domain.SemanticError{
+				Code:    domain.ErrCodeSlotOutOfHours,
 				Message: fmt.Sprintf("el horario de atención comienza a las %s.", businessOpenHHMM),
 			})
 	}
@@ -639,8 +640,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 	// 3c.3 — Slot starts before professional's start?
 	if slotStartHHMM < proStartHHMM {
 		return nil, fmt.Errorf("check_availability: %w",
-			&SemanticError{
-				Code:    ErrCodeSlotOutOfHours,
+			&domain.SemanticError{
+				Code:    domain.ErrCodeSlotOutOfHours,
 				Message: fmt.Sprintf("el Profesional %s empieza a las %s.", professionalName, proStartHHMM),
 			})
 	}
@@ -657,8 +658,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 	).Scan(&existingStart, &existingEnd)
 	if err == nil {
 		return nil, fmt.Errorf("check_availability: %w",
-			&SemanticError{
-				Code:    ErrCodeBookingOverlap,
+			&domain.SemanticError{
+				Code:    domain.ErrCodeBookingOverlap,
 				Message: fmt.Sprintf("el Profesional %s ya tiene una reserva de %s a %s.", professionalName, existingStart, existingEnd),
 			})
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -669,8 +670,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 
 	if startTime.Before(time.Now()) {
 		return nil, fmt.Errorf("check_availability: %w",
-			&SemanticError{
-				Code:    ErrCodeSlotInPast,
+			&domain.SemanticError{
+				Code:    domain.ErrCodeSlotInPast,
 				Message: "no se puede reservar en el pasado.",
 			})
 	}

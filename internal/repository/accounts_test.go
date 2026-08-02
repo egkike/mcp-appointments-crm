@@ -11,6 +11,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -213,8 +214,8 @@ func TestAccountsRepo_Create_EmptyID_ErrInvalidInput(t *testing.T) {
 		ID:   "",
 		Role: "admin",
 	})
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
 	}
 }
 
@@ -224,8 +225,8 @@ func TestAccountsRepo_Create_InvalidRole_ErrInvalidInput(t *testing.T) {
 		ID:   "+5491100000000",
 		Role: "manager",
 	})
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
 	}
 }
 
@@ -235,8 +236,8 @@ func TestAccountsRepo_Create_StaffWithoutProfessionalID_ErrInvalidInput(t *testi
 		ID:   "+5491100002222",
 		Role: "staff",
 	})
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
 	}
 }
 
@@ -253,8 +254,8 @@ func TestAccountsRepo_Create_SecondOwner_ErrConflict_WithWarnAudit(t *testing.T)
 		DisplayName: "Otro",
 		IsActive:    true,
 	})
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("expected ErrConflict, got %v", err)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected domain.ErrConflict, got %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("mock expectations: %v", err)
@@ -280,8 +281,8 @@ func TestAccountsRepo_Create_UniqueViolation_ErrConflict(t *testing.T) {
 		DisplayName: "Dup",
 		IsActive:    true,
 	})
-	if !errors.Is(err, ErrConflict) {
-		t.Fatalf("expected ErrConflict, got %v", err)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected domain.ErrConflict, got %v", err)
 	}
 }
 
@@ -296,8 +297,8 @@ func TestAccountsRepo_Create_DBError_Wrapped(t *testing.T) {
 	err := repo.Create(context.Background(), &model.Account{
 		ID: "+5491100000000", Role: "admin", DisplayName: "X", IsActive: true,
 	})
-	if err == nil || errors.Is(err, ErrConflict) {
-		t.Fatalf("expected wrapped DB error (not ErrConflict), got %v", err)
+	if err == nil || errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected wrapped DB error (not domain.ErrConflict), got %v", err)
 	}
 	if !strings.Contains(err.Error(), "crear cuenta") {
 		t.Errorf("error should mention 'crear cuenta' context, got %v", err)
@@ -335,8 +336,8 @@ func TestAccountsRepo_Get_NotFound_ErrNotFound(t *testing.T) {
 	).WithArgs("nope").WillReturnError(sql.ErrNoRows)
 
 	_, err := repo.Get(context.Background(), "nope")
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected domain.ErrNotFound, got %v", err)
 	}
 }
 
@@ -399,8 +400,8 @@ func TestAccountsRepo_GetByRole_NoMatch_EmptySlice(t *testing.T) {
 func TestAccountsRepo_GetByRole_InvalidRole_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
 	_, err := repo.GetByRole(context.Background(), "client")
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput for role=client, got %v", err)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected domain.ErrInvalidInput for role=client, got %v", err)
 	}
 }
 
@@ -500,8 +501,8 @@ func TestAccountsRepo_Update_NotFound_ErrNotFound(t *testing.T) {
 		DisplayName: "X",
 		IsActive:    true,
 	})
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected domain.ErrNotFound, got %v", err)
 	}
 }
 
@@ -510,8 +511,8 @@ func TestAccountsRepo_Update_InvalidRole_ErrInvalidInput(t *testing.T) {
 	err := repo.Update(context.Background(), &model.Account{
 		ID: "+5491100000000", Role: "client", IsActive: true,
 	})
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
 	}
 }
 
@@ -520,8 +521,8 @@ func TestAccountsRepo_Update_StaffWithoutProfessionalID_ErrInvalidInput(t *testi
 	err := repo.Update(context.Background(), &model.Account{
 		ID: "+5491100002222", Role: "staff", IsActive: true,
 	})
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
 	}
 }
 
@@ -586,16 +587,16 @@ func TestAccountsRepo_Deactivate_NotFound_ErrNotFound(t *testing.T) {
 		WithArgs("nope").WillReturnError(sql.ErrNoRows)
 
 	err := repo.Deactivate(context.Background(), "nope")
-	if !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expected ErrNotFound, got %v", err)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("expected domain.ErrNotFound, got %v", err)
 	}
 }
 
 func TestAccountsRepo_Deactivate_EmptyID_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
 	err := repo.Deactivate(context.Background(), "")
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
 	}
 }
 
@@ -700,7 +701,7 @@ func TestAccountsRepo_ListByProfessional_NoMatch_EmptySlice(t *testing.T) {
 func TestAccountsRepo_ListByProfessional_EmptyProfessionalID_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
 	_, err := repo.ListByProfessional(context.Background(), "")
-	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
 	}
 }
