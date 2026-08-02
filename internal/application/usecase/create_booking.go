@@ -56,7 +56,7 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "Servicio es requerido"}
 	}
 	if input.StartTime.IsZero() {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "la fecha y hora de inicio es requerida"}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "La fecha y hora de inicio es requerida"}
 	}
 
 	svc, err := uc.services.FindByID(ctx, input.ServiceID)

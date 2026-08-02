@@ -38,7 +38,7 @@ func (uc *CancelBookingUseCase) Execute(ctx context.Context, input dto.CancelBoo
 		return nil, err
 	}
 	if !booking.CanCancel() {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: fmt.Sprintf("la reserva en estado %q no puede ser cancelada", booking.Status)}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: fmt.Sprintf("La reserva en estado %q no puede ser cancelada", booking.Status)}
 	}
 	if err := uc.bookings.Cancel(ctx, input.BookingID); err != nil {
 		if errors.Is(err, domain.ErrNotFound) {

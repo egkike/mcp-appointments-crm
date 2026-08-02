@@ -38,7 +38,7 @@ func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.Resch
 		return nil, err
 	}
 	if !booking.CanReschedule() {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: fmt.Sprintf("la reserva en estado %q no puede ser reprogramada", booking.Status)}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: fmt.Sprintf("La reserva en estado %q no puede ser reprogramada", booking.Status)}
 	}
 
 	svc, err := uc.services.FindByID(ctx, booking.ServiceID)

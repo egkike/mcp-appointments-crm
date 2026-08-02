@@ -217,7 +217,7 @@ func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
 	if !currentStatus.IsValidTransition(model.BookingStatusCancelled) {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
-			Message: fmt.Sprintf("la transición de %q a 'cancelled' no está permitida.", currentStatus),
+			Message: fmt.Sprintf("La transición de %q a 'cancelled' no está permitida.", currentStatus),
 		}
 	}
 
