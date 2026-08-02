@@ -162,35 +162,9 @@ func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Bookin
 		 FROM bookings WHERE id = ?`
 	args := []any{id}
 
-	switch caller.Role {
-	case auth.RoleClient:
-		if caller.ClientID == nil {
-			return nil, &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el cliente no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
-			}
-		}
-		query += ` AND client_id = ?`
-		args = append(args, *caller.ClientID)
-	case auth.RoleStaff:
-		if caller.ProfessionalID == nil {
-			return nil, &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el profesional no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
-			}
-		}
-		query += ` AND professional_id = ?`
-		args = append(args, *caller.ProfessionalID)
-	case auth.RoleAdmin, auth.RoleOwner:
-		// no extra filter
-	default:
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeUnauthenticated,
-			Message: fmt.Sprintf("el rol %q no tiene permiso para acceder a reservas", caller.Role),
-			Cause:   domain.ErrUnauthenticated,
-		}
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return nil, err
 	}
 
 	b := &model.Booking{}
@@ -225,35 +199,9 @@ func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
 	query := `SELECT status FROM bookings WHERE id = ?`
 	args := []any{id}
 
-	switch caller.Role {
-	case auth.RoleClient:
-		if caller.ClientID == nil {
-			return &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el cliente no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
-			}
-		}
-		query += ` AND client_id = ?`
-		args = append(args, *caller.ClientID)
-	case auth.RoleStaff:
-		if caller.ProfessionalID == nil {
-			return &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el profesional no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
-			}
-		}
-		query += ` AND professional_id = ?`
-		args = append(args, *caller.ProfessionalID)
-	case auth.RoleAdmin, auth.RoleOwner:
-		// no extra filter
-	default:
-		return &domain.SemanticError{
-			Code:    domain.ErrCodeUnauthenticated,
-			Message: fmt.Sprintf("el rol %q no tiene permiso para acceder a reservas", caller.Role),
-			Cause:   domain.ErrUnauthenticated,
-		}
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return err
 	}
 
 	var currentStatus model.BookingStatus
@@ -304,35 +252,9 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 	query := `SELECT service_id, status, professional_id FROM bookings WHERE id = ?`
 	args := []any{id}
 
-	switch caller.Role {
-	case auth.RoleClient:
-		if caller.ClientID == nil {
-			return &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el cliente no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
-			}
-		}
-		query += ` AND client_id = ?`
-		args = append(args, *caller.ClientID)
-	case auth.RoleStaff:
-		if caller.ProfessionalID == nil {
-			return &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el profesional no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
-			}
-		}
-		query += ` AND professional_id = ?`
-		args = append(args, *caller.ProfessionalID)
-	case auth.RoleAdmin, auth.RoleOwner:
-		// no extra filter
-	default:
-		return &domain.SemanticError{
-			Code:    domain.ErrCodeUnauthenticated,
-			Message: fmt.Sprintf("el rol %q no tiene permiso para acceder a reservas", caller.Role),
-			Cause:   domain.ErrUnauthenticated,
-		}
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return err
 	}
 
 	var serviceID, professionalID string
@@ -561,7 +483,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 		var bizOpenSQL, bizCloseSQL sql.NullString
 		jsonKey := fmt.Sprintf("$.%d", dayOfWeek)
 		row := r.db.QueryRowContext(ctx,
-			fmt.Sprintf(`SELECT json_extract(business_hours, '%s.open'), json_extract(business_hours, '%s.close') FROM business_profile WHERE id = 'singleton'`, jsonKey, jsonKey),
+			`SELECT json_extract(business_hours, ?), json_extract(business_hours, ?) FROM business_profile WHERE id = 'singleton'`,
+			jsonKey+".open", jsonKey+".close",
 		)
 		err = row.Scan(&bizOpenSQL, &bizCloseSQL)
 		if err != nil {
