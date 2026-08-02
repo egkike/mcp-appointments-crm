@@ -258,4 +258,79 @@ func TestCreateBookingUseCase(t *testing.T) {
 			t.Errorf("expected Spanish overlap message; got %q", sem.Message)
 		}
 	})
+
+	t.Run("empty client_id returns invalid input", func(t *testing.T) {
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{})
+
+		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
+			Caller:         adminCaller(),
+			ClientID:       "",
+			ServiceID:      "s1",
+			ProfessionalID: "p1",
+			StartTime:      futureStart,
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sem *domain.SemanticError
+		if !errors.As(err, &sem) {
+			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
+		}
+		if sem.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeInvalidInput)
+		}
+		if !strings.Contains(sem.Message, "cliente") {
+			t.Errorf("expected message to mention client; got %q", sem.Message)
+		}
+	})
+
+	t.Run("empty service_id returns invalid input", func(t *testing.T) {
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{})
+
+		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
+			Caller:         adminCaller(),
+			ClientID:       "c1",
+			ServiceID:      "",
+			ProfessionalID: "p1",
+			StartTime:      futureStart,
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sem *domain.SemanticError
+		if !errors.As(err, &sem) {
+			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
+		}
+		if sem.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeInvalidInput)
+		}
+		if !strings.Contains(sem.Message, "servicio") {
+			t.Errorf("expected message to mention service; got %q", sem.Message)
+		}
+	})
+
+	t.Run("zero start_time returns invalid input", func(t *testing.T) {
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{})
+
+		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
+			Caller:         adminCaller(),
+			ClientID:       "c1",
+			ServiceID:      "s1",
+			ProfessionalID: "p1",
+			StartTime:      time.Time{}, // zero value
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sem *domain.SemanticError
+		if !errors.As(err, &sem) {
+			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
+		}
+		if sem.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeInvalidInput)
+		}
+		if !strings.Contains(sem.Message, "fecha") || !strings.Contains(sem.Message, "hora") {
+			t.Errorf("expected message to mention date/time; got %q", sem.Message)
+		}
+	})
 }
