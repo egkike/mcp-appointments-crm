@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
 
 // newResolverWithMock creates a CallerResolver backed by go-sqlmock.
@@ -27,10 +28,10 @@ func TestResolve_AdminInAccounts(t *testing.T) {
 	id := "+5491100000000"
 
 	// Query 1: accounts — admin, active, no professional_id
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}).
-			AddRow(id, "admin", nil, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("admin", nil, 1))
 
 	// Query 2: clients — no row (admin without client row)
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
@@ -67,10 +68,10 @@ func TestResolve_StaffWithProfessionalID(t *testing.T) {
 	profID := "p-001"
 
 	// Query 1: accounts — staff, active, with professional_id
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}).
-			AddRow(id, "staff", profID, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("staff", profID, 1))
 
 	// Query 2: clients — no row
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
@@ -103,10 +104,10 @@ func TestResolve_AccountDisabled(t *testing.T) {
 	id := "+5491100000000"
 
 	// Query 1: accounts — inactive
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}).
-			AddRow(id, "admin", nil, 0))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("admin", nil, 0))
 
 	// NO query to clients — disabled account short-circuits
 
@@ -114,8 +115,8 @@ func TestResolve_AccountDisabled(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for disabled account; got nil")
 	}
-	if !errors.Is(err, ErrUnauthenticated) {
-		t.Errorf("error should wrap ErrUnauthenticated; got %v", err)
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Errorf("error should wrap domain.ErrUnauthenticated; got %v", err)
 	}
 	// Check the Spanish message
 	if !strings.Contains(err.Error(), "deshabilitada") {
@@ -134,9 +135,9 @@ func TestResolve_ClientInClients(t *testing.T) {
 	id := "+5491100003333"
 
 	// Query 1: accounts — no row
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}))
 
 	// Query 2: clients — row found
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
@@ -169,9 +170,9 @@ func TestResolve_UnknownID(t *testing.T) {
 	id := "+5491100099999"
 
 	// Query 1: accounts — no row
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}))
 
 	// Query 2: clients — no row
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
@@ -182,8 +183,8 @@ func TestResolve_UnknownID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown ID; got nil")
 	}
-	if !errors.Is(err, ErrUnauthenticated) {
-		t.Errorf("error should wrap ErrUnauthenticated; got %v", err)
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Errorf("error should wrap domain.ErrUnauthenticated; got %v", err)
 	}
 	if !strings.Contains(err.Error(), "reconozco") {
 		t.Errorf("error message should mention 'reconozco'; got %q", err.Error())
@@ -201,10 +202,10 @@ func TestResolve_OwnerAlsoClient(t *testing.T) {
 	id := "+5491100000000"
 
 	// Query 1: accounts — owner, active
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}).
-			AddRow(id, "owner", nil, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("owner", nil, 1))
 
 	// Query 2: clients — row found (owner is also a client)
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
@@ -233,7 +234,7 @@ func TestResolve_AccountsDBError(t *testing.T) {
 
 	id := "+5491100000000"
 
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
 		WillReturnError(errors.New("connection refused"))
 
@@ -258,10 +259,10 @@ func TestResolve_ClientsDBError(t *testing.T) {
 	id := "+5491100000000"
 
 	// Query 1: accounts — admin, active
-	mock.ExpectQuery("SELECT id, role, professional_id, is_active FROM accounts WHERE id = ?").
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = ?").
 		WithArgs(id).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "role", "professional_id", "is_active"}).
-			AddRow(id, "admin", nil, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("admin", nil, 1))
 
 	// Query 2: clients — DB error (NOT sql.ErrNoRows)
 	mock.ExpectQuery("SELECT id FROM clients WHERE id = ?").
@@ -272,8 +273,8 @@ func TestResolve_ClientsDBError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for clients DB failure; got nil (false success)")
 	}
-	if errors.Is(err, ErrUnauthenticated) {
-		t.Errorf("DB error must NOT be wrapped as ErrUnauthenticated; got %v", err)
+	if errors.Is(err, domain.ErrUnauthenticated) {
+		t.Errorf("DB error must NOT be wrapped as domain.ErrUnauthenticated; got %v", err)
 	}
 	if !strings.Contains(err.Error(), "connection lost") {
 		t.Errorf("error should wrap the underlying error; got %q", err.Error())

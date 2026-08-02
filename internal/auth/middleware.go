@@ -1,10 +1,14 @@
 package auth
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
 
 // ToolRBAC maps a tool/route path to the set of roles allowed to access it.
@@ -53,7 +57,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		// Step 2: resolve caller
 		caller, err := m.resolver.Resolve(r.Context(), id)
 		if err != nil {
-			if errors.Is(err, ErrUnauthenticated) {
+			if errors.Is(err, domain.ErrUnauthenticated) {
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 				return
 			}
@@ -71,10 +75,10 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			}
 		}
 
-		// Step 4: audit log for privileged callers
+		// Step 4: audit log for privileged callers (hashed ID — no PII in logs)
 		if caller.Role == RoleAdmin || caller.Role == RoleOwner {
 			m.logger.Info("privileged access",
-				"caller_id", caller.ID,
+				"caller_hash", hashCallerID(caller.ID),
 				"tool", tool,
 			)
 		}
@@ -93,4 +97,12 @@ func roleAllowed(role string, allowed []string) bool {
 		}
 	}
 	return false
+}
+
+// hashCallerID returns a non-reversible SHA-256 prefix for audit logging.
+// This prevents PII (phone numbers, emails) from appearing in log output
+// while maintaining a stable correlation key for forensic analysis.
+func hashCallerID(id string) string {
+	h := sha256.Sum256([]byte(id))
+	return fmt.Sprintf("%x", h[:8]) // 16-char hex prefix
 }
