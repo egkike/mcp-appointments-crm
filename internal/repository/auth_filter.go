@@ -32,7 +32,7 @@ func applyAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []any) (str
 		if caller.ClientID == nil {
 			return "", nil, &domain.SemanticError{
 				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el cliente no tiene ID asignado",
+				Message: "Cliente no tiene ID asignado",
 				Cause:   domain.ErrUnauthenticated,
 			}
 		}
@@ -42,7 +42,7 @@ func applyAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []any) (str
 		if caller.ProfessionalID == nil {
 			return "", nil, &domain.SemanticError{
 				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el profesional no tiene ID asignado",
+				Message: "Profesional no tiene ID asignado",
 				Cause:   domain.ErrUnauthenticated,
 			}
 		}
@@ -53,7 +53,7 @@ func applyAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []any) (str
 	default:
 		return "", nil, &domain.SemanticError{
 			Code:    domain.ErrCodeUnauthenticated,
-			Message: fmt.Sprintf("el rol %q no tiene permiso para acceder a reservas", caller.Role),
+			Message: fmt.Sprintf("Rol %q no tiene permiso para acceder a reservas", caller.Role),
 			Cause:   domain.ErrUnauthenticated,
 		}
 	}

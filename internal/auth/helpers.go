@@ -40,7 +40,7 @@ func RequireRole(ctx context.Context, roles ...string) (*Caller, error) {
 	}
 	return nil, &domain.SemanticError{
 		Code:    domain.ErrCodeUnauthenticated,
-		Message: fmt.Sprintf("el rol %q no tiene permiso para esta operación", caller.Role),
+		Message: fmt.Sprintf("Rol %q no tiene permiso para esta operación", caller.Role),
 		Cause:   domain.ErrUnauthenticated,
 	}
 }
@@ -64,7 +64,7 @@ func RequireClientMatch(ctx context.Context, inputClientID, inputProfessionalID 
 		if caller.ProfessionalID == nil || *caller.ProfessionalID != inputProfessionalID {
 			return &domain.SemanticError{
 				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el profesional no tiene permiso para operar en este calendario",
+				Message: "Profesional no tiene permiso para operar en este calendario",
 				Cause:   domain.ErrUnauthenticated,
 			}
 		}
@@ -84,7 +84,7 @@ func RequireClientMatch(ctx context.Context, inputClientID, inputProfessionalID 
 	// Unknown role — deny
 	return &domain.SemanticError{
 		Code:    domain.ErrCodeUnauthenticated,
-		Message: fmt.Sprintf("el rol %q no tiene permiso para esta operación", caller.Role),
+		Message: fmt.Sprintf("Rol %q no tiene permiso para esta operación", caller.Role),
 		Cause:   domain.ErrUnauthenticated,
 	}
 }

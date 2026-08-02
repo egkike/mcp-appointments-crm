@@ -83,7 +83,7 @@ func (r *PendingAlertsRepo) ListPending(ctx context.Context, limit int, beforeTi
 	if limit <= 0 {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
-			Message: "el límite debe ser mayor a cero",
+			Message: "Límite debe ser mayor a cero",
 			Cause:   domain.ErrInvalidInput,
 		}
 	}

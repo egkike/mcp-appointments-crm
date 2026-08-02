@@ -37,26 +37,26 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 	switch input.Caller.Role {
 	case auth.RoleClient:
 		if input.Caller.ClientID == nil || *input.Caller.ClientID != input.ClientID {
-			return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "el cliente solo puede crear reservas para sí mismo", Cause: domain.ErrUnauthenticated}
+			return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "Cliente solo puede crear reservas para sí mismo", Cause: domain.ErrUnauthenticated}
 		}
 	case auth.RoleStaff:
 		if input.Caller.ProfessionalID == nil || *input.Caller.ProfessionalID != input.ProfessionalID {
-			return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "el personal solo puede crear reservas para su profesional asignado", Cause: domain.ErrUnauthenticated}
+			return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: "Personal solo puede crear reservas para su profesional asignado", Cause: domain.ErrUnauthenticated}
 		}
 	case auth.RoleAdmin, auth.RoleOwner:
 	default:
-		return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: fmt.Sprintf("el rol %q no puede crear reservas", input.Caller.Role), Cause: domain.ErrUnauthenticated}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: fmt.Sprintf("Rol %q no puede crear reservas", input.Caller.Role), Cause: domain.ErrUnauthenticated}
 	}
 
 	// ─── Input validation ──────────────────────────────────────────────
 	if input.ClientID == "" {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "el cliente es requerido"}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "Cliente es requerido"}
 	}
 	if input.ServiceID == "" {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "el servicio es requerido"}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "Servicio es requerido"}
 	}
 	if input.StartTime.IsZero() {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "la fecha y hora de inicio es requerida"}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "La fecha y hora de inicio es requerida"}
 	}
 
 	svc, err := uc.services.FindByID(ctx, input.ServiceID)
@@ -67,7 +67,7 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 		return nil, fmt.Errorf("crear reserva: consultar servicio: %w", err)
 	}
 	if !svc.IsActive() {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeServiceNotActive, Message: fmt.Sprintf("el servicio %s no está activo", svc.Name)}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeServiceNotActive, Message: fmt.Sprintf("Servicio %s no está activo", svc.Name)}
 	}
 
 	booking := &entity.Booking{
@@ -83,7 +83,7 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 	}
 	if err := uc.bookings.Create(ctx, booking); err != nil {
 		if errors.Is(err, domain.ErrConflict) {
-			return nil, &domain.SemanticError{Code: domain.ErrCodeBookingOverlap, Message: fmt.Sprintf("el profesional %s ya tiene una reserva en ese horario", input.ProfessionalID), Cause: err}
+			return nil, &domain.SemanticError{Code: domain.ErrCodeBookingOverlap, Message: fmt.Sprintf("Profesional %s ya tiene una reserva en ese horario", input.ProfessionalID), Cause: err}
 		}
 		return nil, fmt.Errorf("crear reserva: %w", err)
 	}

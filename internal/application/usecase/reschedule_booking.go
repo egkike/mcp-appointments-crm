@@ -38,7 +38,7 @@ func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.Resch
 		return nil, err
 	}
 	if !booking.CanReschedule() {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: fmt.Sprintf("la reserva en estado %q no puede ser reprogramada", booking.Status)}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: fmt.Sprintf("La reserva en estado %q no puede ser reprogramada", booking.Status)}
 	}
 
 	svc, err := uc.services.FindByID(ctx, booking.ServiceID)
@@ -52,7 +52,7 @@ func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.Resch
 	newEnd := input.NewStartTime.Add(svc.Duration())
 	if err := uc.bookings.Reschedule(ctx, input.BookingID, input.NewStartTime, newEnd); err != nil {
 		if errors.Is(err, domain.ErrConflict) {
-			return nil, &domain.SemanticError{Code: domain.ErrCodeBookingOverlap, Message: fmt.Sprintf("el profesional %s ya tiene una reserva en el nuevo horario", booking.ProfessionalID), Cause: err}
+			return nil, &domain.SemanticError{Code: domain.ErrCodeBookingOverlap, Message: fmt.Sprintf("Profesional %s ya tiene una reserva en el nuevo horario", booking.ProfessionalID), Cause: err}
 		}
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, &domain.SemanticError{Code: domain.ErrCodeNotFound, Message: "reserva no encontrada", Cause: err}
