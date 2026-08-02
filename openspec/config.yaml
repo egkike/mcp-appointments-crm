@@ -1,10 +1,13 @@
 schema: spec-driven
 
 # Cap de líneas por PR para el Review Workload Guard.
-# Elevated from 400 to 600 for Fase 1 (db-layer) only — Fase 1 is
-# "big bang" (~1700-2000 LOC, 3 chained PRs: schema, simple repos,
-# complex repos with the 5-step check_availability). Vuelve a 400
-# para Fases 2-5. Source of truth: engram obs 456 (preflight cache).
+# Fijado en 600 desde Fase 1 (db-layer). Histórico efectivo:
+#   - Fase 1 P1a: 1145 LOC (chained en 2 PRs)
+#   - Fase 2 P2b2a: 1551 LOC (chained en 2 PRs)
+#   - Fase 3 P3.1: 1954 LOC (size:exception, single PR)
+# Cuando un PR excede 600, estrategia default = chained PRs.
+# size:exception requiere justificación explícita en la PR description.
+# Revisado y alineado 2026-08-02.
 review_budget_lines: 600
 
 context: |
