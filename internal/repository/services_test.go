@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -34,58 +35,58 @@ func TestServicesRepo_Create(t *testing.T) {
 		}
 	})
 
-	t.Run("zero duration returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("zero duration returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{Name: "Bad", DurationMinutes: 0}
 		err := repo.Create(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
-	t.Run("negative duration returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("negative duration returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{Name: "Bad", DurationMinutes: -5}
 		err := repo.Create(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
-	t.Run("empty name returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty name returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{Name: "", DurationMinutes: 30}
 		err := repo.Create(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for empty name, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for empty name, got %v", err)
 		}
 	})
 
-	t.Run("zero price returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("zero price returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{Name: "Test", DurationMinutes: 30, Price: 0}
 		err := repo.Create(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for zero price, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for zero price, got %v", err)
 		}
 	})
 
-	t.Run("negative price returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("negative price returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{Name: "Test", DurationMinutes: 30, Price: -100}
 		err := repo.Create(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for negative price, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for negative price, got %v", err)
 		}
 	})
 
@@ -131,7 +132,7 @@ func TestServicesRepo_Get(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewServicesRepo(db)
 
@@ -140,8 +141,8 @@ func TestServicesRepo_Get(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		_, err := repo.Get(context.Background(), "missing")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
@@ -236,7 +237,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewServicesRepo(db)
 
@@ -246,52 +247,52 @@ func TestServicesRepo_Update(t *testing.T) {
 
 		svc := &model.Service{ID: "missing", Name: "Ghost", DurationMinutes: 30, Price: 500.0, IsActive: true}
 		err := repo.Update(context.Background(), svc)
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
-	t.Run("empty name returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty name returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{ID: "svc-1", Name: "", DurationMinutes: 30, Price: 500.0}
 		err := repo.Update(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
-	t.Run("zero duration returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("zero duration returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 0, Price: 500.0}
 		err := repo.Update(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
-	t.Run("zero price returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("zero price returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 0}
 		err := repo.Update(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for zero price, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for zero price, got %v", err)
 		}
 	})
 
-	t.Run("negative price returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("negative price returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: -1}
 		err := repo.Update(context.Background(), svc)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
@@ -326,7 +327,7 @@ func TestServicesRepo_Delete(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewServicesRepo(db)
 
@@ -335,8 +336,8 @@ func TestServicesRepo_Delete(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		err := repo.Delete(context.Background(), "missing")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
@@ -406,23 +407,23 @@ func TestServicesRepo_SearchFTS(t *testing.T) {
 		}
 	})
 
-	t.Run("empty query returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty query returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		_, err := repo.SearchFTS(context.Background(), "")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for empty query, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for empty query, got %v", err)
 		}
 	})
 
-	t.Run("query with forbidden chars returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("query with forbidden chars returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
 		_, err := repo.SearchFTS(context.Background(), "corte* OR algo")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for query with *, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for query with *, got %v", err)
 		}
 	})
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -34,13 +35,13 @@ func validRole(role string) bool {
 // validateAccount performs shared validation for Create and Update.
 func validateAccount(a *model.Account) error {
 	if a.ID == "" {
-		return fmt.Errorf("validar cuenta: %w: el id no puede estar vacío", ErrInvalidInput)
+		return fmt.Errorf("validar cuenta: %w: el id no puede estar vacío", domain.ErrInvalidInput)
 	}
 	if !validRole(a.Role) {
-		return fmt.Errorf("validar cuenta: %w: role %q no válido (debe ser owner, admin o staff)", ErrInvalidInput, a.Role)
+		return fmt.Errorf("validar cuenta: %w: role %q no válido (debe ser owner, admin o staff)", domain.ErrInvalidInput, a.Role)
 	}
 	if a.Role == auth.RoleStaff && (a.ProfessionalID == nil || *a.ProfessionalID == "") {
-		return fmt.Errorf("validar cuenta: %w: staff requiere professional_id", ErrInvalidInput)
+		return fmt.Errorf("validar cuenta: %w: staff requiere professional_id", domain.ErrInvalidInput)
 	}
 	return nil
 }
@@ -84,7 +85,7 @@ func (r *AccountsRepo) Create(ctx context.Context, a *model.Account) error {
 			attrs := auditAttrs(actorFromContext(ctx), a.ID, a.Role)
 			attrs = append(attrs, "result", "rejected")
 			r.logger.Warn("second active owner rejected", attrs...)
-			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", ErrConflict)
+			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", domain.ErrConflict)
 		}
 	}
 
@@ -104,10 +105,10 @@ func (r *AccountsRepo) Create(ctx context.Context, a *model.Account) error {
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("crear cuenta: %w: ya existe una cuenta con id %q", ErrConflict, a.ID)
+			return fmt.Errorf("crear cuenta: %w: ya existe una cuenta con id %q", domain.ErrConflict, a.ID)
 		}
 		if isSingleOwnerViolation(err) {
-			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", ErrConflict)
+			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", domain.ErrConflict)
 		}
 		return fmt.Errorf("crear cuenta: %w", err)
 	}
@@ -116,7 +117,7 @@ func (r *AccountsRepo) Create(ctx context.Context, a *model.Account) error {
 	return nil
 }
 
-// Get retrieves a single account by ID. Returns ErrNotFound if the row does not exist.
+// Get retrieves a single account by ID. Returns domain.ErrNotFound if the row does not exist.
 func (r *AccountsRepo) Get(ctx context.Context, id string) (*model.Account, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts WHERE id = ?`, id,
@@ -125,10 +126,10 @@ func (r *AccountsRepo) Get(ctx context.Context, id string) (*model.Account, erro
 }
 
 // GetByRole returns all accounts matching the given role, ordered by created_at ASC.
-// Returns ErrInvalidInput for unrecognized roles. Returns empty slice (not nil) when no rows match.
+// Returns domain.ErrInvalidInput for unrecognized roles. Returns empty slice (not nil) when no rows match.
 func (r *AccountsRepo) GetByRole(ctx context.Context, role string) ([]*model.Account, error) {
 	if !validRole(role) {
-		return nil, fmt.Errorf("buscar por role: %w: role %q no válido", ErrInvalidInput, role)
+		return nil, fmt.Errorf("buscar por role: %w: role %q no válido", domain.ErrInvalidInput, role)
 	}
 
 	rows, err := r.db.QueryContext(ctx,
@@ -177,7 +178,7 @@ func (r *AccountsRepo) List(ctx context.Context) ([]*model.Account, error) {
 	return accounts, nil
 }
 
-// Update modifies an existing account. Returns ErrNotFound if the row does not exist.
+// Update modifies an existing account. Returns domain.ErrNotFound if the row does not exist.
 // Regenerates updated_at with SQLite strftime.
 func (r *AccountsRepo) Update(ctx context.Context, a *model.Account) error {
 	if err := validateAccount(a); err != nil {
@@ -189,7 +190,7 @@ func (r *AccountsRepo) Update(ctx context.Context, a *model.Account) error {
 	var exists int
 	if err := r.db.QueryRowContext(ctx, `SELECT 1 FROM accounts WHERE id = ?`, a.ID).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("actualizar cuenta: %w: cuenta con id %q no encontrada", ErrNotFound, a.ID)
+			return fmt.Errorf("actualizar cuenta: %w: cuenta con id %q no encontrada", domain.ErrNotFound, a.ID)
 		}
 		return fmt.Errorf("actualizar cuenta: verificar existencia: %w", err)
 	}
@@ -210,7 +211,7 @@ func (r *AccountsRepo) Update(ctx context.Context, a *model.Account) error {
 	)
 	if err != nil {
 		if isSingleOwnerViolation(err) {
-			return fmt.Errorf("actualizar cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", ErrConflict)
+			return fmt.Errorf("actualizar cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", domain.ErrConflict)
 		}
 		return fmt.Errorf("actualizar cuenta: %w", err)
 	}
@@ -223,10 +224,10 @@ func (r *AccountsRepo) Update(ctx context.Context, a *model.Account) error {
 }
 
 // Deactivate soft-deletes an account by setting is_active=0. Idempotent: second call is no-op.
-// Returns ErrNotFound if the account does not exist. Returns nil if already deactivated.
+// Returns domain.ErrNotFound if the account does not exist. Returns nil if already deactivated.
 func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error {
 	if id == "" {
-		return fmt.Errorf("desactivar cuenta: %w: el id no puede estar vacío", ErrInvalidInput)
+		return fmt.Errorf("desactivar cuenta: %w: el id no puede estar vacío", domain.ErrInvalidInput)
 	}
 
 	// Check current state to get role for audit log and handle idempotency
@@ -237,7 +238,7 @@ func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error {
 	).Scan(&isActive, &role)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("desactivar cuenta: %w: cuenta con id %q no encontrada", ErrNotFound, id)
+			return fmt.Errorf("desactivar cuenta: %w: cuenta con id %q no encontrada", domain.ErrNotFound, id)
 		}
 		return fmt.Errorf("desactivar cuenta: %w", err)
 	}
@@ -258,7 +259,7 @@ func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error {
 	return nil
 }
 
-// IsActive checks if an account is active. Returns (false, nil) for missing rows — NOT ErrNotFound.
+// IsActive checks if an account is active. Returns (false, nil) for missing rows — NOT domain.ErrNotFound.
 func (r *AccountsRepo) IsActive(ctx context.Context, id string) (bool, error) {
 	var isActive int
 	err := r.db.QueryRowContext(ctx,
@@ -276,7 +277,7 @@ func (r *AccountsRepo) IsActive(ctx context.Context, id string) (bool, error) {
 // ListByProfessional returns staff accounts matching the given professional ID, ordered by display_name ASC.
 func (r *AccountsRepo) ListByProfessional(ctx context.Context, professionalID string) ([]*model.Account, error) {
 	if professionalID == "" {
-		return nil, fmt.Errorf("buscar por profesional: %w: professional_id no puede estar vacío", ErrInvalidInput)
+		return nil, fmt.Errorf("buscar por profesional: %w: professional_id no puede estar vacío", domain.ErrInvalidInput)
 	}
 
 	rows, err := r.db.QueryContext(ctx,
@@ -302,7 +303,7 @@ func (r *AccountsRepo) ListByProfessional(ctx context.Context, professionalID st
 	return accounts, nil
 }
 
-// scanAccount scans a *sql.Row into an *model.Account. Wraps sql.ErrNoRows as ErrNotFound.
+// scanAccount scans a *sql.Row into an *model.Account. Wraps sql.ErrNoRows as domain.ErrNotFound.
 func scanAccount(row *sql.Row) (*model.Account, error) {
 	var a model.Account
 	var isActive int
@@ -311,7 +312,7 @@ func scanAccount(row *sql.Row) (*model.Account, error) {
 	err := row.Scan(&a.ID, &a.Role, &a.DisplayName, &profID, &isActive, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("cuenta no encontrada: %w", ErrNotFound)
+			return nil, fmt.Errorf("cuenta no encontrada: %w", domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("leer cuenta: %w", err)
 	}

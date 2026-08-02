@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -30,17 +31,17 @@ var allowedAlertTypesFase1 = map[string]bool{
 func validateAlertType(alertType string) error {
 	if !allowedAlertTypesFase1[alertType] {
 		return fmt.Errorf("tipo de alerta %q no soportado en Fase 1; sólo 'confirmation_requested': %w",
-			alertType, ErrInvalidInput)
+			alertType, domain.ErrInvalidInput)
 	}
 	return nil
 }
 
 // Create inserts a new pending alert. The ID is auto-assigned by SQLite AUTOINCREMENT.
 // Status defaults to "pending". RelatedBookingID may be nil.
-// Returns ErrInvalidInput if the alert type is not supported in Fase 1 or message is empty.
+// Returns domain.ErrInvalidInput if the alert type is not supported in Fase 1 or message is empty.
 // Requires admin or owner role.
 func (r *PendingAlertsRepo) Create(ctx context.Context, a *model.PendingAlert) error {
-	if _, err := requireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("crear alerta: %w", err)
 	}
 
@@ -48,7 +49,7 @@ func (r *PendingAlertsRepo) Create(ctx context.Context, a *model.PendingAlert) e
 		return fmt.Errorf("crear alerta: %w", err)
 	}
 	if strings.TrimSpace(a.Message) == "" {
-		return fmt.Errorf("crear alerta: el mensaje no puede estar vacío: %w", ErrInvalidInput)
+		return fmt.Errorf("crear alerta: el mensaje no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 
 	a.Status = "pending"
@@ -76,14 +77,14 @@ func (r *PendingAlertsRepo) Create(ctx context.Context, a *model.PendingAlert) e
 // Returns an empty slice (not nil) when no alerts match.
 // Requires admin or owner role.
 func (r *PendingAlertsRepo) ListPending(ctx context.Context, limit int, beforeTime string) ([]*model.PendingAlert, error) {
-	if _, err := requireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return nil, fmt.Errorf("listar alertas pendientes: %w", err)
 	}
 	if limit <= 0 {
-		return nil, &SemanticError{
-			Code:    ErrCodeInvalidInput,
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
 			Message: "el límite debe ser mayor a cero",
-			Cause:   ErrInvalidInput,
+			Cause:   domain.ErrInvalidInput,
 		}
 	}
 
@@ -119,7 +120,7 @@ func (r *PendingAlertsRepo) ListPending(ctx context.Context, limit int, beforeTi
 // Idempotent: marking an already-sent or cancelled alert is a no-op (returns nil).
 // Requires admin or owner role.
 func (r *PendingAlertsRepo) MarkAsSent(ctx context.Context, id int) error {
-	if _, err := requireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("marcar alerta %d como enviada: %w", id, err)
 	}
 
@@ -138,7 +139,7 @@ func (r *PendingAlertsRepo) MarkAsSent(ctx context.Context, id int) error {
 // Idempotent: cancelling an already-cancelled or sent alert is a no-op (returns nil).
 // Requires admin or owner role.
 func (r *PendingAlertsRepo) Cancel(ctx context.Context, id int) error {
-	if _, err := requireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("cancelar alerta %d: %w", id, err)
 	}
 

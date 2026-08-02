@@ -8,6 +8,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -35,7 +36,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
@@ -44,28 +45,28 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		_, err := repo.GetByProfessionalAndDay(adminCtx(), "pro-1", 3)
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
-	t.Run("invalid day_of_week returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid day_of_week returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
 		_, err := repo.GetByProfessionalAndDay(adminCtx(), "pro-1", 7)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for day_of_week=7, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for day_of_week=7, got %v", err)
 		}
 	})
 
-	t.Run("negative day_of_week returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("negative day_of_week returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
 		_, err := repo.GetByProfessionalAndDay(adminCtx(), "pro-1", -1)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for day_of_week=-1, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for day_of_week=-1, got %v", err)
 		}
 	})
 
@@ -91,21 +92,21 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
 		_, err := repo.GetByProfessionalAndDay(context.Background(), "pro-1", 1)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
-	t.Run("staff with nil ProfessionalID returns ErrCodeUnauthenticated (fail-secure)", func(t *testing.T) {
+	t.Run("staff with nil ProfessionalID returns domain.ErrCodeUnauthenticated (fail-secure)", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
@@ -116,12 +117,12 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 			ProfessionalID: nil,
 		})
 		_, err := repo.GetByProfessionalAndDay(ctx, "pro-1", 1)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -194,7 +195,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid day_of_week returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid day_of_week returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
@@ -205,12 +206,12 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			EndTime:        "18:00",
 		}
 		err := repo.Upsert(adminCtx(), schedule)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
-	t.Run("invalid time format returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid time format returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
@@ -221,12 +222,12 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			EndTime:        "18:00",
 		}
 		err := repo.Upsert(adminCtx(), schedule)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for malformed time, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for malformed time, got %v", err)
 		}
 	})
 
-	t.Run("start_time not before end_time returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("start_time not before end_time returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
@@ -237,12 +238,12 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			EndTime:        "09:00",
 		}
 		err := repo.Upsert(adminCtx(), schedule)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput when start >= end, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput when start >= end, got %v", err)
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
@@ -253,12 +254,12 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			EndTime:        "18:00",
 		}
 		err := repo.Upsert(context.Background(), schedule)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -273,12 +274,12 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			EndTime:        "18:00",
 		}
 		err := repo.Upsert(clientCtx("c-1"), schedule)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }
@@ -298,7 +299,7 @@ func TestSchedulesRepo_Delete(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
@@ -307,32 +308,32 @@ func TestSchedulesRepo_Delete(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		err := repo.Delete(adminCtx(), "pro-1", 3)
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
-	t.Run("invalid day_of_week returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid day_of_week returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
 		err := repo.Delete(adminCtx(), "pro-1", 7)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
 		err := repo.Delete(context.Background(), "pro-1", 1)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -341,12 +342,12 @@ func TestSchedulesRepo_Delete(t *testing.T) {
 		repo := NewSchedulesRepo(db)
 
 		err := repo.Delete(staffCtx("pro-1"), "pro-1", 1)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }

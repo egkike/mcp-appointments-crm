@@ -7,6 +7,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -38,7 +39,7 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown type returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("unknown type returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
@@ -48,8 +49,8 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
 		}
 		err := repo.Create(adminCtx(), alert)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for unknown type, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for unknown type, got %v", err)
 		}
 	})
 
@@ -63,12 +64,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
 		}
 		err := repo.Create(adminCtx(), alert)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for reminder_24h in Fase 1, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for reminder_24h in Fase 1, got %v", err)
 		}
 	})
 
-	t.Run("empty message returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty message returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
@@ -78,12 +79,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
 		}
 		err := repo.Create(adminCtx(), alert)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for empty message, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for empty message, got %v", err)
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
@@ -93,12 +94,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
 		}
 		err := repo.Create(context.Background(), alert)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -112,12 +113,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
 		}
 		err := repo.Create(staffCtx("pro-1"), alert)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }
@@ -190,37 +191,37 @@ func TestPendingAlertsRepo_ListPending(t *testing.T) {
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
 		_, err := repo.ListPending(context.Background(), 10, "2026-07-13T12:00:00.000Z")
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
-	t.Run("limit zero returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("limit zero returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
 		_, err := repo.ListPending(adminCtx(), 0, "2026-07-13T12:00:00.000Z")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for limit=0, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for limit=0, got %v", err)
 		}
 	})
 
-	t.Run("limit negative returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("limit negative returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
 		_, err := repo.ListPending(adminCtx(), -1, "2026-07-13T12:00:00.000Z")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for limit=-1, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for limit=-1, got %v", err)
 		}
 	})
 }
@@ -269,17 +270,17 @@ func TestPendingAlertsRepo_MarkAsSent(t *testing.T) {
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
 		err := repo.MarkAsSent(context.Background(), 42)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }
@@ -327,17 +328,17 @@ func TestPendingAlertsRepo_Cancel(t *testing.T) {
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
 		err := repo.Cancel(context.Background(), 42)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -346,12 +347,12 @@ func TestPendingAlertsRepo_Cancel(t *testing.T) {
 		repo := NewPendingAlertsRepo(db)
 
 		err := repo.Cancel(clientCtx("c-1"), 42)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }

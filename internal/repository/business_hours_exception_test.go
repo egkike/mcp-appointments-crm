@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -53,7 +54,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		}
 	})
 
-	t.Run("malformed date returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("malformed date returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -62,12 +63,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			IsClosed:      true,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for datetime, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for datetime, got %v", err)
 		}
 	})
 
-	t.Run("date with slashes returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("date with slashes returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -76,12 +77,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			IsClosed:      true,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for slashes, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for slashes, got %v", err)
 		}
 	})
 
-	t.Run("is_closed false without open_time returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("is_closed false without open_time returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -93,12 +94,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			CloseTime:     &close,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for nil open_time, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for nil open_time, got %v", err)
 		}
 	})
 
-	t.Run("is_closed false without close_time returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("is_closed false without close_time returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -110,12 +111,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			CloseTime:     nil,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for nil close_time, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for nil close_time, got %v", err)
 		}
 	})
 
-	t.Run("open_time after close_time returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("open_time after close_time returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -128,12 +129,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			CloseTime:     &close,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for open>close, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for open>close, got %v", err)
 		}
 	})
 
-	t.Run("is_closed true with times set returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("is_closed true with times set returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -146,12 +147,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			CloseTime:     &close,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for is_closed with times, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for is_closed with times, got %v", err)
 		}
 	})
 
-	t.Run("invalid HH:MM format returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid HH:MM format returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -164,12 +165,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			CloseTime:     &close,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for single-digit hour, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for single-digit hour, got %v", err)
 		}
 	})
 
-	t.Run("time with seconds returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("time with seconds returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -182,12 +183,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			CloseTime:     &close,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for time with seconds, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for time with seconds, got %v", err)
 		}
 	})
 
-	t.Run("hour 25:00 returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("hour 25:00 returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -200,12 +201,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			CloseTime:     &close,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for hour=25, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for hour=25, got %v", err)
 		}
 	})
 
-	t.Run("minute 12:70 returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("minute 12:70 returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -218,12 +219,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			CloseTime:     &close,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for minute=70, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for minute=70, got %v", err)
 		}
 	})
 
-	t.Run("invalid calendar date 2026-13-45 returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid calendar date 2026-13-45 returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -232,12 +233,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			IsClosed:      true,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for invalid calendar date, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for invalid calendar date, got %v", err)
 		}
 	})
 
-	t.Run("invalid calendar date 2026-02-30 returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid calendar date 2026-02-30 returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -246,12 +247,12 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			IsClosed:      true,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for Feb 30, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for Feb 30, got %v", err)
 		}
 	})
 
-	t.Run("UNIQUE violation returns ErrConflict", func(t *testing.T) {
+	t.Run("UNIQUE violation returns domain.ErrConflict", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -264,8 +265,8 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			IsClosed:      true,
 		}
 		err := repo.Create(context.Background(), ex)
-		if !errors.Is(err, ErrConflict) {
-			t.Errorf("expected ErrConflict, got %v", err)
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Errorf("expected domain.ErrConflict, got %v", err)
 		}
 	})
 
@@ -285,8 +286,8 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		if errors.Is(err, ErrConflict) {
-			t.Error("non-UNIQUE error should not return ErrConflict")
+		if errors.Is(err, domain.ErrConflict) {
+			t.Error("non-UNIQUE error should not return domain.ErrConflict")
 		}
 	})
 }
@@ -316,7 +317,7 @@ func TestBusinessHoursExceptionRepo_GetByDate(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -325,8 +326,8 @@ func TestBusinessHoursExceptionRepo_GetByDate(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		_, err := repo.GetByDate(context.Background(), "2026-01-01")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
@@ -344,33 +345,33 @@ func TestBusinessHoursExceptionRepo_GetByDate(t *testing.T) {
 		}
 	})
 
-	t.Run("malformed date returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("malformed date returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		_, err := repo.GetByDate(context.Background(), "2026-13-45")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for invalid calendar date, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for invalid calendar date, got %v", err)
 		}
 	})
 
-	t.Run("datetime string returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("datetime string returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		_, err := repo.GetByDate(context.Background(), "2026-12-25T00:00:00")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for datetime, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for datetime, got %v", err)
 		}
 	})
 
-	t.Run("empty string returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty string returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		_, err := repo.GetByDate(context.Background(), "")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for empty date, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for empty date, got %v", err)
 		}
 	})
 }
@@ -450,7 +451,7 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -459,8 +460,8 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		err := repo.Delete(context.Background(), int64(999))
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 

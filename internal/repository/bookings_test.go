@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -55,7 +56,7 @@ func TestBookingsRepo_CreateBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("overlap returns SemanticError with ErrCodeBookingOverlap", func(t *testing.T) {
+	t.Run("overlap returns domain.SemanticError with domain.ErrCodeBookingOverlap", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -80,16 +81,16 @@ func TestBookingsRepo_CreateBooking(t *testing.T) {
 			t.Fatal("expected error for overlap, got nil")
 		}
 
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeBookingOverlap {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBookingOverlap)
+		if sErr.Code != domain.ErrCodeBookingOverlap {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeBookingOverlap)
 		}
 	})
 
-	t.Run("service not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("service not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -106,12 +107,12 @@ func TestBookingsRepo_CreateBooking(t *testing.T) {
 		}
 
 		_, err := repo.CreateBooking(adminCtx(), input)
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
-	t.Run("empty start_datetime returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty start_datetime returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -123,8 +124,8 @@ func TestBookingsRepo_CreateBooking(t *testing.T) {
 		}
 
 		_, err := repo.CreateBooking(adminCtx(), input)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
@@ -163,16 +164,16 @@ func TestBookingsRepo_CreateBooking(t *testing.T) {
 		}
 
 		_, err := repo.CreateBooking(clientCtx("c-1"), input)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -184,12 +185,12 @@ func TestBookingsRepo_CreateBooking(t *testing.T) {
 		}
 
 		_, err := repo.CreateBooking(context.Background(), input)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -247,7 +248,7 @@ func TestBookingsRepo_GetBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -256,8 +257,8 @@ func TestBookingsRepo_GetBooking(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		_, err := repo.GetBooking(adminCtx(), "b-bogus")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
@@ -286,7 +287,7 @@ func TestBookingsRepo_GetBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("client cannot see another clients booking returns ErrNotFound", func(t *testing.T) {
+	t.Run("client cannot see another clients booking returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -296,8 +297,8 @@ func TestBookingsRepo_GetBooking(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		_, err := repo.GetBooking(clientCtx("c-1"), "b-1")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound for cross-tenant, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound for cross-tenant, got %v", err)
 		}
 	})
 
@@ -326,7 +327,7 @@ func TestBookingsRepo_GetBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("staff cannot see another professionals booking returns ErrNotFound", func(t *testing.T) {
+	t.Run("staff cannot see another professionals booking returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -336,22 +337,22 @@ func TestBookingsRepo_GetBooking(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		_, err := repo.GetBooking(staffCtx("p-1"), "b-1")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound for cross-tenant staff, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound for cross-tenant staff, got %v", err)
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
 		_, err := repo.GetBooking(context.Background(), "b-1")
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }
@@ -406,16 +407,16 @@ func TestBookingsRepo_CancelBooking(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for cancelled→cancelled transition, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T", err)
+			t.Fatalf("expected *domain.SemanticError, got %T", err)
 		}
-		if sErr.Code != ErrCodeInvalidInput {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeInvalidInput)
+		if sErr.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeInvalidInput)
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -424,12 +425,12 @@ func TestBookingsRepo_CancelBooking(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		err := repo.CancelBooking(adminCtx(), "b-bogus")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
-	t.Run("client cannot cancel another clients booking returns ErrNotFound", func(t *testing.T) {
+	t.Run("client cannot cancel another clients booking returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -439,8 +440,8 @@ func TestBookingsRepo_CancelBooking(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		err := repo.CancelBooking(clientCtx("c-1"), "b-1")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound for cross-tenant client, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound for cross-tenant client, got %v", err)
 		}
 	})
 
@@ -462,7 +463,7 @@ func TestBookingsRepo_CancelBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("staff cannot cancel another professionals booking returns ErrNotFound", func(t *testing.T) {
+	t.Run("staff cannot cancel another professionals booking returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -472,8 +473,8 @@ func TestBookingsRepo_CancelBooking(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		err := repo.CancelBooking(staffCtx("p-1"), "b-1")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound for cross-tenant staff, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound for cross-tenant staff, got %v", err)
 		}
 	})
 
@@ -495,17 +496,17 @@ func TestBookingsRepo_CancelBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
 		err := repo.CancelBooking(context.Background(), "b-1")
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }
@@ -535,7 +536,7 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("atomic overlap returns SemanticError with ErrCodeBookingOverlap", func(t *testing.T) {
+	t.Run("atomic overlap returns domain.SemanticError with domain.ErrCodeBookingOverlap", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -562,12 +563,12 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for overlap, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T", err)
+			t.Fatalf("expected *domain.SemanticError, got %T", err)
 		}
-		if sErr.Code != ErrCodeBookingOverlap {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBookingOverlap)
+		if sErr.Code != domain.ErrCodeBookingOverlap {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeBookingOverlap)
 		}
 	})
 
@@ -584,16 +585,16 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for rescheduling cancelled booking, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T", err)
+			t.Fatalf("expected *domain.SemanticError, got %T", err)
 		}
-		if sErr.Code != ErrCodeInvalidInput {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeInvalidInput)
+		if sErr.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeInvalidInput)
 		}
 	})
 
-	t.Run("client cannot reschedule another clients booking returns ErrNotFound", func(t *testing.T) {
+	t.Run("client cannot reschedule another clients booking returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -603,8 +604,8 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		err := repo.RescheduleBooking(clientCtx("c-1"), "b-1", "2026-07-13T14:00:00.000Z")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound for cross-tenant client, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound for cross-tenant client, got %v", err)
 		}
 	})
 
@@ -631,7 +632,7 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("staff cannot reschedule another professionals booking returns ErrNotFound", func(t *testing.T) {
+	t.Run("staff cannot reschedule another professionals booking returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -641,8 +642,8 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		err := repo.RescheduleBooking(staffCtx("p-1"), "b-1", "2026-07-13T14:00:00.000Z")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound for cross-tenant staff, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound for cross-tenant staff, got %v", err)
 		}
 	})
 
@@ -669,21 +670,21 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
 		err := repo.RescheduleBooking(context.Background(), "b-1", "2026-07-13T14:00:00.000Z")
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
-	t.Run("empty newStartDatetime returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty newStartDatetime returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -697,12 +698,12 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"duration_minutes"}).AddRow(30))
 
 		err := repo.RescheduleBooking(adminCtx(), "b-1", "")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for empty datetime, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for empty datetime, got %v", err)
 		}
 	})
 
-	t.Run("bogus newStartDatetime returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("bogus newStartDatetime returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -716,12 +717,12 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"duration_minutes"}).AddRow(30))
 
 		err := repo.RescheduleBooking(adminCtx(), "b-1", "bogus-datetime")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for bogus datetime, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for bogus datetime, got %v", err)
 		}
 	})
 
-	t.Run("invalid month newStartDatetime returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid month newStartDatetime returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -735,13 +736,13 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"duration_minutes"}).AddRow(30))
 
 		err := repo.RescheduleBooking(adminCtx(), "b-1", "2026-13-45T99:99:99Z")
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput for invalid datetime, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for invalid datetime, got %v", err)
 		}
 	})
 
 	// Fix 3: RISK-V2-3 / REL-V2-1 / RES-V2-2 — disambiguate rowsAffected==0
-	t.Run("concurrent cancellation between SELECT and UPDATE returns ErrCodeInvalidInput", func(t *testing.T) {
+	t.Run("concurrent cancellation between SELECT and UPDATE returns domain.ErrCodeInvalidInput", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -769,16 +770,16 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for concurrent cancellation, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeInvalidInput {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeInvalidInput)
+		if sErr.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeInvalidInput)
 		}
 	})
 
-	t.Run("concurrent deletion between SELECT and UPDATE wraps ErrNotFound", func(t *testing.T) {
+	t.Run("concurrent deletion between SELECT and UPDATE wraps domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBookingsRepo(db)
 
@@ -804,8 +805,8 @@ func TestBookingsRepo_RescheduleBooking(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for concurrent deletion, got nil")
 		}
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected errors.Is(err, ErrNotFound) = true, got false; err = %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected errors.Is(err, domain.ErrNotFound) = true, got false; err = %v", err)
 		}
 	})
 }
@@ -848,12 +849,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeBusinessClosed {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBusinessClosed)
+		if sErr.Code != domain.ErrCodeBusinessClosed {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeBusinessClosed)
 		}
 		if !strings.Contains(sErr.Message, "Navidad") {
 			t.Errorf("message should mention reason, got: %s", sErr.Message)
@@ -884,12 +885,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeBusinessClosed {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBusinessClosed)
+		if sErr.Code != domain.ErrCodeBusinessClosed {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeBusinessClosed)
 		}
 		if !strings.Contains(sErr.Message, "lunes") {
 			t.Errorf("message should mention 'lunes', got: %s", sErr.Message)
@@ -923,12 +924,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeProfessionalNotWorking {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeProfessionalNotWorking)
+		if sErr.Code != domain.ErrCodeProfessionalNotWorking {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeProfessionalNotWorking)
 		}
 		if !strings.Contains(sErr.Message, "Ana") || !strings.Contains(sErr.Message, "lunes") {
 			t.Errorf("message should mention Ana and lunes, got: %s", sErr.Message)
@@ -963,12 +964,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeSlotOutOfHours {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeSlotOutOfHours)
+		if sErr.Code != domain.ErrCodeSlotOutOfHours {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeSlotOutOfHours)
 		}
 		if !strings.Contains(sErr.Message, "solo quedan 15") {
 			t.Errorf("message should mention remaining=15, got: %s", sErr.Message)
@@ -1003,12 +1004,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeSlotOutOfHours {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeSlotOutOfHours)
+		if sErr.Code != domain.ErrCodeSlotOutOfHours {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeSlotOutOfHours)
 		}
 		if !strings.Contains(sErr.Message, "Ana empieza a las 10:00") {
 			t.Errorf("message should mention pro start, got: %s", sErr.Message)
@@ -1043,12 +1044,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeSlotOutOfHours {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeSlotOutOfHours)
+		if sErr.Code != domain.ErrCodeSlotOutOfHours {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeSlotOutOfHours)
 		}
 		if !strings.Contains(sErr.Message, "atención comienza a las 09:00") {
 			t.Errorf("message should mention business opening, got: %s", sErr.Message)
@@ -1086,12 +1087,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeBookingOverlap {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBookingOverlap)
+		if sErr.Code != domain.ErrCodeBookingOverlap {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeBookingOverlap)
 		}
 		if !strings.Contains(sErr.Message, "Ana") || !strings.Contains(sErr.Message, "10:00") {
 			t.Errorf("message should mention pro and existing times, got: %s", sErr.Message)
@@ -1167,12 +1168,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeSlotInPast {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeSlotInPast)
+		if sErr.Code != domain.ErrCodeSlotInPast {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeSlotInPast)
 		}
 	})
 
@@ -1236,12 +1237,12 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeBusinessClosed {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeBusinessClosed)
+		if sErr.Code != domain.ErrCodeBusinessClosed {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeBusinessClosed)
 		}
 		// The test implicitly verifies first-failure-wins because no further
 		// expectations are set — any attempt to query 3b would fail the mock.
@@ -1290,13 +1291,13 @@ func TestBookingsRepo_CheckAvailability(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
 		// The chain should fail at 3c (slot after close), proving 3b used correct day_of_week
-		if sErr.Code != ErrCodeSlotOutOfHours {
-			t.Errorf("got Code=%q, want %q (expected slot out of hours after close)", sErr.Code, ErrCodeSlotOutOfHours)
+		if sErr.Code != domain.ErrCodeSlotOutOfHours {
+			t.Errorf("got Code=%q, want %q (expected slot out of hours after close)", sErr.Code, domain.ErrCodeSlotOutOfHours)
 		}
 	})
 }

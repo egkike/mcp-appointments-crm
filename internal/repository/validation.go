@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
 
 // Shared validation regexes used across multiple repository files.
@@ -27,28 +29,28 @@ var (
 
 // validateExceptionDate checks that date is a valid YYYY-MM-DD string
 // representing a real calendar date (rejects "2026-02-30", "2026-13-45", etc.).
-// Returns ErrInvalidInput wrapping error if malformed.
+// Returns domain.ErrInvalidInput wrapping error if malformed.
 func validateExceptionDate(date string) error {
 	if !datePattern.MatchString(date) {
 		return fmt.Errorf("la fecha debe tener formato YYYY-MM-DD, se recibió: %q: %w",
-			date, ErrInvalidInput)
+			date, domain.ErrInvalidInput)
 	}
 	if _, err := time.Parse("2006-01-02", date); err != nil {
 		return fmt.Errorf("la fecha %q no es una fecha válida: %w",
-			date, ErrInvalidInput)
+			date, domain.ErrInvalidInput)
 	}
 	return nil
 }
 
 // validateFTSQuery checks that a full-text search query is non-empty and
 // does not contain FTS5 operator characters.
-// Returns ErrInvalidInput wrapping error if invalid.
+// Returns domain.ErrInvalidInput wrapping error if invalid.
 func validateFTSQuery(query string) error {
 	if strings.TrimSpace(query) == "" {
-		return fmt.Errorf("consulta vacía: %w", ErrInvalidInput)
+		return fmt.Errorf("consulta vacía: %w", domain.ErrInvalidInput)
 	}
 	if ftsQueryRe.MatchString(query) {
-		return fmt.Errorf("la consulta contiene caracteres no permitidos: %w", ErrInvalidInput)
+		return fmt.Errorf("la consulta contiene caracteres no permitidos: %w", domain.ErrInvalidInput)
 	}
 	return nil
 }
@@ -60,12 +62,12 @@ func validateBusinessHoursJSON(s string) error {
 		return nil
 	}
 	if !json.Valid([]byte(s)) {
-		return fmt.Errorf("el campo business_hours debe ser JSON válido: %w", ErrInvalidInput)
+		return fmt.Errorf("el campo business_hours debe ser JSON válido: %w", domain.ErrInvalidInput)
 	}
 	// Verify it's an object, not an array or primitive.
 	trimmed := strings.TrimSpace(s)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return fmt.Errorf("el campo business_hours debe ser un objeto JSON: %w", ErrInvalidInput)
+		return fmt.Errorf("el campo business_hours debe ser un objeto JSON: %w", domain.ErrInvalidInput)
 	}
 	return nil
 }
@@ -77,7 +79,7 @@ func validateTimezone(tz string) error {
 		return nil
 	}
 	if _, err := time.LoadLocation(tz); err != nil {
-		return fmt.Errorf("la zona horaria %q no es válida: %w", tz, ErrInvalidInput)
+		return fmt.Errorf("la zona horaria %q no es válida: %w", tz, domain.ErrInvalidInput)
 	}
 	return nil
 }
@@ -87,15 +89,15 @@ func validateTimezone(tz string) error {
 func validateAcceptedPaymentMethodsJSON(s string) error {
 	trimmed := strings.TrimSpace(s)
 	if len(trimmed) == 0 || trimmed[0] != '[' {
-		return fmt.Errorf("los métodos de pago deben ser un array JSON válido: %w", ErrInvalidInput)
+		return fmt.Errorf("los métodos de pago deben ser un array JSON válido: %w", domain.ErrInvalidInput)
 	}
 	var methods []string
 	if err := json.Unmarshal([]byte(s), &methods); err != nil {
-		return fmt.Errorf("los métodos de pago deben ser un array JSON válido: %w", ErrInvalidInput)
+		return fmt.Errorf("los métodos de pago deben ser un array JSON válido: %w", domain.ErrInvalidInput)
 	}
 	for i, m := range methods {
 		if m == "" {
-			return fmt.Errorf("el método de pago en la posición %d está vacío: %w", i, ErrInvalidInput)
+			return fmt.Errorf("el método de pago en la posición %d está vacío: %w", i, domain.ErrInvalidInput)
 		}
 	}
 	return nil

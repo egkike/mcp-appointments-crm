@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	_ "modernc.org/sqlite"
 )
 
@@ -18,12 +19,12 @@ func TestSentinelErrors_ErrorsIs(t *testing.T) {
 		err  error
 		is   error
 	}{
-		{"ErrNotFound direct", ErrNotFound, ErrNotFound},
-		{"ErrConflict direct", ErrConflict, ErrConflict},
-		{"ErrInvalidInput direct", ErrInvalidInput, ErrInvalidInput},
-		{"ErrNotFound wrapped", fmt.Errorf("get client: %w", ErrNotFound), ErrNotFound},
-		{"ErrConflict wrapped", fmt.Errorf("create service: %w", ErrConflict), ErrConflict},
-		{"ErrInvalidInput wrapped", fmt.Errorf("validate input: %w", ErrInvalidInput), ErrInvalidInput},
+		{"domain.ErrNotFound direct", domain.ErrNotFound, domain.ErrNotFound},
+		{"domain.ErrConflict direct", domain.ErrConflict, domain.ErrConflict},
+		{"domain.ErrInvalidInput direct", domain.ErrInvalidInput, domain.ErrInvalidInput},
+		{"domain.ErrNotFound wrapped", fmt.Errorf("get client: %w", domain.ErrNotFound), domain.ErrNotFound},
+		{"domain.ErrConflict wrapped", fmt.Errorf("create service: %w", domain.ErrConflict), domain.ErrConflict},
+		{"domain.ErrInvalidInput wrapped", fmt.Errorf("validate input: %w", domain.ErrInvalidInput), domain.ErrInvalidInput},
 	}
 
 	for _, tt := range tests {
@@ -36,7 +37,7 @@ func TestSentinelErrors_ErrorsIs(t *testing.T) {
 }
 
 func TestSentinelErrors_AreDistinct(t *testing.T) {
-	sentinels := []error{ErrNotFound, ErrConflict, ErrInvalidInput}
+	sentinels := []error{domain.ErrNotFound, domain.ErrConflict, domain.ErrInvalidInput}
 	for i := 0; i < len(sentinels); i++ {
 		for j := i + 1; j < len(sentinels); j++ {
 			if errors.Is(sentinels[i], sentinels[j]) {
@@ -47,8 +48,8 @@ func TestSentinelErrors_AreDistinct(t *testing.T) {
 }
 
 func TestSemanticError_Error(t *testing.T) {
-	e := &SemanticError{
-		Code:    ErrCodeBusinessClosed,
+	e := &domain.SemanticError{
+		Code:    domain.ErrCodeBusinessClosed,
 		Message: "el negocio está cerrado el 2026-12-25 (Navidad)",
 	}
 	if got := e.Error(); got != e.Message {
@@ -58,8 +59,8 @@ func TestSemanticError_Error(t *testing.T) {
 
 func TestSemanticError_Unwrap(t *testing.T) {
 	cause := errors.New("database timeout")
-	e := &SemanticError{
-		Code:    ErrCodeInternal,
+	e := &domain.SemanticError{
+		Code:    domain.ErrCodeInternal,
 		Message: "error interno",
 		Cause:   cause,
 	}
@@ -70,18 +71,18 @@ func TestSemanticError_Unwrap(t *testing.T) {
 }
 
 func TestSemanticError_ErrorsAs(t *testing.T) {
-	original := &SemanticError{
-		Code:    ErrCodeBookingOverlap,
+	original := &domain.SemanticError{
+		Code:    domain.ErrCodeBookingOverlap,
 		Message: "el Profesional Juan ya tiene una reserva de 10:00 a 11:00.",
 	}
 	wrapped := fmt.Errorf("create booking: %w", original)
 
-	var sErr *SemanticError
+	var sErr *domain.SemanticError
 	if !errors.As(wrapped, &sErr) {
-		t.Fatal("errors.As should extract *SemanticError from wrapped error")
+		t.Fatal("errors.As should extract *domain.SemanticError from wrapped error")
 	}
-	if sErr.Code != ErrCodeBookingOverlap {
-		t.Errorf("Code = %q; want %q", sErr.Code, ErrCodeBookingOverlap)
+	if sErr.Code != domain.ErrCodeBookingOverlap {
+		t.Errorf("Code = %q; want %q", sErr.Code, domain.ErrCodeBookingOverlap)
 	}
 	if sErr.Message != original.Message {
 		t.Errorf("Message = %q; want %q", sErr.Message, original.Message)
@@ -89,8 +90,8 @@ func TestSemanticError_ErrorsAs(t *testing.T) {
 }
 
 func TestSemanticError_NilCause(t *testing.T) {
-	e := &SemanticError{
-		Code:    ErrCodeSlotInPast,
+	e := &domain.SemanticError{
+		Code:    domain.ErrCodeSlotInPast,
 		Message: "no se puede reservar en el pasado.",
 	}
 	if e.Unwrap() != nil {
@@ -99,20 +100,20 @@ func TestSemanticError_NilCause(t *testing.T) {
 }
 
 func TestErrCode_Constants(t *testing.T) {
-	codes := []ErrCode{
-		ErrCodeBusinessClosed,
-		ErrCodeProfessionalNotWorking,
-		ErrCodeSlotOutOfHours,
-		ErrCodeBookingOverlap,
-		ErrCodeSlotInPast,
-		ErrCodeNotFound,
-		ErrCodeConflict,
-		ErrCodeInvalidInput,
-		ErrCodeInternal,
+	codes := []domain.ErrCode{
+		domain.ErrCodeBusinessClosed,
+		domain.ErrCodeProfessionalNotWorking,
+		domain.ErrCodeSlotOutOfHours,
+		domain.ErrCodeBookingOverlap,
+		domain.ErrCodeSlotInPast,
+		domain.ErrCodeNotFound,
+		domain.ErrCodeConflict,
+		domain.ErrCodeInvalidInput,
+		domain.ErrCodeInternal,
 	}
 	for _, code := range codes {
 		if string(code) == "" {
-			t.Errorf("ErrCode constant is empty")
+			t.Errorf("domain.ErrCode constant is empty")
 		}
 	}
 }

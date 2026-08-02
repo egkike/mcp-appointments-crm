@@ -8,6 +8,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -45,14 +46,14 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 		}
 	})
 
-	t.Run("empty name returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty name returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
 		p := &model.Professional{Name: ""}
 		err := repo.Create(adminCtx(), p)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
@@ -71,18 +72,18 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
 		p := &model.Professional{Name: "Juan", Status: "active"}
 		err := repo.Create(context.Background(), p)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -92,12 +93,12 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 
 		p := &model.Professional{Name: "Juan", Status: "active"}
 		err := repo.Create(clientCtx("c-1"), p)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -107,12 +108,12 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 
 		p := &model.Professional{Name: "Juan", Status: "active"}
 		err := repo.Create(staffCtx("pro-1"), p)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -160,7 +161,7 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
@@ -169,8 +170,8 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		_, err := repo.Get(adminCtx(), "missing")
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
@@ -201,26 +202,26 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 		repo := NewProfessionalsRepo(db)
 
 		_, err := repo.Get(staffCtx("pro-1"), "pro-999")
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
 		_, err := repo.Get(context.Background(), "pro-1")
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }
@@ -340,7 +341,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns ErrNotFound", func(t *testing.T) {
+	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
@@ -350,34 +351,34 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 
 		p := &model.Professional{ID: "missing", Name: "Ghost", Status: "active"}
 		err := repo.Update(adminCtx(), p)
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
-	t.Run("empty name returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("empty name returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
 		p := &model.Professional{ID: "pro-1", Name: "", Status: "active"}
 		err := repo.Update(adminCtx(), p)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
-	t.Run("invalid status returns ErrInvalidInput", func(t *testing.T) {
+	t.Run("invalid status returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
 		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "invalid"}
 		err := repo.Update(adminCtx(), p)
-		if !errors.Is(err, ErrInvalidInput) {
-			t.Errorf("expected ErrInvalidInput, got %v", err)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
 	})
 
-	t.Run("specialty referencing non-existent service returns ErrNotFound", func(t *testing.T) {
+	t.Run("specialty referencing non-existent service returns domain.ErrNotFound", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
@@ -389,8 +390,8 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 
 		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "active", Specialties: &specs}
 		err := repo.Update(adminCtx(), p)
-		if !errors.Is(err, ErrNotFound) {
-			t.Errorf("expected ErrNotFound for non-existent service, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound for non-existent service, got %v", err)
 		}
 	})
 
@@ -416,18 +417,18 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		}
 	})
 
-	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
 		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "active"}
 		err := repo.Update(context.Background(), p)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 
@@ -437,12 +438,12 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 
 		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "active"}
 		err := repo.Update(clientCtx("c-1"), p)
-		var sErr *SemanticError
+		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
-			t.Fatalf("expected *SemanticError, got %T: %v", err, err)
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, ErrCodeUnauthenticated)
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
 		}
 	})
 }

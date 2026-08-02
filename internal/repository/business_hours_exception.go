@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -28,7 +29,7 @@ func NewBusinessHoursExceptionRepo(db *sql.DB) *BusinessHoursExceptionRepo {
 //   - is_closed=false requires both open_time and close_time in HH:MM format
 //   - open_time must be < close_time
 //
-// Returns ErrInvalidInput for validation failures, ErrConflict for duplicate dates.
+// Returns domain.ErrInvalidInput for validation failures, domain.ErrConflict for duplicate dates.
 func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.BusinessHoursException) error {
 	// Validate date format and calendar validity via shared helper.
 	if err := validateExceptionDate(ex.ExceptionDate); err != nil {
@@ -39,27 +40,27 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.Busin
 		// If closed, open_time and close_time must not be set.
 		if ex.OpenTime != nil || ex.CloseTime != nil {
 			return fmt.Errorf("crear excepción: si está cerrado, no se deben especificar horarios: %w",
-				ErrInvalidInput)
+				domain.ErrInvalidInput)
 		}
 	} else {
 		// If open, both times are required.
 		if ex.OpenTime == nil || ex.CloseTime == nil {
 			return fmt.Errorf("crear excepción: si está abierto, se deben especificar hora de apertura y cierre: %w",
-				ErrInvalidInput)
+				domain.ErrInvalidInput)
 		}
 		// Validate HH:MM format.
 		if !timeHHMMRe.MatchString(*ex.OpenTime) {
 			return fmt.Errorf("crear excepción: la hora de apertura debe tener formato HH:MM, se recibió: %q: %w",
-				*ex.OpenTime, ErrInvalidInput)
+				*ex.OpenTime, domain.ErrInvalidInput)
 		}
 		if !timeHHMMRe.MatchString(*ex.CloseTime) {
 			return fmt.Errorf("crear excepción: la hora de cierre debe tener formato HH:MM, se recibió: %q: %w",
-				*ex.CloseTime, ErrInvalidInput)
+				*ex.CloseTime, domain.ErrInvalidInput)
 		}
 		// Validate open < close using string comparison (HH:MM is lexicographically ordered).
 		if *ex.OpenTime >= *ex.CloseTime {
 			return fmt.Errorf("crear excepción: la hora de apertura (%s) debe ser anterior a la hora de cierre (%s): %w",
-				*ex.OpenTime, *ex.CloseTime, ErrInvalidInput)
+				*ex.OpenTime, *ex.CloseTime, domain.ErrInvalidInput)
 		}
 	}
 
@@ -70,14 +71,14 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.Busin
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("crear excepción: la fecha %s ya existe: %w", ex.ExceptionDate, ErrConflict)
+			return fmt.Errorf("crear excepción: la fecha %s ya existe: %w", ex.ExceptionDate, domain.ErrConflict)
 		}
 		return fmt.Errorf("crear excepción: %w", err)
 	}
 	return nil
 }
 
-// GetByDate returns the exception for a given date. Returns ErrNotFound if
+// GetByDate returns the exception for a given date. Returns domain.ErrNotFound if
 // no exception exists for that date. Validates date format before querying.
 func (r *BusinessHoursExceptionRepo) GetByDate(ctx context.Context, date string) (*model.BusinessHoursException, error) {
 	if err := validateExceptionDate(date); err != nil {
@@ -91,7 +92,7 @@ func (r *BusinessHoursExceptionRepo) GetByDate(ctx context.Context, date string)
 		&ex.Reason, &ex.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date, ErrNotFound)
+			return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date, err)
 	}
@@ -123,7 +124,7 @@ func (r *BusinessHoursExceptionRepo) List(ctx context.Context) ([]*model.Busines
 	return exceptions, nil
 }
 
-// Delete removes an exception by ID. Returns ErrNotFound if no row matches.
+// Delete removes an exception by ID. Returns domain.ErrNotFound if no row matches.
 func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id int64) error {
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM business_hours_exception WHERE id = ?`, id)
@@ -135,7 +136,7 @@ func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id int64) error
 		return fmt.Errorf("eliminar excepción: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("eliminar excepción: %w", ErrNotFound)
+		return fmt.Errorf("eliminar excepción: %w", domain.ErrNotFound)
 	}
 	return nil
 }

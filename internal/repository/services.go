@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -24,18 +25,18 @@ func NewServicesRepo(db *sql.DB) *ServicesRepo {
 // reaches the database. Used by both Create and Update.
 func validateService(s *model.Service) error {
 	if strings.TrimSpace(s.Name) == "" {
-		return fmt.Errorf("el nombre no puede estar vacío: %w", ErrInvalidInput)
+		return fmt.Errorf("el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	if s.DurationMinutes <= 0 {
-		return fmt.Errorf("la duración debe ser mayor a 0 minutos: %w", ErrInvalidInput)
+		return fmt.Errorf("la duración debe ser mayor a 0 minutos: %w", domain.ErrInvalidInput)
 	}
 	if s.Price <= 0 {
-		return fmt.Errorf("el precio debe ser mayor a 0: %w", ErrInvalidInput)
+		return fmt.Errorf("el precio debe ser mayor a 0: %w", domain.ErrInvalidInput)
 	}
 	return nil
 }
 
-// Create inserts a new service. Returns ErrInvalidInput if duration_minutes <= 0,
+// Create inserts a new service. Returns domain.ErrInvalidInput if duration_minutes <= 0,
 // name is empty, or price is zero or negative.
 func (r *ServicesRepo) Create(ctx context.Context, s *model.Service) error {
 	if err := validateService(s); err != nil {
@@ -52,7 +53,7 @@ func (r *ServicesRepo) Create(ctx context.Context, s *model.Service) error {
 	return nil
 }
 
-// Get returns a service by ID. Returns ErrNotFound if not found.
+// Get returns a service by ID. Returns domain.ErrNotFound if not found.
 func (r *ServicesRepo) Get(ctx context.Context, id string) (*model.Service, error) {
 	s := &model.Service{}
 	err := r.db.QueryRowContext(ctx,
@@ -62,7 +63,7 @@ func (r *ServicesRepo) Get(ctx context.Context, id string) (*model.Service, erro
 		&s.IsActive, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener servicio %s: %w", id, ErrNotFound)
+			return nil, fmt.Errorf("obtener servicio %s: %w", id, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("obtener servicio %s: %w", id, err)
 	}
@@ -94,8 +95,8 @@ func (r *ServicesRepo) ListActive(ctx context.Context) ([]*model.Service, error)
 	return services, nil
 }
 
-// Update updates an existing service. Returns ErrInvalidInput for invalid
-// fields, ErrNotFound if no row matches.
+// Update updates an existing service. Returns domain.ErrInvalidInput for invalid
+// fields, domain.ErrNotFound if no row matches.
 func (r *ServicesRepo) Update(ctx context.Context, s *model.Service) error {
 	if err := validateService(s); err != nil {
 		return fmt.Errorf("actualizar servicio: %w", err)
@@ -114,12 +115,12 @@ func (r *ServicesRepo) Update(ctx context.Context, s *model.Service) error {
 		return fmt.Errorf("actualizar servicio: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("actualizar servicio: %w", ErrNotFound)
+		return fmt.Errorf("actualizar servicio: %w", domain.ErrNotFound)
 	}
 	return nil
 }
 
-// Delete removes a service by ID. Returns ErrNotFound if no row matches.
+// Delete removes a service by ID. Returns domain.ErrNotFound if no row matches.
 func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM services WHERE id = ?`, id)
 	if err != nil {
@@ -130,14 +131,14 @@ func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("eliminar servicio: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("eliminar servicio: %w", ErrNotFound)
+		return fmt.Errorf("eliminar servicio: %w", domain.ErrNotFound)
 	}
 	return nil
 }
 
 // SearchFTS performs a full-text search on services using FTS5 MATCH.
 // Results are ordered by FTS5 rank (most relevant first).
-// Returns ErrInvalidInput if the query contains FTS5 operator characters.
+// Returns domain.ErrInvalidInput if the query contains FTS5 operator characters.
 func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*model.Service, error) {
 	if err := validateFTSQuery(query); err != nil {
 		return nil, fmt.Errorf("buscar servicios: %w", err)

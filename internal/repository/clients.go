@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -21,14 +22,14 @@ func NewClientsRepo(db *sql.DB) *ClientsRepo {
 	return &ClientsRepo{db: db}
 }
 
-// Create inserts a new client. Returns ErrInvalidInput if name or phone is empty.
-// Returns ErrConflict if the phone is already in use (UNIQUE violation).
+// Create inserts a new client. Returns domain.ErrInvalidInput if name or phone is empty.
+// Returns domain.ErrConflict if the phone is already in use (UNIQUE violation).
 func (r *ClientsRepo) Create(ctx context.Context, c *model.Client) error {
 	if strings.TrimSpace(c.Name) == "" {
-		return fmt.Errorf("crear cliente: el nombre no puede estar vacío: %w", ErrInvalidInput)
+		return fmt.Errorf("crear cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	if strings.TrimSpace(c.Phone) == "" {
-		return fmt.Errorf("crear cliente: el teléfono no puede estar vacío: %w", ErrInvalidInput)
+		return fmt.Errorf("crear cliente: el teléfono no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO clients (id, name, phone, email, preferences)
@@ -37,14 +38,14 @@ func (r *ClientsRepo) Create(ctx context.Context, c *model.Client) error {
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("crear cliente: el teléfono %s ya existe: %w", c.Phone, ErrConflict)
+			return fmt.Errorf("crear cliente: el teléfono %s ya existe: %w", c.Phone, domain.ErrConflict)
 		}
 		return fmt.Errorf("crear cliente: %w", err)
 	}
 	return nil
 }
 
-// Get returns a client by ID. Returns ErrNotFound if not found.
+// Get returns a client by ID. Returns domain.ErrNotFound if not found.
 func (r *ClientsRepo) Get(ctx context.Context, id string) (*model.Client, error) {
 	c := &model.Client{}
 	err := r.db.QueryRowContext(ctx,
@@ -54,14 +55,14 @@ func (r *ClientsRepo) Get(ctx context.Context, id string) (*model.Client, error)
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener cliente %s: %w", id, ErrNotFound)
+			return nil, fmt.Errorf("obtener cliente %s: %w", id, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("obtener cliente %s: %w", id, err)
 	}
 	return c, nil
 }
 
-// GetByPhone returns a client by phone number. Returns ErrNotFound if not found.
+// GetByPhone returns a client by phone number. Returns domain.ErrNotFound if not found.
 func (r *ClientsRepo) GetByPhone(ctx context.Context, phone string) (*model.Client, error) {
 	c := &model.Client{}
 	err := r.db.QueryRowContext(ctx,
@@ -71,7 +72,7 @@ func (r *ClientsRepo) GetByPhone(ctx context.Context, phone string) (*model.Clie
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, ErrNotFound)
+			return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, domain.ErrNotFound)
 		}
 		return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, err)
 	}
@@ -82,10 +83,10 @@ func (r *ClientsRepo) GetByPhone(ctx context.Context, phone string) (*model.Clie
 // the existing client. Idempotent: does not overwrite the existing name.
 func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*model.Client, error) {
 	if strings.TrimSpace(phone) == "" {
-		return nil, fmt.Errorf("obtener o crear cliente: el teléfono no puede estar vacío: %w", ErrInvalidInput)
+		return nil, fmt.Errorf("obtener o crear cliente: el teléfono no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	if strings.TrimSpace(name) == "" {
-		return nil, fmt.Errorf("obtener o crear cliente: el nombre no puede estar vacío: %w", ErrInvalidInput)
+		return nil, fmt.Errorf("obtener o crear cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO clients (id, name, phone) VALUES (?, ?, ?)`,
@@ -107,15 +108,15 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*mod
 	return c, nil
 }
 
-// Update updates an existing client. Returns ErrInvalidInput if name or phone
-// is empty. Returns ErrNotFound if no row matches.
-// Returns ErrConflict if the new phone violates the UNIQUE constraint.
+// Update updates an existing client. Returns domain.ErrInvalidInput if name or phone
+// is empty. Returns domain.ErrNotFound if no row matches.
+// Returns domain.ErrConflict if the new phone violates the UNIQUE constraint.
 func (r *ClientsRepo) Update(ctx context.Context, c *model.Client) error {
 	if strings.TrimSpace(c.Name) == "" {
-		return fmt.Errorf("actualizar cliente: el nombre no puede estar vacío: %w", ErrInvalidInput)
+		return fmt.Errorf("actualizar cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	if strings.TrimSpace(c.Phone) == "" {
-		return fmt.Errorf("actualizar cliente: el teléfono no puede estar vacío: %w", ErrInvalidInput)
+		return fmt.Errorf("actualizar cliente: el teléfono no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE clients SET name=?, phone=?, email=?, preferences=?,
@@ -125,7 +126,7 @@ func (r *ClientsRepo) Update(ctx context.Context, c *model.Client) error {
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("actualizar cliente: el teléfono %s ya existe: %w", c.Phone, ErrConflict)
+			return fmt.Errorf("actualizar cliente: el teléfono %s ya existe: %w", c.Phone, domain.ErrConflict)
 		}
 		return fmt.Errorf("actualizar cliente: %w", err)
 	}
@@ -134,12 +135,12 @@ func (r *ClientsRepo) Update(ctx context.Context, c *model.Client) error {
 		return fmt.Errorf("actualizar cliente: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("actualizar cliente: %w", ErrNotFound)
+		return fmt.Errorf("actualizar cliente: %w", domain.ErrNotFound)
 	}
 	return nil
 }
 
-// Delete removes a client by ID. Returns ErrNotFound if no row matches.
+// Delete removes a client by ID. Returns domain.ErrNotFound if no row matches.
 func (r *ClientsRepo) Delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM clients WHERE id = ?`, id)
 	if err != nil {
@@ -150,14 +151,14 @@ func (r *ClientsRepo) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("eliminar cliente: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("eliminar cliente: %w", ErrNotFound)
+		return fmt.Errorf("eliminar cliente: %w", domain.ErrNotFound)
 	}
 	return nil
 }
 
 // SearchFTS performs a full-text search on clients using FTS5 MATCH.
 // Results are ordered by FTS5 rank (most relevant first).
-// Returns ErrInvalidInput if the query contains FTS5 operator characters.
+// Returns domain.ErrInvalidInput if the query contains FTS5 operator characters.
 func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Client, error) {
 	if err := validateFTSQuery(query); err != nil {
 		return nil, fmt.Errorf("buscar clientes: %w", err)
