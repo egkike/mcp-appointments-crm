@@ -561,7 +561,8 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 		var bizOpenSQL, bizCloseSQL sql.NullString
 		jsonKey := fmt.Sprintf("$.%d", dayOfWeek)
 		row := r.db.QueryRowContext(ctx,
-			fmt.Sprintf(`SELECT json_extract(business_hours, '%s.open'), json_extract(business_hours, '%s.close') FROM business_profile WHERE id = 'singleton'`, jsonKey, jsonKey),
+			`SELECT json_extract(business_hours, ?), json_extract(business_hours, ?) FROM business_profile WHERE id = 'singleton'`,
+			jsonKey+".open", jsonKey+".close",
 		)
 		err = row.Scan(&bizOpenSQL, &bizCloseSQL)
 		if err != nil {
