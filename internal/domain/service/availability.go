@@ -10,6 +10,12 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
 
+// AvailabilityChecker is the contract the use-case layer depends on.
+// *AvailabilityService satisfies it via Go's structural typing.
+type AvailabilityChecker interface {
+	CheckAvailability(ctx context.Context, params *CheckAvailabilityParams, deps AvailabilityDeps) (*CheckAvailabilityResult, error)
+}
+
 // AvailabilityService runs the 5-step CheckAvailability validation chain
 // (business hours, professional schedule, slot within hours, overlap, past).
 // It is stateless: all dependencies (repository interfaces) are passed per-call.
@@ -61,7 +67,7 @@ func (s *AvailabilityService) CheckAvailability(
 	if !svc.IsActive() {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeServiceNotActive,
-			Message: fmt.Sprintf("el servicio %s no está activo.", svc.Name),
+			Message: fmt.Sprintf("Servicio %s no está activo.", svc.Name),
 		}
 	}
 
@@ -72,7 +78,7 @@ func (s *AvailabilityService) CheckAvailability(
 	if !pro.IsActive() {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeProfessionalNotActive,
-			Message: fmt.Sprintf("el profesional %s no está activo.", pro.Name),
+			Message: fmt.Sprintf("Profesional %s no está activo.", pro.Name),
 		}
 	}
 
@@ -112,7 +118,7 @@ func (s *AvailabilityService) CheckAvailability(
 			}
 			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeBusinessClosed,
-				Message: fmt.Sprintf("el negocio está cerrado el %s (%s).", dateStr, reason),
+				Message: fmt.Sprintf("Negocio está cerrado el %s (%s).", dateStr, reason),
 			}
 		}
 	} else if !errors.Is(err, domain.ErrNotFound) {
@@ -133,7 +139,7 @@ func (s *AvailabilityService) CheckAvailability(
 		if !ok || open == "" || close == "" {
 			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeBusinessClosed,
-				Message: fmt.Sprintf("el negocio no abre los %s.", spanishDayNames[dayOfWeek]),
+				Message: fmt.Sprintf("Negocio no abre los %s.", spanishDayNames[dayOfWeek]),
 			}
 		}
 		businessOpenHHMM = open
@@ -147,7 +153,7 @@ func (s *AvailabilityService) CheckAvailability(
 		if errors.Is(err, domain.ErrNotFound) {
 			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeProfessionalNotWorking,
-				Message: fmt.Sprintf("el Profesional %s no trabaja los %s.", pro.Name, spanishDayNames[dayOfWeek]),
+				Message: fmt.Sprintf("Profesional %s no trabaja los %s.", pro.Name, spanishDayNames[dayOfWeek]),
 			}
 		}
 		return nil, fmt.Errorf("check_availability: consultar horario del profesional: %w", err)
@@ -178,7 +184,7 @@ func (s *AvailabilityService) CheckAvailability(
 		}
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeSlotOutOfHours,
-			Message: fmt.Sprintf("el servicio dura %d minutos pero solo quedan %d antes del cierre a las %s.", svc.DurationMinutes, remaining, effectiveCloseHHMM),
+			Message: fmt.Sprintf("Servicio dura %d minutos pero solo quedan %d antes del cierre a las %s.", svc.DurationMinutes, remaining, effectiveCloseHHMM),
 		}
 	}
 
@@ -186,7 +192,7 @@ func (s *AvailabilityService) CheckAvailability(
 	if slotStartHHMM < businessOpenHHMM {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeSlotOutOfHours,
-			Message: fmt.Sprintf("el horario de atención comienza a las %s.", businessOpenHHMM),
+			Message: fmt.Sprintf("Horario de atención comienza a las %s.", businessOpenHHMM),
 		}
 	}
 
@@ -194,7 +200,7 @@ func (s *AvailabilityService) CheckAvailability(
 	if slotStartHHMM < proStartHHMM {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeSlotOutOfHours,
-			Message: fmt.Sprintf("el Profesional %s empieza a las %s.", pro.Name, proStartHHMM),
+			Message: fmt.Sprintf("Profesional %s empieza a las %s.", pro.Name, proStartHHMM),
 		}
 	}
 
@@ -211,7 +217,7 @@ func (s *AvailabilityService) CheckAvailability(
 		existing := overlapping[0]
 		return nil, &domain.SemanticError{
 			Code: domain.ErrCodeBookingOverlap,
-			Message: fmt.Sprintf("el Profesional %s ya tiene una reserva de %s a %s.",
+			Message: fmt.Sprintf("Profesional %s ya tiene una reserva de %s a %s.",
 				pro.Name,
 				existing.StartDatetime.UTC().Format(time.RFC3339),
 				existing.EndDatetime.UTC().Format(time.RFC3339)),
@@ -223,7 +229,7 @@ func (s *AvailabilityService) CheckAvailability(
 	if startTime.Before(time.Now()) {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeSlotInPast,
-			Message: "no se puede reservar en el pasado.",
+			Message: "No se puede reservar en el pasado.",
 		}
 	}
 

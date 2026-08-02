@@ -48,6 +48,17 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 		return nil, &domain.SemanticError{Code: domain.ErrCodeUnauthenticated, Message: fmt.Sprintf("el rol %q no puede crear reservas", input.Caller.Role), Cause: domain.ErrUnauthenticated}
 	}
 
+	// ─── Input validation ──────────────────────────────────────────────
+	if input.ClientID == "" {
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "el cliente es requerido"}
+	}
+	if input.ServiceID == "" {
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "el servicio es requerido"}
+	}
+	if input.StartTime.IsZero() {
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "la fecha y hora de inicio es requerida"}
+	}
+
 	svc, err := uc.services.FindByID(ctx, input.ServiceID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {

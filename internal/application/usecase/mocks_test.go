@@ -6,6 +6,7 @@ import (
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 )
 
 // Hand-rolled function-table mocks for repository interfaces.
@@ -142,128 +143,17 @@ func (m *mockServicesRepo) Delete(ctx context.Context, id string) error {
 	return m.DeleteFn(ctx, id)
 }
 
-// --- mockProfessionalsRepo ---
+// --- mockAvailabilityChecker ---
 
-type mockProfessionalsRepo struct {
-	FindByIDFn   func(ctx context.Context, id string) (*entity.Professional, error)
-	FindActiveFn func(ctx context.Context) ([]*entity.Professional, error)
-	SaveFn       func(ctx context.Context, p *entity.Professional) error
-	UpdateFn     func(ctx context.Context, p *entity.Professional) error
+type mockAvailabilityChecker struct {
+	CheckAvailabilityFn func(ctx context.Context, params *service.CheckAvailabilityParams, deps service.AvailabilityDeps) (*service.CheckAvailabilityResult, error)
 }
 
-func (m *mockProfessionalsRepo) FindByID(ctx context.Context, id string) (*entity.Professional, error) {
-	if m.FindByIDFn == nil {
-		panic("mockProfessionalsRepo.FindByIDFn not set")
+func (m *mockAvailabilityChecker) CheckAvailability(ctx context.Context, params *service.CheckAvailabilityParams, deps service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
+	if m.CheckAvailabilityFn == nil {
+		panic("mockAvailabilityChecker.CheckAvailabilityFn not set")
 	}
-	return m.FindByIDFn(ctx, id)
-}
-
-func (m *mockProfessionalsRepo) FindActive(ctx context.Context) ([]*entity.Professional, error) {
-	if m.FindActiveFn == nil {
-		panic("mockProfessionalsRepo.FindActiveFn not set")
-	}
-	return m.FindActiveFn(ctx)
-}
-
-func (m *mockProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) error {
-	if m.SaveFn == nil {
-		panic("mockProfessionalsRepo.SaveFn not set")
-	}
-	return m.SaveFn(ctx, p)
-}
-
-func (m *mockProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) error {
-	if m.UpdateFn == nil {
-		panic("mockProfessionalsRepo.UpdateFn not set")
-	}
-	return m.UpdateFn(ctx, p)
-}
-
-// --- mockBusinessProfileRepo ---
-
-type mockBusinessProfileRepo struct {
-	GetFn    func(ctx context.Context) (*entity.BusinessProfile, error)
-	UpdateFn func(ctx context.Context, p *entity.BusinessProfile) error
-}
-
-func (m *mockBusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile, error) {
-	if m.GetFn == nil {
-		panic("mockBusinessProfileRepo.GetFn not set")
-	}
-	return m.GetFn(ctx)
-}
-
-func (m *mockBusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) error {
-	if m.UpdateFn == nil {
-		panic("mockBusinessProfileRepo.UpdateFn not set")
-	}
-	return m.UpdateFn(ctx, p)
-}
-
-// --- mockBusinessHoursExceptionRepo ---
-
-type mockBusinessHoursExceptionRepo struct {
-	GetFn    func(ctx context.Context, date time.Time) (*entity.BusinessHoursException, error)
-	CreateFn func(ctx context.Context, e *entity.BusinessHoursException) error
-	ListFn   func(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error)
-	DeleteFn func(ctx context.Context, id int) error
-}
-
-func (m *mockBusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*entity.BusinessHoursException, error) {
-	if m.GetFn == nil {
-		panic("mockBusinessHoursExceptionRepo.GetFn not set")
-	}
-	return m.GetFn(ctx, date)
-}
-
-func (m *mockBusinessHoursExceptionRepo) Create(ctx context.Context, e *entity.BusinessHoursException) error {
-	if m.CreateFn == nil {
-		panic("mockBusinessHoursExceptionRepo.CreateFn not set")
-	}
-	return m.CreateFn(ctx, e)
-}
-
-func (m *mockBusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
-	if m.ListFn == nil {
-		panic("mockBusinessHoursExceptionRepo.ListFn not set")
-	}
-	return m.ListFn(ctx, from, to)
-}
-
-func (m *mockBusinessHoursExceptionRepo) Delete(ctx context.Context, id int) error {
-	if m.DeleteFn == nil {
-		panic("mockBusinessHoursExceptionRepo.DeleteFn not set")
-	}
-	return m.DeleteFn(ctx, id)
-}
-
-// --- mockSchedulesRepo ---
-
-type mockSchedulesRepo struct {
-	FindByProfessionalAndDayFn func(ctx context.Context, professionalID string, day int) (*entity.Schedule, error)
-	UpsertFn                   func(ctx context.Context, s *entity.Schedule) error
-	DeleteFn                   func(ctx context.Context, professionalID string, day int) error
-}
-
-func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, professionalID string, day int) (*entity.Schedule, error) {
-	if m.FindByProfessionalAndDayFn == nil {
-		panic("mockSchedulesRepo.FindByProfessionalAndDayFn not set")
-	}
-	return m.FindByProfessionalAndDayFn(ctx, professionalID, day)
-}
-
-func (m *mockSchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) error {
-	if m.UpsertFn == nil {
-		panic("mockSchedulesRepo.UpsertFn not set")
-	}
-	return m.UpsertFn(ctx, s)
-}
-
-func (m *mockSchedulesRepo) Delete(ctx context.Context, professionalID string, day int) error {
-	if m.DeleteFn == nil {
-		panic("mockSchedulesRepo.DeleteFn not set")
-	}
-	return m.DeleteFn(ctx, professionalID, day)
+	return m.CheckAvailabilityFn(ctx, params, deps)
 }
 
 // --- Test helpers ---

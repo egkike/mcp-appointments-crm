@@ -192,7 +192,7 @@ func TestCheckAvailability(t *testing.T) {
 			return &entity.Service{ID: "svc-1", Name: "Corte", DurationMinutes: 60, Active: false}, nil
 		}}
 		_, err := svc.CheckAvailability(context.Background(), paramsAt("10:00", loc), deps)
-		assertSemanticError(t, err, domain.ErrCodeServiceNotActive, "el servicio Corte no está activo")
+		assertSemanticError(t, err, domain.ErrCodeServiceNotActive, "Servicio Corte no está activo")
 	})
 	t.Run("professional_inactive", func(t *testing.T) {
 		deps, loc := defaultDeps(t)
@@ -200,7 +200,7 @@ func TestCheckAvailability(t *testing.T) {
 			return &entity.Professional{ID: "pro-1", Name: "Juan", Status: "inactive"}, nil
 		}}
 		_, err := svc.CheckAvailability(context.Background(), paramsAt("10:00", loc), deps)
-		assertSemanticError(t, err, domain.ErrCodeProfessionalNotActive, "el profesional Juan no está activo")
+		assertSemanticError(t, err, domain.ErrCodeProfessionalNotActive, "Profesional Juan no está activo")
 	})
 }
 
