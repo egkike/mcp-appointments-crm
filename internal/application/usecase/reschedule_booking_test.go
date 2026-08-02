@@ -183,6 +183,35 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 		}
 	})
 
+	t.Run("zero NewStartTime returns ErrCodeInvalidInput", func(t *testing.T) {
+		booking := pendingBooking()
+		bookRepo := &mockBookingsRepo{
+			FindByIDFn: func(_ context.Context, _ string) (*entity.Booking, error) {
+				return booking, nil
+			},
+		}
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{})
+
+		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
+			Caller:         adminCaller(),
+			BookingID:      "b1",
+			NewStartTime:   time.Time{}, // zero value
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sem *domain.SemanticError
+		if !errors.As(err, &sem) {
+			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
+		}
+		if sem.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeInvalidInput)
+		}
+		if !strings.Contains(sem.Message, "nueva fecha") {
+			t.Errorf("expected message to mention 'nueva fecha'; got %q", sem.Message)
+		}
+	})
+
 	t.Run("service not found", func(t *testing.T) {
 		booking := pendingBooking()
 		bookRepo := &mockBookingsRepo{

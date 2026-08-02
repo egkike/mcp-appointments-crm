@@ -41,6 +41,9 @@ func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.Resch
 	if !booking.CanReschedule() {
 		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: fmt.Sprintf("La reserva en estado %q no puede ser reprogramada", booking.Status)}
 	}
+	if input.NewStartTime.IsZero() {
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "La nueva fecha y hora de inicio es requerida"}
+	}
 
 	svc, err := uc.services.FindByID(ctx, booking.ServiceID)
 	if err != nil {
@@ -60,5 +63,10 @@ func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.Resch
 		}
 		return nil, fmt.Errorf("reprogramar reserva: %w", err)
 	}
+	// Status preserved: RescheduleBookingUseCase.Execute only changes the
+	// start_datetime of an existing booking; it does NOT change the
+	// booking's status (pending/confirmed/cancelled stays as-is). The
+	// returned Status field therefore reflects the post-reschedule state,
+	// which equals the pre-reschedule state by design.
 	return &dto.RescheduleBookingResult{BookingID: input.BookingID, Status: string(booking.Status)}, nil
 }

@@ -5,7 +5,6 @@ package usecase
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
+	"github.com/egkike/mcp-appointments-crm/internal/idgen"
 )
 
 // CreateBookingUseCase creates a new booking after authorization.
@@ -70,8 +70,12 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 		return nil, &domain.SemanticError{Code: domain.ErrCodeServiceNotActive, Message: fmt.Sprintf("Servicio %s no está activo", svc.Name)}
 	}
 
+	bookingID, err := idgen.New()
+	if err != nil {
+		return nil, fmt.Errorf("crear reserva: generar ID: %w", err)
+	}
 	booking := &entity.Booking{
-		ID:             generateID(),
+		ID:             bookingID,
 		ClientID:       input.ClientID,
 		ProfessionalID: input.ProfessionalID,
 		ServiceID:      input.ServiceID,
@@ -88,13 +92,4 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 		return nil, fmt.Errorf("crear reserva: %w", err)
 	}
 	return &dto.CreateBookingResult{BookingID: booking.ID}, nil
-}
-
-// generateID produces a UUID v4 string using crypto/rand.
-func generateID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
