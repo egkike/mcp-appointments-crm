@@ -126,7 +126,7 @@ func (r *BookingsRepo) CreateBooking(ctx context.Context, input *CreateBookingIn
 	if rowsAffected == 0 {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeBookingOverlap,
-			Message: fmt.Sprintf("el Profesional %s ya tiene una reserva en ese horario.", input.ProfessionalID),
+			Message: fmt.Sprintf("Profesional %s ya tiene una reserva en ese horario.", input.ProfessionalID),
 		}
 	}
 
@@ -271,7 +271,7 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 	if currentStatus == model.BookingStatusCancelled {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
-			Message: "no se puede reprogramar una reserva cancelada.",
+			Message: "No se puede reprogramar una reserva cancelada.",
 		}
 	}
 
@@ -343,13 +343,13 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 		if recheckStatus == model.BookingStatusCancelled {
 			return &domain.SemanticError{
 				Code:    domain.ErrCodeInvalidInput,
-				Message: "no se puede reprogramar una reserva cancelada",
+				Message: "No se puede reprogramar una reserva cancelada",
 			}
 		}
 		// status is pending or confirmed, so rowsAffected==0 means overlap
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeBookingOverlap,
-			Message: fmt.Sprintf("el Profesional %s ya tiene una reserva en ese horario.", professionalID),
+			Message: fmt.Sprintf("Profesional %s ya tiene una reserva en ese horario.", professionalID),
 		}
 	}
 
@@ -464,7 +464,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 			return nil, fmt.Errorf("check_availability: %w",
 				&domain.SemanticError{
 					Code:    domain.ErrCodeBusinessClosed,
-					Message: fmt.Sprintf("el negocio está cerrado el %s (%s).", dateStr, reason),
+					Message: fmt.Sprintf("Negocio está cerrado el %s (%s).", dateStr, reason),
 				})
 		}
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -494,7 +494,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 			return nil, fmt.Errorf("check_availability: %w",
 				&domain.SemanticError{
 					Code:    domain.ErrCodeBusinessClosed,
-					Message: fmt.Sprintf("el negocio no abre los %s.", spanishDays[dayOfWeek]),
+					Message: fmt.Sprintf("Negocio no abre los %s.", spanishDays[dayOfWeek]),
 				})
 		}
 		businessOpenHHMM = bizOpenSQL.String
@@ -513,7 +513,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 			return nil, fmt.Errorf("check_availability: %w",
 				&domain.SemanticError{
 					Code:    domain.ErrCodeProfessionalNotWorking,
-					Message: fmt.Sprintf("el Profesional %s no trabaja los %s.", professionalName, spanishDays[dayOfWeek]),
+					Message: fmt.Sprintf("Profesional %s no trabaja los %s.", professionalName, spanishDays[dayOfWeek]),
 				})
 		}
 		return nil, fmt.Errorf("check_availability: consultar horario del profesional: %w", err)
@@ -547,7 +547,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 		return nil, fmt.Errorf("check_availability: %w",
 			&domain.SemanticError{
 				Code:    domain.ErrCodeSlotOutOfHours,
-				Message: fmt.Sprintf("el servicio dura %d minutos pero solo quedan %d antes del cierre a las %s.", durationMinutes, remaining, effectiveCloseHHMM),
+				Message: fmt.Sprintf("Servicio dura %d minutos pero solo quedan %d antes del cierre a las %s.", durationMinutes, remaining, effectiveCloseHHMM),
 			})
 	}
 
@@ -556,7 +556,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 		return nil, fmt.Errorf("check_availability: %w",
 			&domain.SemanticError{
 				Code:    domain.ErrCodeSlotOutOfHours,
-				Message: fmt.Sprintf("el horario de atención comienza a las %s.", businessOpenHHMM),
+				Message: fmt.Sprintf("Horario de atención comienza a las %s.", businessOpenHHMM),
 			})
 	}
 
@@ -565,7 +565,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 		return nil, fmt.Errorf("check_availability: %w",
 			&domain.SemanticError{
 				Code:    domain.ErrCodeSlotOutOfHours,
-				Message: fmt.Sprintf("el Profesional %s empieza a las %s.", professionalName, proStartHHMM),
+				Message: fmt.Sprintf("Profesional %s empieza a las %s.", professionalName, proStartHHMM),
 			})
 	}
 
@@ -583,7 +583,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 		return nil, fmt.Errorf("check_availability: %w",
 			&domain.SemanticError{
 				Code:    domain.ErrCodeBookingOverlap,
-				Message: fmt.Sprintf("el Profesional %s ya tiene una reserva de %s a %s.", professionalName, existingStart, existingEnd),
+				Message: fmt.Sprintf("Profesional %s ya tiene una reserva de %s a %s.", professionalName, existingStart, existingEnd),
 			})
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("check_availability: consultar overlap: %w", err)
@@ -595,7 +595,7 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 		return nil, fmt.Errorf("check_availability: %w",
 			&domain.SemanticError{
 				Code:    domain.ErrCodeSlotInPast,
-				Message: "no se puede reservar en el pasado.",
+				Message: "No se puede reservar en el pasado.",
 			})
 	}
 

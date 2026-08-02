@@ -64,7 +64,7 @@ func (r *SchedulesRepo) GetByProfessionalAndDay(ctx context.Context, professiona
 		if caller.ProfessionalID == nil {
 			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeUnauthenticated,
-				Message: "el profesional no tiene ID asignado",
+				Message: "Profesional no tiene ID asignado",
 				Cause:   domain.ErrUnauthenticated,
 			}
 		}

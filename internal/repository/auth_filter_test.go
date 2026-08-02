@@ -49,8 +49,8 @@ func TestApplyAuthFilter(t *testing.T) {
 		if semErr.Code != domain.ErrCodeUnauthenticated {
 			t.Errorf("code = %q; want %q", semErr.Code, domain.ErrCodeUnauthenticated)
 		}
-		if !strings.Contains(semErr.Message, "cliente no tiene ID") {
-			t.Errorf("message = %q; want contains 'cliente no tiene ID'", semErr.Message)
+		if !strings.Contains(semErr.Message, "Cliente no tiene ID") {
+			t.Errorf("message = %q; want contains 'Cliente no tiene ID'", semErr.Message)
 		}
 	})
 
