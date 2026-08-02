@@ -126,8 +126,8 @@ func TestCreateBookingUseCase(t *testing.T) {
 		if !errors.As(err, &sem) {
 			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
 		}
-		if sem.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeUnauthenticated)
+		if sem.Code != domain.ErrCodeForbidden {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeForbidden)
 		}
 		if !strings.Contains(sem.Message, "Cliente solo puede crear reservas para") {
 			t.Errorf("expected Spanish message; got %q", sem.Message)
@@ -150,8 +150,8 @@ func TestCreateBookingUseCase(t *testing.T) {
 		if !errors.As(err, &sem) {
 			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
 		}
-		if sem.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeUnauthenticated)
+		if sem.Code != domain.ErrCodeForbidden {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeForbidden)
 		}
 		if !strings.Contains(sem.Message, "Personal solo puede crear reservas para su profesional asignado") {
 			t.Errorf("expected Spanish message; got %q", sem.Message)

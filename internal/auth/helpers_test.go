@@ -68,14 +68,14 @@ func TestRequireRole(t *testing.T) {
 			caller:   &Caller{ID: "c-1", Role: RoleClient},
 			allowed:  []string{RoleAdmin, RoleOwner},
 			wantErr:  true,
-			wantCode: domain.ErrCodeUnauthenticated,
+			wantCode: domain.ErrCodeForbidden,
 		},
 		{
 			name:     "staff rejected when only admin/owner allowed",
 			caller:   &Caller{ID: "s-1", Role: RoleStaff},
 			allowed:  []string{RoleAdmin, RoleOwner},
 			wantErr:  true,
-			wantCode: domain.ErrCodeUnauthenticated,
+			wantCode: domain.ErrCodeForbidden,
 		},
 		{
 			name:    "staff allowed when staff is in set",
@@ -135,6 +135,7 @@ func TestRequireClientMatch(t *testing.T) {
 		inputClient string
 		inputProf   string
 		wantErr     bool
+		wantCode    domain.ErrCode
 	}{
 		{
 			name: "client match passes",
@@ -157,6 +158,7 @@ func TestRequireClientMatch(t *testing.T) {
 			inputClient: clientID,
 			inputProf:   profID,
 			wantErr:     true,
+			wantCode:    domain.ErrCodeForbidden,
 		},
 		{
 			name: "admin bypass — any client ID passes",
@@ -199,6 +201,7 @@ func TestRequireClientMatch(t *testing.T) {
 			inputClient: clientID,
 			inputProf:   profID,
 			wantErr:     true,
+			wantCode:    domain.ErrCodeForbidden,
 		},
 		{
 			name: "staff with nil ProfessionalID fails",
@@ -210,6 +213,7 @@ func TestRequireClientMatch(t *testing.T) {
 			inputClient: clientID,
 			inputProf:   profID,
 			wantErr:     true,
+			wantCode:    domain.ErrCodeForbidden,
 		},
 		{
 			name:        "no caller returns ErrCodeUnauthenticated",
@@ -217,6 +221,7 @@ func TestRequireClientMatch(t *testing.T) {
 			inputClient: clientID,
 			inputProf:   profID,
 			wantErr:     true,
+			wantCode:    domain.ErrCodeUnauthenticated,
 		},
 		{
 			name: "client with nil ClientID fails",
@@ -228,6 +233,7 @@ func TestRequireClientMatch(t *testing.T) {
 			inputClient: clientID,
 			inputProf:   profID,
 			wantErr:     true,
+			wantCode:    domain.ErrCodeForbidden,
 		},
 	}
 
@@ -247,8 +253,8 @@ func TestRequireClientMatch(t *testing.T) {
 				if !errors.As(err, &sErr) {
 					t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 				}
-				if sErr.Code != domain.ErrCodeUnauthenticated {
-					t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+				if sErr.Code != tt.wantCode {
+					t.Errorf("got Code=%q, want %q", sErr.Code, tt.wantCode)
 				}
 				return
 			}

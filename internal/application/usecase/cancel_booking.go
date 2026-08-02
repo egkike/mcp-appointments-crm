@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
@@ -24,7 +25,7 @@ func NewCancelBookingUseCase(bookings repository.BookingsRepo) *CancelBookingUse
 // Execute cancels the identified booking. Caller must be authenticated and
 // authorized (client owns, staff linked professional, admin/owner any).
 func (uc *CancelBookingUseCase) Execute(ctx context.Context, input dto.CancelBookingInput) (*dto.CancelBookingResult, error) {
-	if err := requireAuthenticated(input.Caller); err != nil {
+	if err := auth.RequireAuthenticated(input.Caller); err != nil {
 		return nil, err
 	}
 	booking, err := uc.bookings.FindByID(ctx, input.BookingID)
@@ -34,7 +35,7 @@ func (uc *CancelBookingUseCase) Execute(ctx context.Context, input dto.CancelBoo
 		}
 		return nil, fmt.Errorf("cancelar reserva: consultar: %w", err)
 	}
-	if err := authorizeBookingAccess(input.Caller, booking); err != nil {
+	if err := auth.AuthorizeBookingAccess(input.Caller, booking); err != nil {
 		return nil, err
 	}
 	if !booking.CanCancel() {

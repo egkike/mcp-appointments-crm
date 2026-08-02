@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
@@ -24,7 +25,7 @@ func NewRescheduleBookingUseCase(bookings repository.BookingsRepo, services repo
 // Execute reschedules the identified booking. End time is recomputed from
 // service duration. Auth: same cross-tenant rules as cancel.
 func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.RescheduleBookingInput) (*dto.RescheduleBookingResult, error) {
-	if err := requireAuthenticated(input.Caller); err != nil {
+	if err := auth.RequireAuthenticated(input.Caller); err != nil {
 		return nil, err
 	}
 	booking, err := uc.bookings.FindByID(ctx, input.BookingID)
@@ -34,7 +35,7 @@ func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.Resch
 		}
 		return nil, fmt.Errorf("reprogramar reserva: consultar: %w", err)
 	}
-	if err := authorizeBookingAccess(input.Caller, booking); err != nil {
+	if err := auth.AuthorizeBookingAccess(input.Caller, booking); err != nil {
 		return nil, err
 	}
 	if !booking.CanReschedule() {

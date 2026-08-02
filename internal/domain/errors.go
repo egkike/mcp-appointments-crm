@@ -23,10 +23,16 @@ const (
 	ErrCodeConflict               ErrCode = "CONFLICT"
 	ErrCodeInvalidInput           ErrCode = "INVALID_INPUT"
 	ErrCodeInternal               ErrCode = "INTERNAL"
-	// ErrCodeUnauthenticated covers both missing authentication (401) and
+	ErrCodeForbidden              ErrCode = "FORBIDDEN"
+	// ErrCodeUnauthenticated covers BOTH missing authentication (401) and
 	// insufficient authorization (403-ish). The preferred approach is
 	// dynamic-WHERE authorization: the query itself filters by caller scope,
 	// so cross-tenant and non-existent rows both return ErrNotFound.
+	//
+	// For cases where the caller IS authenticated but lacks the role or
+	// scope to perform the requested action, use ErrCodeForbidden instead.
+	// This lets the upstream LLM distinguish "not logged in" from "logged
+	// in but not authorized".
 	ErrCodeUnauthenticated ErrCode = "UNAUTHENTICATED"
 )
 
@@ -46,6 +52,11 @@ var (
 	// and auth/resolver.go ("unauthenticated"). The canonical message is
 	// "caller not authenticated".
 	ErrUnauthenticated = errors.New("caller not authenticated")
+
+	// ErrForbidden is the canonical sentinel for authorization failures
+	// (caller is authenticated but lacks the role or scope to perform the
+	// action). Use ErrCodeForbidden with this sentinel.
+	ErrForbidden = errors.New("forbidden")
 )
 
 // SemanticError represents a business-domain error with a machine-readable
