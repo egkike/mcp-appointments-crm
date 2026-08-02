@@ -24,8 +24,8 @@ func TestSemanticError_Unwrap(t *testing.T) {
 		Message: "error interno",
 		Cause:   cause,
 	}
-	if got := e.Unwrap(); got != cause {
-		t.Errorf("Unwrap() = %v, want %v", got, cause)
+	if !errors.Is(e.Unwrap(), cause) {
+		t.Errorf("Unwrap() = %v, want %v", e.Unwrap(), cause)
 	}
 
 	// errors.Is should traverse the cause chain
