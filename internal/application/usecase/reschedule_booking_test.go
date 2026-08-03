@@ -193,9 +193,9 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{})
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
-			Caller:         adminCaller(),
-			BookingID:      "b1",
-			NewStartTime:   time.Time{}, // zero value
+			Caller:       adminCaller(),
+			BookingID:    "b1",
+			NewStartTime: time.Time{}, // zero value
 		})
 		if err == nil {
 			t.Fatal("expected error, got nil")
