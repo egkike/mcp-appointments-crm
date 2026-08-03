@@ -160,7 +160,8 @@ Each repo must add interface conformance and rename methods to match domain inte
 
 ### P3.3 — Move business logic out of repos
 
-- [ ] P3.3a — Remove `CheckAvailability` from BookingsRepo (delegate to `domain/service/availability.go`)
+- [x] P3.3a — Remove `CheckAvailability` from BookingsRepo (delegate to `domain/service/availability.go`)
+  > Deleted zombie duplicate: `BookingsRepo.CheckAvailability` method (244 LOC), `CheckAvailabilityParams`/`CheckAvailabilityResult` structs, `hhmmToMinutes` helper, and `TestBookingsRepo_CheckAvailability` (3 subtests). Method had 0 production callers and was not part of `domain.BookingsRepo` interface contract (P3.2). Domain service `AvailabilityService.CheckAvailability` is the SINGLE source of truth. Removed unused `strconv`/`strings` imports from bookings.go and `strings` from bookings_test.go. Pre-flight clean: go fmt/vet/build/lint/test -race all pass.
 - [ ] P3.3b — Move entity creation validation (status FSM, duration check, overlap detection) to domain entity methods (`Booking.CanTransitionTo`, `Booking.IsOverlapping`, `Booking.ValidDuration`)
 - [ ] P3.3c — Move cross-entity validators to domain service or entity:
   - `validateService(serviceID)` → `entity.Service.IsActive()` + domain service
