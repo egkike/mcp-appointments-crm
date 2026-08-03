@@ -139,7 +139,8 @@ For each domain aggregate, create `internal/domain/repository/{name}.go`:
 
 Each repo must add interface conformance and rename methods to match domain interface. For each repo with renamed methods, update the corresponding `*_test.go` file to call the new names:
 
-- [ ] P3.2a — `BookingsRepo`: implement `domain.BookingRepository`, rename methods (GetBooking→FindByID, CreateBooking→Create, CancelBooking→Cancel, RescheduleBooking→Reschedule, etc.), update `bookings_test.go`
+- [x] P3.2a — `BookingsRepo`: implement `domain.BookingRepository`, rename methods (GetBooking→FindByID, CreateBooking→Create, CancelBooking→Cancel, RescheduleBooking→Reschedule, etc.), update `bookings_test.go`
+  > Actual impl: 10 methods implemented (4 with signature changes to entity.Booking/time.Time, 6 new from scratch: Update, FindOverlapping, FindByStaffAndRange, ListBookingsForRange, SearchByNotes, UpdateStatus). Compile-time assertion `var _ domainrepo.BookingsRepo = (*BookingsRepo)(nil)` added. time.Time conversion at SQL boundary via FormatStorage/parseStorageTime helpers and scanBooking utility. bookings_test.go rewritten for new signatures plus 6 new method tests. CheckAvailability preserved per P3.3a. Pre-flight clean: go fmt/vet/build/lint/test -race all pass.
 - [ ] P3.2b — `ClientsRepo`: implement `domain.ClientRepository`, rename methods (GetOrCreate→upsert semantics in domain interface), update `clients_test.go`
 - [ ] P3.2c — `ProfessionalsRepo`: implement `domain.ProfessionalRepository`, update `professionals_test.go`
 - [ ] P3.2d — `ServicesRepo`: implement `domain.ServiceRepository`, update `services_test.go`

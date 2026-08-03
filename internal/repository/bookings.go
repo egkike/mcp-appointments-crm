@@ -11,12 +11,16 @@ import (
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
+
+// Compile-time interface conformance check.
+var _ domainrepo.BookingsRepo = (*BookingsRepo)(nil)
 
 // BookingsRepo provides CRUD operations for the bookings table and the
 // 5-step CheckAvailability validation chain.
-// CreateBooking uses an atomic INSERT ... WHERE NOT EXISTS overlap check
+// Create uses an atomic INSERT ... WHERE NOT EXISTS overlap check
 // (per design Decisión 11). CheckAvailability is the non-authoritative preview.
 type BookingsRepo struct {
 	db *sql.DB
@@ -27,139 +31,105 @@ func NewBookingsRepo(db *sql.DB) *BookingsRepo {
 	return &BookingsRepo{db: db}
 }
 
-// CreateBookingInput holds the input parameters for CreateBooking.
-type CreateBookingInput struct {
-	ClientID       string
-	ProfessionalID string
-	ServiceID      string
-	StartDatetime  string // RFC3339 format (e.g., "2026-07-13T13:00:00-03:00" or "2026-07-13T13:00:00.000Z")
-	Notes          *string
-	PaymentMethod  *string
+// parseStorageTime parses a storage-format datetime string back to time.Time (UTC).
+func parseStorageTime(s string) (time.Time, error) {
+	t, err := time.Parse(storageTimeLayout, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse storage datetime %q: %w", s, err)
+	}
+	return t, nil
 }
 
-// CreateBookingResult holds the result of CreateBooking.
-type CreateBookingResult struct {
-	Booking *model.Booking
+// scanBooking scans a full booking row into an entity.Booking.
+// The caller must provide columns in the canonical order:
+// id, client_id, professional_id, service_id, start_datetime, end_datetime,
+// status, notes, payment_method, created_at, updated_at.
+func scanBooking(scan func(dest ...any) error) (*entity.Booking, error) {
+	var b entity.Booking
+	var startStr, endStr, createdAtStr, updatedAtStr string
+	if err := scan(
+		&b.ID, &b.ClientID, &b.ProfessionalID, &b.ServiceID,
+		&startStr, &endStr, (*string)(&b.Status), &b.Notes, &b.PaymentMethod,
+		&createdAtStr, &updatedAtStr,
+	); err != nil {
+		return nil, err
+	}
+	var err error
+	if b.StartDatetime, err = parseStorageTime(startStr); err != nil {
+		return nil, fmt.Errorf("scan start_datetime: %w", err)
+	}
+	if b.EndDatetime, err = parseStorageTime(endStr); err != nil {
+		return nil, fmt.Errorf("scan end_datetime: %w", err)
+	}
+	if b.CreatedAt, err = parseStorageTime(createdAtStr); err != nil {
+		return nil, fmt.Errorf("scan created_at: %w", err)
+	}
+	if b.UpdatedAt, err = parseStorageTime(updatedAtStr); err != nil {
+		return nil, fmt.Errorf("scan updated_at: %w", err)
+	}
+	return &b, nil
 }
 
-// CreateBooking creates a new booking with an atomic overlap check.
+// bookingColumns is the canonical SELECT column list for booking queries.
+const bookingColumns = `id, client_id, professional_id, service_id, start_datetime, end_datetime, status, notes, payment_method, created_at, updated_at`
+
+// ─── Domain interface methods ────────────────────────────────────────────────
+
+// Create persists a new booking with an atomic overlap check.
 //
-// BYPASS ASSUMPTION (per design Decisión 11 + S1): This method does NOT run
-// the full check_availability validations (3a business hours, 3b professional
-// schedule, 3c slot within hours, 3e not in past). It ONLY runs the atomic
-// 3d overlap check via INSERT ... WHERE NOT EXISTS. The caller (MCP handler)
-// is expected to call CheckAvailability first for a non-authoritative preview.
+// The caller (use case) is responsible for:
+//   - Generating the booking ID
+//   - Computing EndDatetime from service duration
+//   - Setting Status to entity.BookingStatusPending
+//   - Authorization (RequireClientMatch / role checks)
 //
-// The method:
-// 1. Queries services.duration_minutes to compute end_datetime
-// 2. Parses start_datetime to time.Time (UTC)
-// 3. Computes end_datetime = start + duration
-// 4. Executes atomic INSERT ... WHERE NOT EXISTS (overlap subquery)
-// 5. If RowsAffected() == 0, returns domain.SemanticError{Code: domain.ErrCodeBookingOverlap}
-//
-// Returns domain.ErrNotFound if the service does not exist.
-// Returns domain.ErrInvalidInput if start_datetime is empty or malformed.
-// Returns *domain.SemanticError{Code: domain.ErrCodeBookingOverlap} if the slot overlaps.
-func (r *BookingsRepo) CreateBooking(ctx context.Context, input *CreateBookingInput) (*CreateBookingResult, error) {
-	if strings.TrimSpace(input.StartDatetime) == "" {
-		return nil, fmt.Errorf("crear reserva: start_datetime no puede estar vacío: %w", domain.ErrInvalidInput)
-	}
+// The method executes an atomic INSERT ... WHERE NOT EXISTS (overlap subquery).
+// If RowsAffected() == 0, returns an error wrapping domain.ErrConflict.
+func (r *BookingsRepo) Create(ctx context.Context, b *entity.Booking) error {
+	startStr := FormatStorage(b.StartDatetime)
+	endStr := FormatStorage(b.EndDatetime)
 
-	// Auth: client can only create for themselves; staff must match their professional; admin/owner can create for any client
-	if err := auth.RequireClientMatch(ctx, input.ClientID, input.ProfessionalID); err != nil {
-		return nil, fmt.Errorf("crear reserva: %w", err)
-	}
-
-	// Query service duration
-	var durationMinutes int
-	err := r.db.QueryRowContext(ctx,
-		`SELECT duration_minutes FROM services WHERE id = ?`, input.ServiceID,
-	).Scan(&durationMinutes)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("crear reserva: el servicio %s no existe: %w", input.ServiceID, domain.ErrNotFound)
-		}
-		return nil, fmt.Errorf("crear reserva: consultar servicio: %w", err)
-	}
-
-	// Parse start_datetime to time.Time (UTC)
-	startTime, err := ParseStartDatetime(input.StartDatetime, time.UTC)
-	if err != nil {
-		return nil, fmt.Errorf("crear reserva: %w", err)
-	}
-	startUTC := startTime.UTC()
-	endUTC := startUTC.Add(time.Duration(durationMinutes) * time.Minute)
-
-	// Format for storage
-	startStr := FormatStorage(startUTC)
-	endStr := FormatStorage(endUTC)
-
-	// Generate UUID for booking ID
-	bookingID := model.NewUUID()
-
-	// Atomic INSERT with overlap check
-	// strftime format must match storageTimeLayout in datetime.go.
 	result, err := r.db.ExecContext(ctx,
 		`INSERT INTO bookings (id, client_id, professional_id, service_id, start_datetime, end_datetime, status, notes, payment_method, created_at, updated_at)
-		 SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		 WHERE NOT EXISTS (
 		     SELECT 1 FROM bookings
 		     WHERE professional_id = ? AND status != 'cancelled'
 		       AND start_datetime < ? AND end_datetime > ?
 		 )`,
-		bookingID, input.ClientID, input.ProfessionalID, input.ServiceID,
-		startStr, endStr, input.Notes, input.PaymentMethod,
-		// Note: WHERE placeholders read start_datetime < ? AND end_datetime > ? but
-		// args are (endStr, startStr) — positional binding means the first ? takes
-		// the first arg after the value-args, etc. Order matches the SQL.
-		input.ProfessionalID, endStr, startStr,
+		b.ID, b.ClientID, b.ProfessionalID, b.ServiceID,
+		startStr, endStr, string(b.Status), b.Notes, b.PaymentMethod,
+		b.ProfessionalID, endStr, startStr,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("crear reserva: %w", err)
+		return fmt.Errorf("crear reserva: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return nil, fmt.Errorf("crear reserva: filas afectadas: %w", err)
+		return fmt.Errorf("crear reserva: filas afectadas: %w", err)
 	}
 
 	if rowsAffected == 0 {
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeBookingOverlap,
-			Message: fmt.Sprintf("Profesional %s ya tiene una reserva en ese horario.", input.ProfessionalID),
-		}
+		return fmt.Errorf("crear reserva: overlap: %w", domain.ErrConflict)
 	}
 
-	// Build result
-	booking := &model.Booking{
-		ID:             bookingID,
-		ClientID:       input.ClientID,
-		ProfessionalID: input.ProfessionalID,
-		ServiceID:      input.ServiceID,
-		StartDatetime:  startStr,
-		EndDatetime:    endStr,
-		Status:         model.BookingStatusPending,
-		Notes:          input.Notes,
-		PaymentMethod:  input.PaymentMethod,
-	}
-
-	return &CreateBookingResult{Booking: booking}, nil
+	return nil
 }
 
-// GetBooking returns a booking by ID. Returns domain.ErrNotFound if not found or if
+// FindByID returns a booking by ID. Returns domain.ErrNotFound if not found or if
 // the caller does not have access (unified — no existence oracle).
 // Auth: dynamic WHERE filters by caller scope (per design.md §500).
 //   - client: WHERE id = ? AND client_id = ?
 //   - staff: WHERE id = ? AND professional_id = ?
 //   - admin/owner: WHERE id = ?
-func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Booking, error) {
+func (r *BookingsRepo) FindByID(ctx context.Context, id string) (*entity.Booking, error) {
 	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("obtener reserva %s: %w", id, err)
 	}
 
-	query := `SELECT id, client_id, professional_id, service_id, start_datetime, end_datetime, status, notes, payment_method, created_at, updated_at
-		 FROM bookings WHERE id = ?`
+	query := `SELECT ` + bookingColumns + ` FROM bookings WHERE id = ?`
 	args := []any{id}
 
 	query, args, err = applyAuthFilter(caller, query, args)
@@ -167,11 +137,8 @@ func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Bookin
 		return nil, err
 	}
 
-	b := &model.Booking{}
-	err = r.db.QueryRowContext(ctx, query, args...).Scan(
-		&b.ID, &b.ClientID, &b.ProfessionalID, &b.ServiceID,
-		&b.StartDatetime, &b.EndDatetime, &b.Status, &b.Notes, &b.PaymentMethod,
-		&b.CreatedAt, &b.UpdatedAt)
+	row := r.db.QueryRowContext(ctx, query, args...)
+	b, err := scanBooking(row.Scan)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("obtener reserva %s: %w", id, domain.ErrNotFound)
@@ -182,20 +149,51 @@ func (r *BookingsRepo) GetBooking(ctx context.Context, id string) (*model.Bookin
 	return b, nil
 }
 
-// CancelBooking transitions a booking to "cancelled" status.
+// Update replaces the booking record. The booking must already exist.
+// Auth filter applies: client/staff callers can only update their own bookings.
+// Returns domain.ErrNotFound if no rows are affected.
+func (r *BookingsRepo) Update(ctx context.Context, b *entity.Booking) error {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return fmt.Errorf("actualizar reserva %s: %w", b.ID, err)
+	}
+
+	startStr := FormatStorage(b.StartDatetime)
+	endStr := FormatStorage(b.EndDatetime)
+
+	query := `UPDATE bookings SET client_id=?, professional_id=?, service_id=?, start_datetime=?, end_datetime=?, status=?, notes=?, payment_method=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id=?`
+	args := []any{b.ClientID, b.ProfessionalID, b.ServiceID, startStr, endStr, string(b.Status), b.Notes, b.PaymentMethod, b.ID}
+
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return fmt.Errorf("actualizar reserva %s: %w", b.ID, err)
+	}
+
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("actualizar reserva %s: %w", b.ID, err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("actualizar reserva %s: filas afectadas: %w", b.ID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("actualizar reserva %s: %w", b.ID, domain.ErrNotFound)
+	}
+	return nil
+}
+
+// Cancel transitions a booking to "cancelled" status.
 // Allowed transitions: pending→cancelled, confirmed→cancelled.
 // Returns *domain.SemanticError{Code: domain.ErrCodeInvalidInput} for cancelled→cancelled.
-// Returns domain.ErrNotFound if the booking does not exist.
-// Auth: client callers can only cancel their own bookings; staff callers can
-// only cancel bookings for their professional; admin/owner see all.
-func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
+// Returns domain.ErrNotFound if the booking does not exist or caller lacks access.
+func (r *BookingsRepo) Cancel(ctx context.Context, id string) error {
 	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return fmt.Errorf("cancelar reserva %s: %w", id, err)
 	}
 
-	// Dynamic WHERE: auth filter in query itself (same pattern as GetBooking).
-	// Cross-tenant and non-existent rows both return domain.ErrNotFound (no oracle).
 	query := `SELECT status FROM bookings WHERE id = ?`
 	args := []any{id}
 
@@ -204,8 +202,8 @@ func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
 		return err
 	}
 
-	var currentStatus model.BookingStatus
-	err = r.db.QueryRowContext(ctx, query, args...).Scan(&currentStatus)
+	var currentStatus entity.BookingStatus
+	err = r.db.QueryRowContext(ctx, query, args...).Scan((*string)(&currentStatus))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("cancelar reserva %s: %w", id, domain.ErrNotFound)
@@ -213,43 +211,41 @@ func (r *BookingsRepo) CancelBooking(ctx context.Context, id string) error {
 		return fmt.Errorf("cancelar reserva %s: consultar estado: %w", id, err)
 	}
 
-	// Validate FSM transition
-	if !currentStatus.IsValidTransition(model.BookingStatusCancelled) {
+	// Validate FSM transition: only pending and confirmed can be cancelled.
+	if currentStatus != entity.BookingStatusPending && currentStatus != entity.BookingStatusConfirmed {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: fmt.Sprintf("La transición de %q a 'cancelled' no está permitida.", currentStatus),
 		}
 	}
 
-	// strftime format must match storageTimeLayout in datetime.go.
-	_, err = r.db.ExecContext(ctx,
-		`UPDATE bookings SET status = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
-		id,
-	)
+	// Defense in depth: also apply auth filter to the UPDATE so a race or
+	// schema drift cannot allow a cross-tenant cancel between the SELECT and the UPDATE.
+	updateQuery := `UPDATE bookings SET status = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`
+	updateArgs := []any{id}
+	updateQuery, updateArgs, err = applyAuthFilter(caller, updateQuery, updateArgs)
+	if err != nil {
+		return fmt.Errorf("cancelar reserva %s: %w", id, err)
+	}
+	_, err = r.db.ExecContext(ctx, updateQuery, updateArgs...)
 	if err != nil {
 		return fmt.Errorf("cancelar reserva %s: %w", id, err)
 	}
 	return nil
 }
 
-// RescheduleBooking updates the start_datetime of a booking and recomputes end_datetime.
-// Uses an atomic UPDATE ... WHERE NOT EXISTS overlap guard (same shape as
-// CreateBooking). If RowsAffected() == 0, the new slot overlaps with an
-// existing non-cancelled booking for the same professional.
-// Returns *domain.SemanticError{Code: domain.ErrCodeBookingOverlap} if the new slot overlaps.
-// Returns *domain.SemanticError{Code: domain.ErrCodeInvalidInput} if the booking is cancelled.
-// Returns domain.ErrNotFound if the booking does not exist.
-// Auth: client callers can only reschedule their own bookings; staff callers can
-// only reschedule bookings for their professional; admin/owner see all.
-func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStartDatetime string) error {
+// Reschedule updates the start and end times of an existing booking.
+// Uses an atomic UPDATE ... WHERE NOT EXISTS overlap guard.
+// The caller (use case) computes newEnd from service duration.
+// Returns domain.ErrConflict if the new slot overlaps.
+// Returns domain.ErrNotFound if the booking does not exist or caller lacks access.
+func (r *BookingsRepo) Reschedule(ctx context.Context, id string, newStart, newEnd time.Time) error {
 	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return fmt.Errorf("reprogramar reserva %s: %w", id, err)
 	}
 
-	// Dynamic WHERE: auth filter in query itself (same pattern as GetBooking).
-	// Cross-tenant and non-existent rows both return domain.ErrNotFound (no oracle).
-	query := `SELECT service_id, status, professional_id FROM bookings WHERE id = ?`
+	query := `SELECT status, professional_id FROM bookings WHERE id = ?`
 	args := []any{id}
 
 	query, args, err = applyAuthFilter(caller, query, args)
@@ -257,9 +253,9 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 		return err
 	}
 
-	var serviceID, professionalID string
-	var currentStatus model.BookingStatus
-	err = r.db.QueryRowContext(ctx, query, args...).Scan(&serviceID, &currentStatus, &professionalID)
+	var professionalID string
+	var currentStatus entity.BookingStatus
+	err = r.db.QueryRowContext(ctx, query, args...).Scan((*string)(&currentStatus), &professionalID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("reprogramar reserva %s: %w", id, domain.ErrNotFound)
@@ -267,43 +263,21 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 		return fmt.Errorf("reprogramar reserva %s: consultar: %w", id, err)
 	}
 
-	// Cannot reschedule cancelled bookings
-	if currentStatus == model.BookingStatusCancelled {
+	if currentStatus == entity.BookingStatusCancelled {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: "No se puede reprogramar una reserva cancelada.",
 		}
 	}
 
-	// Query service duration
-	var durationMinutes int
-	err = r.db.QueryRowContext(ctx,
-		`SELECT duration_minutes FROM services WHERE id = ?`, serviceID,
-	).Scan(&durationMinutes)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("reprogramar reserva %s: el servicio %s no existe: %w", id, serviceID, domain.ErrNotFound)
-		}
-		return fmt.Errorf("reprogramar reserva %s: consultar servicio: %w", id, err)
-	}
+	startStr := FormatStorage(newStart)
+	endStr := FormatStorage(newEnd)
 
-	// Parse new start_datetime
-	startTime, err := ParseStartDatetime(newStartDatetime, time.UTC)
-	if err != nil {
-		return fmt.Errorf("reprogramar reserva %s: %w", id, err)
-	}
-	startUTC := startTime.UTC()
-	endUTC := startUTC.Add(time.Duration(durationMinutes) * time.Minute)
-
-	startStr := FormatStorage(startUTC)
-	endStr := FormatStorage(endUTC)
-
-	// Atomic UPDATE with overlap check (same shape as CreateBooking).
-	// The WHERE clause excludes the current booking (id != ?) and checks for
-	// other non-cancelled bookings for the same professional that overlap.
-	// strftime format must match storageTimeLayout in datetime.go.
-	result, err := r.db.ExecContext(ctx,
-		`UPDATE bookings
+	// Defense in depth: apply auth filter to the UPDATE. For client callers, this
+	// scopes the UPDATE to client_id = caller.ClientID. For staff callers, the filter
+	// also requires professional_id = caller.ProfessionalID (which combined with the
+	// arg's professional_id produces a no-op for the caller's own bookings).
+	updateQuery := `UPDATE bookings
 		 SET start_datetime = ?, end_datetime = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		 WHERE id = ?
 		   AND status != 'cancelled'
@@ -314,11 +288,14 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 		       AND status != 'cancelled'
 		       AND start_datetime < ?
 		       AND end_datetime > ?
-		   )`,
-		// Note: WHERE placeholders read start_datetime < ? AND end_datetime > ? but
-		// args are (endStr, startStr) — positional binding matches the SQL order.
-		startStr, endStr, id, id, professionalID, endStr, startStr,
-	)
+		   )`
+	updateArgs := []any{startStr, endStr, id, id, professionalID, endStr, startStr}
+	updateQuery, updateArgs, err = applyAuthFilter(caller, updateQuery, updateArgs)
+	if err != nil {
+		return fmt.Errorf("reprogramar reserva %s: %w", id, err)
+	}
+
+	result, err := r.db.ExecContext(ctx, updateQuery, updateArgs...)
 	if err != nil {
 		return fmt.Errorf("reprogramar reserva %s: %w", id, err)
 	}
@@ -329,32 +306,239 @@ func (r *BookingsRepo) RescheduleBooking(ctx context.Context, id string, newStar
 	}
 
 	if rowsAffected == 0 {
-		// Re-check the booking status to disambiguate overlap vs concurrent cancellation.
-		var recheckStatus model.BookingStatus
-		err := r.db.QueryRowContext(ctx,
-			`SELECT status FROM bookings WHERE id = ?`, id,
-		).Scan(&recheckStatus)
+		// Defense in depth: also apply auth filter to the recheck SELECT.
+		recheckQuery := `SELECT status FROM bookings WHERE id = ?`
+		recheckArgs := []any{id}
+		recheckQuery, recheckArgs, err = applyAuthFilter(caller, recheckQuery, recheckArgs)
+		if err != nil {
+			return fmt.Errorf("reprogramar reserva %s: %w", id, err)
+		}
+		var recheckStatus entity.BookingStatus
+		err := r.db.QueryRowContext(ctx, recheckQuery, recheckArgs...).
+			Scan((*string)(&recheckStatus))
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("reprogramar reserva %s: %w", id, domain.ErrNotFound)
 			}
 			return fmt.Errorf("reprogramar reserva %s: verificar estado: %w", id, err)
 		}
-		if recheckStatus == model.BookingStatusCancelled {
+		if recheckStatus == entity.BookingStatusCancelled {
 			return &domain.SemanticError{
 				Code:    domain.ErrCodeInvalidInput,
 				Message: "No se puede reprogramar una reserva cancelada",
 			}
 		}
-		// status is pending or confirmed, so rowsAffected==0 means overlap
-		return &domain.SemanticError{
-			Code:    domain.ErrCodeBookingOverlap,
-			Message: fmt.Sprintf("Profesional %s ya tiene una reserva en ese horario.", professionalID),
-		}
+		return fmt.Errorf("reprogramar reserva %s: overlap: %w", id, domain.ErrConflict)
 	}
 
 	return nil
 }
+
+// FindOverlapping returns non-cancelled bookings for the given staff member that
+// overlap the [start, end) window. Returns an empty slice (not nil) when none match.
+// Auth: caller must be authenticated; client callers see only their own bookings,
+// staff callers see only their own professional's bookings, admin/owner see all.
+func (r *BookingsRepo) FindOverlapping(ctx context.Context, staffID string, start, end time.Time) ([]*entity.Booking, error) {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("buscar reservas superpuestas: %w", err)
+	}
+	startStr := FormatStorage(start)
+	endStr := FormatStorage(end)
+
+	query := `SELECT ` + bookingColumns + ` FROM bookings
+		 WHERE professional_id = ? AND status != 'cancelled'
+		   AND start_datetime < ? AND end_datetime > ?
+		 ORDER BY start_datetime ASC`
+	args := []any{staffID, endStr, startStr}
+
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("buscar reservas superpuestas: %w", err)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("buscar reservas superpuestas: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+
+	bookings := make([]*entity.Booking, 0)
+	for rows.Next() {
+		b, err := scanBooking(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("buscar reservas superpuestas: escaneo: %w", err)
+		}
+		bookings = append(bookings, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("buscar reservas superpuestas: iteración: %w", err)
+	}
+	return bookings, nil
+}
+
+// FindByStaffAndRange returns all non-cancelled bookings for a staff member within
+// the [start, end) time range, ordered by start_datetime ASC. Used by calendar views.
+// Note: the SQL is intentionally identical to FindOverlapping; the semantic
+// distinction is that this returns all bookings in the range, not just overlapping ones.
+// Auth: caller must be authenticated; client callers see only their own bookings,
+// staff callers see only their own professional's bookings, admin/owner see all.
+func (r *BookingsRepo) FindByStaffAndRange(ctx context.Context, staffID string, start, end time.Time) ([]*entity.Booking, error) {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listar reservas por profesional y rango: %w", err)
+	}
+	startStr := FormatStorage(start)
+	endStr := FormatStorage(end)
+
+	query := `SELECT ` + bookingColumns + ` FROM bookings
+		 WHERE professional_id = ? AND status != 'cancelled'
+		   AND start_datetime < ? AND end_datetime > ?
+		 ORDER BY start_datetime ASC`
+	args := []any{staffID, endStr, startStr}
+
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("listar reservas por profesional y rango: %w", err)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listar reservas por profesional y rango: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+
+	bookings := make([]*entity.Booking, 0)
+	for rows.Next() {
+		b, err := scanBooking(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("listar reservas por profesional y rango: escaneo: %w", err)
+		}
+		bookings = append(bookings, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listar reservas por profesional y rango: iteración: %w", err)
+	}
+	return bookings, nil
+}
+
+// ListBookingsForRange returns all non-cancelled bookings across all staff within
+// the [start, end) time range, ordered by professional_id then start_datetime ASC.
+// Used by master calendar views.
+// Auth: caller must be authenticated; client callers see only their own bookings,
+// staff callers see only their own professional's bookings, admin/owner see all.
+func (r *BookingsRepo) ListBookingsForRange(ctx context.Context, start, end time.Time) ([]*entity.Booking, error) {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listar reservas por rango: %w", err)
+	}
+	startStr := FormatStorage(start)
+	endStr := FormatStorage(end)
+
+	query := `SELECT ` + bookingColumns + ` FROM bookings
+		 WHERE status != 'cancelled'
+		   AND start_datetime < ? AND end_datetime > ?
+		 ORDER BY professional_id, start_datetime ASC`
+	args := []any{endStr, startStr}
+
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("listar reservas por rango: %w", err)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("listar reservas por rango: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+
+	bookings := make([]*entity.Booking, 0)
+	for rows.Next() {
+		b, err := scanBooking(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("listar reservas por rango: escaneo: %w", err)
+		}
+		bookings = append(bookings, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listar reservas por rango: iteración: %w", err)
+	}
+	return bookings, nil
+}
+
+// SearchByNotes returns bookings whose notes contain the query substring.
+// Limited to 100 results. Cancelled bookings are included.
+// Auth: caller must be authenticated; client callers see only their own bookings,
+// staff callers see only their own professional's bookings, admin/owner see all.
+func (r *BookingsRepo) SearchByNotes(ctx context.Context, q string) ([]*entity.Booking, error) {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("buscar reservas por notas: %w", err)
+	}
+
+	query := `SELECT ` + bookingColumns + ` FROM bookings
+		 WHERE notes LIKE '%' || ? || '%'
+		 ORDER BY start_datetime DESC
+		 LIMIT 100`
+	args := []any{q}
+
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("buscar reservas por notas: %w", err)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("buscar reservas por notas: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+
+	bookings := make([]*entity.Booking, 0)
+	for rows.Next() {
+		b, err := scanBooking(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("buscar reservas por notas: escaneo: %w", err)
+		}
+		bookings = append(bookings, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("buscar reservas por notas: iteración: %w", err)
+	}
+	return bookings, nil
+}
+
+// UpdateStatus changes the status of a booking by ID.
+// Auth filter applies. Returns domain.ErrNotFound if no rows are affected.
+func (r *BookingsRepo) UpdateStatus(ctx context.Context, id string, status entity.BookingStatus) error {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return fmt.Errorf("actualizar estado reserva %s: %w", id, err)
+	}
+
+	query := `UPDATE bookings SET status=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id=?`
+	args := []any{string(status), id}
+
+	query, args, err = applyAuthFilter(caller, query, args)
+	if err != nil {
+		return fmt.Errorf("actualizar estado reserva %s: %w", id, err)
+	}
+
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("actualizar estado reserva %s: %w", id, err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("actualizar estado reserva %s: filas afectadas: %w", id, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("actualizar estado reserva %s: %w", id, domain.ErrNotFound)
+	}
+	return nil
+}
+
+// ─── CheckAvailability (unchanged — to be removed in P3.3a) ─────────────────
 
 // CheckAvailabilityParams holds the input for CheckAvailability.
 type CheckAvailabilityParams struct {
@@ -520,10 +704,6 @@ func (r *BookingsRepo) CheckAvailability(ctx context.Context, params *CheckAvail
 	}
 
 	// ─── Step 3c — Slot within hours ─────────────────────────────────────
-	//
-	// Effective close = min(business_close, pro_end)
-	// Effective open  = max(business_open, pro_start) — used conceptually;
-	// the individual error messages check business_open and pro_start separately.
 
 	effectiveCloseHHMM := businessCloseHHMM
 	if proEndHHMM < effectiveCloseHHMM {
