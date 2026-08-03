@@ -4,30 +4,32 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
-func TestPendingAlertsRepo_Create(t *testing.T) {
+func TestPendingAlertsRepo_Save(t *testing.T) {
 	t.Run("happy path with confirmation_requested", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
 		bookingID := "b-001"
+		scheduled := time.Date(2026, 7, 13, 13, 0, 0, 0, time.UTC)
 		mock.ExpectExec(`INSERT INTO pending_alerts`).
-			WithArgs("confirmation_requested", "Confirmar reserva", "2026-07-13T13:00:00.000Z", &bookingID).
+			WithArgs("confirmation_requested", "Confirmar reserva", FormatStorage(scheduled), &bookingID).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 
-		alert := &model.PendingAlert{
+		alert := &entity.PendingAlert{
 			Type:              "confirmation_requested",
 			Message:           "Confirmar reserva",
-			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
+			ScheduledDatetime: scheduled,
 			RelatedBookingID:  &bookingID,
 		}
-		err := repo.Create(adminCtx(), alert)
+		err := repo.Save(adminCtx(), alert)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -43,12 +45,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
-		alert := &model.PendingAlert{
+		alert := &entity.PendingAlert{
 			Type:              "unknown_kind",
 			Message:           "Test",
-			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
+			ScheduledDatetime: time.Date(2026, 7, 13, 13, 0, 0, 0, time.UTC),
 		}
-		err := repo.Create(adminCtx(), alert)
+		err := repo.Save(adminCtx(), alert)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for unknown type, got %v", err)
 		}
@@ -58,12 +60,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
-		alert := &model.PendingAlert{
+		alert := &entity.PendingAlert{
 			Type:              "reminder_24h",
 			Message:           "Test",
-			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
+			ScheduledDatetime: time.Date(2026, 7, 13, 13, 0, 0, 0, time.UTC),
 		}
-		err := repo.Create(adminCtx(), alert)
+		err := repo.Save(adminCtx(), alert)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for reminder_24h in Fase 1, got %v", err)
 		}
@@ -73,12 +75,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
-		alert := &model.PendingAlert{
+		alert := &entity.PendingAlert{
 			Type:              "confirmation_requested",
 			Message:           "",
-			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
+			ScheduledDatetime: time.Date(2026, 7, 13, 13, 0, 0, 0, time.UTC),
 		}
-		err := repo.Create(adminCtx(), alert)
+		err := repo.Save(adminCtx(), alert)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty message, got %v", err)
 		}
@@ -88,12 +90,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
-		alert := &model.PendingAlert{
+		alert := &entity.PendingAlert{
 			Type:              "confirmation_requested",
 			Message:           "Test",
-			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
+			ScheduledDatetime: time.Date(2026, 7, 13, 13, 0, 0, 0, time.UTC),
 		}
-		err := repo.Create(context.Background(), alert)
+		err := repo.Save(context.Background(), alert)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -107,12 +109,12 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
-		alert := &model.PendingAlert{
+		alert := &entity.PendingAlert{
 			Type:              "confirmation_requested",
 			Message:           "Test",
-			ScheduledDatetime: "2026-07-13T13:00:00.000Z",
+			ScheduledDatetime: time.Date(2026, 7, 13, 13, 0, 0, 0, time.UTC),
 		}
-		err := repo.Create(staffCtx("pro-1"), alert)
+		err := repo.Save(staffCtx("pro-1"), alert)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -123,7 +125,10 @@ func TestPendingAlertsRepo_Create(t *testing.T) {
 	})
 }
 
-func TestPendingAlertsRepo_ListPending(t *testing.T) {
+func TestPendingAlertsRepo_FindPending(t *testing.T) {
+	nowStr := "2026-07-13T12:00:00.000Z"
+	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+
 	t.Run("returns due alerts in ascending order", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
@@ -133,11 +138,11 @@ func TestPendingAlertsRepo_ListPending(t *testing.T) {
 		}).
 			AddRow(1, "confirmation_requested", "Alert 1", "2026-07-13T10:00:00.000Z", "pending", nil, "2026-07-13T09:00:00.000Z").
 			AddRow(2, "confirmation_requested", "Alert 2", "2026-07-13T11:00:00.000Z", "pending", nil, "2026-07-13T09:00:00.000Z")
-		mock.ExpectQuery(`SELECT .+ FROM pending_alerts WHERE status = .pending. AND scheduled_datetime <= \? ORDER BY scheduled_datetime ASC LIMIT \?`).
-			WithArgs("2026-07-13T12:00:00.000Z", 10).
+		mock.ExpectQuery(`SELECT .+ FROM pending_alerts WHERE status = .pending. AND scheduled_datetime <= \? ORDER BY scheduled_datetime ASC`).
+			WithArgs(nowStr).
 			WillReturnRows(rows)
 
-		alerts, err := repo.ListPending(adminCtx(), 10, "2026-07-13T12:00:00.000Z")
+		alerts, err := repo.FindPending(adminCtx(), now)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -156,11 +161,11 @@ func TestPendingAlertsRepo_ListPending(t *testing.T) {
 		rows := sqlmock.NewRows([]string{
 			"id", "type", "message", "scheduled_datetime", "status", "related_booking_id", "created_at",
 		})
-		mock.ExpectQuery(`SELECT .+ FROM pending_alerts WHERE status = .pending. AND scheduled_datetime <= \? ORDER BY scheduled_datetime ASC LIMIT \?`).
-			WithArgs("2026-07-13T12:00:00.000Z", 10).
+		mock.ExpectQuery(`SELECT .+ FROM pending_alerts WHERE status = .pending. AND scheduled_datetime <= \? ORDER BY scheduled_datetime ASC`).
+			WithArgs(nowStr).
 			WillReturnRows(rows)
 
-		alerts, err := repo.ListPending(adminCtx(), 10, "2026-07-13T12:00:00.000Z")
+		alerts, err := repo.FindPending(adminCtx(), now)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -169,59 +174,17 @@ func TestPendingAlertsRepo_ListPending(t *testing.T) {
 		}
 	})
 
-	t.Run("limit caps result size", func(t *testing.T) {
-		db, mock := newMockDB(t)
-		repo := NewPendingAlertsRepo(db)
-
-		rows := sqlmock.NewRows([]string{
-			"id", "type", "message", "scheduled_datetime", "status", "related_booking_id", "created_at",
-		}).
-			AddRow(1, "confirmation_requested", "Alert 1", "2026-07-13T10:00:00.000Z", "pending", nil, "2026-07-13T09:00:00.000Z").
-			AddRow(2, "confirmation_requested", "Alert 2", "2026-07-13T11:00:00.000Z", "pending", nil, "2026-07-13T09:00:00.000Z")
-		mock.ExpectQuery(`SELECT .+ FROM pending_alerts WHERE status = .pending. AND scheduled_datetime <= \? ORDER BY scheduled_datetime ASC LIMIT \?`).
-			WithArgs("2026-07-13T12:00:00.000Z", 2).
-			WillReturnRows(rows)
-
-		alerts, err := repo.ListPending(adminCtx(), 2, "2026-07-13T12:00:00.000Z")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if len(alerts) != 2 {
-			t.Errorf("got %d alerts, want 2 (limit)", len(alerts))
-		}
-	})
-
 	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
-		_, err := repo.ListPending(context.Background(), 10, "2026-07-13T12:00:00.000Z")
+		_, err := repo.FindPending(context.Background(), now)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
 		if sErr.Code != domain.ErrCodeUnauthenticated {
 			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
-		}
-	})
-
-	t.Run("limit zero returns domain.ErrInvalidInput", func(t *testing.T) {
-		db, _ := newMockDB(t)
-		repo := NewPendingAlertsRepo(db)
-
-		_, err := repo.ListPending(adminCtx(), 0, "2026-07-13T12:00:00.000Z")
-		if !errors.Is(err, domain.ErrInvalidInput) {
-			t.Errorf("expected domain.ErrInvalidInput for limit=0, got %v", err)
-		}
-	})
-
-	t.Run("limit negative returns domain.ErrInvalidInput", func(t *testing.T) {
-		db, _ := newMockDB(t)
-		repo := NewPendingAlertsRepo(db)
-
-		_, err := repo.ListPending(adminCtx(), -1, "2026-07-13T12:00:00.000Z")
-		if !errors.Is(err, domain.ErrInvalidInput) {
-			t.Errorf("expected domain.ErrInvalidInput for limit=-1, got %v", err)
 		}
 	})
 }

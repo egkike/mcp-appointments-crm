@@ -8,10 +8,10 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
-func TestServicesRepo_Create(t *testing.T) {
+func TestServicesRepo_Save(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewServicesRepo(db)
@@ -21,15 +21,15 @@ func TestServicesRepo_Create(t *testing.T) {
 			WithArgs("svc-1", "Corte", &desc, 30, 500.0, true).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		svc := &model.Service{
+		svc := &entity.Service{
 			ID:              "svc-1",
 			Name:            "Corte",
 			Description:     &desc,
 			DurationMinutes: 30,
 			Price:           500.0,
-			IsActive:        true,
+			Active:          true,
 		}
-		err := repo.Create(context.Background(), svc)
+		err := repo.Save(context.Background(), svc)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -39,8 +39,8 @@ func TestServicesRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{Name: "Bad", DurationMinutes: 0}
-		err := repo.Create(context.Background(), svc)
+		svc := &entity.Service{Name: "Bad", DurationMinutes: 0}
+		err := repo.Save(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -50,8 +50,8 @@ func TestServicesRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{Name: "Bad", DurationMinutes: -5}
-		err := repo.Create(context.Background(), svc)
+		svc := &entity.Service{Name: "Bad", DurationMinutes: -5}
+		err := repo.Save(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -61,8 +61,8 @@ func TestServicesRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{Name: "", DurationMinutes: 30}
-		err := repo.Create(context.Background(), svc)
+		svc := &entity.Service{Name: "", DurationMinutes: 30}
+		err := repo.Save(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty name, got %v", err)
 		}
@@ -72,8 +72,8 @@ func TestServicesRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{Name: "Test", DurationMinutes: 30, Price: 0}
-		err := repo.Create(context.Background(), svc)
+		svc := &entity.Service{Name: "Test", DurationMinutes: 30, Price: 0}
+		err := repo.Save(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for zero price, got %v", err)
 		}
@@ -83,8 +83,8 @@ func TestServicesRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{Name: "Test", DurationMinutes: 30, Price: -100}
-		err := repo.Create(context.Background(), svc)
+		svc := &entity.Service{Name: "Test", DurationMinutes: 30, Price: -100}
+		err := repo.Save(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for negative price, got %v", err)
 		}
@@ -98,15 +98,15 @@ func TestServicesRepo_Create(t *testing.T) {
 			WithArgs("svc-1", "Corte", nil, 30, 500.0, true).
 			WillReturnError(errors.New("disk full"))
 
-		svc := &model.Service{ID: "svc-1", Name: "Corte", DurationMinutes: 30, Price: 500.0, IsActive: true}
-		err := repo.Create(context.Background(), svc)
+		svc := &entity.Service{ID: "svc-1", Name: "Corte", DurationMinutes: 30, Price: 500.0, Active: true}
+		err := repo.Save(context.Background(), svc)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
 	})
 }
 
-func TestServicesRepo_Get(t *testing.T) {
+func TestServicesRepo_FindByID(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewServicesRepo(db)
@@ -120,7 +120,7 @@ func TestServicesRepo_Get(t *testing.T) {
 			WithArgs("svc-1").
 			WillReturnRows(rows)
 
-		svc, err := repo.Get(context.Background(), "svc-1")
+		svc, err := repo.FindByID(context.Background(), "svc-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -140,7 +140,7 @@ func TestServicesRepo_Get(t *testing.T) {
 			WithArgs("missing").
 			WillReturnError(sql.ErrNoRows)
 
-		_, err := repo.Get(context.Background(), "missing")
+		_, err := repo.FindByID(context.Background(), "missing")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -154,14 +154,14 @@ func TestServicesRepo_Get(t *testing.T) {
 			WithArgs("svc-1").
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.Get(context.Background(), "svc-1")
+		_, err := repo.FindByID(context.Background(), "svc-1")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
 	})
 }
 
-func TestServicesRepo_ListActive(t *testing.T) {
+func TestServicesRepo_FindActive(t *testing.T) {
 	t.Run("returns only active services", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewServicesRepo(db)
@@ -175,7 +175,7 @@ func TestServicesRepo_ListActive(t *testing.T) {
 		mock.ExpectQuery(`SELECT .+ FROM services WHERE is_active = 1 ORDER BY name`).
 			WillReturnRows(rows)
 
-		services, err := repo.ListActive(context.Background())
+		services, err := repo.FindActive(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -198,7 +198,7 @@ func TestServicesRepo_ListActive(t *testing.T) {
 		mock.ExpectQuery(`SELECT .+ FROM services WHERE is_active = 1 ORDER BY name`).
 			WillReturnRows(rows)
 
-		services, err := repo.ListActive(context.Background())
+		services, err := repo.FindActive(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -214,7 +214,7 @@ func TestServicesRepo_ListActive(t *testing.T) {
 		mock.ExpectQuery(`SELECT .+ FROM services WHERE is_active = 1 ORDER BY name`).
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.ListActive(context.Background())
+		_, err := repo.FindActive(context.Background())
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -230,7 +230,7 @@ func TestServicesRepo_Update(t *testing.T) {
 			WithArgs("Updated", nil, 45, 600.0, true, "svc-1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		svc := &model.Service{ID: "svc-1", Name: "Updated", DurationMinutes: 45, Price: 600.0, IsActive: true}
+		svc := &entity.Service{ID: "svc-1", Name: "Updated", DurationMinutes: 45, Price: 600.0, Active: true}
 		err := repo.Update(context.Background(), svc)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -245,7 +245,7 @@ func TestServicesRepo_Update(t *testing.T) {
 			WithArgs("Ghost", nil, 30, 500.0, true, "missing").
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		svc := &model.Service{ID: "missing", Name: "Ghost", DurationMinutes: 30, Price: 500.0, IsActive: true}
+		svc := &entity.Service{ID: "missing", Name: "Ghost", DurationMinutes: 30, Price: 500.0, Active: true}
 		err := repo.Update(context.Background(), svc)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
@@ -256,7 +256,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{ID: "svc-1", Name: "", DurationMinutes: 30, Price: 500.0}
+		svc := &entity.Service{ID: "svc-1", Name: "", DurationMinutes: 30, Price: 500.0}
 		err := repo.Update(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
@@ -267,7 +267,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 0, Price: 500.0}
+		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 0, Price: 500.0}
 		err := repo.Update(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
@@ -278,7 +278,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 0}
+		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 0}
 		err := repo.Update(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for zero price, got %v", err)
@@ -289,7 +289,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		svc := &model.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: -1}
+		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: -1}
 		err := repo.Update(context.Background(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
@@ -304,7 +304,7 @@ func TestServicesRepo_Update(t *testing.T) {
 			WithArgs("Updated", nil, 30, 500.0, true, "svc-1").
 			WillReturnError(errors.New("disk full"))
 
-		svc := &model.Service{ID: "svc-1", Name: "Updated", DurationMinutes: 30, Price: 500.0, IsActive: true}
+		svc := &entity.Service{ID: "svc-1", Name: "Updated", DurationMinutes: 30, Price: 500.0, Active: true}
 		err := repo.Update(context.Background(), svc)
 		if err == nil {
 			t.Fatal("expected error, got nil")

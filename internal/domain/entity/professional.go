@@ -1,6 +1,6 @@
 package entity
 
-import "strings"
+import "encoding/json"
 
 // Professional represents a staff member who provides services.
 type Professional struct {
@@ -10,7 +10,7 @@ type Professional struct {
 	Status        string
 	Email         *string
 	Phone         *string
-	Specialties   *string // comma-separated list of service IDs
+	Specialties   *string // JSON-encoded array of service IDs (e.g., `["svc-1","svc-2"]`), or nil
 	CreatedAt     string
 	UpdatedAt     string
 }
@@ -21,14 +21,18 @@ func (p *Professional) IsActive() bool {
 }
 
 // HasSpecialty reports whether the professional offers the given service.
-// Specialties are stored as a comma-separated string; each entry is trimmed
-// before comparison.
+// Specialties is a JSON-encoded array of service IDs (e.g., `["svc-1","svc-2"]`).
+// Returns false if Specialties is nil, empty, or invalid JSON.
 func (p *Professional) HasSpecialty(serviceID string) bool {
 	if p.Specialties == nil || *p.Specialties == "" {
 		return false
 	}
-	for _, s := range strings.Split(*p.Specialties, ",") {
-		if strings.TrimSpace(s) == serviceID {
+	var serviceIDs []string
+	if err := json.Unmarshal([]byte(*p.Specialties), &serviceIDs); err != nil {
+		return false
+	}
+	for _, id := range serviceIDs {
+		if id == serviceID {
 			return true
 		}
 	}

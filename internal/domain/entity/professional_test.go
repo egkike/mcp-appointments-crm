@@ -24,7 +24,7 @@ func TestProfessional_IsActive(t *testing.T) {
 }
 
 func TestProfessional_HasSpecialty(t *testing.T) {
-	specialties := "cutting, coloring, styling"
+	specialties := `["cutting","coloring","styling"]`
 	tests := []struct {
 		name      string
 		specialty *string
@@ -66,6 +66,24 @@ func TestProfessional_HasSpecialty(t *testing.T) {
 			specialty: strPtr(specialties),
 			serviceID: "styling",
 			want:      true,
+		},
+		{
+			name:      "invalid JSON returns false",
+			specialty: strPtr("not valid json"),
+			serviceID: "cutting",
+			want:      false,
+		},
+		{
+			name:      "single-item array match",
+			specialty: strPtr(`["only"]`),
+			serviceID: "only",
+			want:      true,
+		},
+		{
+			name:      "single-item array no match",
+			specialty: strPtr(`["only"]`),
+			serviceID: "other",
+			want:      false,
 		},
 	}
 	for _, tt := range tests {

@@ -9,10 +9,10 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
-func TestProfessionalsRepo_Create(t *testing.T) {
+func TestProfessionalsRepo_Save(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
@@ -32,12 +32,12 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 			WithArgs(sqlmock.AnyArg(), "Juan", &role, "active", nil, nil, &specs).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		p := &model.Professional{
+		p := &entity.Professional{
 			Name:          "Juan",
 			RoleSpecialty: &role,
 			Specialties:   &specs,
 		}
-		err := repo.Create(adminCtx(), p)
+		err := repo.Save(adminCtx(), p)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -50,8 +50,8 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		p := &model.Professional{Name: ""}
-		err := repo.Create(adminCtx(), p)
+		p := &entity.Professional{Name: ""}
+		err := repo.Save(adminCtx(), p)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -65,8 +65,8 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 			WithArgs(sqlmock.AnyArg(), "Juan", nil, "active", nil, nil, nil).
 			WillReturnError(errors.New("disk full"))
 
-		p := &model.Professional{Name: "Juan", Status: "active"}
-		err := repo.Create(adminCtx(), p)
+		p := &entity.Professional{Name: "Juan", Status: "active"}
+		err := repo.Save(adminCtx(), p)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -76,8 +76,8 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		p := &model.Professional{Name: "Juan", Status: "active"}
-		err := repo.Create(context.Background(), p)
+		p := &entity.Professional{Name: "Juan", Status: "active"}
+		err := repo.Save(context.Background(), p)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -91,8 +91,8 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		p := &model.Professional{Name: "Juan", Status: "active"}
-		err := repo.Create(clientCtx("c-1"), p)
+		p := &entity.Professional{Name: "Juan", Status: "active"}
+		err := repo.Save(clientCtx("c-1"), p)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -106,8 +106,8 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		p := &model.Professional{Name: "Juan", Status: "active"}
-		err := repo.Create(staffCtx("pro-1"), p)
+		p := &entity.Professional{Name: "Juan", Status: "active"}
+		err := repo.Save(staffCtx("pro-1"), p)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -125,15 +125,15 @@ func TestProfessionalsRepo_Create(t *testing.T) {
 			WithArgs(sqlmock.AnyArg(), "Juan", nil, "active", nil, nil, nil).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		p := &model.Professional{Name: "Juan", Status: "active"}
-		err := repo.Create(ownerCtx(), p)
+		p := &entity.Professional{Name: "Juan", Status: "active"}
+		err := repo.Save(ownerCtx(), p)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }
 
-func TestProfessionalsRepo_Get(t *testing.T) {
+func TestProfessionalsRepo_FindByID(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
@@ -149,7 +149,7 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 			WithArgs("pro-1").
 			WillReturnRows(rows)
 
-		p, err := repo.Get(adminCtx(), "pro-1")
+		p, err := repo.FindByID(adminCtx(), "pro-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -169,7 +169,7 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 			WithArgs("missing").
 			WillReturnError(sql.ErrNoRows)
 
-		_, err := repo.Get(adminCtx(), "missing")
+		_, err := repo.FindByID(adminCtx(), "missing")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -188,7 +188,7 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 			WithArgs("pro-1").
 			WillReturnRows(rows)
 
-		p, err := repo.Get(staffCtx("pro-1"), "pro-1")
+		p, err := repo.FindByID(staffCtx("pro-1"), "pro-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -201,7 +201,7 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		_, err := repo.Get(staffCtx("pro-1"), "pro-999")
+		_, err := repo.FindByID(staffCtx("pro-1"), "pro-999")
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -215,7 +215,7 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		_, err := repo.Get(context.Background(), "pro-1")
+		_, err := repo.FindByID(context.Background(), "pro-1")
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -226,7 +226,7 @@ func TestProfessionalsRepo_Get(t *testing.T) {
 	})
 }
 
-func TestProfessionalsRepo_GetActive(t *testing.T) {
+func TestProfessionalsRepo_FindActive(t *testing.T) {
 	t.Run("returns only active professionals", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
@@ -242,7 +242,7 @@ func TestProfessionalsRepo_GetActive(t *testing.T) {
 		mock.ExpectQuery(`SELECT .+ FROM professionals WHERE status = .active. ORDER BY name`).
 			WillReturnRows(rows)
 
-		pros, err := repo.GetActive(adminCtx())
+		pros, err := repo.FindActive(adminCtx())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -262,7 +262,7 @@ func TestProfessionalsRepo_GetActive(t *testing.T) {
 		mock.ExpectQuery(`SELECT .+ FROM professionals WHERE status = .active. ORDER BY name`).
 			WillReturnRows(rows)
 
-		pros, err := repo.GetActive(adminCtx())
+		pros, err := repo.FindActive(adminCtx())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -284,7 +284,7 @@ func TestProfessionalsRepo_GetActive(t *testing.T) {
 			WithArgs("pro-1").
 			WillReturnRows(rows)
 
-		pros, err := repo.GetActive(staffCtx("pro-1"))
+		pros, err := repo.FindActive(staffCtx("pro-1"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -309,7 +309,7 @@ func TestProfessionalsRepo_GetActive(t *testing.T) {
 		mock.ExpectQuery(`SELECT .+ FROM professionals WHERE status = .active. ORDER BY name`).
 			WillReturnRows(rows)
 
-		pros, err := repo.GetActive(clientCtx("c-1"))
+		pros, err := repo.FindActive(clientCtx("c-1"))
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -329,7 +329,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 			WithArgs("Updated", &role, "active", nil, nil, nil, "pro-1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		p := &model.Professional{
+		p := &entity.Professional{
 			ID:            "pro-1",
 			Name:          "Updated",
 			RoleSpecialty: &role,
@@ -349,7 +349,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 			WithArgs("Ghost", nil, "active", nil, nil, nil, "missing").
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		p := &model.Professional{ID: "missing", Name: "Ghost", Status: "active"}
+		p := &entity.Professional{ID: "missing", Name: "Ghost", Status: "active"}
 		err := repo.Update(adminCtx(), p)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
@@ -360,7 +360,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		p := &model.Professional{ID: "pro-1", Name: "", Status: "active"}
+		p := &entity.Professional{ID: "pro-1", Name: "", Status: "active"}
 		err := repo.Update(adminCtx(), p)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
@@ -371,7 +371,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "invalid"}
+		p := &entity.Professional{ID: "pro-1", Name: "Juan", Status: "invalid"}
 		err := repo.Update(adminCtx(), p)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
@@ -388,7 +388,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 			WithArgs("svc-999").
 			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
-		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "active", Specialties: &specs}
+		p := &entity.Professional{ID: "pro-1", Name: "Juan", Status: "active", Specialties: &specs}
 		err := repo.Update(adminCtx(), p)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound for non-existent service, got %v", err)
@@ -410,7 +410,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		mock.ExpectExec(`UPDATE professionals SET`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "active", Specialties: &specs}
+		p := &entity.Professional{ID: "pro-1", Name: "Juan", Status: "active", Specialties: &specs}
 		err := repo.Update(adminCtx(), p)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -421,7 +421,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "active"}
+		p := &entity.Professional{ID: "pro-1", Name: "Juan", Status: "active"}
 		err := repo.Update(context.Background(), p)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
@@ -436,7 +436,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
-		p := &model.Professional{ID: "pro-1", Name: "Juan", Status: "active"}
+		p := &entity.Professional{ID: "pro-1", Name: "Juan", Status: "active"}
 		err := repo.Update(clientCtx("c-1"), p)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {

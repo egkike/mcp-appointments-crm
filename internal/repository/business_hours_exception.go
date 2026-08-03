@@ -5,10 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
+
+// Compile-time interface conformance check.
+var _ domainrepo.BusinessHoursExceptionRepo = (*BusinessHoursExceptionRepo)(nil)
 
 // BusinessHoursExceptionRepo provides CRUD for the business_hours_exception
 // table. Validates date format and time consistency before hitting the DB.
@@ -30,7 +35,7 @@ func NewBusinessHoursExceptionRepo(db *sql.DB) *BusinessHoursExceptionRepo {
 //   - open_time must be < close_time
 //
 // Returns domain.ErrInvalidInput for validation failures, domain.ErrConflict for duplicate dates.
-func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.BusinessHoursException) error {
+func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *entity.BusinessHoursException) error {
 	// Validate date format and calendar validity via shared helper.
 	if err := validateExceptionDate(ex.ExceptionDate); err != nil {
 		return fmt.Errorf("crear excepción: %w", err)
@@ -78,40 +83,46 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *model.Busin
 	return nil
 }
 
-// GetByDate returns the exception for a given date. Returns domain.ErrNotFound if
-// no exception exists for that date. Validates date format before querying.
-func (r *BusinessHoursExceptionRepo) GetByDate(ctx context.Context, date string) (*model.BusinessHoursException, error) {
-	if err := validateExceptionDate(date); err != nil {
-		return nil, fmt.Errorf("obtener excepción por fecha: %w", err)
-	}
-	ex := &model.BusinessHoursException{}
+// Get returns the exception for a given date. Returns domain.ErrNotFound if
+// no exception exists for that date. The time component of date is ignored;
+// only the calendar date matters.
+func (r *BusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*entity.BusinessHoursException, error) {
+	dateStr := date.Format("2006-01-02")
+	ex := &entity.BusinessHoursException{}
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, exception_date, is_closed, open_time, close_time, reason, created_at
-		 FROM business_hours_exception WHERE exception_date = ?`, date,
+		 FROM business_hours_exception WHERE exception_date = ?`, dateStr,
 	).Scan(&ex.ID, &ex.ExceptionDate, &ex.IsClosed, &ex.OpenTime, &ex.CloseTime,
 		&ex.Reason, &ex.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date, domain.ErrNotFound)
+			return nil, fmt.Errorf("obtener excepción por fecha %s: %w", dateStr, domain.ErrNotFound)
 		}
-		return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date, err)
+		return nil, fmt.Errorf("obtener excepción por fecha %s: %w", dateStr, err)
 	}
 	return ex, nil
 }
 
-// List returns all exceptions ordered by exception_date ascending.
-func (r *BusinessHoursExceptionRepo) List(ctx context.Context) ([]*model.BusinessHoursException, error) {
+// List returns all exceptions within the [from, to] date range (inclusive),
+// ordered by exception_date ascending.
+func (r *BusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
+	fromStr := from.Format("2006-01-02")
+	toStr := to.Format("2006-01-02")
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, exception_date, is_closed, open_time, close_time, reason, created_at
-		 FROM business_hours_exception ORDER BY exception_date`)
+		 FROM business_hours_exception
+		 WHERE exception_date >= ? AND exception_date <= ?
+		 ORDER BY exception_date`,
+		fromStr, toStr,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("listar excepciones: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
-	var exceptions []*model.BusinessHoursException
+	var exceptions []*entity.BusinessHoursException
 	for rows.Next() {
-		ex := &model.BusinessHoursException{}
+		ex := &entity.BusinessHoursException{}
 		if err := rows.Scan(&ex.ID, &ex.ExceptionDate, &ex.IsClosed, &ex.OpenTime,
 			&ex.CloseTime, &ex.Reason, &ex.CreatedAt); err != nil {
 			return nil, fmt.Errorf("listar excepciones: escaneo: %w", err)
@@ -125,7 +136,7 @@ func (r *BusinessHoursExceptionRepo) List(ctx context.Context) ([]*model.Busines
 }
 
 // Delete removes an exception by ID. Returns domain.ErrNotFound if no row matches.
-func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id int64) error {
+func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id int) error {
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM business_hours_exception WHERE id = ?`, id)
 	if err != nil {

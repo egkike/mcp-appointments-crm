@@ -6,8 +6,12 @@ import (
 	"fmt"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
+
+// Compile-time interface conformance check.
+var _ domainrepo.BusinessProfileRepo = (*BusinessProfileRepo)(nil)
 
 // singletonID is the fixed primary-key value for the unique business_profile row.
 const singletonID = "singleton"
@@ -27,7 +31,7 @@ func NewBusinessProfileRepo(db *sql.DB) *BusinessProfileRepo {
 // validateBusinessProfile checks business-rule invariants for a business
 // profile before it reaches the database.
 // Optional fields (BusinessHours, Timezone) are only validated when non-empty.
-func validateBusinessProfile(p *model.BusinessProfile) error {
+func validateBusinessProfile(p *entity.BusinessProfile) error {
 	// messenger_platform must be nil, "whatsapp", or "telegram".
 	if p.MessengerPlatform != nil {
 		v := *p.MessengerPlatform
@@ -58,10 +62,10 @@ func validateBusinessProfile(p *model.BusinessProfile) error {
 	return nil
 }
 
-// GetBusinessProfile returns the singleton business profile, creating a
+// Get returns the singleton business profile, creating a
 // placeholder row on first call (lazy-init). Idempotent and safe under
 // concurrent access: INSERT OR IGNORE ensures at most one row exists.
-func (r *BusinessProfileRepo) GetBusinessProfile(ctx context.Context) (*model.BusinessProfile, error) {
+func (r *BusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile, error) {
 	// Lazy-init: ensure the singleton row exists.
 	// INSERT OR IGNORE silently no-ops when the row already exists (UNIQUE
 	// conflict on id='singleton'). Any other error is surfaced.
@@ -80,7 +84,7 @@ func (r *BusinessProfileRepo) GetBusinessProfile(ctx context.Context) (*model.Bu
 		created_at, updated_at
 		FROM business_profile WHERE id = ?`
 
-	p := &model.BusinessProfile{}
+	p := &entity.BusinessProfile{}
 	err = r.db.QueryRowContext(ctx, query, singletonID).Scan(
 		&p.ID, &p.Name, &p.Industry, &p.Country, &p.Address,
 		&p.Latitude, &p.Longitude, &p.CoverPhotoURL, &p.PublicPhone,
@@ -96,9 +100,9 @@ func (r *BusinessProfileRepo) GetBusinessProfile(ctx context.Context) (*model.Bu
 	return p, nil
 }
 
-// UpdateBusinessProfile updates the singleton row. Returns domain.ErrNotFound if
+// Update replaces the singleton row. Returns domain.ErrNotFound if
 // no row matches (should not happen in practice due to lazy-init).
-func (r *BusinessProfileRepo) UpdateBusinessProfile(ctx context.Context, p *model.BusinessProfile) error {
+func (r *BusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) error {
 	if err := validateBusinessProfile(p); err != nil {
 		return err
 	}

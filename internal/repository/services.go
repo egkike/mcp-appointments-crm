@@ -8,8 +8,13 @@ import (
 	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
+
+// Compile-time interface conformance check.
+var _ domainrepo.ServicesRepo = (*ServicesRepo)(nil)
 
 // ServicesRepo provides CRUD and FTS5 search for the services table.
 type ServicesRepo struct {
@@ -22,8 +27,8 @@ func NewServicesRepo(db *sql.DB) *ServicesRepo {
 }
 
 // validateService checks business-rule invariants for a service before it
-// reaches the database. Used by both Create and Update.
-func validateService(s *model.Service) error {
+// reaches the database. Used by both Save and Update.
+func validateService(s *entity.Service) error {
 	if strings.TrimSpace(s.Name) == "" {
 		return fmt.Errorf("el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
@@ -36,16 +41,16 @@ func validateService(s *model.Service) error {
 	return nil
 }
 
-// Create inserts a new service. Returns domain.ErrInvalidInput if duration_minutes <= 0,
+// Save inserts a new service. Returns domain.ErrInvalidInput if duration_minutes <= 0,
 // name is empty, or price is zero or negative.
-func (r *ServicesRepo) Create(ctx context.Context, s *model.Service) error {
+func (r *ServicesRepo) Save(ctx context.Context, s *entity.Service) error {
 	if err := validateService(s); err != nil {
 		return fmt.Errorf("crear servicio: %w", err)
 	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO services (id, name, description, duration_minutes, price, is_active)
 		 VALUES (?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Name, s.Description, s.DurationMinutes, s.Price, s.IsActive,
+		s.ID, s.Name, s.Description, s.DurationMinutes, s.Price, s.Active,
 	)
 	if err != nil {
 		return fmt.Errorf("crear servicio: %w", err)
@@ -53,14 +58,14 @@ func (r *ServicesRepo) Create(ctx context.Context, s *model.Service) error {
 	return nil
 }
 
-// Get returns a service by ID. Returns domain.ErrNotFound if not found.
-func (r *ServicesRepo) Get(ctx context.Context, id string) (*model.Service, error) {
-	s := &model.Service{}
+// FindByID returns a service by ID. Returns domain.ErrNotFound if not found.
+func (r *ServicesRepo) FindByID(ctx context.Context, id string) (*entity.Service, error) {
+	s := &entity.Service{}
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, name, description, duration_minutes, price, is_active, created_at, updated_at
 		 FROM services WHERE id = ?`, id,
 	).Scan(&s.ID, &s.Name, &s.Description, &s.DurationMinutes, &s.Price,
-		&s.IsActive, &s.CreatedAt, &s.UpdatedAt)
+		&s.Active, &s.CreatedAt, &s.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("obtener servicio %s: %w", id, domain.ErrNotFound)
@@ -70,8 +75,8 @@ func (r *ServicesRepo) Get(ctx context.Context, id string) (*model.Service, erro
 	return s, nil
 }
 
-// ListActive returns all services with is_active=1, ordered by name.
-func (r *ServicesRepo) ListActive(ctx context.Context) ([]*model.Service, error) {
+// FindActive returns all services with is_active=1, ordered by name.
+func (r *ServicesRepo) FindActive(ctx context.Context) ([]*entity.Service, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, name, description, duration_minutes, price, is_active, created_at, updated_at
 		 FROM services WHERE is_active = 1 ORDER BY name`)
@@ -80,11 +85,11 @@ func (r *ServicesRepo) ListActive(ctx context.Context) ([]*model.Service, error)
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
-	var services []*model.Service
+	var services []*entity.Service
 	for rows.Next() {
-		s := &model.Service{}
+		s := &entity.Service{}
 		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.DurationMinutes,
-			&s.Price, &s.IsActive, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			&s.Price, &s.Active, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("listar servicios activos: escaneo: %w", err)
 		}
 		services = append(services, s)
@@ -97,7 +102,7 @@ func (r *ServicesRepo) ListActive(ctx context.Context) ([]*model.Service, error)
 
 // Update updates an existing service. Returns domain.ErrInvalidInput for invalid
 // fields, domain.ErrNotFound if no row matches.
-func (r *ServicesRepo) Update(ctx context.Context, s *model.Service) error {
+func (r *ServicesRepo) Update(ctx context.Context, s *entity.Service) error {
 	if err := validateService(s); err != nil {
 		return fmt.Errorf("actualizar servicio: %w", err)
 	}
@@ -105,7 +110,7 @@ func (r *ServicesRepo) Update(ctx context.Context, s *model.Service) error {
 		`UPDATE services SET name=?, description=?, duration_minutes=?, price=?,
 		 is_active=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		 WHERE id=?`,
-		s.Name, s.Description, s.DurationMinutes, s.Price, s.IsActive, s.ID,
+		s.Name, s.Description, s.DurationMinutes, s.Price, s.Active, s.ID,
 	)
 	if err != nil {
 		return fmt.Errorf("actualizar servicio: %w", err)
