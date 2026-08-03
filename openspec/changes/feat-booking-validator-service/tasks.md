@@ -1,0 +1,187 @@
+# Tasks: feat-booking-validator-service
+
+> **Change**: feat-booking-validator-service
+> **Status**: Planned
+> **Related**: Issues #22, #23
+> **PRs**: 3 (incremental rollout, see `proposal.md` §Rollout)
+
+## PR #A — BookingValidator + shared helper + AvailabilityService refactor
+
+> **Branch**: `feat/feat-booking-validator-apply-pr-a`
+> **Estimated LOC**: ~560
+> **Pre-flight**: go fmt/vet/build/lint/test -race all pass
+> **GGA**: required
+> **Judgment Day**: required (2 judges)
+> **Regression gate**: 16 existing `availability_test.go` subtests MUST pass unmodified
+
+### RED phase (write tests first)
+
+- [ ] TASK-A.1 — Write `internal/domain/service/booking_time_validator_test.go` with table-driven tests for the 9 subtests per design.md §4.1:
+  1. `past_time` — `Start < time.Now()` → `ErrCodeSlotInPast`, no overlap query
+  2. `business_closed_exception` — closed-day exception → `ErrCodeBusinessClosed`
+  3. `business_closed_json_fallback` — empty weekly JSON → `ErrCodeBusinessClosed`
+  4. `professional_not_working` — no schedule row → `ErrCodeProfessionalNotWorking`
+  5. `slot_ends_after_close` — `slotEnd > effectiveClose` → `ErrCodeSlotOutOfHours`
+  6. `slot_starts_before_business_open` — `slotStart < businessOpen` → `ErrCodeSlotOutOfHours`
+  7. `slot_starts_before_professional_start` — `slotStart < proStart` → `ErrCodeSlotOutOfHours`
+  8. `overlap_detected` — mocked `FindOverlapping` returns 1 → `ErrCodeBookingOverlap`
+  9. `all_pass` — valid slot → `nil`
+  > Test table shape: `[]struct{ name string; input SlotInput; deps BookingTimeValidatorDeps; wantCode *string }`. Tests MUST fail (function doesn't exist yet).
+- [ ] TASK-A.2 — Write `internal/domain/service/booking_validator_test.go` with table-driven tests (12 scenarios per the spec)
+  > Tests MUST fail (struct doesn't exist yet).
+- [ ] TASK-A.3 — Verify pre-flight: `go test -v -race ./internal/domain/service/` shows expected RED (new tests fail with "undefined: ValidateBookingTimeSlot" / "undefined: BookingValidator").
+
+### GREEN phase (implement to pass)
+
+- [ ] TASK-A.4 — Implement `internal/domain/service/booking_time_validator.go` (~140 LOC)
+  > Package-private function `ValidateBookingTimeSlot(ctx, slot, deps) *domain.SemanticError`. Pure function, no I/O, short-circuits on first error. Order: past → business hours → professional schedule → slot-within-hours → overlap.
+- [ ] TASK-A.5 — Implement `internal/domain/service/booking_validator.go` (~120 LOC)
+  > Stateless struct `BookingValidator` with method `Validate(ctx, input ValidateBookingInput) *domain.SemanticError`. Calls the helper.
+- [ ] TASK-A.6 — Refactor `internal/domain/service/availability.go` (~40 LOC change)
+  > Replace the inline 5-step chain in `CheckAvailability` with a call to `ValidateBookingTimeSlot(ctx, slot, deps)`. Method signature, return type, and error codes UNCHANGED. Behaviour byte-equivalent.
+- [ ] TASK-A.7 — Verify pre-flight: `go test -v -race ./...` passes
+  > Specifically: 16 existing subtests in `availability_test.go` pass unmodified + new tests in `booking_time_validator_test.go` (8 subtests) and `booking_validator_test.go` (12 subtests) pass.
+
+### REFACTOR phase (cleanup)
+
+- [ ] TASK-A.8 — Add the `BookingOverlapReader` interface declaration (per design R7 mitigation)
+  > If R7 (import cycle) is observed, declare a zero-dep interface in `internal/domain/repository/booking_overlap_reader.go` and have both `BookingValidator` and `ValidateBookingTimeSlot` accept it. The concrete `mockBookingsRepo` already satisfies it structurally.
+- [ ] TASK-A.9 — Run `gofmt -s -w` on the new files
+- [ ] TASK-A.10 — Update `openspec/changes/feat-booking-validator-service/tasks.md` to mark all TASK-A.* as [x] with one-line "Actual impl" notes
+
+### Commit + Push + PR
+
+- [ ] TASK-A.11 — Create branch `feat/feat-booking-validator-apply-pr-a` from main
+- [ ] TASK-A.12 — `git add` only the 4 new files + `availability.go` + `tasks.md`
+  > Do NOT add the parked `openspec/changes/feat-booking-validator-service/exploration.md` (it's a record, not part of this PR)
+- [ ] TASK-A.13 — GGA pre-commit. If GGA picks up the parked file, run `git rm --cached openspec/changes/feat-booking-validator-service/exploration.md && git commit --amend --no-edit`
+- [ ] TASK-A.14 — Commit message: `feat(domain/service): PR-A BookingValidator + ValidateBookingTimeSlot helper + AvailabilityService refactor (#22, #23)`
+  > Body: Adds the new BookingValidator domain service and the shared ValidateBookingTimeSlot helper, refactors AvailabilityService.CheckAvailability to delegate to the helper (byte-equivalent, 16-subtest regression gate). Closes the ErrCode gap for #22, #23.
+- [ ] TASK-A.15 — Push to origin, open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-a --title "feat(domain/service): PR-A BookingValidator + shared helper + AvailabilityService refactor (#22, #23)"`
+- [ ] TASK-A.16 — Judgment Day: 2 judges (jd-judge-a, jd-judge-b) in parallel, blind, against commit SHA
+  > If both judges report zero severe findings → terminal_state=approved
+  > If any severe finding → fix-actor round (max 2 rounds per skill contract)
+- [ ] TASK-A.17 — After terminal_state=approved → ask user "¿Hacemos commit?" and wait for green light
+
+### Pre-flight gates (verify before each commit)
+
+- [ ] TASK-A.18 — `go fmt ./...` clean
+- [ ] TASK-A.19 — `go vet ./...` clean
+- [ ] TASK-A.20 — `go build -o /dev/null ./...` passes
+- [ ] TASK-A.21 — `golangci-lint run ./...` 0 issues
+- [ ] TASK-A.22 — `go test -v -race ./...` all pass (including the 16 availability_test.go subtests unmodified)
+
+---
+
+## PR #B — CreateBookingUseCase integration
+
+> **Branch**: `feat/feat-booking-validator-apply-pr-b`
+> **Estimated LOC**: ~80 change (3 files modified)
+> **Pre-flight**: go fmt/vet/build/lint/test -race all pass
+> **GGA**: required
+> **Judgment Day**: required (2 judges)
+> **Dependency**: PR #A merged
+
+### Implementation
+
+- [ ] TASK-B.1 — Modify `internal/application/usecase/create_booking.go`: add `validator domain.BookingValidator` to the struct, add constructor param, inject call before `bookings.Create`
+- [ ] TASK-B.2 — Resolve entities (service, professional, business profile) BEFORE calling validator
+  > Reuse the existing resolution logic — DO NOT duplicate
+- [ ] TASK-B.3 — On validator error, return as-is. On validator pass, dispatch to repo. On `domain.ErrConflict` from repo, map to `ErrCodeBookingOverlap` as today (TOCTOU)
+- [ ] TASK-B.4 — Extend `internal/application/usecase/create_booking_test.go` with 8 table-driven subtests (matches design.md §4.2):
+  1. `happy_path` — validator returns `nil`, repo returns `nil` → result.BookingID != ""
+  2. `past_slot` — validator returns `ErrCodeSlotInPast` → use case returns same
+  3. `business_closed` — validator returns `ErrCodeBusinessClosed` → use case returns same
+  4. `professional_not_working` — validator returns `ErrCodeProfessionalNotWorking` → use case returns same
+  5. `slot_out_of_hours` — validator returns `ErrCodeSlotOutOfHours` → use case returns same
+  6. `overlap` — validator returns `ErrCodeBookingOverlap` → use case returns same
+  7. `service_not_active` — use case's OWN active-status check (validator NOT called) → `ErrCodeServiceNotActive`
+  8. `toctou_repo_overlap` — validator returns `nil`, repo returns `domain.ErrConflict` → use case maps to `ErrCodeBookingOverlap`
+  > Subtests 2–6 prove the use case propagates validator errors unchanged (REQ-BK-10, REQ-BK-11). Subtest 7 proves the use case's pre-validator active check still works. Subtest 8 is the TOCTOU guard (REQ-BK-12) and proves the repo atomic check stays reachable.
+- [ ] TASK-B.5 — Add `mockBookingValidator` to test file (function-table pattern matching `internal/domain/service/mocks_test.go`)
+
+### DI wiring (required in same PR — TASK-FU.3 superseded)
+
+- [ ] TASK-B.6 — **MUST update** `cmd/mcp-server/main.go`: construct `NewBookingValidator()` once as a singleton, pass it to the new `NewCreateBookingUseCase(...)` constructor. The use case gains 5 new repo params (Pros, BizProf, BizEx, Schedules — see design.md §3.4) plus the validator; main.go MUST be updated in this PR or the build breaks. (TASK-FU.3 is partially superseded: PR #B handles CreateBooking wiring; PR #C handles RescheduleBooking wiring. Full P4 DI is the refactor-clean-architecture P4 task.)
+
+### Pre-flight + Commit + PR
+
+- [ ] TASK-B.7 — Create branch `feat/feat-booking-validator-apply-pr-b` from main
+- [ ] TASK-B.8 — `git add` modified files: `create_booking.go`, `create_booking_test.go`, `cmd/mcp-server/main.go`, `tasks.md`
+- [ ] TASK-B.9 — GGA pre-commit
+- [ ] TASK-B.10 — Commit message: `feat(usecase): PR-B CreateBookingUseCase integrates BookingValidator (#22, #23)`
+  > Body: Wires BookingValidator into CreateBookingUseCase before repo dispatch. Closes the ErrCode gap: Create now emits all 7 ErrCode* values via the validator, plus ErrCodeBookingOverlap via the repo's atomic guard (TOCTOU defense-in-depth).
+- [ ] TASK-B.11 — Push to origin and open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-b --title "feat(usecase): PR-B CreateBookingUseCase integrates BookingValidator (#22, #23)"`
+- [ ] TASK-B.12 — Judgment Day: 2 judges in parallel
+- [ ] TASK-B.13 — Ask user "¿Hacemos commit?" after approval
+- [ ] TASK-B.14 — `go test -v -race ./...` all pass
+- [ ] TASK-B.15 — `golangci-lint run ./...` 0 issues
+
+---
+
+## PR #C — RescheduleBookingUseCase integration + cleanup
+
+> **Branch**: `feat/feat-booking-validator-apply-pr-c`
+> **Estimated LOC**: ~80 change
+> **Dependency**: PR #B merged
+
+### Implementation
+
+- [ ] TASK-C.1 — Modify `internal/application/usecase/reschedule_booking.go`: same pattern as PR #B. The use case struct gains `validator domain.BookingValidator` plus the 5 new repo params (Pros, BizProf, BizEx, Schedules, plus the existing bookings). Constructor signature mirrors PR #B.
+- [ ] TASK-C.2 — Load the existing booking first (`bookings.FindByID(ctx, input.BookingID)`) and run `CanReschedule` check as today. If `CanReschedule` fails, return the error. Only after `CanReschedule` passes does the use case resolve the new-slot entities (svc, pro, profile, schedule, exception) and call `validator.Validate(ctx, ...)`.
+  > **Reschedule-specific difference vs Create**: the matrix runs after the existing-booking load + `CanReschedule` check. The subtests in TASK-C.4 are constructed to set up a valid pre-state (existing booking that passes `CanReschedule`) and then exercise the new-slot validation matrix.
+- [ ] TASK-C.3 — On validator error, return as-is. On validator pass, dispatch to `bookings.Reschedule`. On `domain.ErrConflict` from repo, map to `ErrCodeBookingOverlap` as today (TOCTOU — same pattern as Create).
+- [ ] TASK-C.4 — Extend `internal/application/usecase/reschedule_booking_test.go` with the same 8-row matrix as PR #B (design.md §4.3), adapted to reschedule input shapes (pre-load existing booking, then exercise validator + repo paths). Reuse `mockBookingValidator` from PR #B.
+- [ ] TASK-C.5 — Final cleanup: verify no orphan code, all error codes emit correctly, run `go test -v -race ./...` end-to-end. The shared `BookingValidator` instance from `main.go` is now used by both `CreateBookingUseCase` and `RescheduleBookingUseCase` (single instance, two consumers).
+
+### DI wiring (required in same PR — TASK-FU.3 partially superseded)
+
+- [ ] TASK-C.6 — **MUST update** `cmd/mcp-server/main.go`: pass the existing `NewBookingValidator()` singleton (from PR #B) to the new `NewRescheduleBookingUseCase(...)` constructor. The 5 new repo params (Pros, BizProf, BizEx, Schedules, plus existing bookings) are added. main.go MUST be updated in this PR or the build breaks.
+
+### Pre-flight + Commit + PR
+
+- [ ] TASK-C.7 — Create branch `feat/feat-booking-validator-apply-pr-c` from main
+- [ ] TASK-C.8 — `git add` modified files: `reschedule_booking.go`, `reschedule_booking_test.go`, `cmd/mcp-server/main.go`, `tasks.md`
+- [ ] TASK-C.9 — GGA pre-commit
+- [ ] TASK-C.10 — Commit message: `feat(usecase): PR-C RescheduleBookingUseCase integrates BookingValidator + cleanup (#22, #23)`
+  > Body: Wires BookingValidator into RescheduleBookingUseCase. Both Create and Reschedule now emit the full ErrCode taxonomy. Closes issues #22 and #23.
+- [ ] TASK-C.11 — Push to origin and open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-c --title "feat(usecase): PR-C RescheduleBookingUseCase integrates BookingValidator + cleanup (#22, #23)"`
+- [ ] TASK-C.12 — Judgment Day: 2 judges in parallel
+- [ ] TASK-C.13 — Ask user "¿Hacemos commit?" after approval
+- [ ] TASK-C.14 — `go test -v -race ./...` all pass
+- [ ] TASK-C.15 — `golangci-lint run ./...` 0 issues
+
+---
+
+## Out of scope (deferred follow-ups)
+
+- [ ] TASK-FU.1 — Remove the fragile `domain.ErrConflict` → `ErrCodeBookingOverlap` mapping in the use cases (now provably safe but fragile by type system)
+- [ ] TASK-FU.2 — CheckAvailabilityUseCase migration to BookingValidator (deferred per proposal decision 2)
+- [ ] TASK-FU.3 — Full DI wiring cleanup in `cmd/mcp-server/main.go` (P4 of refactor-clean-architecture). Note: PR #B and PR #C of THIS change already do partial main.go wiring (passing the validator + new repo params to the new use case constructors). TASK-FU.3 is the P4 sweep that wires the remaining repos/handlers and removes any leftover no-op patterns.
+- [ ] TASK-FU.4 — Error code renames or consolidation
+- [ ] TASK-FU.5 — FTS5-based validation performance optimization
+- [ ] TASK-FU.6 — Telemetry/observability for validation failures
+- [ ] TASK-FU.7 — BulkCreateBookings / BulkRescheduleBookings use cases (mentioned in #22)
+
+---
+
+## Success Criteria
+
+- [ ] PR #A merged: `BookingValidator` + `ValidateBookingTimeSlot` exist; `AvailabilityService` 16-subtest regression gate passes
+- [ ] PR #B merged: `CreateBookingUseCase` emits all 7 ErrCode* values
+- [ ] PR #C merged: `RescheduleBookingUseCase` emits all 7 ErrCode* values
+- [ ] Issues #22 and #23 are closable (ErrCode gap closed, knowledge consolidated in domain service)
+- [ ] `refactor-clean-architecture` P3.3b-d and P4 are unblocked
+
+---
+
+## Review Workload Forecast
+
+- PR #A: 560 LOC (within 800 budget, no chained PR needed)
+- PR #B: 80 LOC
+- PR #C: 80 LOC
+- Total: 720 LOC across 3 PRs
+- Decision needed before apply: **No** (560 < 800 budget)
+- Chained PRs recommended: **No**
+- Chain strategy: **pending / single-PR-tracker**
+- 400-line budget risk: **Low** (within approved 800 budget)
