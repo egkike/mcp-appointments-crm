@@ -10,9 +10,8 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
 // testHandler is a slog.Handler that captures records for inspection in tests.
@@ -102,27 +101,22 @@ func (f *levelFilter) WithGroup(g string) slog.Handler {
 // ptr is a small helper to take the address of a literal.
 func ptr[T any](v T) *T { return &v }
 
-// withActorContext returns a context carrying an auth.Caller.
-func withActorContext(actorID string) context.Context {
-	return auth.WithCaller(context.Background(), auth.Caller{ID: actorID, Role: auth.RoleAdmin})
-}
-
 // --- Create ---
 
 func TestAccountsRepo_Create_Admin_Success(t *testing.T) {
 	repo, mock, handler := newRepoWithMock(t)
-	ctx := withActorContext("admin-001")
+	ctx := adminCtx()
 
 	mock.ExpectExec(
 		`INSERT INTO accounts (id, role, display_name, professional_id, is_active) VALUES (?, ?, ?, ?, ?)`,
 	).WithArgs("+5491100000000", "admin", "Juan", nil, 1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err := repo.Create(ctx, &model.Account{
+	err := repo.Create(ctx, &entity.Account{
 		ID:          "+5491100000000",
-		Role:        "admin",
+		Role:        entity.RoleAdmin,
 		DisplayName: "Juan",
-		IsActive:    true,
+		Active:      true,
 	})
 	if err != nil {
 		t.Fatalf("Create: unexpected error: %v", err)
@@ -154,7 +148,7 @@ func TestAccountsRepo_Create_Admin_Success(t *testing.T) {
 
 func TestAccountsRepo_Create_Owner_NoExistingOwner_Success(t *testing.T) {
 	repo, mock, handler := newRepoWithMock(t)
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	mock.ExpectQuery(`SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
@@ -163,11 +157,11 @@ func TestAccountsRepo_Create_Owner_NoExistingOwner_Success(t *testing.T) {
 	).WithArgs("+5491100000000", "owner", "Dueño", nil, 1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err := repo.Create(ctx, &model.Account{
+	err := repo.Create(ctx, &entity.Account{
 		ID:          "+5491100000000",
-		Role:        "owner",
+		Role:        entity.RoleOwner,
 		DisplayName: "Dueño",
-		IsActive:    true,
+		Active:      true,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -179,26 +173,26 @@ func TestAccountsRepo_Create_Owner_NoExistingOwner_Success(t *testing.T) {
 	if attrs == nil {
 		t.Fatal("expected 'account created' record")
 	}
-	if _, ok := attrs["actor_id"]; ok {
-		t.Error("expected NO actor_id attribute when ctx has no caller")
+	if _, ok := attrs["actor_id"]; !ok {
+		t.Error("expected actor_id attribute when ctx has admin caller")
 	}
 }
 
 func TestAccountsRepo_Create_Staff_WithProfessionalID_Success(t *testing.T) {
 	repo, mock, _ := newRepoWithMock(t)
-	ctx := withActorContext("admin-001")
+	ctx := adminCtx()
 
 	mock.ExpectExec(
 		`INSERT INTO accounts (id, role, display_name, professional_id, is_active) VALUES (?, ?, ?, ?, ?)`,
 	).WithArgs("+5491100002222", "staff", "Ana", "p-001", 1).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	err := repo.Create(ctx, &model.Account{
+	err := repo.Create(ctx, &entity.Account{
 		ID:             "+5491100002222",
-		Role:           "staff",
+		Role:           entity.RoleStaff,
 		DisplayName:    "Ana",
 		ProfessionalID: ptr("p-001"),
-		IsActive:       true,
+		Active:         true,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -208,11 +202,25 @@ func TestAccountsRepo_Create_Staff_WithProfessionalID_Success(t *testing.T) {
 	}
 }
 
+func TestAccountsRepo_Create_NoAuth_ErrUnauthenticated(t *testing.T) {
+	repo, _, _ := newRepoWithMock(t)
+	err := repo.Create(context.Background(), &entity.Account{
+		ID:   "+5491100000000",
+		Role: entity.RoleAdmin,
+	})
+	if err == nil {
+		t.Fatal("expected error when no auth context")
+	}
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Fatalf("expected domain.ErrUnauthenticated, got %v", err)
+	}
+}
+
 func TestAccountsRepo_Create_EmptyID_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
-	err := repo.Create(context.Background(), &model.Account{
+	err := repo.Create(adminCtx(), &entity.Account{
 		ID:   "",
-		Role: "admin",
+		Role: entity.RoleAdmin,
 	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
@@ -221,9 +229,9 @@ func TestAccountsRepo_Create_EmptyID_ErrInvalidInput(t *testing.T) {
 
 func TestAccountsRepo_Create_InvalidRole_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
-	err := repo.Create(context.Background(), &model.Account{
+	err := repo.Create(adminCtx(), &entity.Account{
 		ID:   "+5491100000000",
-		Role: "manager",
+		Role: entity.AccountRole("manager"),
 	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
@@ -232,9 +240,9 @@ func TestAccountsRepo_Create_InvalidRole_ErrInvalidInput(t *testing.T) {
 
 func TestAccountsRepo_Create_StaffWithoutProfessionalID_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
-	err := repo.Create(context.Background(), &model.Account{
+	err := repo.Create(adminCtx(), &entity.Account{
 		ID:   "+5491100002222",
-		Role: "staff",
+		Role: entity.RoleStaff,
 	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
@@ -243,16 +251,16 @@ func TestAccountsRepo_Create_StaffWithoutProfessionalID_ErrInvalidInput(t *testi
 
 func TestAccountsRepo_Create_SecondOwner_ErrConflict_WithWarnAudit(t *testing.T) {
 	repo, mock, handler := newRepoWithMock(t)
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	mock.ExpectQuery(`SELECT COUNT(*) FROM accounts WHERE role = 'owner' AND is_active = 1`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
-	err := repo.Create(ctx, &model.Account{
+	err := repo.Create(ctx, &entity.Account{
 		ID:          "+5491100009999",
-		Role:        "owner",
+		Role:        entity.RoleOwner,
 		DisplayName: "Otro",
-		IsActive:    true,
+		Active:      true,
 	})
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("expected domain.ErrConflict, got %v", err)
@@ -275,11 +283,11 @@ func TestAccountsRepo_Create_UniqueViolation_ErrConflict(t *testing.T) {
 	).WithArgs("+5491100000000", "admin", "Dup", nil, 1).
 		WillReturnError(errors.New("UNIQUE constraint failed: accounts.id"))
 
-	err := repo.Create(context.Background(), &model.Account{
+	err := repo.Create(adminCtx(), &entity.Account{
 		ID:          "+5491100000000",
-		Role:        "admin",
+		Role:        entity.RoleAdmin,
 		DisplayName: "Dup",
-		IsActive:    true,
+		Active:      true,
 	})
 	if !errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("expected domain.ErrConflict, got %v", err)
@@ -294,8 +302,8 @@ func TestAccountsRepo_Create_DBError_Wrapped(t *testing.T) {
 	).WithArgs("+5491100000000", "admin", "X", nil, 1).
 		WillReturnError(errors.New("connection lost"))
 
-	err := repo.Create(context.Background(), &model.Account{
-		ID: "+5491100000000", Role: "admin", DisplayName: "X", IsActive: true,
+	err := repo.Create(adminCtx(), &entity.Account{
+		ID: "+5491100000000", Role: entity.RoleAdmin, DisplayName: "X", Active: true,
 	})
 	if err == nil || errors.Is(err, domain.ErrConflict) {
 		t.Fatalf("expected wrapped DB error (not domain.ErrConflict), got %v", err)
@@ -305,9 +313,9 @@ func TestAccountsRepo_Create_DBError_Wrapped(t *testing.T) {
 	}
 }
 
-// --- Get ---
+// --- FindByID ---
 
-func TestAccountsRepo_Get_Success(t *testing.T) {
+func TestAccountsRepo_FindByID_Success(t *testing.T) {
 	repo, mock, handler := newRepoWithMock(t)
 
 	row := sqlmock.NewRows([]string{"id", "role", "display_name", "professional_id", "is_active", "created_at", "updated_at"}).
@@ -316,11 +324,11 @@ func TestAccountsRepo_Get_Success(t *testing.T) {
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts WHERE id = ?`,
 	).WithArgs("+5491100000000").WillReturnRows(row)
 
-	a, err := repo.Get(context.Background(), "+5491100000000")
+	a, err := repo.FindByID(adminCtx(), "+5491100000000")
 	if err != nil {
-		t.Fatalf("Get: %v", err)
+		t.Fatalf("FindByID: %v", err)
 	}
-	if a.ID != "+5491100000000" || a.Role != "admin" || !a.IsActive {
+	if a.ID != "+5491100000000" || a.Role != entity.RoleAdmin || !a.Active {
 		t.Errorf("unexpected account: %+v", a)
 	}
 	if len(handler.records) != 0 {
@@ -328,27 +336,38 @@ func TestAccountsRepo_Get_Success(t *testing.T) {
 	}
 }
 
-func TestAccountsRepo_Get_NotFound_ErrNotFound(t *testing.T) {
+func TestAccountsRepo_FindByID_NotFound_ErrNotFound(t *testing.T) {
 	repo, mock, _ := newRepoWithMock(t)
 
 	mock.ExpectQuery(
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts WHERE id = ?`,
 	).WithArgs("nope").WillReturnError(sql.ErrNoRows)
 
-	_, err := repo.Get(context.Background(), "nope")
+	_, err := repo.FindByID(adminCtx(), "nope")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected domain.ErrNotFound, got %v", err)
 	}
 }
 
-func TestAccountsRepo_Get_DBError_Wrapped(t *testing.T) {
+func TestAccountsRepo_FindByID_NoAuth_ErrUnauthenticated(t *testing.T) {
+	repo, _, _ := newRepoWithMock(t)
+	_, err := repo.FindByID(context.Background(), "+5491100000000")
+	if err == nil {
+		t.Fatal("expected error when no auth context")
+	}
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Fatalf("expected domain.ErrUnauthenticated, got %v", err)
+	}
+}
+
+func TestAccountsRepo_FindByID_DBError_Wrapped(t *testing.T) {
 	repo, mock, _ := newRepoWithMock(t)
 
 	mock.ExpectQuery(
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts WHERE id = ?`,
 	).WithArgs("+5491100000000").WillReturnError(errors.New("connection lost"))
 
-	_, err := repo.Get(context.Background(), "+5491100000000")
+	_, err := repo.FindByID(adminCtx(), "+5491100000000")
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -369,7 +388,7 @@ func TestAccountsRepo_GetByRole_Admin_Success(t *testing.T) {
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts WHERE role = ? ORDER BY created_at ASC`,
 	).WithArgs("admin").WillReturnRows(rows)
 
-	list, err := repo.GetByRole(context.Background(), "admin")
+	list, err := repo.GetByRole(adminCtx(), entity.RoleAdmin)
 	if err != nil {
 		t.Fatalf("GetByRole: %v", err)
 	}
@@ -388,7 +407,7 @@ func TestAccountsRepo_GetByRole_NoMatch_EmptySlice(t *testing.T) {
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts WHERE role = ? ORDER BY created_at ASC`,
 	).WithArgs("staff").WillReturnRows(sqlmock.NewRows([]string{"id", "role", "display_name", "professional_id", "is_active", "created_at", "updated_at"}))
 
-	list, err := repo.GetByRole(context.Background(), "staff")
+	list, err := repo.GetByRole(adminCtx(), entity.RoleStaff)
 	if err != nil {
 		t.Fatalf("GetByRole: %v", err)
 	}
@@ -399,9 +418,20 @@ func TestAccountsRepo_GetByRole_NoMatch_EmptySlice(t *testing.T) {
 
 func TestAccountsRepo_GetByRole_InvalidRole_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
-	_, err := repo.GetByRole(context.Background(), "client")
+	_, err := repo.GetByRole(adminCtx(), entity.AccountRole("client"))
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected domain.ErrInvalidInput for role=client, got %v", err)
+	}
+}
+
+func TestAccountsRepo_GetByRole_NoAuth_ErrUnauthenticated(t *testing.T) {
+	repo, _, _ := newRepoWithMock(t)
+	_, err := repo.GetByRole(context.Background(), entity.RoleAdmin)
+	if err == nil {
+		t.Fatal("expected error when no auth context")
+	}
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Fatalf("expected domain.ErrUnauthenticated, got %v", err)
 	}
 }
 
@@ -417,7 +447,7 @@ func TestAccountsRepo_List_All_Success(t *testing.T) {
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts ORDER BY created_at ASC`,
 	).WillReturnRows(rows)
 
-	list, err := repo.List(context.Background())
+	list, err := repo.List(adminCtx())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -436,7 +466,7 @@ func TestAccountsRepo_List_Empty_EmptySlice(t *testing.T) {
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts ORDER BY created_at ASC`,
 	).WillReturnRows(sqlmock.NewRows([]string{"id", "role", "display_name", "professional_id", "is_active", "created_at", "updated_at"}))
 
-	list, err := repo.List(context.Background())
+	list, err := repo.List(adminCtx())
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
@@ -445,11 +475,22 @@ func TestAccountsRepo_List_Empty_EmptySlice(t *testing.T) {
 	}
 }
 
+func TestAccountsRepo_List_NoAuth_ErrUnauthenticated(t *testing.T) {
+	repo, _, _ := newRepoWithMock(t)
+	_, err := repo.List(context.Background())
+	if err == nil {
+		t.Fatal("expected error when no auth context")
+	}
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Fatalf("expected domain.ErrUnauthenticated, got %v", err)
+	}
+}
+
 // --- Update ---
 
 func TestAccountsRepo_Update_Admin_Success(t *testing.T) {
 	repo, mock, handler := newRepoWithMock(t)
-	ctx := withActorContext("admin-001")
+	ctx := adminCtx()
 
 	mock.ExpectQuery(`SELECT 1 FROM accounts WHERE id = ?`).
 		WithArgs("+5491100000000").
@@ -459,11 +500,11 @@ func TestAccountsRepo_Update_Admin_Success(t *testing.T) {
 	).WithArgs("admin", "Juan Updated", nil, 1, "+5491100000000").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	err := repo.Update(ctx, &model.Account{
+	err := repo.Update(ctx, &entity.Account{
 		ID:          "+5491100000000",
-		Role:        "admin",
+		Role:        entity.RoleAdmin,
 		DisplayName: "Juan Updated",
-		IsActive:    true,
+		Active:      true,
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
@@ -495,21 +536,35 @@ func TestAccountsRepo_Update_NotFound_ErrNotFound(t *testing.T) {
 	mock.ExpectQuery(`SELECT 1 FROM accounts WHERE id = ?`).
 		WithArgs("nope").WillReturnError(sql.ErrNoRows)
 
-	err := repo.Update(context.Background(), &model.Account{
+	err := repo.Update(adminCtx(), &entity.Account{
 		ID:          "nope",
-		Role:        "admin",
+		Role:        entity.RoleAdmin,
 		DisplayName: "X",
-		IsActive:    true,
+		Active:      true,
 	})
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected domain.ErrNotFound, got %v", err)
 	}
 }
 
+func TestAccountsRepo_Update_NoAuth_ErrUnauthenticated(t *testing.T) {
+	repo, _, _ := newRepoWithMock(t)
+	err := repo.Update(context.Background(), &entity.Account{
+		ID:   "+5491100000000",
+		Role: entity.RoleAdmin,
+	})
+	if err == nil {
+		t.Fatal("expected error when no auth context")
+	}
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Fatalf("expected domain.ErrUnauthenticated, got %v", err)
+	}
+}
+
 func TestAccountsRepo_Update_InvalidRole_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
-	err := repo.Update(context.Background(), &model.Account{
-		ID: "+5491100000000", Role: "client", IsActive: true,
+	err := repo.Update(adminCtx(), &entity.Account{
+		ID: "+5491100000000", Role: entity.AccountRole("client"), Active: true,
 	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
@@ -518,8 +573,8 @@ func TestAccountsRepo_Update_InvalidRole_ErrInvalidInput(t *testing.T) {
 
 func TestAccountsRepo_Update_StaffWithoutProfessionalID_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
-	err := repo.Update(context.Background(), &model.Account{
-		ID: "+5491100002222", Role: "staff", IsActive: true,
+	err := repo.Update(adminCtx(), &entity.Account{
+		ID: "+5491100002222", Role: entity.RoleStaff, Active: true,
 	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
@@ -530,7 +585,7 @@ func TestAccountsRepo_Update_StaffWithoutProfessionalID_ErrInvalidInput(t *testi
 
 func TestAccountsRepo_Deactivate_ActiveToInactive_Success(t *testing.T) {
 	repo, mock, handler := newRepoWithMock(t)
-	ctx := withActorContext("admin-001")
+	ctx := adminCtx()
 
 	mock.ExpectQuery(`SELECT is_active, role FROM accounts WHERE id = ?`).
 		WithArgs("+5491100000000").
@@ -571,7 +626,7 @@ func TestAccountsRepo_Deactivate_AlreadyInactive_NoOp_NoAudit(t *testing.T) {
 		WithArgs("+5491100000000").
 		WillReturnRows(sqlmock.NewRows([]string{"is_active", "role"}).AddRow(0, "admin"))
 
-	err := repo.Deactivate(context.Background(), "+5491100000000")
+	err := repo.Deactivate(adminCtx(), "+5491100000000")
 	if err != nil {
 		t.Fatalf("Deactivate (already inactive): %v", err)
 	}
@@ -586,7 +641,7 @@ func TestAccountsRepo_Deactivate_NotFound_ErrNotFound(t *testing.T) {
 	mock.ExpectQuery(`SELECT is_active, role FROM accounts WHERE id = ?`).
 		WithArgs("nope").WillReturnError(sql.ErrNoRows)
 
-	err := repo.Deactivate(context.Background(), "nope")
+	err := repo.Deactivate(adminCtx(), "nope")
 	if !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("expected domain.ErrNotFound, got %v", err)
 	}
@@ -594,9 +649,20 @@ func TestAccountsRepo_Deactivate_NotFound_ErrNotFound(t *testing.T) {
 
 func TestAccountsRepo_Deactivate_EmptyID_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
-	err := repo.Deactivate(context.Background(), "")
+	err := repo.Deactivate(adminCtx(), "")
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestAccountsRepo_Deactivate_NoAuth_ErrUnauthenticated(t *testing.T) {
+	repo, _, _ := newRepoWithMock(t)
+	err := repo.Deactivate(context.Background(), "+5491100000000")
+	if err == nil {
+		t.Fatal("expected error when no auth context")
+	}
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Fatalf("expected domain.ErrUnauthenticated, got %v", err)
 	}
 }
 
@@ -609,7 +675,7 @@ func TestAccountsRepo_IsActive_True(t *testing.T) {
 		WithArgs("+5491100000000").
 		WillReturnRows(sqlmock.NewRows([]string{"is_active"}).AddRow(1))
 
-	active, err := repo.IsActive(context.Background(), "+5491100000000")
+	active, err := repo.IsActive(adminCtx(), "+5491100000000")
 	if err != nil {
 		t.Fatalf("IsActive: %v", err)
 	}
@@ -628,7 +694,7 @@ func TestAccountsRepo_IsActive_False_ExistingRow(t *testing.T) {
 		WithArgs("+5491100000000").
 		WillReturnRows(sqlmock.NewRows([]string{"is_active"}).AddRow(0))
 
-	active, err := repo.IsActive(context.Background(), "+5491100000000")
+	active, err := repo.IsActive(adminCtx(), "+5491100000000")
 	if err != nil {
 		t.Fatalf("IsActive: %v", err)
 	}
@@ -646,7 +712,7 @@ func TestAccountsRepo_IsActive_MissingRow_ReturnsFalseNoError(t *testing.T) {
 	mock.ExpectQuery(`SELECT is_active FROM accounts WHERE id = ?`).
 		WithArgs("nope").WillReturnError(sql.ErrNoRows)
 
-	active, err := repo.IsActive(context.Background(), "nope")
+	active, err := repo.IsActive(adminCtx(), "nope")
 	if err != nil {
 		t.Fatalf("IsActive on missing row: unexpected error: %v", err)
 	}
@@ -655,6 +721,17 @@ func TestAccountsRepo_IsActive_MissingRow_ReturnsFalseNoError(t *testing.T) {
 	}
 	if len(handler.records) != 0 {
 		t.Errorf("read method should not emit audit logs, got %d records", len(handler.records))
+	}
+}
+
+func TestAccountsRepo_IsActive_NoAuth_ErrUnauthenticated(t *testing.T) {
+	repo, _, _ := newRepoWithMock(t)
+	_, err := repo.IsActive(context.Background(), "acc-1")
+	if err == nil {
+		t.Fatal("expected error when no auth context")
+	}
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Fatalf("expected domain.ErrUnauthenticated, got %v", err)
 	}
 }
 
@@ -670,7 +747,7 @@ func TestAccountsRepo_ListByProfessional_Success(t *testing.T) {
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts WHERE role = 'staff' AND professional_id = ? ORDER BY display_name ASC`,
 	).WithArgs("p-001").WillReturnRows(rows)
 
-	list, err := repo.ListByProfessional(context.Background(), "p-001")
+	list, err := repo.ListByProfessional(adminCtx(), "p-001")
 	if err != nil {
 		t.Fatalf("ListByProfessional: %v", err)
 	}
@@ -689,7 +766,7 @@ func TestAccountsRepo_ListByProfessional_NoMatch_EmptySlice(t *testing.T) {
 		`SELECT id, role, display_name, professional_id, is_active, created_at, updated_at FROM accounts WHERE role = 'staff' AND professional_id = ? ORDER BY display_name ASC`,
 	).WithArgs("p-999").WillReturnRows(sqlmock.NewRows([]string{"id", "role", "display_name", "professional_id", "is_active", "created_at", "updated_at"}))
 
-	list, err := repo.ListByProfessional(context.Background(), "p-999")
+	list, err := repo.ListByProfessional(adminCtx(), "p-999")
 	if err != nil {
 		t.Fatalf("ListByProfessional: %v", err)
 	}
@@ -700,8 +777,19 @@ func TestAccountsRepo_ListByProfessional_NoMatch_EmptySlice(t *testing.T) {
 
 func TestAccountsRepo_ListByProfessional_EmptyProfessionalID_ErrInvalidInput(t *testing.T) {
 	repo, _, _ := newRepoWithMock(t)
-	_, err := repo.ListByProfessional(context.Background(), "")
+	_, err := repo.ListByProfessional(adminCtx(), "")
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Fatalf("expected domain.ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestAccountsRepo_ListByProfessional_NoAuth_ErrUnauthenticated(t *testing.T) {
+	repo, _, _ := newRepoWithMock(t)
+	_, err := repo.ListByProfessional(context.Background(), "p-1")
+	if err == nil {
+		t.Fatal("expected error when no auth context")
+	}
+	if !errors.Is(err, domain.ErrUnauthenticated) {
+		t.Fatalf("expected domain.ErrUnauthenticated, got %v", err)
 	}
 }
