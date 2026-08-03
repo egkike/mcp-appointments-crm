@@ -155,7 +155,8 @@ Each repo must add interface conformance and rename methods to match domain inte
   > Actual impl: Create→Save (param model→entity, ScheduledDatetime time.Time→string via FormatStorage). ListPending→FindPending (removed limit param, beforeTime string→now time.Time, scans datetime string→time.Time via parseStorageTime). Compile-time assertion added.
 - [x] P3.2h — `SchedulesRepo`: implement `domain.ScheduleRepository`, update `schedules_test.go`
   > Actual impl: GetByProfessionalAndDay→FindByProfessionalAndDay. Upsert param changed to entity.Schedule. Entity fields match model exactly. Compile-time assertion added.
-- [ ] P3.2i — `AccountsRepo`: implement `domain.AccountRepository`, update `accounts_test.go`
+- [x] P3.2i — `AccountsRepo`: implement `domain.AccountRepository`, update `accounts_test.go`
+  > Actual impl: Get→FindByID. model.Account→entity.Account (Role string→AccountRole, IsActive→Active). Auth gates: RequireRole(admin,owner) for Create/Update/Deactivate, RequireCaller for reads. Scan helpers cast role string→AccountRole. Compile-time assertion added. 34 tests pass (added 4 auth-gate tests).
 
 ### P3.3 — Move business logic out of repos
 
