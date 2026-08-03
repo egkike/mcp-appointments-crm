@@ -8,6 +8,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -83,7 +84,7 @@ func TestClientsRepo_Create(t *testing.T) {
 	})
 }
 
-func TestClientsRepo_Get(t *testing.T) {
+func TestClientsRepo_FindByID(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewClientsRepo(db)
@@ -96,7 +97,7 @@ func TestClientsRepo_Get(t *testing.T) {
 			WithArgs("cli-1").
 			WillReturnRows(rows)
 
-		c, err := repo.Get(context.Background(), "cli-1")
+		c, err := repo.FindByID(context.Background(), "cli-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -105,6 +106,9 @@ func TestClientsRepo_Get(t *testing.T) {
 		}
 		if c.Phone != "+5491112345678" {
 			t.Errorf("got Phone=%q, want %q", c.Phone, "+5491112345678")
+		}
+		if !c.Active {
+			t.Error("expected Active=true")
 		}
 	})
 
@@ -116,7 +120,7 @@ func TestClientsRepo_Get(t *testing.T) {
 			WithArgs("missing").
 			WillReturnError(sql.ErrNoRows)
 
-		_, err := repo.Get(context.Background(), "missing")
+		_, err := repo.FindByID(context.Background(), "missing")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -130,14 +134,14 @@ func TestClientsRepo_Get(t *testing.T) {
 			WithArgs("cli-1").
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.Get(context.Background(), "cli-1")
+		_, err := repo.FindByID(context.Background(), "cli-1")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
 	})
 }
 
-func TestClientsRepo_GetByPhone(t *testing.T) {
+func TestClientsRepo_FindByPhone(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewClientsRepo(db)
@@ -150,12 +154,15 @@ func TestClientsRepo_GetByPhone(t *testing.T) {
 			WithArgs("+5491112345678").
 			WillReturnRows(rows)
 
-		c, err := repo.GetByPhone(context.Background(), "+5491112345678")
+		c, err := repo.FindByPhone(context.Background(), "+5491112345678")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if c.ID != "cli-1" {
 			t.Errorf("got ID=%q, want %q", c.ID, "cli-1")
+		}
+		if !c.Active {
+			t.Error("expected Active=true")
 		}
 	})
 
@@ -167,7 +174,7 @@ func TestClientsRepo_GetByPhone(t *testing.T) {
 			WithArgs("+0000000000").
 			WillReturnError(sql.ErrNoRows)
 
-		_, err := repo.GetByPhone(context.Background(), "+0000000000")
+		_, err := repo.FindByPhone(context.Background(), "+0000000000")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -181,9 +188,48 @@ func TestClientsRepo_GetByPhone(t *testing.T) {
 			WithArgs("+5491112345678").
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.GetByPhone(context.Background(), "+5491112345678")
+		_, err := repo.FindByPhone(context.Background(), "+5491112345678")
 		if err == nil {
 			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
+func TestClientsRepo_Save(t *testing.T) {
+	t.Run("insert new client", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewClientsRepo(db)
+
+		mock.ExpectExec(`INSERT OR REPLACE INTO clients`).
+			WithArgs("cli-1", "Juan", "+5491112345678", nil, nil).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: "+5491112345678"}
+		err := repo.Save(context.Background(), c)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty name returns domain.ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewClientsRepo(db)
+
+		c := &entity.Client{ID: "cli-1", Name: "", Phone: "+5491112345678"}
+		err := repo.Save(context.Background(), c)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for empty name, got %v", err)
+		}
+	})
+
+	t.Run("empty phone returns domain.ErrInvalidInput", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewClientsRepo(db)
+
+		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: ""}
+		err := repo.Save(context.Background(), c)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput for empty phone, got %v", err)
 		}
 	})
 }

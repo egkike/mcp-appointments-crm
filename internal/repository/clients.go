@@ -8,8 +8,13 @@ import (
 	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
+
+// Compile-time interface conformance check.
+var _ domainrepo.ClientsRepo = (*ClientsRepo)(nil)
 
 // ClientsRepo provides CRUD, FTS5 search, and phone-based lookup for the
 // clients table. Phone is UNIQUE (serves as the chat ID for WhatsApp/Telegram).
@@ -20,6 +25,25 @@ type ClientsRepo struct {
 // NewClientsRepo creates a new ClientsRepo.
 func NewClientsRepo(db *sql.DB) *ClientsRepo {
 	return &ClientsRepo{db: db}
+}
+
+// Save inserts or updates a client (upsert by ID).
+func (r *ClientsRepo) Save(ctx context.Context, c *entity.Client) error {
+	if strings.TrimSpace(c.Name) == "" {
+		return fmt.Errorf("guardar cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
+	}
+	if strings.TrimSpace(c.Phone) == "" {
+		return fmt.Errorf("guardar cliente: el teléfono no puede estar vacío: %w", domain.ErrInvalidInput)
+	}
+	_, err := r.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO clients (id, name, phone, email, preferences, updated_at)
+		 VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+		c.ID, c.Name, c.Phone, c.Email, c.Preferences,
+	)
+	if err != nil {
+		return fmt.Errorf("guardar cliente: %w", err)
+	}
+	return nil
 }
 
 // Create inserts a new client. Returns domain.ErrInvalidInput if name or phone is empty.
@@ -45,9 +69,9 @@ func (r *ClientsRepo) Create(ctx context.Context, c *model.Client) error {
 	return nil
 }
 
-// Get returns a client by ID. Returns domain.ErrNotFound if not found.
-func (r *ClientsRepo) Get(ctx context.Context, id string) (*model.Client, error) {
-	c := &model.Client{}
+// FindByID returns a client by ID. Returns domain.ErrNotFound if not found.
+func (r *ClientsRepo) FindByID(ctx context.Context, id string) (*entity.Client, error) {
+	c := &entity.Client{Active: true}
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, name, phone, email, preferences, created_at, updated_at
 		 FROM clients WHERE id = ?`, id,
@@ -62,9 +86,9 @@ func (r *ClientsRepo) Get(ctx context.Context, id string) (*model.Client, error)
 	return c, nil
 }
 
-// GetByPhone returns a client by phone number. Returns domain.ErrNotFound if not found.
-func (r *ClientsRepo) GetByPhone(ctx context.Context, phone string) (*model.Client, error) {
-	c := &model.Client{}
+// FindByPhone returns a client by phone number. Returns domain.ErrNotFound if not found.
+func (r *ClientsRepo) FindByPhone(ctx context.Context, phone string) (*entity.Client, error) {
+	c := &entity.Client{Active: true}
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, name, phone, email, preferences, created_at, updated_at
 		 FROM clients WHERE phone = ?`, phone,

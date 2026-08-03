@@ -9,10 +9,10 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
-func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
+func TestSchedulesRepo_FindByProfessionalAndDay(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewSchedulesRepo(db)
@@ -24,7 +24,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 			WithArgs("pro-1", 1).
 			WillReturnRows(rows)
 
-		schedule, err := repo.GetByProfessionalAndDay(adminCtx(), "pro-1", 1)
+		schedule, err := repo.FindByProfessionalAndDay(adminCtx(), "pro-1", 1)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -44,7 +44,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 			WithArgs("pro-1", 3).
 			WillReturnError(sql.ErrNoRows)
 
-		_, err := repo.GetByProfessionalAndDay(adminCtx(), "pro-1", 3)
+		_, err := repo.FindByProfessionalAndDay(adminCtx(), "pro-1", 3)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -54,7 +54,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		_, err := repo.GetByProfessionalAndDay(adminCtx(), "pro-1", 7)
+		_, err := repo.FindByProfessionalAndDay(adminCtx(), "pro-1", 7)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for day_of_week=7, got %v", err)
 		}
@@ -64,7 +64,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		_, err := repo.GetByProfessionalAndDay(adminCtx(), "pro-1", -1)
+		_, err := repo.FindByProfessionalAndDay(adminCtx(), "pro-1", -1)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for day_of_week=-1, got %v", err)
 		}
@@ -83,7 +83,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 			WithArgs("pro-1", 1).
 			WillReturnRows(rows)
 
-		schedule, err := repo.GetByProfessionalAndDay(staffCtx("pro-1"), "pro-999", 1)
+		schedule, err := repo.FindByProfessionalAndDay(staffCtx("pro-1"), "pro-999", 1)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -96,7 +96,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		_, err := repo.GetByProfessionalAndDay(context.Background(), "pro-1", 1)
+		_, err := repo.FindByProfessionalAndDay(context.Background(), "pro-1", 1)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -116,7 +116,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 			Role:           auth.RoleStaff,
 			ProfessionalID: nil,
 		})
-		_, err := repo.GetByProfessionalAndDay(ctx, "pro-1", 1)
+		_, err := repo.FindByProfessionalAndDay(ctx, "pro-1", 1)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -138,7 +138,7 @@ func TestSchedulesRepo_GetByProfessionalAndDay(t *testing.T) {
 			WillReturnRows(rows)
 
 		// Admin has no ProfessionalID — should still succeed
-		schedule, err := repo.GetByProfessionalAndDay(adminCtx(), "pro-1", 1)
+		schedule, err := repo.FindByProfessionalAndDay(adminCtx(), "pro-1", 1)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -157,7 +157,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			WithArgs("pro-1", 1, "09:00", "18:00").
 			WillReturnResult(sqlmock.NewResult(1, 1))
 
-		schedule := &model.Schedule{
+		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
 			DayOfWeek:      1,
 			StartTime:      "09:00",
@@ -183,7 +183,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			WithArgs("10:00", "19:00", "pro-1", 1).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		schedule := &model.Schedule{
+		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
 			DayOfWeek:      1,
 			StartTime:      "10:00",
@@ -199,7 +199,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		schedule := &model.Schedule{
+		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
 			DayOfWeek:      7,
 			StartTime:      "09:00",
@@ -215,7 +215,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		schedule := &model.Schedule{
+		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
 			DayOfWeek:      1,
 			StartTime:      "9:00 AM",
@@ -231,7 +231,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		schedule := &model.Schedule{
+		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
 			DayOfWeek:      1,
 			StartTime:      "18:00",
@@ -247,7 +247,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		schedule := &model.Schedule{
+		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
 			DayOfWeek:      1,
 			StartTime:      "09:00",
@@ -267,7 +267,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		schedule := &model.Schedule{
+		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
 			DayOfWeek:      1,
 			StartTime:      "09:00",

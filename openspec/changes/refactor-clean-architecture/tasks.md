@@ -141,13 +141,20 @@ Each repo must add interface conformance and rename methods to match domain inte
 
 - [x] P3.2a — `BookingsRepo`: implement `domain.BookingRepository`, rename methods (GetBooking→FindByID, CreateBooking→Create, CancelBooking→Cancel, RescheduleBooking→Reschedule, etc.), update `bookings_test.go`
   > Actual impl: 10 methods implemented (4 with signature changes to entity.Booking/time.Time, 6 new from scratch: Update, FindOverlapping, FindByStaffAndRange, ListBookingsForRange, SearchByNotes, UpdateStatus). Compile-time assertion `var _ domainrepo.BookingsRepo = (*BookingsRepo)(nil)` added. time.Time conversion at SQL boundary via FormatStorage/parseStorageTime helpers and scanBooking utility. bookings_test.go rewritten for new signatures plus 6 new method tests. CheckAvailability preserved per P3.3a. Pre-flight clean: go fmt/vet/build/lint/test -race all pass.
-- [ ] P3.2b — `ClientsRepo`: implement `domain.ClientRepository`, rename methods (GetOrCreate→upsert semantics in domain interface), update `clients_test.go`
-- [ ] P3.2c — `ProfessionalsRepo`: implement `domain.ProfessionalRepository`, update `professionals_test.go`
-- [ ] P3.2d — `ServicesRepo`: implement `domain.ServiceRepository`, update `services_test.go`
-- [ ] P3.2e — `BusinessProfileRepo`: implement `domain.BusinessProfileRepository`, update `business_profile_test.go`
-- [ ] P3.2f — `BusinessHoursExceptionRepo`: implement `domain.BusinessHoursExceptionRepository`, update `business_hours_exception_test.go`
-- [ ] P3.2g — `PendingAlertsRepo`: implement `domain.PendingAlertRepository`, update `pending_alerts_test.go`
-- [ ] P3.2h — `SchedulesRepo`: implement `domain.ScheduleRepository`, update `schedules_test.go`
+- [x] P3.2b — `ClientsRepo`: implement `domain.ClientRepository`, rename methods (Get→FindByID, GetByPhone→FindByPhone, added Save as upsert), update `clients_test.go`
+  > Actual impl: FindByID/FindByPhone return entity.Client (Active defaults true — no SQL column). Save uses INSERT OR REPLACE. Extra methods (Create, GetOrCreate, Update, Delete, SearchFTS) kept with model types — out of scope. Compile-time assertion added.
+- [x] P3.2c — `ProfessionalsRepo`: implement `domain.ProfessionalRepository`, update `professionals_test.go`
+  > Actual impl: Get→FindByID, GetActive→FindActive, Create→Save. Update kept name, param changed to entity.Professional. model import kept for model.NewUUID(). Compile-time assertion added.
+- [x] P3.2d — `ServicesRepo`: implement `domain.ServiceRepository`, update `services_test.go`
+  > Actual impl: Get→FindByID, ListActive→FindActive, Create→Save. entity.Active maps to SQL is_active column. SearchFTS kept with model types. Compile-time assertion added.
+- [x] P3.2e — `BusinessProfileRepo`: implement `domain.BusinessProfileRepository`, update `business_profile_test.go`
+  > Actual impl: GetBusinessProfile→Get, UpdateBusinessProfile→Update. Entity fields match model exactly — straightforward rename. Compile-time assertion added.
+- [x] P3.2f — `BusinessHoursExceptionRepo`: implement `domain.BusinessHoursExceptionRepository`, update `business_hours_exception_test.go`
+  > Actual impl: GetByDate→Get (param string→time.Time, converts via date.Format("2006-01-02")), List adds from/to time.Time params with WHERE clause, Delete param int64→int. Create param changed to entity. Compile-time assertion added.
+- [x] P3.2g — `PendingAlertsRepo`: implement `domain.PendingAlertRepository`, update `pending_alerts_test.go`
+  > Actual impl: Create→Save (param model→entity, ScheduledDatetime time.Time→string via FormatStorage). ListPending→FindPending (removed limit param, beforeTime string→now time.Time, scans datetime string→time.Time via parseStorageTime). Compile-time assertion added.
+- [x] P3.2h — `SchedulesRepo`: implement `domain.ScheduleRepository`, update `schedules_test.go`
+  > Actual impl: GetByProfessionalAndDay→FindByProfessionalAndDay. Upsert param changed to entity.Schedule. Entity fields match model exactly. Compile-time assertion added.
 - [ ] P3.2i — `AccountsRepo`: implement `domain.AccountRepository`, update `accounts_test.go`
 
 ### P3.3 — Move business logic out of repos

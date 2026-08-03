@@ -8,10 +8,10 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
-func TestBusinessProfileRepo_GetBusinessProfile(t *testing.T) {
+func TestBusinessProfileRepo_Get(t *testing.T) {
 	t.Run("first call inserts singleton and returns row", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
@@ -39,7 +39,7 @@ func TestBusinessProfileRepo_GetBusinessProfile(t *testing.T) {
 			WithArgs("singleton").
 			WillReturnRows(rows)
 
-		profile, err := repo.GetBusinessProfile(context.Background())
+		profile, err := repo.Get(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -86,7 +86,7 @@ func TestBusinessProfileRepo_GetBusinessProfile(t *testing.T) {
 			WithArgs("singleton").
 			WillReturnRows(rows)
 
-		profile, err := repo.GetBusinessProfile(context.Background())
+		profile, err := repo.Get(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -103,7 +103,7 @@ func TestBusinessProfileRepo_GetBusinessProfile(t *testing.T) {
 			WithArgs("singleton", "").
 			WillReturnError(errors.New("disk I/O error"))
 
-		_, err := repo.GetBusinessProfile(context.Background())
+		_, err := repo.Get(context.Background())
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -139,7 +139,7 @@ func TestBusinessProfileRepo_GetBusinessProfile(t *testing.T) {
 			WithArgs("singleton").
 			WillReturnRows(rows)
 
-		profile, err := repo.GetBusinessProfile(context.Background())
+		profile, err := repo.Get(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -159,14 +159,14 @@ func TestBusinessProfileRepo_GetBusinessProfile(t *testing.T) {
 			WithArgs("singleton").
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.GetBusinessProfile(context.Background())
+		_, err := repo.Get(context.Background())
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
 	})
 }
 
-func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
+func TestBusinessProfileRepo_Update(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
@@ -183,8 +183,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Updated"}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Updated"}
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -206,8 +206,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			).
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Ghost"}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Ghost"}
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -221,8 +221,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		platform := "whatsapp"
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -236,8 +236,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		platform := "telegram"
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -248,8 +248,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		repo := NewBusinessProfileRepo(db)
 
 		platform := "facebook"
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for invalid platform, got %v", err)
 		}
@@ -263,8 +263,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		methods := `["cash","credit_card"]`
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -278,8 +278,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		methods := `[]`
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -290,8 +290,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		repo := NewBusinessProfileRepo(db)
 
 		methods := `not-json`
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for invalid JSON, got %v", err)
 		}
@@ -302,8 +302,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		repo := NewBusinessProfileRepo(db)
 
 		methods := `["cash",""]`
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty string in array, got %v", err)
 		}
@@ -316,8 +316,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		mock.ExpectExec(`UPDATE business_profile SET`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test"}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -330,8 +330,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		mock.ExpectExec(`UPDATE business_profile SET`).
 			WillReturnError(errors.New("disk full"))
 
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test"}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		err := repo.Update(context.Background(), profile)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -344,12 +344,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		mock.ExpectExec(`UPDATE business_profile SET`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		profile := &model.BusinessProfile{
+		profile := &entity.BusinessProfile{
 			ID:            "singleton",
 			Name:          "Test",
 			BusinessHours: `{"mon":{"open":"09:00","close":"18:00"}}`,
 		}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -362,8 +362,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		mock.ExpectExec(`UPDATE business_profile SET`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", BusinessHours: ""}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", BusinessHours: ""}
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -373,12 +373,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &model.BusinessProfile{
+		profile := &entity.BusinessProfile{
 			ID:            "singleton",
 			Name:          "Test",
 			BusinessHours: `{invalid`,
 		}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for malformed JSON, got %v", err)
 		}
@@ -388,12 +388,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &model.BusinessProfile{
+		profile := &entity.BusinessProfile{
 			ID:            "singleton",
 			Name:          "Test",
 			BusinessHours: `["not","an","object"]`,
 		}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for JSON array, got %v", err)
 		}
@@ -403,12 +403,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &model.BusinessProfile{
+		profile := &entity.BusinessProfile{
 			ID:            "singleton",
 			Name:          "Test",
 			BusinessHours: `"just a string"`,
 		}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for JSON string, got %v", err)
 		}
@@ -421,12 +421,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		mock.ExpectExec(`UPDATE business_profile SET`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		profile := &model.BusinessProfile{
+		profile := &entity.BusinessProfile{
 			ID:       "singleton",
 			Name:     "Test",
 			Timezone: "America/Argentina/Buenos_Aires",
 		}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -439,8 +439,8 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		mock.ExpectExec(`UPDATE business_profile SET`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		profile := &model.BusinessProfile{ID: "singleton", Name: "Test", Timezone: ""}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", Timezone: ""}
+		err := repo.Update(context.Background(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -450,12 +450,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &model.BusinessProfile{
+		profile := &entity.BusinessProfile{
 			ID:       "singleton",
 			Name:     "Test",
 			Timezone: "Not/A/Real/Zone",
 		}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for invalid timezone, got %v", err)
 		}
@@ -466,12 +466,12 @@ func TestBusinessProfileRepo_UpdateBusinessProfile(t *testing.T) {
 		repo := NewBusinessProfileRepo(db)
 
 		methods := `null`
-		profile := &model.BusinessProfile{
+		profile := &entity.BusinessProfile{
 			ID:                     "singleton",
 			Name:                   "Test",
 			AcceptedPaymentMethods: &methods,
 		}
-		err := repo.UpdateBusinessProfile(context.Background(), profile)
+		err := repo.Update(context.Background(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for JSON null, got %v", err)
 		}

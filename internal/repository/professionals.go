@@ -10,8 +10,13 @@ import (
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
+
+// Compile-time interface conformance check.
+var _ domainrepo.ProfessionalsRepo = (*ProfessionalsRepo)(nil)
 
 // ProfessionalsRepo provides CRUD operations for the professionals table.
 // No hard-delete method is exposed; soft-delete via status='inactive' is the
@@ -26,7 +31,7 @@ func NewProfessionalsRepo(db *sql.DB) *ProfessionalsRepo {
 }
 
 // validateProfessional checks business-rule invariants for a professional.
-func validateProfessional(p *model.Professional) error {
+func validateProfessional(p *entity.Professional) error {
 	if strings.TrimSpace(p.Name) == "" {
 		return fmt.Errorf("el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
@@ -36,12 +41,12 @@ func validateProfessional(p *model.Professional) error {
 	return nil
 }
 
-// Create inserts a new professional. The ID is auto-assigned as a UUID v4.
+// Save inserts a new professional. The ID is auto-assigned as a UUID v4.
 // If Status is empty, it defaults to "active".
 // Returns domain.ErrInvalidInput if name is empty or status is invalid.
 // Returns domain.ErrNotFound if a specialty references a non-existent service.
 // Requires admin or owner role.
-func (r *ProfessionalsRepo) Create(ctx context.Context, p *model.Professional) error {
+func (r *ProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("crear profesional: %w", err)
 	}
@@ -90,9 +95,9 @@ func (r *ProfessionalsRepo) Create(ctx context.Context, p *model.Professional) e
 	return nil
 }
 
-// Get returns a professional by ID. Returns domain.ErrNotFound if not found.
+// FindByID returns a professional by ID. Returns domain.ErrNotFound if not found.
 // Staff callers can only retrieve their own professional record.
-func (r *ProfessionalsRepo) Get(ctx context.Context, id string) (*model.Professional, error) {
+func (r *ProfessionalsRepo) FindByID(ctx context.Context, id string) (*entity.Professional, error) {
 	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("obtener profesional %s: %w", id, err)
@@ -108,7 +113,7 @@ func (r *ProfessionalsRepo) Get(ctx context.Context, id string) (*model.Professi
 		}
 	}
 
-	p := &model.Professional{}
+	p := &entity.Professional{}
 	err = r.db.QueryRowContext(ctx,
 		`SELECT id, name, role_specialty, status, email, phone, specialties, created_at, updated_at
 		 FROM professionals WHERE id = ?`, id,
@@ -123,9 +128,9 @@ func (r *ProfessionalsRepo) Get(ctx context.Context, id string) (*model.Professi
 	return p, nil
 }
 
-// GetActive returns all professionals with status='active', ordered by name.
+// FindActive returns all professionals with status='active', ordered by name.
 // Staff callers see only their own professional record.
-func (r *ProfessionalsRepo) GetActive(ctx context.Context) ([]*model.Professional, error) {
+func (r *ProfessionalsRepo) FindActive(ctx context.Context) ([]*entity.Professional, error) {
 	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listar profesionales activos: %w", err)
@@ -146,9 +151,9 @@ func (r *ProfessionalsRepo) GetActive(ctx context.Context) ([]*model.Professiona
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
-	var professionals []*model.Professional
+	var professionals []*entity.Professional
 	for rows.Next() {
-		p := &model.Professional{}
+		p := &entity.Professional{}
 		if err := rows.Scan(&p.ID, &p.Name, &p.RoleSpecialty, &p.Status, &p.Email,
 			&p.Phone, &p.Specialties, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("listar profesionales activos: escaneo: %w", err)
@@ -164,7 +169,7 @@ func (r *ProfessionalsRepo) GetActive(ctx context.Context) ([]*model.Professiona
 // Update updates an existing professional. Returns domain.ErrInvalidInput for invalid
 // fields, domain.ErrNotFound if no row matches or if a specialty references a non-existent service.
 // Requires admin or owner role.
-func (r *ProfessionalsRepo) Update(ctx context.Context, p *model.Professional) error {
+func (r *ProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("actualizar profesional: %w", err)
 	}

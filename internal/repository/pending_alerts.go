@@ -5,11 +5,16 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
+
+// Compile-time interface conformance check.
+var _ domainrepo.PendingAlertsRepo = (*PendingAlertsRepo)(nil)
 
 // PendingAlertsRepo provides CRUD operations for the pending_alerts table.
 // In Fase 1, only the "confirmation_requested" alert type is supported.
@@ -36,11 +41,11 @@ func validateAlertType(alertType string) error {
 	return nil
 }
 
-// Create inserts a new pending alert. The ID is auto-assigned by SQLite AUTOINCREMENT.
+// Save inserts a new pending alert. The ID is auto-assigned by SQLite AUTOINCREMENT.
 // Status defaults to "pending". RelatedBookingID may be nil.
 // Returns domain.ErrInvalidInput if the alert type is not supported in Fase 1 or message is empty.
 // Requires admin or owner role.
-func (r *PendingAlertsRepo) Create(ctx context.Context, a *model.PendingAlert) error {
+func (r *PendingAlertsRepo) Save(ctx context.Context, a *entity.PendingAlert) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("crear alerta: %w", err)
 	}
@@ -53,11 +58,12 @@ func (r *PendingAlertsRepo) Create(ctx context.Context, a *model.PendingAlert) e
 	}
 
 	a.Status = "pending"
+	scheduledStr := FormatStorage(a.ScheduledDatetime)
 
 	result, err := r.db.ExecContext(ctx,
 		`INSERT INTO pending_alerts (type, message, scheduled_datetime, related_booking_id)
 		 VALUES (?, ?, ?, ?)`,
-		a.Type, a.Message, a.ScheduledDatetime, a.RelatedBookingID,
+		a.Type, a.Message, scheduledStr, a.RelatedBookingID,
 	)
 	if err != nil {
 		return fmt.Errorf("crear alerta: %w", err)
@@ -72,42 +78,42 @@ func (r *PendingAlertsRepo) Create(ctx context.Context, a *model.PendingAlert) e
 	return nil
 }
 
-// ListPending returns pending alerts with scheduled_datetime <= beforeTime,
-// ordered by scheduled_datetime ASC (oldest first), capped at limit.
+// FindPending returns all alerts whose scheduled time is at or before now
+// and whose status is still pending, ordered by scheduled_datetime ASC.
 // Returns an empty slice (not nil) when no alerts match.
 // Requires admin or owner role.
-func (r *PendingAlertsRepo) ListPending(ctx context.Context, limit int, beforeTime string) ([]*model.PendingAlert, error) {
+func (r *PendingAlertsRepo) FindPending(ctx context.Context, now time.Time) ([]*entity.PendingAlert, error) {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return nil, fmt.Errorf("listar alertas pendientes: %w", err)
 	}
-	if limit <= 0 {
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeInvalidInput,
-			Message: "Límite debe ser mayor a cero",
-			Cause:   domain.ErrInvalidInput,
-		}
-	}
 
+	nowStr := FormatStorage(now)
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, type, message, scheduled_datetime, status, related_booking_id, created_at
 		 FROM pending_alerts
 		 WHERE status = 'pending' AND scheduled_datetime <= ?
-		 ORDER BY scheduled_datetime ASC
-		 LIMIT ?`,
-		beforeTime, limit,
+		 ORDER BY scheduled_datetime ASC`,
+		nowStr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("listar alertas pendientes: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
-	alerts := make([]*model.PendingAlert, 0)
+	alerts := make([]*entity.PendingAlert, 0)
 	for rows.Next() {
-		a := &model.PendingAlert{}
-		if err := rows.Scan(&a.ID, &a.Type, &a.Message, &a.ScheduledDatetime,
-			&a.Status, &a.RelatedBookingID, &a.CreatedAt); err != nil {
+		a := &entity.PendingAlert{}
+		var scheduledStr, createdAtStr string
+		if err := rows.Scan(&a.ID, &a.Type, &a.Message, &scheduledStr,
+			&a.Status, &a.RelatedBookingID, &createdAtStr); err != nil {
 			return nil, fmt.Errorf("listar alertas pendientes: escaneo: %w", err)
 		}
+		t, err := parseStorageTime(scheduledStr)
+		if err != nil {
+			return nil, fmt.Errorf("listar alertas pendientes: parse scheduled_datetime: %w", err)
+		}
+		a.ScheduledDatetime = t
+		a.CreatedAt = createdAtStr
 		alerts = append(alerts, a)
 	}
 	if err := rows.Err(); err != nil {

@@ -8,8 +8,12 @@ import (
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
+
+// Compile-time interface conformance check.
+var _ domainrepo.SchedulesRepo = (*SchedulesRepo)(nil)
 
 // SchedulesRepo provides CRUD operations for the schedules table.
 // Schedules represent a professional's working hours for a specific day of the week.
@@ -45,12 +49,12 @@ func validateScheduleTimes(startTime, endTime string) error {
 	return nil
 }
 
-// GetByProfessionalAndDay returns the schedule for a professional on a specific day.
+// FindByProfessionalAndDay returns the schedule for a professional on a specific day.
 // Returns domain.ErrNotFound if no schedule exists for that combination.
 // Returns domain.ErrInvalidInput if day_of_week is out of range (0-6).
 // Staff callers can only query their own schedule; the professionalID parameter
 // is overridden with caller.ProfessionalID.
-func (r *SchedulesRepo) GetByProfessionalAndDay(ctx context.Context, professionalID string, dayOfWeek int) (*model.Schedule, error) {
+func (r *SchedulesRepo) FindByProfessionalAndDay(ctx context.Context, professionalID string, dayOfWeek int) (*entity.Schedule, error) {
 	if err := validateDayOfWeek(dayOfWeek); err != nil {
 		return nil, fmt.Errorf("obtener horario: %w", err)
 	}
@@ -71,7 +75,7 @@ func (r *SchedulesRepo) GetByProfessionalAndDay(ctx context.Context, professiona
 		professionalID = *caller.ProfessionalID
 	}
 
-	s := &model.Schedule{}
+	s := &entity.Schedule{}
 	err = r.db.QueryRowContext(ctx,
 		`SELECT id, professional_id, day_of_week, start_time, end_time
 		 FROM schedules WHERE professional_id = ? AND day_of_week = ?`,
@@ -91,7 +95,7 @@ func (r *SchedulesRepo) GetByProfessionalAndDay(ctx context.Context, professiona
 // it inserts a new row.
 // Returns domain.ErrInvalidInput if day_of_week is out of range or times are invalid.
 // Requires admin or owner role.
-func (r *SchedulesRepo) Upsert(ctx context.Context, s *model.Schedule) error {
+func (r *SchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("upsert horario: %w", err)
 	}

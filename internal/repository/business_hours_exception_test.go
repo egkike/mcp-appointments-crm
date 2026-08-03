@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
 func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
@@ -21,7 +22,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			WithArgs("2026-12-25", true, nil, nil, &reason).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 			Reason:        &reason,
@@ -42,7 +43,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			WithArgs("2026-12-24", false, &open, &close, nil).
 			WillReturnResult(sqlmock.NewResult(1, 1))
 
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
 			IsClosed:      false,
 			OpenTime:      &open,
@@ -58,7 +59,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-25T00:00:00",
 			IsClosed:      true,
 		}
@@ -72,7 +73,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "25/12/2026",
 			IsClosed:      true,
 		}
@@ -87,7 +88,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		close := "14:00"
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
 			IsClosed:      false,
 			OpenTime:      nil,
@@ -104,7 +105,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		open := "10:00"
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
 			IsClosed:      false,
 			OpenTime:      &open,
@@ -122,7 +123,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 
 		open := "18:00"
 		close := "09:00"
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
 			IsClosed:      false,
 			OpenTime:      &open,
@@ -140,7 +141,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 
 		open := "10:00"
 		close := "14:00"
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 			OpenTime:      &open,
@@ -158,7 +159,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 
 		open := "9:00"
 		close := "14:00"
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
 			IsClosed:      false,
 			OpenTime:      &open,
@@ -176,7 +177,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 
 		open := "10:00:00"
 		close := "14:00"
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
 			IsClosed:      false,
 			OpenTime:      &open,
@@ -194,7 +195,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 
 		open := "25:00"
 		close := "26:00"
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
 			IsClosed:      false,
 			OpenTime:      &open,
@@ -212,7 +213,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 
 		open := "12:70"
 		close := "14:00"
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
 			IsClosed:      false,
 			OpenTime:      &open,
@@ -228,7 +229,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-13-45",
 			IsClosed:      true,
 		}
@@ -242,7 +243,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-02-30",
 			IsClosed:      true,
 		}
@@ -260,7 +261,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			WithArgs("2026-12-25", true, nil, nil, nil).
 			WillReturnError(errors.New("UNIQUE constraint failed: business_hours_exception.exception_date"))
 
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 		}
@@ -278,7 +279,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			WithArgs("2026-12-25", true, nil, nil, nil).
 			WillReturnError(errors.New("disk full"))
 
-		ex := &model.BusinessHoursException{
+		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 		}
@@ -292,7 +293,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 	})
 }
 
-func TestBusinessHoursExceptionRepo_GetByDate(t *testing.T) {
+func TestBusinessHoursExceptionRepo_Get(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
@@ -305,7 +306,8 @@ func TestBusinessHoursExceptionRepo_GetByDate(t *testing.T) {
 			WithArgs("2026-12-25").
 			WillReturnRows(rows)
 
-		ex, err := repo.GetByDate(context.Background(), "2026-12-25")
+		date := time.Date(2026, 12, 25, 0, 0, 0, 0, time.UTC)
+		ex, err := repo.Get(context.Background(), date)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -325,7 +327,8 @@ func TestBusinessHoursExceptionRepo_GetByDate(t *testing.T) {
 			WithArgs("2026-01-01").
 			WillReturnError(sql.ErrNoRows)
 
-		_, err := repo.GetByDate(context.Background(), "2026-01-01")
+		date := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		_, err := repo.Get(context.Background(), date)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -339,45 +342,16 @@ func TestBusinessHoursExceptionRepo_GetByDate(t *testing.T) {
 			WithArgs("2026-12-25").
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.GetByDate(context.Background(), "2026-12-25")
+		date := time.Date(2026, 12, 25, 0, 0, 0, 0, time.UTC)
+		_, err := repo.Get(context.Background(), date)
 		if err == nil {
 			t.Fatal("expected error, got nil")
-		}
-	})
-
-	t.Run("malformed date returns domain.ErrInvalidInput", func(t *testing.T) {
-		db, _ := newMockDB(t)
-		repo := NewBusinessHoursExceptionRepo(db)
-
-		_, err := repo.GetByDate(context.Background(), "2026-13-45")
-		if !errors.Is(err, domain.ErrInvalidInput) {
-			t.Errorf("expected domain.ErrInvalidInput for invalid calendar date, got %v", err)
-		}
-	})
-
-	t.Run("datetime string returns domain.ErrInvalidInput", func(t *testing.T) {
-		db, _ := newMockDB(t)
-		repo := NewBusinessHoursExceptionRepo(db)
-
-		_, err := repo.GetByDate(context.Background(), "2026-12-25T00:00:00")
-		if !errors.Is(err, domain.ErrInvalidInput) {
-			t.Errorf("expected domain.ErrInvalidInput for datetime, got %v", err)
-		}
-	})
-
-	t.Run("empty string returns domain.ErrInvalidInput", func(t *testing.T) {
-		db, _ := newMockDB(t)
-		repo := NewBusinessHoursExceptionRepo(db)
-
-		_, err := repo.GetByDate(context.Background(), "")
-		if !errors.Is(err, domain.ErrInvalidInput) {
-			t.Errorf("expected domain.ErrInvalidInput for empty date, got %v", err)
 		}
 	})
 }
 
 func TestBusinessHoursExceptionRepo_List(t *testing.T) {
-	t.Run("returns all ordered by date", func(t *testing.T) {
+	t.Run("returns exceptions in date range ordered by date", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
@@ -388,10 +362,13 @@ func TestBusinessHoursExceptionRepo_List(t *testing.T) {
 				"2026-01-01T00:00:00.000Z").
 			AddRow(2, "2026-12-25", true, nil, nil, strPtr("Navidad"),
 				"2026-01-01T00:00:00.000Z")
-		mock.ExpectQuery(`SELECT .+ FROM business_hours_exception ORDER BY exception_date`).
+		mock.ExpectQuery(`SELECT .+ FROM business_hours_exception WHERE exception_date >= \? AND exception_date <= \? ORDER BY exception_date`).
+			WithArgs("2026-12-01", "2026-12-31").
 			WillReturnRows(rows)
 
-		exceptions, err := repo.List(context.Background())
+		from := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+		to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+		exceptions, err := repo.List(context.Background(), from, to)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -410,10 +387,13 @@ func TestBusinessHoursExceptionRepo_List(t *testing.T) {
 		rows := sqlmock.NewRows([]string{
 			"id", "exception_date", "is_closed", "open_time", "close_time", "reason", "created_at",
 		})
-		mock.ExpectQuery(`SELECT .+ FROM business_hours_exception ORDER BY exception_date`).
+		mock.ExpectQuery(`SELECT .+ FROM business_hours_exception WHERE exception_date >= \? AND exception_date <= \? ORDER BY exception_date`).
+			WithArgs("2026-01-01", "2026-01-31").
 			WillReturnRows(rows)
 
-		exceptions, err := repo.List(context.Background())
+		from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		to := time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)
+		exceptions, err := repo.List(context.Background(), from, to)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -426,10 +406,13 @@ func TestBusinessHoursExceptionRepo_List(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
-		mock.ExpectQuery(`SELECT .+ FROM business_hours_exception ORDER BY exception_date`).
+		mock.ExpectQuery(`SELECT .+ FROM business_hours_exception WHERE exception_date >= \? AND exception_date <= \? ORDER BY exception_date`).
+			WithArgs("2026-01-01", "2026-12-31").
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.List(context.Background())
+		from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
+		_, err := repo.List(context.Background(), from, to)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -442,10 +425,10 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		mock.ExpectExec(`DELETE FROM business_hours_exception WHERE id = \?`).
-			WithArgs(int64(1)).
+			WithArgs(1).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		err := repo.Delete(context.Background(), int64(1))
+		err := repo.Delete(context.Background(), 1)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -456,10 +439,10 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		mock.ExpectExec(`DELETE FROM business_hours_exception WHERE id = \?`).
-			WithArgs(int64(999)).
+			WithArgs(999).
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		err := repo.Delete(context.Background(), int64(999))
+		err := repo.Delete(context.Background(), 999)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -470,10 +453,10 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		mock.ExpectExec(`DELETE FROM business_hours_exception WHERE id = \?`).
-			WithArgs(int64(1)).
+			WithArgs(1).
 			WillReturnError(errors.New("disk full"))
 
-		err := repo.Delete(context.Background(), int64(1))
+		err := repo.Delete(context.Background(), 1)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
