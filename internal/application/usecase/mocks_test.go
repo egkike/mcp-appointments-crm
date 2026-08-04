@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 )
@@ -156,6 +157,115 @@ func (m *mockAvailabilityChecker) CheckAvailability(ctx context.Context, params 
 	return m.CheckAvailabilityFn(ctx, params, deps)
 }
 
+// --- mockBookingValidator (PR #B) ---
+
+// mockBookingValidator is a function-table mock for *service.BookingValidator.
+// Each test sets OnValidate to return the *domain.SemanticError the use case
+// must propagate unchanged, or nil to let the use case reach the repo.
+type mockBookingValidator struct {
+	OnValidate func(ctx context.Context, input service.ValidateBookingInput) *domain.SemanticError
+}
+
+func (m *mockBookingValidator) Validate(ctx context.Context, input service.ValidateBookingInput) *domain.SemanticError {
+	if m.OnValidate == nil {
+		panic("mockBookingValidator.OnValidate not set")
+	}
+	return m.OnValidate(ctx, input)
+}
+
+// --- mockProfessionalsRepo (PR #B entity resolution) ---
+
+type mockProfessionalsRepo struct {
+	FindByIDFn func(ctx context.Context, id string) (*entity.Professional, error)
+}
+
+func (m *mockProfessionalsRepo) FindByID(ctx context.Context, id string) (*entity.Professional, error) {
+	if m.FindByIDFn == nil {
+		panic("mockProfessionalsRepo.FindByIDFn not set")
+	}
+	return m.FindByIDFn(ctx, id)
+}
+
+// FindActive, Save, Update are not exercised by the PR #B use case path but
+// must be implemented to satisfy repository.ProfessionalsRepo. They panic if
+// called to surface unexpected dependencies in tests.
+func (m *mockProfessionalsRepo) FindActive(ctx context.Context) ([]*entity.Professional, error) {
+	panic("mockProfessionalsRepo.FindActive: not expected in PR #B tests")
+}
+func (m *mockProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) error {
+	panic("mockProfessionalsRepo.Save: not expected in PR #B tests")
+}
+func (m *mockProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) error {
+	panic("mockProfessionalsRepo.Update: not expected in PR #B tests")
+}
+
+// --- mockBusinessProfileRepo (PR #B entity resolution) ---
+
+type mockBusinessProfileRepo struct {
+	GetFn func(ctx context.Context) (*entity.BusinessProfile, error)
+}
+
+func (m *mockBusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile, error) {
+	if m.GetFn == nil {
+		panic("mockBusinessProfileRepo.GetFn not set")
+	}
+	return m.GetFn(ctx)
+}
+
+// Update is not exercised by the PR #B use case path but must be implemented
+// to satisfy repository.BusinessProfileRepo. It panics if called.
+func (m *mockBusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) error {
+	panic("mockBusinessProfileRepo.Update: not expected in PR #B tests")
+}
+
+// --- mockBusinessHoursExceptionRepo (PR #B entity resolution) ---
+
+type mockBusinessHoursExceptionRepo struct {
+	GetFn func(ctx context.Context, date time.Time) (*entity.BusinessHoursException, error)
+}
+
+func (m *mockBusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*entity.BusinessHoursException, error) {
+	if m.GetFn == nil {
+		panic("mockBusinessHoursExceptionRepo.GetFn not set")
+	}
+	return m.GetFn(ctx, date)
+}
+
+// Create, List, Delete are not exercised by the PR #B use case path but must
+// be implemented to satisfy repository.BusinessHoursExceptionRepo. They panic
+// if called.
+func (m *mockBusinessHoursExceptionRepo) Create(ctx context.Context, e *entity.BusinessHoursException) error {
+	panic("mockBusinessHoursExceptionRepo.Create: not expected in PR #B tests")
+}
+func (m *mockBusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
+	panic("mockBusinessHoursExceptionRepo.List: not expected in PR #B tests")
+}
+func (m *mockBusinessHoursExceptionRepo) Delete(ctx context.Context, id int) error {
+	panic("mockBusinessHoursExceptionRepo.Delete: not expected in PR #B tests")
+}
+
+// --- mockSchedulesRepo (PR #B entity resolution) ---
+
+type mockSchedulesRepo struct {
+	FindByProfessionalAndDayFn func(ctx context.Context, professionalID string, day int) (*entity.Schedule, error)
+}
+
+func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, professionalID string, day int) (*entity.Schedule, error) {
+	if m.FindByProfessionalAndDayFn == nil {
+		panic("mockSchedulesRepo.FindByProfessionalAndDayFn not set")
+	}
+	return m.FindByProfessionalAndDayFn(ctx, professionalID, day)
+}
+
+// Upsert, Delete are not exercised by the PR #B use case path but must be
+// implemented to satisfy repository.SchedulesRepo. They panic if called.
+func (m *mockSchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) error {
+	panic("mockSchedulesRepo.Upsert: not expected in PR #B tests")
+}
+func (m *mockSchedulesRepo) Delete(ctx context.Context, professionalID string, day int) error {
+	panic("mockSchedulesRepo.Delete: not expected in PR #B tests")
+}
+
 // --- Test helpers ---
 
 func ptr(s string) *string { return &s }
@@ -182,6 +292,26 @@ func activeService() *entity.Service {
 		Name:            "Corte de pelo",
 		DurationMinutes: 60,
 		Active:          true,
+	}
+}
+
+// activeProfessional returns a staff member with active status (PR #B).
+func activeProfessional() *entity.Professional {
+	return &entity.Professional{
+		ID:     "p1",
+		Name:   "Ana",
+		Status: "active",
+	}
+}
+
+// businessProfileUTC returns a business profile whose timezone is UTC so the
+// use case's timezone conversion is a no-op in tests (deterministic instants).
+func businessProfileUTC() *entity.BusinessProfile {
+	return &entity.BusinessProfile{
+		ID:            "singleton",
+		Name:          "Negocio de prueba",
+		Timezone:      "UTC",
+		BusinessHours: `{"1":{"open":"09:00","close":"18:00"}}`,
 	}
 }
 
