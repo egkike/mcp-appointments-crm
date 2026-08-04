@@ -97,140 +97,31 @@ func (s *AvailabilityService) CheckAvailability(
 		return nil, fmt.Errorf("check_availability: %w", err)
 	}
 
-	endTime := startTime.Add(time.Duration(svc.DurationMinutes) * time.Minute)
-
 	localStart := startTime.In(loc)
-	localEnd := endTime.In(loc)
 	dayOfWeek := int(localStart.Weekday())
-	slotStartHHMM := localStart.Format("15:04")
-	slotEndHHMM := localEnd.Format("15:04")
-	dateStr := localStart.Format("2006-01-02")
-
-	// ─── Step 3a — Business hours ────────────────────────────────────────
 
 	exceptionDate := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, loc)
 	exception, err := deps.BusinessHoursExceptions.Get(ctx, exceptionDate)
-	if err == nil {
-		if exception.IsClosedDay() {
-			reason := ""
-			if exception.Reason != nil {
-				reason = *exception.Reason
-			}
-			return nil, &domain.SemanticError{
-				Code:    domain.ErrCodeBusinessClosed,
-				Message: fmt.Sprintf("Negocio está cerrado el %s (%s).", dateStr, reason),
-			}
-		}
-	} else if !errors.Is(err, domain.ErrNotFound) {
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return nil, fmt.Errorf("check_availability: consultar excepción: %w", err)
 	}
 
-	var businessOpenHHMM, businessCloseHHMM string
-
-	if err == nil && !exception.IsClosedDay() {
-		if open, close, ok := exception.EffectiveHours(); ok {
-			businessOpenHHMM = open
-			businessCloseHHMM = close
-		}
-	}
-
-	if businessOpenHHMM == "" || businessCloseHHMM == "" {
-		open, close, ok := profile.GetOpenClose(dayOfWeek)
-		if !ok || open == "" || close == "" {
-			return nil, &domain.SemanticError{
-				Code:    domain.ErrCodeBusinessClosed,
-				Message: fmt.Sprintf("Negocio no abre los %s.", spanishDayNames[dayOfWeek]),
-			}
-		}
-		businessOpenHHMM = open
-		businessCloseHHMM = close
-	}
-
-	// ─── Step 3b — Professional schedule ─────────────────────────────────
-
 	schedule, err := deps.Schedules.FindByProfessionalAndDay(ctx, params.ProfessionalID, dayOfWeek)
-	if err != nil {
-		if errors.Is(err, domain.ErrNotFound) {
-			return nil, &domain.SemanticError{
-				Code:    domain.ErrCodeProfessionalNotWorking,
-				Message: fmt.Sprintf("Profesional %s no trabaja los %s.", pro.Name, spanishDayNames[dayOfWeek]),
-			}
-		}
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return nil, fmt.Errorf("check_availability: consultar horario del profesional: %w", err)
 	}
-	proStartHHMM := schedule.StartTime
-	proEndHHMM := schedule.EndTime
 
-	// ─── Step 3c — Slot within hours ─────────────────────────────────────
-
-	effectiveCloseHHMM := businessCloseHHMM
-	if proEndHHMM < effectiveCloseHHMM {
-		effectiveCloseHHMM = proEndHHMM
-	}
-
-	// 3c.1 — Slot ends after effective close?
-	if slotEndHHMM > effectiveCloseHHMM {
-		slotMin, err := hhmmToMinutes(slotStartHHMM)
-		if err != nil {
-			return nil, fmt.Errorf("check_availability: %w", err)
-		}
-		closeMin, err := hhmmToMinutes(effectiveCloseHHMM)
-		if err != nil {
-			return nil, fmt.Errorf("check_availability: %w", err)
-		}
-		remaining := closeMin - slotMin
-		if remaining < 0 {
-			remaining = 0
-		}
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeSlotOutOfHours,
-			Message: fmt.Sprintf("Servicio dura %d minutos pero solo quedan %d antes del cierre a las %s.", svc.DurationMinutes, remaining, effectiveCloseHHMM),
-		}
-	}
-
-	// 3c.2 — Slot starts before business opening?
-	if slotStartHHMM < businessOpenHHMM {
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeSlotOutOfHours,
-			Message: fmt.Sprintf("Horario de atención comienza a las %s.", businessOpenHHMM),
-		}
-	}
-
-	// 3c.3 — Slot starts before professional's start?
-	if slotStartHHMM < proStartHHMM {
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeSlotOutOfHours,
-			Message: fmt.Sprintf("Profesional %s empieza a las %s.", pro.Name, proStartHHMM),
-		}
-	}
-
-	// ─── Step 3d — Overlap check ─────────────────────────────────────────
-
-	startUTC := startTime.UTC()
-	endUTC := endTime.UTC()
-
-	overlapping, err := deps.Bookings.FindOverlapping(ctx, params.ProfessionalID, startUTC, endUTC)
-	if err != nil {
-		return nil, fmt.Errorf("check_availability: consultar overlap: %w", err)
-	}
-	if len(overlapping) > 0 {
-		existing := overlapping[0]
-		return nil, &domain.SemanticError{
-			Code: domain.ErrCodeBookingOverlap,
-			Message: fmt.Sprintf("Profesional %s ya tiene una reserva de %s a %s.",
-				pro.Name,
-				existing.StartDatetime.UTC().Format(time.RFC3339),
-				existing.EndDatetime.UTC().Format(time.RFC3339)),
-		}
-	}
-
-	// ─── Step 3e — Past check ────────────────────────────────────────────
-
-	if startTime.Before(time.Now()) {
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeSlotInPast,
-			Message: "No se puede reservar en el pasado.",
-		}
+	// ─── 5-step chain — delegated to the shared helper (REQ-AV-2) ─────────
+	if semErr := ValidateBookingTimeSlot(ctx, SlotInput{
+		ProfessionalID:  params.ProfessionalID,
+		Service:         svc,
+		Professional:    pro,
+		BusinessProfile: profile,
+		Schedule:        schedule,
+		Exception:       exception,
+		Start:           startTime,
+	}, BookingTimeValidatorDeps{Bookings: deps.Bookings}); semErr != nil {
+		return nil, semErr
 	}
 
 	return &CheckAvailabilityResult{Available: true}, nil
