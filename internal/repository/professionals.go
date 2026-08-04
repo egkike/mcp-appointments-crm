@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
@@ -30,17 +29,6 @@ func NewProfessionalsRepo(db *sql.DB) *ProfessionalsRepo {
 	return &ProfessionalsRepo{db: db}
 }
 
-// validateProfessional checks business-rule invariants for a professional.
-func validateProfessional(p *entity.Professional) error {
-	if strings.TrimSpace(p.Name) == "" {
-		return fmt.Errorf("el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
-	}
-	if p.Status != "active" && p.Status != "inactive" {
-		return fmt.Errorf("el estado %q no es válido (debe ser 'active' o 'inactive'): %w", p.Status, domain.ErrInvalidInput)
-	}
-	return nil
-}
-
 // Save inserts a new professional. The ID is auto-assigned as a UUID v4.
 // If Status is empty, it defaults to "active".
 // Returns domain.ErrInvalidInput if name is empty or status is invalid.
@@ -51,17 +39,13 @@ func (r *ProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) er
 		return fmt.Errorf("crear profesional: %w", err)
 	}
 
-	if strings.TrimSpace(p.Name) == "" {
-		return fmt.Errorf("crear profesional: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
-	}
-
 	// Default status to "active" if not specified (per spec)
 	if p.Status == "" {
 		p.Status = "active"
 	}
 
-	if p.Status != "active" && p.Status != "inactive" {
-		return fmt.Errorf("crear profesional: el estado %q no es válido (debe ser 'active' o 'inactive'): %w", p.Status, domain.ErrInvalidInput)
+	if err := p.Validate(); err != nil {
+		return fmt.Errorf("crear profesional: %w", err)
 	}
 
 	// Validate specialties: each service_id must exist in the services table
@@ -174,7 +158,7 @@ func (r *ProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) 
 		return fmt.Errorf("actualizar profesional: %w", err)
 	}
 
-	if err := validateProfessional(p); err != nil {
+	if err := p.Validate(); err != nil {
 		return fmt.Errorf("actualizar profesional: %w", err)
 	}
 

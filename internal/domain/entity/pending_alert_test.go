@@ -50,3 +50,24 @@ func TestPendingAlert_CanBeSent(t *testing.T) {
 		})
 	}
 }
+
+func TestPendingAlert_IsValidType(t *testing.T) {
+	tests := []struct {
+		name      string
+		alertType string
+		want      bool
+	}{
+		{"confirmation_requested is valid", "confirmation_requested", true},
+		{"reminder is not valid", "reminder", false},
+		{"empty type is not valid", "", false},
+		{"unknown type is not valid", "follow_up", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &PendingAlert{Type: tt.alertType}
+			if got := a.IsValidType(); got != tt.want {
+				t.Errorf("IsValidType() = %v for type %q, want %v", got, tt.alertType, tt.want)
+			}
+		})
+	}
+}

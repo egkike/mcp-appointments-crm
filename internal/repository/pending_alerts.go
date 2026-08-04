@@ -27,20 +27,6 @@ func NewPendingAlertsRepo(db *sql.DB) *PendingAlertsRepo {
 	return &PendingAlertsRepo{db: db}
 }
 
-// allowedAlertTypesFase1 is the allowlist of alert types supported in Fase 1.
-var allowedAlertTypesFase1 = map[string]bool{
-	"confirmation_requested": true,
-}
-
-// validateAlertType checks that the alert type is supported in Fase 1.
-func validateAlertType(alertType string) error {
-	if !allowedAlertTypesFase1[alertType] {
-		return fmt.Errorf("tipo de alerta %q no soportado en Fase 1; sólo 'confirmation_requested': %w",
-			alertType, domain.ErrInvalidInput)
-	}
-	return nil
-}
-
 // Save inserts a new pending alert. The ID is auto-assigned by SQLite AUTOINCREMENT.
 // Status defaults to "pending". RelatedBookingID may be nil.
 // Returns domain.ErrInvalidInput if the alert type is not supported in Fase 1 or message is empty.
@@ -50,8 +36,9 @@ func (r *PendingAlertsRepo) Save(ctx context.Context, a *entity.PendingAlert) er
 		return fmt.Errorf("crear alerta: %w", err)
 	}
 
-	if err := validateAlertType(a.Type); err != nil {
-		return fmt.Errorf("crear alerta: %w", err)
+	if !a.IsValidType() {
+		return fmt.Errorf("crear alerta: tipo de alerta %q no soportado en Fase 1; sólo 'confirmation_requested': %w",
+			a.Type, domain.ErrInvalidInput)
 	}
 	if strings.TrimSpace(a.Message) == "" {
 		return fmt.Errorf("crear alerta: el mensaje no puede estar vacío: %w", domain.ErrInvalidInput)

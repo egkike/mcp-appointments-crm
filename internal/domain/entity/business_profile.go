@@ -1,6 +1,13 @@
 package entity
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
+)
 
 // BusinessProfile is the singleton configuration row for the business.
 // There is exactly one row with ID="singleton" (enforced by CHECK constraint).
@@ -78,4 +85,85 @@ func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error
 		result[day] = v
 	}
 	return result, nil
+}
+
+// Validate checks business-rule invariants for a business profile.
+// Optional fields (MessengerPlatform, AcceptedPaymentMethods, BusinessHours, Timezone)
+// are only validated when non-empty.
+func (bp *BusinessProfile) Validate() error {
+	// messenger_platform must be nil, "whatsapp", or "telegram".
+	if bp.MessengerPlatform != nil {
+		v := *bp.MessengerPlatform
+		if v != "whatsapp" && v != "telegram" {
+			return fmt.Errorf("la plataforma de mensajería debe ser \"whatsapp\" o \"telegram\", se recibió: %q: %w",
+				v, domain.ErrInvalidInput)
+		}
+	}
+
+	// accepted_payment_methods must be nil or a valid JSON array of non-empty strings.
+	if bp.AcceptedPaymentMethods != nil {
+		if err := bp.validatePaymentMethodsJSON(*bp.AcceptedPaymentMethods); err != nil {
+			return fmt.Errorf("actualizar perfil del negocio: %w", err)
+		}
+	}
+
+	// business_hours must be empty or valid JSON object.
+	if err := bp.validateBusinessHoursJSON(); err != nil {
+		return fmt.Errorf("actualizar perfil del negocio: %w", err)
+	}
+
+	// timezone must be empty or valid IANA zone.
+	if err := bp.validateTimezone(); err != nil {
+		return fmt.Errorf("actualizar perfil del negocio: %w", err)
+	}
+
+	return nil
+}
+
+// validateBusinessHoursJSON checks that BusinessHours is a valid JSON object
+// (not null, array, or primitive). Empty string is allowed.
+func (bp *BusinessProfile) validateBusinessHoursJSON() error {
+	s := bp.BusinessHours
+	if s == "" {
+		return nil
+	}
+	if !json.Valid([]byte(s)) {
+		return fmt.Errorf("el campo business_hours debe ser JSON válido: %w", domain.ErrInvalidInput)
+	}
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return fmt.Errorf("el campo business_hours debe ser un objeto JSON: %w", domain.ErrInvalidInput)
+	}
+	return nil
+}
+
+// validateTimezone checks that Timezone is a valid IANA timezone name.
+// Empty string is allowed (defaults to UTC at DB level).
+func (bp *BusinessProfile) validateTimezone() error {
+	if bp.Timezone == "" {
+		return nil
+	}
+	if _, err := time.LoadLocation(bp.Timezone); err != nil {
+		return fmt.Errorf("la zona horaria %q no es válida: %w", bp.Timezone, domain.ErrInvalidInput)
+	}
+	return nil
+}
+
+// validatePaymentMethodsJSON checks that s is a valid JSON array of non-empty strings.
+// Rejects JSON "null", primitives, and objects.
+func (bp *BusinessProfile) validatePaymentMethodsJSON(s string) error {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return fmt.Errorf("los métodos de pago deben ser un array JSON válido: %w", domain.ErrInvalidInput)
+	}
+	var methods []string
+	if err := json.Unmarshal([]byte(s), &methods); err != nil {
+		return fmt.Errorf("los métodos de pago deben ser un array JSON válido: %w", domain.ErrInvalidInput)
+	}
+	for i, m := range methods {
+		if m == "" {
+			return fmt.Errorf("el método de pago en la posición %d está vacío: %w", i, domain.ErrInvalidInput)
+		}
+	}
+	return nil
 }

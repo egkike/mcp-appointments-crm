@@ -97,3 +97,48 @@ func TestProfessional_HasSpecialty(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestProfessional_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		prof    *Professional
+		wantErr bool
+	}{
+		{
+			name: "valid active professional",
+			prof: &Professional{Name: "Dr. García", Status: "active"},
+		},
+		{
+			name: "valid inactive professional",
+			prof: &Professional{Name: "Dr. López", Status: "inactive"},
+		},
+		{
+			name:    "empty name",
+			prof:    &Professional{Name: "", Status: "active"},
+			wantErr: true,
+		},
+		{
+			name:    "whitespace-only name",
+			prof:    &Professional{Name: "   ", Status: "active"},
+			wantErr: true,
+		},
+		{
+			name:    "invalid status",
+			prof:    &Professional{Name: "Dr. Pérez", Status: "suspended"},
+			wantErr: true,
+		},
+		{
+			name:    "empty status",
+			prof:    &Professional{Name: "Dr. Pérez", Status: ""},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.prof.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

@@ -12,7 +12,7 @@ type Schedule struct {
 
 // IncludesTime reports whether the given HH:MM time falls within the schedule's
 // [StartTime, EndTime) range. The start time is inclusive; the end time is exclusive.
-// Returns false if hhmm is not in "HH:MM" format.
+// Compares strings lexicographically; callers must pass a valid "HH:MM" string.
 func (s *Schedule) IncludesTime(hhmm string) bool {
 	return hhmm >= s.StartTime && hhmm < s.EndTime
 }
