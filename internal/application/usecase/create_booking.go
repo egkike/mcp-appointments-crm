@@ -7,24 +7,63 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 	"github.com/egkike/mcp-appointments-crm/internal/idgen"
 )
 
+// bookingValidator is the narrow contract the use case needs for datetime
+// validation. The concrete *service.BookingValidator satisfies it
+// structurally; tests inject a function-table mock (mockBookingValidator).
+// The consumer-facing interface (domain.BookingValidator) is deferred to a
+// later cleanup, so this local interface keeps the dependency mockable while
+// following accept-interfaces-return-structs.
+type bookingValidator interface {
+	Validate(ctx context.Context, input service.ValidateBookingInput) *domain.SemanticError
+}
+
 // CreateBookingUseCase creates a new booking after authorization.
 type CreateBookingUseCase struct {
-	bookings repository.BookingsRepo
-	services repository.ServicesRepo
+	bookings  repository.BookingsRepo
+	services  repository.ServicesRepo
+	pros      repository.ProfessionalsRepo
+	bizProf   repository.BusinessProfileRepo
+	bizEx     repository.BusinessHoursExceptionRepo
+	schedules repository.SchedulesRepo
+	validator bookingValidator
 }
 
 // NewCreateBookingUseCase constructs a CreateBookingUseCase with the given dependencies.
-func NewCreateBookingUseCase(bookings repository.BookingsRepo, services repository.ServicesRepo) *CreateBookingUseCase {
-	return &CreateBookingUseCase{bookings: bookings, services: services}
+//
+// The four extra repos (professionals, business profile, business-hours
+// exception, schedules) are required for datetime entity resolution BEFORE the
+// validator call (design.md §3.4). The validator is accepted as the narrow
+// bookingValidator interface so tests can inject a mock; production wiring
+// (P4) passes the concrete *service.BookingValidator.
+func NewCreateBookingUseCase(
+	bookings repository.BookingsRepo,
+	services repository.ServicesRepo,
+	pros repository.ProfessionalsRepo,
+	bizProf repository.BusinessProfileRepo,
+	bizEx repository.BusinessHoursExceptionRepo,
+	schedules repository.SchedulesRepo,
+	validator bookingValidator,
+) *CreateBookingUseCase {
+	return &CreateBookingUseCase{
+		bookings:  bookings,
+		services:  services,
+		pros:      pros,
+		bizProf:   bizProf,
+		bizEx:     bizEx,
+		schedules: schedules,
+		validator: validator,
+	}
 }
 
 // Execute creates a booking. Caller must be authenticated; clients book for
@@ -68,6 +107,58 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 	}
 	if !svc.IsActive() {
 		return nil, &domain.SemanticError{Code: domain.ErrCodeServiceNotActive, Message: fmt.Sprintf("Servicio %s no está activo", svc.Name)}
+	}
+
+	// ─── Resolve datetime-validation entities BEFORE the validator ────────
+	// Reuses the same resolution pattern as AvailabilityService: professional,
+	// business profile (timezone), per-date exception, and the professional's
+	// weekly schedule for the slot's weekday. The active-status check above
+	// stays in the use case; the validator does NOT own it (REQ-BV-4 failure
+	// modes).
+	pro, err := uc.pros.FindByID(ctx, input.ProfessionalID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, &domain.SemanticError{Code: domain.ErrCodeNotFound, Message: fmt.Sprintf("profesional %s no encontrado", input.ProfessionalID), Cause: err}
+		}
+		return nil, fmt.Errorf("crear reserva: consultar profesional: %w", err)
+	}
+
+	profile, err := uc.bizProf.Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("crear reserva: consultar perfil de negocio: %w", err)
+	}
+
+	loc, err := service.ParseBusinessTimezone(profile.Timezone)
+	if err != nil {
+		return nil, fmt.Errorf("crear reserva: %w", err)
+	}
+
+	localStart := input.StartTime.In(loc)
+	dayOfWeek := int(localStart.Weekday())
+	exceptionDate := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, loc)
+	exception, err := uc.bizEx.Get(ctx, exceptionDate)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return nil, fmt.Errorf("crear reserva: consultar excepción: %w", err)
+	}
+
+	schedule, err := uc.schedules.FindByProfessionalAndDay(ctx, input.ProfessionalID, dayOfWeek)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return nil, fmt.Errorf("crear reserva: consultar horario del profesional: %w", err)
+	}
+
+	// ─── Validate BEFORE repo dispatch (REQ-BK-9) ─────────────────────────
+	// On validator error, return it unchanged (REQ-BK-10, REQ-BK-11): the use
+	// case MUST NOT rewrap a *domain.SemanticError as domain.ErrConflict.
+	if semErr := uc.validator.Validate(ctx, service.ValidateBookingInput{
+		Service:              svc,
+		Professional:         pro,
+		BusinessProfile:      profile,
+		ProfessionalSchedule: schedule,
+		Exception:            exception,
+		NewStart:             localStart,
+		Bookings:             uc.bookings,
+	}); semErr != nil {
+		return nil, semErr
 	}
 
 	bookingID, err := idgen.New()

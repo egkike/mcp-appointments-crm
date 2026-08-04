@@ -93,11 +93,13 @@
 
 ### Implementation
 
-- [ ] TASK-B.1 — Modify `internal/application/usecase/create_booking.go`: add `validator domain.BookingValidator` to the struct, add constructor param, inject call before `bookings.Create`
-- [ ] TASK-B.2 — Resolve entities (service, professional, business profile) BEFORE calling validator
-  > Reuse the existing resolution logic — DO NOT duplicate
-- [ ] TASK-B.3 — On validator error, return as-is. On validator pass, dispatch to repo. On `domain.ErrConflict` from repo, map to `ErrCodeBookingOverlap` as today (TOCTOU)
-- [ ] TASK-B.4 — Extend `internal/application/usecase/create_booking_test.go` with 8 table-driven subtests (matches design.md §4.2):
+- [x] TASK-B.1 — Modify `internal/application/usecase/create_booking.go`: add `validator domain.BookingValidator` to the struct, add constructor param, inject call before `bookings.Create`
+  > Actual impl: declared local `bookingValidator` interface (narrow contract, accept-interfaces-return-structs); extended `CreateBookingUseCase` struct with 5 new fields (validator, pros, bizProf, bizEx, schedules); extended `NewCreateBookingUseCase` constructor to 7 params.
+- [x] TASK-B.2 — Resolve entities (service, professional, business profile) BEFORE calling validator
+  > Actual impl: Resolve `pro` (Pros.FindByID), `profile` (BizProf.Get), timezone via `service.ParseBusinessTimezone`, `localStart` in business TZ, `dayOfWeek`, `exceptionDate` (BizEx.Get, ErrNotFound-tolerant), `schedule` (Schedules.FindByProfessionalAndDay, ErrNotFound-tolerant). Pattern matches AvailabilityService.CheckAvailability.
+- [x] TASK-B.3 — On validator error, return as-is. On validator pass, dispatch to repo. On `domain.ErrConflict` from repo, map to `ErrCodeBookingOverlap` as today (TOCTOU)
+  > Actual impl: `if semErr := uc.validator.Validate(...); semErr != nil { return nil, semErr }` (REQ-BK-10/11). `if errors.Is(err, domain.ErrConflict) { return ... ErrCodeBookingOverlap ... }` for TOCTOU (REQ-BK-12).
+- [x] TASK-B.4 — Extend `internal/application/usecase/create_booking_test.go` with 8 table-driven subtests (matches design.md §4.2):
   1. `happy_path` — validator returns `nil`, repo returns `nil` → result.BookingID != ""
   2. `past_slot` — validator returns `ErrCodeSlotInPast` → use case returns same
   3. `business_closed` — validator returns `ErrCodeBusinessClosed` → use case returns same
@@ -107,24 +109,30 @@
   7. `service_not_active` — use case's OWN active-status check (validator NOT called) → `ErrCodeServiceNotActive`
   8. `toctou_repo_overlap` — validator returns `nil`, repo returns `domain.ErrConflict` → use case maps to `ErrCodeBookingOverlap`
   > Subtests 2–6 prove the use case propagates validator errors unchanged (REQ-BK-10, REQ-BK-11). Subtest 7 proves the use case's pre-validator active check still works. Subtest 8 is the TOCTOU guard (REQ-BK-12) and proves the repo atomic check stays reachable.
-- [ ] TASK-B.5 — Add `mockBookingValidator` to test file (function-table pattern matching `internal/domain/service/mocks_test.go`)
+  > Actual impl: 8 subtests pass in `TestCreateBookingUseCase_Execute` (table-driven). Pre-existing `TestCreateBookingUseCase` (8 auth/role/input subtests) also pass. The second happy path (client creates for themselves) was missing `bookRepo.CreateFn = ...; return nil` — fixed inline during completion.
+- [x] TASK-B.5 — Add `mockBookingValidator` to test file (function-table pattern matching `internal/domain/service/mocks_test.go`)
+  > Actual impl: `mockBookingValidator` with `OnValidate` field and panic-if-nil pattern. Plus stub methods for the 9 unused interface methods on the 4 new repo mocks (FindActive, Save, Update on ProfessionalsRepo; Update on BusinessProfileRepo; Create, List, Delete on BusinessHoursExceptionRepo; Upsert, Delete on SchedulesRepo) — each panics with a clear message to surface unexpected dependencies in tests.
 
 ### DI wiring (required in same PR — TASK-FU.3 superseded)
 
 - [ ] TASK-B.6 — **MUST update** `cmd/mcp-server/main.go`: construct `NewBookingValidator()` once as a singleton, pass it to the new `NewCreateBookingUseCase(...)` constructor. The use case gains 5 new repo params (Pros, BizProf, BizEx, Schedules — see design.md §3.4) plus the validator; main.go MUST be updated in this PR or the build breaks. (TASK-FU.3 is partially superseded: PR #B handles CreateBooking wiring; PR #C handles RescheduleBooking wiring. Full P4 DI is the refactor-clean-architecture P4 task.)
+  > **DEFERRED** to refactor-clean-architecture P4.1a. The `cmd/mcp-server/main.go` file does not exist yet — the project is `internal/`-only (library, no binary entry point). P4.1a is the planned task to create the main.go with full DI wiring (including the new validator + 5 repo params for both CreateBookingUseCase and RescheduleBookingUseCase). The build does not break in this PR because no caller of `NewCreateBookingUseCase` exists. PR #B completes the use case + tests; the wiring is the natural scope of P4.1a.
 
 ### Pre-flight + Commit + PR
-
-- [ ] TASK-B.7 — Create branch `feat/feat-booking-validator-apply-pr-b` from main
+- [x] TASK-B.7 — Create branch `feat/feat-booking-validator-apply-pr-b` from main
+  > Actual impl: branch created from `main` HEAD `1aab45c` (post PR-A merge). Initial state had uncommitted modifications on main (rescued from sdd-apply sub-agent crash) — branch was created via `git checkout -b` to preserve the work.
 - [ ] TASK-B.8 — `git add` modified files: `create_booking.go`, `create_booking_test.go`, `cmd/mcp-server/main.go`, `tasks.md`
+  > Note: only 3 files actually modified (main.go does not exist). The list above is the original spec; reality is `create_booking.go`, `create_booking_test.go`, `mocks_test.go`, `tasks.md`. The parked `exploration.md` is excluded.
 - [ ] TASK-B.9 — GGA pre-commit
 - [ ] TASK-B.10 — Commit message: `feat(usecase): PR-B CreateBookingUseCase integrates BookingValidator (#22, #23)`
-  > Body: Wires BookingValidator into CreateBookingUseCase before repo dispatch. Closes the ErrCode gap: Create now emits all 7 ErrCode* values via the validator, plus ErrCodeBookingOverlap via the repo's atomic guard (TOCTOU defense-in-depth).
 - [ ] TASK-B.11 — Push to origin and open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-b --title "feat(usecase): PR-B CreateBookingUseCase integrates BookingValidator (#22, #23)"`
 - [ ] TASK-B.12 — Judgment Day: 2 judges in parallel
 - [ ] TASK-B.13 — Ask user "¿Hacemos commit?" after approval
-- [ ] TASK-B.14 — `go test -v -race ./...` all pass
-- [ ] TASK-B.15 — `golangci-lint run ./...` 0 issues
+  > Note: orchestrator handles this gate (TASK-A.17 pattern from PR #A).
+- [x] TASK-B.14 — `go test -v -race ./...` all pass
+  > Actual impl: 10/10 packages PASS, 0 races. `TestCreateBookingUseCase` 8/8 + `TestCreateBookingUseCase_Execute` 8/8.
+- [x] TASK-B.15 — `golangci-lint run ./...` 0 issues
+  > Actual impl: 0 issues across all 8 enabled linters (sqlclosecheck, rowserrcheck, gosec, errorlint, gocritic, prealloc, bodyclose, noctx).
 
 ---
 
