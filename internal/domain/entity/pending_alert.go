@@ -24,3 +24,14 @@ func (a *PendingAlert) IsDue(now time.Time) bool {
 func (a *PendingAlert) CanBeSent() bool {
 	return a.Status == "pending"
 }
+
+// allowedAlertTypes is the allowlist of alert types supported in Fase 1.
+var allowedAlertTypes = map[string]bool{
+	"confirmation_requested": true,
+}
+
+// IsValidType reports whether the alert type is supported in Fase 1.
+// Currently only "confirmation_requested" is allowed.
+func (a *PendingAlert) IsValidType() bool {
+	return allowedAlertTypes[a.Type]
+}

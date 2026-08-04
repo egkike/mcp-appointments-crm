@@ -28,40 +28,6 @@ func NewBusinessProfileRepo(db *sql.DB) *BusinessProfileRepo {
 	return &BusinessProfileRepo{db: db}
 }
 
-// validateBusinessProfile checks business-rule invariants for a business
-// profile before it reaches the database.
-// Optional fields (BusinessHours, Timezone) are only validated when non-empty.
-func validateBusinessProfile(p *entity.BusinessProfile) error {
-	// messenger_platform must be nil, "whatsapp", or "telegram".
-	if p.MessengerPlatform != nil {
-		v := *p.MessengerPlatform
-		if v != "whatsapp" && v != "telegram" {
-			return fmt.Errorf("actualizar perfil del negocio: la plataforma de mensajería debe ser \"whatsapp\" o \"telegram\", se recibió: %q: %w",
-				v, domain.ErrInvalidInput)
-		}
-	}
-
-	// accepted_payment_methods must be nil or a valid JSON array of non-empty strings.
-	// JSON "null" is explicitly rejected (must be an array or omitted).
-	if p.AcceptedPaymentMethods != nil {
-		if err := validateAcceptedPaymentMethodsJSON(*p.AcceptedPaymentMethods); err != nil {
-			return fmt.Errorf("actualizar perfil del negocio: %w", err)
-		}
-	}
-
-	// business_hours must be empty or valid JSON object (optional field).
-	if err := validateBusinessHoursJSON(p.BusinessHours); err != nil {
-		return fmt.Errorf("actualizar perfil del negocio: %w", err)
-	}
-
-	// timezone must be empty or valid IANA zone (optional field).
-	if err := validateTimezone(p.Timezone); err != nil {
-		return fmt.Errorf("actualizar perfil del negocio: %w", err)
-	}
-
-	return nil
-}
-
 // Get returns the singleton business profile, creating a
 // placeholder row on first call (lazy-init). Idempotent and safe under
 // concurrent access: INSERT OR IGNORE ensures at most one row exists.
@@ -103,8 +69,8 @@ func (r *BusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile,
 // Update replaces the singleton row. Returns domain.ErrNotFound if
 // no row matches (should not happen in practice due to lazy-init).
 func (r *BusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) error {
-	if err := validateBusinessProfile(p); err != nil {
-		return err
+	if err := p.Validate(); err != nil {
+		return fmt.Errorf("actualizar perfil de negocio: %w", err)
 	}
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE business_profile SET

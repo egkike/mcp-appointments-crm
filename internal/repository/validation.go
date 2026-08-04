@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -51,54 +50,6 @@ func validateFTSQuery(query string) error {
 	}
 	if ftsQueryRe.MatchString(query) {
 		return fmt.Errorf("la consulta contiene caracteres no permitidos: %w", domain.ErrInvalidInput)
-	}
-	return nil
-}
-
-// validateBusinessHoursJSON checks that s is a valid JSON object (not null,
-// array, or primitive). Empty string is allowed (optional field).
-func validateBusinessHoursJSON(s string) error {
-	if s == "" {
-		return nil
-	}
-	if !json.Valid([]byte(s)) {
-		return fmt.Errorf("el campo business_hours debe ser JSON válido: %w", domain.ErrInvalidInput)
-	}
-	// Verify it's an object, not an array or primitive.
-	trimmed := strings.TrimSpace(s)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return fmt.Errorf("el campo business_hours debe ser un objeto JSON: %w", domain.ErrInvalidInput)
-	}
-	return nil
-}
-
-// validateTimezone checks that tz is a valid IANA timezone name.
-// Empty string is allowed (optional field, defaults to UTC at DB level).
-func validateTimezone(tz string) error {
-	if tz == "" {
-		return nil
-	}
-	if _, err := time.LoadLocation(tz); err != nil {
-		return fmt.Errorf("la zona horaria %q no es válida: %w", tz, domain.ErrInvalidInput)
-	}
-	return nil
-}
-
-// validateAcceptedPaymentMethodsJSON checks that s is a valid JSON array of
-// non-empty strings. Rejects JSON "null", primitives, and objects.
-func validateAcceptedPaymentMethodsJSON(s string) error {
-	trimmed := strings.TrimSpace(s)
-	if len(trimmed) == 0 || trimmed[0] != '[' {
-		return fmt.Errorf("los métodos de pago deben ser un array JSON válido: %w", domain.ErrInvalidInput)
-	}
-	var methods []string
-	if err := json.Unmarshal([]byte(s), &methods); err != nil {
-		return fmt.Errorf("los métodos de pago deben ser un array JSON válido: %w", domain.ErrInvalidInput)
-	}
-	for i, m := range methods {
-		if m == "" {
-			return fmt.Errorf("el método de pago en la posición %d está vacío: %w", i, domain.ErrInvalidInput)
-		}
 	}
 	return nil
 }
