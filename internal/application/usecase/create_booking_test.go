@@ -368,6 +368,7 @@ func TestCreateBookingUseCase_Execute(t *testing.T) {
 	tests := []struct {
 		name         string
 		inactiveSvc  bool
+		inactivePro  bool
 		validatorRet *domain.SemanticError
 		repoRet      error
 		wantErr      bool
@@ -381,6 +382,7 @@ func TestCreateBookingUseCase_Execute(t *testing.T) {
 		{name: "slot_out_of_hours", validatorRet: &domain.SemanticError{Code: domain.ErrCodeSlotOutOfHours, Message: "Fuera de horario."}, wantErr: true, wantCode: domain.ErrCodeSlotOutOfHours},
 		{name: "overlap", validatorRet: &domain.SemanticError{Code: domain.ErrCodeBookingOverlap, Message: "Ya tiene una reserva."}, wantErr: true, wantCode: domain.ErrCodeBookingOverlap},
 		{name: "service_not_active", inactiveSvc: true, wantErr: true, wantCode: domain.ErrCodeServiceNotActive},
+		{name: "professional_not_active", inactivePro: true, wantErr: true, wantCode: domain.ErrCodeProfessionalNotActive},
 		{name: "toctou_repo_overlap", validatorRet: nil, repoRet: domain.ErrConflict, wantErr: true, wantCode: domain.ErrCodeBookingOverlap},
 	}
 
@@ -392,6 +394,11 @@ func TestCreateBookingUseCase_Execute(t *testing.T) {
 			}
 			validatorCalled := false
 			svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, validator := createBookingMocks(svc, tt.validatorRet)
+			if tt.inactivePro {
+				prosRepo.FindByIDFn = func(_ context.Context, _ string) (*entity.Professional, error) {
+					return &entity.Professional{ID: "p1", Name: "Ana", Status: "inactive"}, nil
+				}
+			}
 			validator.OnValidate = func(_ context.Context, _ service.ValidateBookingInput) *domain.SemanticError {
 				validatorCalled = true
 				return tt.validatorRet
@@ -439,12 +446,12 @@ func TestCreateBookingUseCase_Execute(t *testing.T) {
 			}
 
 			switch tt.name {
-			case "service_not_active":
+			case "service_not_active", "professional_not_active":
 				if validatorCalled {
-					t.Error("validator MUST NOT be called when the service is inactive (use case owns the check)")
+					t.Error("validator MUST NOT be called when service/professional is inactive (use case owns the check)")
 				}
 				if createdCalled {
-					t.Error("repo Create MUST NOT be called when the service is inactive")
+					t.Error("repo Create MUST NOT be called when service/professional is inactive")
 				}
 			case "toctou_repo_overlap":
 				if !validatorCalled {

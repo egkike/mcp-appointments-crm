@@ -98,7 +98,7 @@
 - [x] TASK-B.2 — Resolve entities (service, professional, business profile) BEFORE calling validator
   > Actual impl: Resolve `pro` (Pros.FindByID), `profile` (BizProf.Get), timezone via `service.ParseBusinessTimezone`, `localStart` in business TZ, `dayOfWeek`, `exceptionDate` (BizEx.Get, ErrNotFound-tolerant), `schedule` (Schedules.FindByProfessionalAndDay, ErrNotFound-tolerant). Pattern matches AvailabilityService.CheckAvailability.
 - [x] TASK-B.3 — On validator error, return as-is. On validator pass, dispatch to repo. On `domain.ErrConflict` from repo, map to `ErrCodeBookingOverlap` as today (TOCTOU)
-  > Actual impl: `if semErr := uc.validator.Validate(...); semErr != nil { return nil, semErr }` (REQ-BK-10/11). `if errors.Is(err, domain.ErrConflict) { return ... ErrCodeBookingOverlap ... }` for TOCTOU (REQ-BK-12).
+  > Actual impl: `if semErr := uc.validator.Validate(...); semErr != nil { return nil, semErr }` (REQ-BK-10/11). `if errors.Is(err, domain.ErrConflict) { return ... ErrCodeBookingOverlap ... }` for TOCTOU (REQ-BK-12). Post-JD F1 (both judges): added `!pro.IsActive()` check after pro resolution, returning `ErrCodeProfessionalNotActive` (REQ-BV-4 failure modes; mirrors availability.go:78-83). Plus 9th test row `professional_not_active` in the matrix.
 - [x] TASK-B.4 — Extend `internal/application/usecase/create_booking_test.go` with 8 table-driven subtests (matches design.md §4.2):
   1. `happy_path` — validator returns `nil`, repo returns `nil` → result.BookingID != ""
   2. `past_slot` — validator returns `ErrCodeSlotInPast` → use case returns same
@@ -108,8 +108,9 @@
   6. `overlap` — validator returns `ErrCodeBookingOverlap` → use case returns same
   7. `service_not_active` — use case's OWN active-status check (validator NOT called) → `ErrCodeServiceNotActive`
   8. `toctou_repo_overlap` — validator returns `nil`, repo returns `domain.ErrConflict` → use case maps to `ErrCodeBookingOverlap`
-  > Subtests 2–6 prove the use case propagates validator errors unchanged (REQ-BK-10, REQ-BK-11). Subtest 7 proves the use case's pre-validator active check still works. Subtest 8 is the TOCTOU guard (REQ-BK-12) and proves the repo atomic check stays reachable.
-  > Actual impl: 8 subtests pass in `TestCreateBookingUseCase_Execute` (table-driven). Pre-existing `TestCreateBookingUseCase` (8 auth/role/input subtests) also pass. The second happy path (client creates for themselves) was missing `bookRepo.CreateFn = ...; return nil` — fixed inline during completion.
+  9. `professional_not_active` — pro.IsActive() == false (post-JD F1) → use case returns `ErrCodeProfessionalNotActive`, validator NOT called
+  > Subtests 2–6 prove the use case propagates validator errors unchanged (REQ-BK-10, REQ-BK-11). Subtests 7 and 9 prove the use case's pre-validator active check still works (REQ-BV-4 failure modes; the validator does NOT own active-status checks). Subtest 8 is the TOCTOU guard (REQ-BK-12) and proves the repo atomic check stays reachable.
+  > Actual impl: 9 subtests pass in `TestCreateBookingUseCase_Execute` (table-driven). Pre-existing `TestCreateBookingUseCase` (8 auth/role/input subtests) also pass. The second happy path (client creates for themselves) was missing `bookRepo.CreateFn = ...; return nil` — fixed inline during completion.
 - [x] TASK-B.5 — Add `mockBookingValidator` to test file (function-table pattern matching `internal/domain/service/mocks_test.go`)
   > Actual impl: `mockBookingValidator` with `OnValidate` field and panic-if-nil pattern. Plus stub methods for the 9 unused interface methods on the 4 new repo mocks (FindActive, Save, Update on ProfessionalsRepo; Update on BusinessProfileRepo; Create, List, Delete on BusinessHoursExceptionRepo; Upsert, Delete on SchedulesRepo) — each panics with a clear message to surface unexpected dependencies in tests.
 

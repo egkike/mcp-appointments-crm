@@ -122,6 +122,17 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 		}
 		return nil, fmt.Errorf("crear reserva: consultar profesional: %w", err)
 	}
+	// Active-status check BEFORE the validator (REQ-BV-4 failure modes). The
+	// validator does NOT own this check, mirroring AvailabilityService at
+	// availability.go:78-83. Without this guard, a booking could be created
+	// for an inactive professional while CheckAvailability correctly rejects
+	// the same slot — a semantic inconsistency across use cases.
+	if !pro.IsActive() {
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeProfessionalNotActive,
+			Message: fmt.Sprintf("Profesional %s no está activo", pro.Name),
+		}
+	}
 
 	profile, err := uc.bizProf.Get(ctx)
 	if err != nil {
