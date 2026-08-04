@@ -11,6 +11,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 )
 
 func TestRescheduleBookingUseCase(t *testing.T) {
@@ -36,7 +37,8 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return activeService(), nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo)
+		prosRepo, bizRepo, exRepo, schedRepo, validator := rescheduleDeps()
+		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
 
 		result, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -65,7 +67,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("caller not authenticated", func(t *testing.T) {
-		uc := NewRescheduleBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{})
+		uc := NewRescheduleBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       emptyCaller(),
@@ -89,7 +91,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return nil, domain.ErrNotFound
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -115,7 +117,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       clientCaller("c1"),
@@ -138,7 +140,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       staffCaller("staff1", "p1"),
@@ -161,7 +163,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -190,7 +192,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -224,7 +226,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return nil, domain.ErrNotFound
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo)
+		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -243,10 +245,9 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("overlap on new time", func(t *testing.T) {
-		booking := pendingBooking()
 		bookRepo := &mockBookingsRepo{
 			FindByIDFn: func(_ context.Context, _ string) (*entity.Booking, error) {
-				return booking, nil
+				return pendingBooking(), nil
 			},
 			RescheduleFn: func(_ context.Context, _ string, _, _ time.Time) error {
 				return domain.ErrConflict
@@ -257,7 +258,8 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return activeService(), nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo)
+		prosRepo, bizRepo, exRepo, schedRepo, validator := rescheduleDeps()
+		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -280,11 +282,10 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("reschedule fails with generic error", func(t *testing.T) {
-		booking := pendingBooking()
 		repoErr := fmt.Errorf("disk full")
 		bookRepo := &mockBookingsRepo{
 			FindByIDFn: func(_ context.Context, _ string) (*entity.Booking, error) {
-				return booking, nil
+				return pendingBooking(), nil
 			},
 			RescheduleFn: func(_ context.Context, _ string, _, _ time.Time) error {
 				return repoErr
@@ -295,7 +296,8 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return activeService(), nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo)
+		prosRepo, bizRepo, exRepo, schedRepo, validator := rescheduleDeps()
+		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -312,4 +314,164 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 			t.Errorf("expected errors.Is(err, repoErr); got %v", err)
 		}
 	})
+}
+
+// rescheduleDeps returns the five PR #C entity-resolution dependencies (pro,
+// business profile, exception, schedule) plus a validator that passes (returns
+// nil). Callers override these as needed for specific subtests.
+func rescheduleDeps() (
+	*mockProfessionalsRepo, *mockBusinessProfileRepo,
+	*mockBusinessHoursExceptionRepo, *mockSchedulesRepo, *mockBookingValidator,
+) {
+	prosRepo := &mockProfessionalsRepo{
+		FindByIDFn: func(_ context.Context, _ string) (*entity.Professional, error) { return activeProfessional(), nil },
+	}
+	bizRepo := &mockBusinessProfileRepo{
+		GetFn: func(_ context.Context) (*entity.BusinessProfile, error) { return businessProfileUTC(), nil },
+	}
+	exRepo := &mockBusinessHoursExceptionRepo{
+		GetFn: func(_ context.Context, _ time.Time) (*entity.BusinessHoursException, error) {
+			return nil, domain.ErrNotFound
+		},
+	}
+	schedRepo := &mockSchedulesRepo{
+		FindByProfessionalAndDayFn: func(_ context.Context, _ string, _ int) (*entity.Schedule, error) {
+			return nil, domain.ErrNotFound
+		},
+	}
+	validator := &mockBookingValidator{
+		OnValidate: func(_ context.Context, _ service.ValidateBookingInput) *domain.SemanticError { return nil },
+	}
+	return prosRepo, bizRepo, exRepo, schedRepo, validator
+}
+
+// TestRescheduleBookingUseCase_Execute exercises the 9-row validation matrix
+// from design.md §4.3 and the bookings delta spec (REQ-BK-9, REQ-BK-10,
+// REQ-BK-11, REQ-BK-12), adapted to the reschedule shape: the matrix runs
+// after the existing-booking load + CanReschedule check.
+//
+//   - Rows 2–6 prove the use case propagates validator *domain.SemanticError
+//     unchanged (REQ-BK-10, REQ-BK-11): the repo Reschedule is never reached,
+//     and there is no semantic-error → domain.ErrConflict mapping.
+//   - Row 7 (service_not_active) and row 8 (professional_not_active) prove the
+//     use case owns the active-status checks BEFORE the validator: the
+//     validator is not called at all.
+//   - Row 9 (toctou_repo_overlap) proves the repo atomic overlap guard stays
+//     reachable: the validator passes yet the repo returns domain.ErrConflict,
+//     which the use case maps to ErrCodeBookingOverlap (REQ-BK-12 defense-in-depth).
+func TestRescheduleBookingUseCase_Execute(t *testing.T) {
+	futureStart := time.Date(2026, 8, 3, 14, 0, 0, 0, time.UTC) // Monday
+
+	tests := []struct {
+		name         string
+		inactiveSvc  bool
+		inactivePro  bool
+		validatorRet *domain.SemanticError
+		repoRet      error
+		wantErr      bool
+		wantCode     domain.ErrCode
+		wantSuccess  bool
+	}{
+		{name: "happy_path", wantSuccess: true},
+		{name: "past_slot", validatorRet: &domain.SemanticError{Code: domain.ErrCodeSlotInPast, Message: "No se puede reservar en el pasado."}, wantErr: true, wantCode: domain.ErrCodeSlotInPast},
+		{name: "business_closed", validatorRet: &domain.SemanticError{Code: domain.ErrCodeBusinessClosed, Message: "Negocio cerrado."}, wantErr: true, wantCode: domain.ErrCodeBusinessClosed},
+		{name: "professional_not_working", validatorRet: &domain.SemanticError{Code: domain.ErrCodeProfessionalNotWorking, Message: "Profesional no trabaja."}, wantErr: true, wantCode: domain.ErrCodeProfessionalNotWorking},
+		{name: "slot_out_of_hours", validatorRet: &domain.SemanticError{Code: domain.ErrCodeSlotOutOfHours, Message: "Fuera de horario."}, wantErr: true, wantCode: domain.ErrCodeSlotOutOfHours},
+		{name: "overlap", validatorRet: &domain.SemanticError{Code: domain.ErrCodeBookingOverlap, Message: "Ya tiene una reserva."}, wantErr: true, wantCode: domain.ErrCodeBookingOverlap},
+		{name: "service_not_active", inactiveSvc: true, wantErr: true, wantCode: domain.ErrCodeServiceNotActive},
+		{name: "professional_not_active", inactivePro: true, wantErr: true, wantCode: domain.ErrCodeProfessionalNotActive},
+		{name: "toctou_repo_overlap", validatorRet: nil, repoRet: domain.ErrConflict, wantErr: true, wantCode: domain.ErrCodeBookingOverlap},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := activeService()
+			if tt.inactiveSvc {
+				svc.Active = false
+			}
+			validatorCalled := false
+			bookRepo := &mockBookingsRepo{
+				FindByIDFn: func(_ context.Context, _ string) (*entity.Booking, error) {
+					return pendingBooking(), nil
+				},
+			}
+			svcRepo := &mockServicesRepo{
+				FindByIDFn: func(_ context.Context, _ string) (*entity.Service, error) { return svc, nil },
+			}
+			prosRepo, bizRepo, exRepo, schedRepo, validator := rescheduleDeps()
+			if tt.inactivePro {
+				prosRepo.FindByIDFn = func(_ context.Context, _ string) (*entity.Professional, error) {
+					return &entity.Professional{ID: "p1", Name: "Ana", Status: "inactive"}, nil
+				}
+			}
+			validator.OnValidate = func(_ context.Context, _ service.ValidateBookingInput) *domain.SemanticError {
+				validatorCalled = true
+				return tt.validatorRet
+			}
+			var rescheduledCalled bool
+			bookRepo.RescheduleFn = func(_ context.Context, _ string, _, _ time.Time) error {
+				rescheduledCalled = true
+				return tt.repoRet
+			}
+			uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+
+			result, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
+				Caller:       adminCaller(),
+				BookingID:    "b1",
+				NewStartTime: futureStart,
+			})
+
+			if tt.wantSuccess {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if result.BookingID != "b1" {
+					t.Fatalf("result.BookingID = %q; want %q", result.BookingID, "b1")
+				}
+				if !validatorCalled {
+					t.Error("validator MUST be called on the happy path")
+				}
+				if !rescheduledCalled {
+					t.Error("repo Reschedule MUST be reached on the happy path")
+				}
+				return
+			}
+
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			var sem *domain.SemanticError
+			if !errors.As(err, &sem) {
+				t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
+			}
+			if sem.Code != tt.wantCode {
+				t.Errorf("code = %q; want %q", sem.Code, tt.wantCode)
+			}
+
+			switch tt.name {
+			case "service_not_active", "professional_not_active":
+				if validatorCalled {
+					t.Error("validator MUST NOT be called when service/professional is inactive (use case owns the check)")
+				}
+				if rescheduledCalled {
+					t.Error("repo Reschedule MUST NOT be called when service/professional is inactive")
+				}
+			case "toctou_repo_overlap":
+				if !validatorCalled {
+					t.Error("validator MUST be called before the repo in the TOCTOU row")
+				}
+				if !rescheduledCalled {
+					t.Error("repo Reschedule MUST be reached in the TOCTOU row (validator passed)")
+				}
+			default:
+				// Validator-rejected rows: the repo must never be reached.
+				if !validatorCalled {
+					t.Errorf("validator MUST be called (row %q)", tt.name)
+				}
+				if rescheduledCalled {
+					t.Errorf("repo Reschedule MUST NOT be reached when the validator rejects the slot (row %q)", tt.name)
+				}
+			}
+		})
+	}
 }

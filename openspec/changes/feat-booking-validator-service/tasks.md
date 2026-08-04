@@ -145,29 +145,42 @@
 
 ### Implementation
 
-- [ ] TASK-C.1 — Modify `internal/application/usecase/reschedule_booking.go`: same pattern as PR #B. The use case struct gains `validator domain.BookingValidator` plus the 5 new repo params (Pros, BizProf, BizEx, Schedules, plus the existing bookings). Constructor signature mirrors PR #B.
-- [ ] TASK-C.2 — Load the existing booking first (`bookings.FindByID(ctx, input.BookingID)`) and run `CanReschedule` check as today. If `CanReschedule` fails, return the error. Only after `CanReschedule` passes does the use case resolve the new-slot entities (svc, pro, profile, schedule, exception) and call `validator.Validate(ctx, ...)`.
-  > **Reschedule-specific difference vs Create**: the matrix runs after the existing-booking load + `CanReschedule` check. The subtests in TASK-C.4 are constructed to set up a valid pre-state (existing booking that passes `CanReschedule`) and then exercise the new-slot validation matrix.
-- [ ] TASK-C.3 — On validator error, return as-is. On validator pass, dispatch to `bookings.Reschedule`. On `domain.ErrConflict` from repo, map to `ErrCodeBookingOverlap` as today (TOCTOU — same pattern as Create).
-- [ ] TASK-C.4 — Extend `internal/application/usecase/reschedule_booking_test.go` with the same 8-row matrix as PR #B (design.md §4.3), adapted to reschedule input shapes (pre-load existing booking, then exercise validator + repo paths). Reuse `mockBookingValidator` from PR #B.
-- [ ] TASK-C.5 — Final cleanup: verify no orphan code, all error codes emit correctly, run `go test -v -race ./...` end-to-end. The shared `BookingValidator` instance from `main.go` is now used by both `CreateBookingUseCase` and `RescheduleBookingUseCase` (single instance, two consumers).
+- [x] TASK-C.1 — Modify `internal/application/usecase/reschedule_booking.go`: same pattern as PR #B. The use case struct gains `validator domain.BookingValidator` plus the 5 new repo params (Pros, BizProf, BizEx, Schedules, plus the existing bookings). Constructor signature mirrors PR #B.
+  > Actual impl: extended `RescheduleBookingUseCase` struct with 5 new fields (validator, pros, bizProf, bizEx, schedules); extended `NewRescheduleBookingUseCase` to 7 params. Reuses the package-level `bookingValidator` interface declared in `create_booking.go` (shared, no duplicate). Build does not break: no caller of the constructor exists yet (C.6 deferred).
+- [x] TASK-C.2 — Load the existing booking first (`bookings.FindByID(ctx, input.BookingID)`) and run `CanReschedule` check as today. If `CanReschedule` fails, return the error. Only after `CanReschedule` passes does the use case resolve the new-slot entities (svc, pro, profile, schedule, exception) and call `validator.Validate(ctx, ...)`.
+  > Actual impl: kept the load + auth + `CanReschedule` + NewStartTime-zero checks in their original order; entity resolution (pro → profile → timezone → localStart → exception → schedule) and the validator call run strictly after those gates. `reschedule_booking_test.go` rewritten: all 9 existing subtests updated to the new 7-arg constructor; new `rescheduleDeps()` helper mirrors `createBookingMocks`.
+- [x] TASK-C.3 — On validator error, return as-is. On validator pass, dispatch to `bookings.Reschedule`. On `domain.ErrConflict` from repo, map to `ErrCodeBookingOverlap` as today (TOCTOU — same pattern as Create).
+  > Actual impl: `if semErr := uc.validator.Validate(...); semErr != nil { return nil, semErr }` (REQ-BK-10/11). TOCTOU: `errors.Is(err, domain.ErrConflict)` → `ErrCodeBookingOverlap`; `ErrNotFound` → `ErrCodeNotFound` (REQ-BK-12). Both `!svc.IsActive()` and `!pro.IsActive()` checks stay BEFORE the validator call (REQ-BV-4 failure modes).
+- [x] TASK-C.4 — Extend `internal/application/usecase/reschedule_booking_test.go` with the same 8-row matrix as PR #B (design.md §4.3), adapted to reschedule input shapes (pre-load existing booking, then exercise validator + repo paths). Reuse `mockBookingValidator` from PR #B.
+  > Actual impl: `TestRescheduleBookingUseCase_Execute` — 9-row matrix (happy_path, past_slot, business_closed, professional_not_working, slot_out_of_hours, overlap, service_not_active, professional_not_active, toctou_repo_overlap) pre-loading `pendingBooking()`, all 9/9 pass. Reuses `mockBookingValidator` + the 4 PR #B repo mocks.
+- [x] TASK-C.5 — Final cleanup: verify no orphan code, all error codes emit correctly, run `go test -v -race ./...` end-to-end. The shared `BookingValidator` instance from `main.go` is now used by both `CreateBookingUseCase` and `RescheduleBookingUseCase` (single instance, two consumers).
+  > Actual impl: full `go test -count=1 -v -race ./...` green — 9/9 packages PASS, 0 FAIL, 0 races. Both Create and Reschedule now emit the full ErrCode taxonomy. Shared `bookingValidator` interface declared once (create_booking.go), consumed by both use cases.
 
 ### DI wiring (required in same PR — TASK-FU.3 partially superseded)
 
 - [ ] TASK-C.6 — **MUST update** `cmd/mcp-server/main.go`: pass the existing `NewBookingValidator()` singleton (from PR #B) to the new `NewRescheduleBookingUseCase(...)` constructor. The 5 new repo params (Pros, BizProf, BizEx, Schedules, plus existing bookings) are added. main.go MUST be updated in this PR or the build breaks.
+  > → DEFERRED to refactor-clean-architecture P4.1a. cmd/mcp-server/main.go does not exist yet (the project is library-only); it will be created in P4 along with the full DI wiring.
 
 ### Pre-flight + Commit + PR
 
-- [ ] TASK-C.7 — Create branch `feat/feat-booking-validator-apply-pr-c` from main
-- [ ] TASK-C.8 — `git add` modified files: `reschedule_booking.go`, `reschedule_booking_test.go`, `cmd/mcp-server/main.go`, `tasks.md`
-- [ ] TASK-C.9 — GGA pre-commit
-- [ ] TASK-C.10 — Commit message: `feat(usecase): PR-C RescheduleBookingUseCase integrates BookingValidator + cleanup (#22, #23)`
-  > Body: Wires BookingValidator into RescheduleBookingUseCase. Both Create and Reschedule now emit the full ErrCode taxonomy. Closes issues #22 and #23.
-- [ ] TASK-C.11 — Push to origin and open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-c --title "feat(usecase): PR-C RescheduleBookingUseCase integrates BookingValidator + cleanup (#22, #23)"`
+- [x] TASK-C.7 — Create branch `feat/feat-booking-validator-apply-pr-c` from main
+  > Actual impl: branch created from `main` HEAD `478dac3` (post PR-B merge) via `git checkout -b`.
+- [x] TASK-C.8 — `git add` modified files: `reschedule_booking.go`, `reschedule_booking_test.go`, `cmd/mcp-server/main.go`, `tasks.md`
+  > Actual impl: only 3 files staged — `reschedule_booking.go`, `reschedule_booking_test.go`, `tasks.md` (main.go does not exist, C.6 deferred). The parked `exploration.md` is excluded (not staged).
+- [x] TASK-C.9 — GGA pre-commit
+  > Actual impl: GGA ran on commit, judged `✅ CODE REVIEW PASSED` with no errors/warnings (only non-blocking minor observations). No parked-file pickup (exploration.md never staged). Never used --no-verify.
+- [x] TASK-C.10 — Commit message: `feat(usecase): PR-C RescheduleBookingUseCase integrates BookingValidator + cleanup (#22, #23)`
+  > Actual impl: committed as `0ea949c` with the title above + deferral body for C.6.
+- [x] TASK-C.11 — Push to origin and open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-c --title "feat(usecase): PR-C RescheduleBookingUseCase integrates BookingValidator + cleanup (#22, #23)"`
+  > Actual impl: branch pushed to origin; PR opened → https://github.com/egkike/mcp-appointments-crm/pull/39
 - [ ] TASK-C.12 — Judgment Day: 2 judges in parallel
+  > Note: JD is NOT executed by the apply sub-agent (this environment has no subagent `task` tool). The orchestrator launches jd-judge-a / jd-judge-b in parallel against commit `0ea949c` / PR #39 head after this apply returns.
 - [ ] TASK-C.13 — Ask user "¿Hacemos commit?" after approval
-- [ ] TASK-C.14 — `go test -v -race ./...` all pass
-- [ ] TASK-C.15 — `golangci-lint run ./...` 0 issues
+  > Note: orchestrator handles this gate (TASK-A.17 pattern from PR #A).
+- [x] TASK-C.14 — `go test -v -race ./...` all pass
+  > Actual impl: 9/9 packages PASS, 0 races. `TestRescheduleBookingUseCase` 9/9 + `TestRescheduleBookingUseCase_Execute` 9/9.
+- [x] TASK-C.15 — `golangci-lint run ./...` 0 issues
+  > Actual impl: `golangci-lint run ./...` → "0 issues", exit 0. Plus `go fmt ./...` clean, `go vet ./...` clean, `go build -o /dev/null ./...` passes.
 
 ---
 
