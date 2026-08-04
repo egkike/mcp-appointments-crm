@@ -21,12 +21,9 @@ import (
 // bookingValidator is the narrow contract the use case needs for datetime
 // validation. The concrete *service.BookingValidator satisfies it
 // structurally; tests inject a function-table mock (mockBookingValidator).
-// The consumer-facing interface (domain.BookingValidator) is deferred to a
-// later cleanup, so this local interface keeps the dependency mockable while
-// following accept-interfaces-return-structs.
-type bookingValidator interface {
-	Validate(ctx context.Context, input service.ValidateBookingInput) *domain.SemanticError
-}
+// The interface is declared in validator.go (shared by both use cases) per
+// the accept-interfaces-return-structs idiom; the consumer-facing interface
+// (domain.BookingValidator) is deferred to a later cleanup.
 
 // CreateBookingUseCase creates a new booking after authorization.
 type CreateBookingUseCase struct {
