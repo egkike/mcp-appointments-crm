@@ -15,6 +15,18 @@ import (
 //
 // It holds no *sql.DB, no SQL connections, and no mutable state, so it is safe
 // to share as a singleton across use cases (REQ-BV-5, REQ-BV-6).
+//
+// Interface placement (PR #A scope, deferred to PR #B):
+//
+// The consumer-facing interface `domain.BookingValidator` (with signature
+// `Validate(ctx context.Context, input ValidateBookingInput) *domain.SemanticError`)
+// is NOT declared in this package. Per the `internal/domain/` zero-dependency
+// rule (see `internal/domain/errors.go`), the domain package MUST NOT import
+// `internal/domain/entity/` — but `ValidateBookingInput` references entity
+// types, so the interface cannot live here. It will be declared in PR #B in
+// the use case package (or a shared interfaces package) that consumes the
+// validator. Use cases depend on that interface, not on this concrete struct,
+// following the accept-interfaces-return-structs idiom and design.md §3.1.1.
 type BookingValidator struct{}
 
 // NewBookingValidator returns a stateless BookingValidator.

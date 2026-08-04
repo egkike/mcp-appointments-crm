@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -54,6 +55,7 @@ func TestValidateBookingTimeSlot(t *testing.T) {
 		name          string
 		mutate        func(*SlotInput)
 		overlapResult []*entity.Booking
+		overlapErr    error
 		wantCode      *domain.ErrCode
 		wantNoOverlap bool
 	}{
@@ -117,6 +119,11 @@ func TestValidateBookingTimeSlot(t *testing.T) {
 			wantCode: code(domain.ErrCodeBookingOverlap),
 		},
 		{
+			name:       "find_overlapping_error",
+			overlapErr: errors.New("db timeout"),
+			wantCode:   code(domain.ErrCodeInternal),
+		},
+		{
 			name:     "all_pass",
 			wantCode: nil,
 		},
@@ -132,7 +139,7 @@ func TestValidateBookingTimeSlot(t *testing.T) {
 			var overlapCalls int
 			bk.OnFindOverlapping = func(context.Context, string, time.Time, time.Time) ([]*entity.Booking, error) {
 				overlapCalls++
-				return tt.overlapResult, nil
+				return tt.overlapResult, tt.overlapErr
 			}
 			if tt.mutate != nil {
 				tt.mutate(&slot)
