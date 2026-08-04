@@ -458,15 +458,18 @@ Table-driven subtests for `TestCreateBookingUseCase_Execute`:
 | 5 | slot_out_of_hours | `ErrCodeSlotOutOfHours` | — | same |
 | 6 | overlap | `ErrCodeBookingOverlap` | — | same |
 | 7 | service_not_active (use case path) | nil | — | `ErrCodeServiceNotActive` (use case still owns this check) |
-| 8 | toctou_repo_overlap | nil | `domain.ErrConflict` | `ErrCodeBookingOverlap` (via repo path) |
+| 8 | professional_not_active (use case path) | nil | — | `ErrCodeProfessionalNotActive` (use case still owns this check; mirrors availability.go:78-83 per REQ-BV-4) |
+| 9 | toctou_repo_overlap | nil | `domain.ErrConflict` | `ErrCodeBookingOverlap` (via repo path) |
 
 Subtests 2–6 prove the use case propagates validator errors unchanged
-(REQ-BK-10, REQ-BK-11). Subtest 8 is the TOCTOU guard (REQ-BK-12) and proves
-the repo atomic check stays reachable.
+(REQ-BK-10, REQ-BK-11). Subtests 7 and 8 prove the use case owns the
+active-status checks (REQ-BV-4 failure modes) — the validator does NOT
+check `Service.Active` or `Professional.Status`. Subtest 9 is the TOCTOU
+guard (REQ-BK-12) and proves the repo atomic check stays reachable.
 
 ### 4.3 PR #C — `RescheduleBookingUseCase`
 
-Same 8-row matrix adapted to the reschedule shape (existing booking must load first;
+Same 9-row matrix adapted to the reschedule shape (existing booking must load first;
 the matrix runs after `CanReschedule` passes). The TOCTOU subtest asserts the
 `Reschedule` repo path can still return `ErrConflict` while the validator passed.
 
