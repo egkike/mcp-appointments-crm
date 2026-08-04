@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
@@ -27,7 +28,11 @@ func NewServicesRepo(db *sql.DB) *ServicesRepo {
 
 // Save inserts a new service. Returns domain.ErrInvalidInput if duration_minutes <= 0,
 // name is empty, or price is zero or negative.
+// Requires admin or owner role.
 func (r *ServicesRepo) Save(ctx context.Context, s *entity.Service) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("crear servicio: %w", err)
+	}
 	if err := s.Validate(); err != nil {
 		return fmt.Errorf("crear servicio: %w", err)
 	}
@@ -86,7 +91,11 @@ func (r *ServicesRepo) FindActive(ctx context.Context) ([]*entity.Service, error
 
 // Update updates an existing service. Returns domain.ErrInvalidInput for invalid
 // fields, domain.ErrNotFound if no row matches.
+// Requires admin or owner role.
 func (r *ServicesRepo) Update(ctx context.Context, s *entity.Service) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("actualizar servicio: %w", err)
+	}
 	if err := s.Validate(); err != nil {
 		return fmt.Errorf("actualizar servicio: %w", err)
 	}
@@ -110,7 +119,11 @@ func (r *ServicesRepo) Update(ctx context.Context, s *entity.Service) error {
 }
 
 // Delete removes a service by ID. Returns domain.ErrNotFound if no row matches.
+// Requires admin or owner role.
 func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("eliminar servicio: %w", err)
+	}
 	result, err := r.db.ExecContext(ctx, `DELETE FROM services WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("eliminar servicio: %w", err)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
@@ -68,7 +69,11 @@ func (r *BusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile,
 
 // Update replaces the singleton row. Returns domain.ErrNotFound if
 // no row matches (should not happen in practice due to lazy-init).
+// Requires admin or owner role.
 func (r *BusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("actualizar perfil del negocio: %w", err)
+	}
 	if err := p.Validate(); err != nil {
 		return fmt.Errorf("actualizar perfil de negocio: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
@@ -16,6 +17,12 @@ import (
 
 // Compile-time interface conformance check.
 var _ domainrepo.ProfessionalsRepo = (*ProfessionalsRepo)(nil)
+
+// maxSpecialtiesInQuery caps the number of service IDs in a single IN query
+// to stay below SQLite's default SQLITE_MAX_VARIABLE_NUMBER (999 in older
+// versions, 32766 in newer). modernc.org/sqlite uses the conservative default,
+// so 999 is the safe upper bound for a single statement.
+const maxSpecialtiesInQuery = 999
 
 // ProfessionalsRepo provides CRUD operations for the professionals table.
 // No hard-delete method is exposed; soft-delete via status='inactive' is the
@@ -54,14 +61,9 @@ func (r *ProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) er
 		if err := json.Unmarshal([]byte(*p.Specialties), &serviceIDs); err != nil {
 			return fmt.Errorf("crear profesional: specialties debe ser un array JSON válido: %w", domain.ErrInvalidInput)
 		}
-		for _, svcID := range serviceIDs {
-			var count int
-			err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM services WHERE id = ?`, svcID).Scan(&count)
-			if err != nil {
-				return fmt.Errorf("crear profesional: verificar servicio %s: %w", svcID, err)
-			}
-			if count == 0 {
-				return fmt.Errorf("crear profesional: el servicio %s no existe: %w", svcID, domain.ErrNotFound)
+		if len(serviceIDs) > 0 {
+			if err := r.validateSpecialtiesExist(ctx, serviceIDs); err != nil {
+				return fmt.Errorf("crear profesional: %w", err)
 			}
 		}
 	}
@@ -168,14 +170,9 @@ func (r *ProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) 
 		if err := json.Unmarshal([]byte(*p.Specialties), &serviceIDs); err != nil {
 			return fmt.Errorf("actualizar profesional: specialties debe ser un array JSON válido: %w", domain.ErrInvalidInput)
 		}
-		for _, svcID := range serviceIDs {
-			var count int
-			err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM services WHERE id = ?`, svcID).Scan(&count)
-			if err != nil {
-				return fmt.Errorf("actualizar profesional: verificar servicio %s: %w", svcID, err)
-			}
-			if count == 0 {
-				return fmt.Errorf("actualizar profesional: el servicio %s no existe: %w", svcID, domain.ErrNotFound)
+		if len(serviceIDs) > 0 {
+			if err := r.validateSpecialtiesExist(ctx, serviceIDs); err != nil {
+				return fmt.Errorf("actualizar profesional: %w", err)
 			}
 		}
 	}
@@ -196,6 +193,49 @@ func (r *ProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) 
 	}
 	if n == 0 {
 		return fmt.Errorf("actualizar profesional: %w", domain.ErrNotFound)
+	}
+	return nil
+}
+
+// validateSpecialtiesExist checks that all service IDs in the slice exist in
+// the services table using a single IN query instead of N individual queries.
+func (r *ProfessionalsRepo) validateSpecialtiesExist(ctx context.Context, serviceIDs []string) error {
+	if len(serviceIDs) == 0 {
+		return nil
+	}
+	if len(serviceIDs) > maxSpecialtiesInQuery {
+		return fmt.Errorf("specialties excede el límite de %d elementos: %w", maxSpecialtiesInQuery, domain.ErrInvalidInput)
+	}
+	placeholders := make([]string, len(serviceIDs))
+	args := make([]any, len(serviceIDs))
+	for i, id := range serviceIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf(`SELECT id FROM services WHERE id IN (%s)`, strings.Join(placeholders, ","))
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("verificar servicios: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+
+	found := make(map[string]bool, len(serviceIDs))
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("verificar servicios: escaneo: %w", err)
+		}
+		found[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("verificar servicios: iteración: %w", err)
+	}
+
+	// Find any missing service IDs
+	for _, id := range serviceIDs {
+		if !found[id] {
+			return fmt.Errorf("el servicio %s no existe: %w", id, domain.ErrNotFound)
+		}
 	}
 	return nil
 }
