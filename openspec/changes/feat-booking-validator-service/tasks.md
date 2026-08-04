@@ -16,7 +16,8 @@
 
 ### RED phase (write tests first)
 
-- [ ] TASK-A.1 — Write `internal/domain/service/booking_time_validator_test.go` with table-driven tests for the 9 subtests per design.md §4.1:
+- [x] TASK-A.1 — Write `internal/domain/service/booking_time_validator_test.go` with table-driven tests for the 9 subtests per design.md §4.1:
+  > Actual impl: `TestValidateBookingTimeSlot` — 9 table-driven subtests (past_time, business_closed_exception, business_closed_json_fallback, professional_not_working, slot_ends_after_close, slot_starts_before_business_open, slot_starts_before_professional_start, overlap_detected, all_pass) + overlap-call short-circuit assertions via a call-count mock.
   1. `past_time` — `Start < time.Now()` → `ErrCodeSlotInPast`, no overlap query
   2. `business_closed_exception` — closed-day exception → `ErrCodeBusinessClosed`
   3. `business_closed_json_fallback` — empty weekly JSON → `ErrCodeBusinessClosed`
@@ -27,27 +28,35 @@
   8. `overlap_detected` — mocked `FindOverlapping` returns 1 → `ErrCodeBookingOverlap`
   9. `all_pass` — valid slot → `nil`
   > Test table shape: `[]struct{ name string; input SlotInput; deps BookingTimeValidatorDeps; wantCode *string }`. Tests MUST fail (function doesn't exist yet).
-- [ ] TASK-A.2 — Write `internal/domain/service/booking_validator_test.go` with table-driven tests (12 scenarios per the spec)
-  > Tests MUST fail (struct doesn't exist yet).
-- [ ] TASK-A.3 — Verify pre-flight: `go test -v -race ./internal/domain/service/` shows expected RED (new tests fail with "undefined: ValidateBookingTimeSlot" / "undefined: BookingValidator").
+- [x] TASK-A.2 — Write `internal/domain/service/booking_validator_test.go` with table-driven tests (12 scenarios per the spec)
+  > Actual impl: `TestBookingValidator_Validate` — 12 table-driven subtests driven through `Validate`: the 9-step matrix + inactive_service_not_validated, inactive_professional_not_validated, first_error_short_circuits (past AND overlap → SlotInPast, overlap mock never called).
+- [x] TASK-A.3 — Verify pre-flight: `go test -v -race ./internal/domain/service/` shows expected RED (new tests fail with "undefined: ValidateBookingTimeSlot" / "undefined: BookingValidator").
+  > Actual impl: RED confirmed — build failure `undefined: SlotInput`, `undefined: BookingTimeValidatorDeps`, `undefined: ValidateBookingInput`.
 
 ### GREEN phase (implement to pass)
 
-- [ ] TASK-A.4 — Implement `internal/domain/service/booking_time_validator.go` (~140 LOC)
+- [x] TASK-A.4 — Implement `internal/domain/service/booking_time_validator.go` (~140 LOC)
   > Package-private function `ValidateBookingTimeSlot(ctx, slot, deps) *domain.SemanticError`. Pure function, no I/O, short-circuits on first error. Order: past → business hours → professional schedule → slot-within-hours → overlap.
-- [ ] TASK-A.5 — Implement `internal/domain/service/booking_validator.go` (~120 LOC)
+  > Actual impl: implemented per design.md §3.2 / spec REQ-BTV-2. Defines `BookingOverlapReader`, `SlotInput`, `BookingTimeValidatorDeps`. Step 4 panics on nil/non-positive Service.Duration (REQ-BTV-2). 5-step order: past → business (exception-aware + weekly JSON) → professional schedule → within-combined-hours → overlap.
+- [x] TASK-A.5 — Implement `internal/domain/service/booking_validator.go` (~120 LOC)
   > Stateless struct `BookingValidator` with method `Validate(ctx, input ValidateBookingInput) *domain.SemanticError`. Calls the helper.
-- [ ] TASK-A.6 — Refactor `internal/domain/service/availability.go` (~40 LOC change)
+  > Actual impl: `NewBookingValidator()` + `Validate` + `ValidateBookingInput` per design §3.1. Mechanical mapping to `SlotInput` (Professional.ID hoisted to ProfessionalID) then delegates to helper.
+- [x] TASK-A.6 — Refactor `internal/domain/service/availability.go` (~40 LOC change)
   > Replace the inline 5-step chain in `CheckAvailability` with a call to `ValidateBookingTimeSlot(ctx, slot, deps)`. Method signature, return type, and error codes UNCHANGED. Behaviour byte-equivalent.
-- [ ] TASK-A.7 — Verify pre-flight: `go test -v -race ./...` passes
-  > Specifically: 16 existing subtests in `availability_test.go` pass unmodified + new tests in `booking_time_validator_test.go` (8 subtests) and `booking_validator_test.go` (12 subtests) pass.
+  > Actual impl: resolution block (svc/pro/profile/loc/startTime + exception + schedule lookups with non-ErrNotFound error wiring) stays inline; the 5-step chain replaced by a single delegate call. Signature/return type unchanged.
+- [x] TASK-A.7 — Verify pre-flight: `go test -v -race ./...` passes
+  > Specifically: 16 existing subtests in `availability_test.go` pass unmodified + new tests in `booking_time_validator_test.go` (9 subtests) and `booking_validator_test.go` (12 subtests) pass.
+  > Actual impl: full `go test -v -race ./...` green — all 9 packages PASS, 0 FAIL, 0 races. Regression gate: 15 `TestCheckAvailability` subtests + `TestHHMMToMinutes` pass with ZERO diff to `availability_test.go`.
 
 ### REFACTOR phase (cleanup)
 
-- [ ] TASK-A.8 — Add the `BookingOverlapReader` interface declaration (per design R7 mitigation)
+- [x] TASK-A.8 — Add the `BookingOverlapReader` interface declaration (per design R7 mitigation)
   > If R7 (import cycle) is observed, declare a zero-dep interface in `internal/domain/repository/booking_overlap_reader.go` and have both `BookingValidator` and `ValidateBookingTimeSlot` accept it. The concrete `mockBookingsRepo` already satisfies it structurally.
-- [ ] TASK-A.9 — Run `gofmt -s -w` on the new files
-- [ ] TASK-A.10 — Update `openspec/changes/feat-booking-validator-service/tasks.md` to mark all TASK-A.* as [x] with one-line "Actual impl" notes
+  > Actual impl: R7 NOT observed in PR #A — no use case imports `internal/domain/service` in this PR, so no cycle can form. `BookingOverlapReader` defined locally in `booking_time_validator.go` per design §3.2. `mockBookingsRepo` satisfies it structurally (compile-time proven: `BookingTimeValidatorDeps.Bookings` is assigned a `*mockBookingsRepo`).
+- [x] TASK-A.9 — Run `gofmt -s -w` on the new files
+  > Actual impl: `gofmt -s -w` on the 4 new files + `availability.go`; `gofmt -l` empty (all formatted).
+- [x] TASK-A.10 — Update `openspec/changes/feat-booking-validator-service/tasks.md` to mark all TASK-A.* as [x] with one-line "Actual impl" notes
+  > Actual impl: this file — tasks A.1–A.10 marked [x] with evidence notes.
 
 ### Commit + Push + PR
 
