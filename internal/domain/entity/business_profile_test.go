@@ -95,3 +95,85 @@ func TestBusinessProfile_GetOpenClose(t *testing.T) {
 		}
 	})
 }
+
+func TestBusinessProfile_Validate(t *testing.T) {
+	whatsapp := "whatsapp"
+	telegram := "telegram"
+	invalidPlatform := "signal"
+	validPayments := `["cash","card"]`
+	invalidPayments := `"not-an-array"`
+	emptyStrPayment := `["cash",""]`
+	validHours := `{"1":{"open":"09:00","close":"18:00"}}`
+	invalidHours := `[1,2,3]`
+	validTZ := "America/Argentina/Buenos_Aires"
+	invalidTZ := "Mars/Unknown"
+
+	tests := []struct {
+		name    string
+		bp      *BusinessProfile
+		wantErr bool
+	}{
+		{
+			name: "valid profile with all optional fields",
+			bp: &BusinessProfile{
+				MessengerPlatform:      &whatsapp,
+				AcceptedPaymentMethods: &validPayments,
+				BusinessHours:          validHours,
+				Timezone:               validTZ,
+			},
+		},
+		{
+			name: "valid profile with nil optional fields",
+			bp:   &BusinessProfile{},
+		},
+		{
+			name: "valid profile with telegram platform",
+			bp: &BusinessProfile{
+				MessengerPlatform: &telegram,
+			},
+		},
+		{
+			name: "invalid messenger platform",
+			bp: &BusinessProfile{
+				MessengerPlatform: &invalidPlatform,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid payment methods (not an array)",
+			bp: &BusinessProfile{
+				AcceptedPaymentMethods: &invalidPayments,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid payment methods (empty string in array)",
+			bp: &BusinessProfile{
+				AcceptedPaymentMethods: &emptyStrPayment,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid business hours (array instead of object)",
+			bp: &BusinessProfile{
+				BusinessHours: invalidHours,
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid timezone",
+			bp: &BusinessProfile{
+				Timezone: invalidTZ,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.bp.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

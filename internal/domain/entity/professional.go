@@ -1,6 +1,12 @@
 package entity
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
+)
 
 // Professional represents a staff member who provides services.
 type Professional struct {
@@ -37,4 +43,16 @@ func (p *Professional) HasSpecialty(serviceID string) bool {
 		}
 	}
 	return false
+}
+
+// Validate checks business-rule invariants for a professional.
+// Name must be non-empty after trimming, and Status must be "active" or "inactive".
+func (p *Professional) Validate() error {
+	if strings.TrimSpace(p.Name) == "" {
+		return fmt.Errorf("el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
+	}
+	if p.Status != "active" && p.Status != "inactive" {
+		return fmt.Errorf("el estado %q no es válido (debe ser 'active' o 'inactive'): %w", p.Status, domain.ErrInvalidInput)
+	}
+	return nil
 }

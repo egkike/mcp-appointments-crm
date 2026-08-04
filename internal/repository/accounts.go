@@ -36,20 +36,6 @@ func validRole(role entity.AccountRole) bool {
 	return role == entity.RoleOwner || role == entity.RoleAdmin || role == entity.RoleStaff
 }
 
-// validateAccount performs shared validation for Create and Update.
-func validateAccount(a *entity.Account) error {
-	if a.ID == "" {
-		return fmt.Errorf("validar cuenta: %w: el id no puede estar vacío", domain.ErrInvalidInput)
-	}
-	if !validRole(a.Role) {
-		return fmt.Errorf("validar cuenta: %w: role %q no válido (debe ser owner, admin o staff)", domain.ErrInvalidInput, a.Role)
-	}
-	if a.Role == entity.RoleStaff && (a.ProfessionalID == nil || *a.ProfessionalID == "") {
-		return fmt.Errorf("validar cuenta: %w: staff requiere professional_id", domain.ErrInvalidInput)
-	}
-	return nil
-}
-
 // actorFromContext extracts the actor ID from the context's auth.Caller.
 // Returns empty string when no Caller is present (omitted from audit log).
 func actorFromContext(ctx context.Context) string {
@@ -79,8 +65,8 @@ func (r *AccountsRepo) Create(ctx context.Context, a *entity.Account) error {
 		return fmt.Errorf("crear cuenta: %w", err)
 	}
 
-	if err := validateAccount(a); err != nil {
-		return err
+	if err := a.Validate(); err != nil {
+		return fmt.Errorf("crear cuenta: %w", err)
 	}
 
 	// Single-owner pre-check (defense-in-depth with SQLite trigger)
@@ -157,7 +143,7 @@ func (r *AccountsRepo) GetByRole(ctx context.Context, role entity.AccountRole) (
 	if err != nil {
 		return nil, fmt.Errorf("buscar cuentas por role: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
 	accounts := make([]*entity.Account, 0)
 	for rows.Next() {
@@ -186,7 +172,7 @@ func (r *AccountsRepo) List(ctx context.Context) ([]*entity.Account, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listar cuentas: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
 	accounts := make([]*entity.Account, 0)
 	for rows.Next() {
@@ -210,8 +196,8 @@ func (r *AccountsRepo) Update(ctx context.Context, a *entity.Account) error {
 		return fmt.Errorf("actualizar cuenta: %w", err)
 	}
 
-	if err := validateAccount(a); err != nil {
-		return err
+	if err := a.Validate(); err != nil {
+		return fmt.Errorf("actualizar cuenta: %w", err)
 	}
 
 	// Verify the row exists before UPDATE so RowsAffected() == 0 unambiguously means
@@ -331,7 +317,7 @@ func (r *AccountsRepo) ListByProfessional(ctx context.Context, professionalID st
 	if err != nil {
 		return nil, fmt.Errorf("buscar cuentas por profesional: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
 	accounts := make([]*entity.Account, 0)
 	for rows.Next() {

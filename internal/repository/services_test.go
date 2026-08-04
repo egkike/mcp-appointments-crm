@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
@@ -29,7 +30,7 @@ func TestServicesRepo_Save(t *testing.T) {
 			Price:           500.0,
 			Active:          true,
 		}
-		err := repo.Save(context.Background(), svc)
+		err := repo.Save(adminCtx(), svc)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -40,7 +41,7 @@ func TestServicesRepo_Save(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{Name: "Bad", DurationMinutes: 0}
-		err := repo.Save(context.Background(), svc)
+		err := repo.Save(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -51,7 +52,7 @@ func TestServicesRepo_Save(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{Name: "Bad", DurationMinutes: -5}
-		err := repo.Save(context.Background(), svc)
+		err := repo.Save(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -62,7 +63,7 @@ func TestServicesRepo_Save(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{Name: "", DurationMinutes: 30}
-		err := repo.Save(context.Background(), svc)
+		err := repo.Save(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty name, got %v", err)
 		}
@@ -73,7 +74,7 @@ func TestServicesRepo_Save(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{Name: "Test", DurationMinutes: 30, Price: 0}
-		err := repo.Save(context.Background(), svc)
+		err := repo.Save(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for zero price, got %v", err)
 		}
@@ -84,7 +85,7 @@ func TestServicesRepo_Save(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{Name: "Test", DurationMinutes: 30, Price: -100}
-		err := repo.Save(context.Background(), svc)
+		err := repo.Save(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for negative price, got %v", err)
 		}
@@ -99,9 +100,84 @@ func TestServicesRepo_Save(t *testing.T) {
 			WillReturnError(errors.New("disk full"))
 
 		svc := &entity.Service{ID: "svc-1", Name: "Corte", DurationMinutes: 30, Price: 500.0, Active: true}
-		err := repo.Save(context.Background(), svc)
+		err := repo.Save(adminCtx(), svc)
 		if err == nil {
 			t.Fatal("expected error, got nil")
+		}
+	})
+
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &entity.Service{Name: "Test", DurationMinutes: 30, Price: 500.0, Active: true}
+		err := repo.Save(context.Background(), svc)
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+		}
+	})
+
+	t.Run("client role rejected", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &entity.Service{Name: "Test", DurationMinutes: 30, Price: 500.0, Active: true}
+		err := repo.Save(clientCtx("c-1"), svc)
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+	})
+
+	t.Run("staff role rejected", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &entity.Service{Name: "Test", DurationMinutes: 30, Price: 500.0, Active: true}
+		err := repo.Save(staffCtx("pro-1"), svc)
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+	})
+
+	t.Run("admin role allowed", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		mock.ExpectExec(`INSERT INTO services`).
+			WithArgs(sqlmock.AnyArg(), "Test", nil, 30, 500.0, true).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		svc := &entity.Service{ID: "svc-admin", Name: "Test", DurationMinutes: 30, Price: 500.0, Active: true}
+		err := repo.Save(adminCtx(), svc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("owner role allowed", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		mock.ExpectExec(`INSERT INTO services`).
+			WithArgs(sqlmock.AnyArg(), "Test", nil, 30, 500.0, true).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		svc := &entity.Service{ID: "svc-owner", Name: "Test", DurationMinutes: 30, Price: 500.0, Active: true}
+		err := repo.Save(ownerCtx(), svc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }
@@ -231,7 +307,7 @@ func TestServicesRepo_Update(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		svc := &entity.Service{ID: "svc-1", Name: "Updated", DurationMinutes: 45, Price: 600.0, Active: true}
-		err := repo.Update(context.Background(), svc)
+		err := repo.Update(adminCtx(), svc)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -246,7 +322,7 @@ func TestServicesRepo_Update(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		svc := &entity.Service{ID: "missing", Name: "Ghost", DurationMinutes: 30, Price: 500.0, Active: true}
-		err := repo.Update(context.Background(), svc)
+		err := repo.Update(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -257,7 +333,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{ID: "svc-1", Name: "", DurationMinutes: 30, Price: 500.0}
-		err := repo.Update(context.Background(), svc)
+		err := repo.Update(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -268,7 +344,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 0, Price: 500.0}
-		err := repo.Update(context.Background(), svc)
+		err := repo.Update(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -279,7 +355,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 0}
-		err := repo.Update(context.Background(), svc)
+		err := repo.Update(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for zero price, got %v", err)
 		}
@@ -290,7 +366,7 @@ func TestServicesRepo_Update(t *testing.T) {
 		repo := NewServicesRepo(db)
 
 		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: -1}
-		err := repo.Update(context.Background(), svc)
+		err := repo.Update(adminCtx(), svc)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -305,9 +381,84 @@ func TestServicesRepo_Update(t *testing.T) {
 			WillReturnError(errors.New("disk full"))
 
 		svc := &entity.Service{ID: "svc-1", Name: "Updated", DurationMinutes: 30, Price: 500.0, Active: true}
-		err := repo.Update(context.Background(), svc)
+		err := repo.Update(adminCtx(), svc)
 		if err == nil {
 			t.Fatal("expected error, got nil")
+		}
+	})
+
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 500.0}
+		err := repo.Update(context.Background(), svc)
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+		}
+	})
+
+	t.Run("client role rejected", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 500.0}
+		err := repo.Update(clientCtx("c-1"), svc)
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+	})
+
+	t.Run("staff role rejected", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 500.0}
+		err := repo.Update(staffCtx("pro-1"), svc)
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+	})
+
+	t.Run("admin role allowed", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		mock.ExpectExec(`UPDATE services SET`).
+			WithArgs("Test", nil, 30, 500.0, true, "svc-1").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 500.0, Active: true}
+		err := repo.Update(adminCtx(), svc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("owner role allowed", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		mock.ExpectExec(`UPDATE services SET`).
+			WithArgs("Test", nil, 30, 500.0, true, "svc-1").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		svc := &entity.Service{ID: "svc-1", Name: "Test", DurationMinutes: 30, Price: 500.0, Active: true}
+		err := repo.Update(ownerCtx(), svc)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }
@@ -321,7 +472,7 @@ func TestServicesRepo_Delete(t *testing.T) {
 			WithArgs("svc-1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		err := repo.Delete(context.Background(), "svc-1")
+		err := repo.Delete(adminCtx(), "svc-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -335,7 +486,7 @@ func TestServicesRepo_Delete(t *testing.T) {
 			WithArgs("missing").
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		err := repo.Delete(context.Background(), "missing")
+		err := repo.Delete(adminCtx(), "missing")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -349,9 +500,79 @@ func TestServicesRepo_Delete(t *testing.T) {
 			WithArgs("svc-1").
 			WillReturnError(errors.New("connection lost"))
 
-		err := repo.Delete(context.Background(), "svc-1")
+		err := repo.Delete(adminCtx(), "svc-1")
 		if err == nil {
 			t.Fatal("expected error, got nil")
+		}
+	})
+
+	t.Run("no caller returns domain.ErrCodeUnauthenticated", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		err := repo.Delete(context.Background(), "svc-1")
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+		}
+	})
+
+	t.Run("client role rejected", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		err := repo.Delete(clientCtx("c-1"), "svc-1")
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+	})
+
+	t.Run("staff role rejected", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		err := repo.Delete(staffCtx("pro-1"), "svc-1")
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+	})
+
+	t.Run("admin role allowed", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		mock.ExpectExec(`DELETE FROM services WHERE id = \?`).
+			WithArgs("svc-1").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		err := repo.Delete(adminCtx(), "svc-1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("owner role allowed", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		mock.ExpectExec(`DELETE FROM services WHERE id = \?`).
+			WithArgs("svc-1").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		err := repo.Delete(ownerCtx(), "svc-1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }
@@ -444,3 +665,6 @@ func TestServicesRepo_SearchFTS(t *testing.T) {
 
 // strPtr returns a pointer to the given string.
 func strPtr(s string) *string { return &s }
+
+// Verify that auth.Caller is used (prevent unused import)
+var _ = auth.RoleAdmin

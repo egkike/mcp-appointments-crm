@@ -3,7 +3,10 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -20,13 +23,10 @@ func TestProfessionalsRepo_Save(t *testing.T) {
 		role := "Barbero"
 		specs := `["svc-1","svc-2"]`
 
-		// Mock service existence checks for specialties
-		mock.ExpectQuery(`SELECT COUNT\(\*\) FROM services WHERE id = \?`).
-			WithArgs("svc-1").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-		mock.ExpectQuery(`SELECT COUNT\(\*\) FROM services WHERE id = \?`).
-			WithArgs("svc-2").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+		// Mock service existence checks for specialties (single IN query)
+		mock.ExpectQuery(`SELECT id FROM services WHERE id IN`).
+			WithArgs("svc-1", "svc-2").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("svc-1").AddRow("svc-2"))
 
 		mock.ExpectExec(`INSERT INTO professionals`).
 			WithArgs(sqlmock.AnyArg(), "Juan", &role, "active", nil, nil, &specs).
@@ -129,6 +129,42 @@ func TestProfessionalsRepo_Save(t *testing.T) {
 		err := repo.Save(ownerCtx(), p)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("empty JSON specialties array succeeds", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+
+		specs := `[]`
+		// No service validation query should be issued — length 0
+		mock.ExpectExec(`INSERT INTO professionals`).
+			WithArgs(sqlmock.AnyArg(), "Juan", nil, "active", nil, nil, &specs).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+
+		p := &entity.Professional{Name: "Juan", Status: "active", Specialties: &specs}
+		err := repo.Save(adminCtx(), p)
+		if err != nil {
+			t.Fatalf("unexpected error for empty array: %v", err)
+		}
+	})
+
+	t.Run("DB error during IN query propagates", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+
+		specs := `["svc-1"]`
+		mock.ExpectQuery(`SELECT id FROM services WHERE id IN`).
+			WithArgs("svc-1").
+			WillReturnError(errors.New("connection lost"))
+
+		p := &entity.Professional{Name: "Juan", Status: "active", Specialties: &specs}
+		err := repo.Save(adminCtx(), p)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "connection lost") {
+			t.Errorf("expected error to contain 'connection lost', got: %v", err)
 		}
 	})
 }
@@ -383,10 +419,10 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		repo := NewProfessionalsRepo(db)
 
 		specs := `["svc-999"]`
-		// Mock the service existence check - returns count=0
-		mock.ExpectQuery(`SELECT COUNT\(\*\) FROM services WHERE id = \?`).
+		// Mock the service existence check - single IN query returns empty
+		mock.ExpectQuery(`SELECT id FROM services WHERE id IN`).
 			WithArgs("svc-999").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+			WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
 		p := &entity.Professional{ID: "pro-1", Name: "Juan", Status: "active", Specialties: &specs}
 		err := repo.Update(adminCtx(), p)
@@ -400,13 +436,10 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		repo := NewProfessionalsRepo(db)
 
 		specs := `["svc-1","svc-2"]`
-		// Mock service existence checks
-		mock.ExpectQuery(`SELECT COUNT\(\*\) FROM services WHERE id = \?`).
-			WithArgs("svc-1").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-		mock.ExpectQuery(`SELECT COUNT\(\*\) FROM services WHERE id = \?`).
-			WithArgs("svc-2").
-			WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+		// Mock service existence checks (single IN query)
+		mock.ExpectQuery(`SELECT id FROM services WHERE id IN`).
+			WithArgs("svc-1", "svc-2").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("svc-1").AddRow("svc-2"))
 		mock.ExpectExec(`UPDATE professionals SET`).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -414,6 +447,28 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		err := repo.Update(adminCtx(), p)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("rejects specialties list exceeding maxSpecialtiesInQuery", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+
+		// Build a specialties JSON array with 1000 items (1 over the limit)
+		ids := make([]string, maxSpecialtiesInQuery+1)
+		for i := range ids {
+			ids[i] = fmt.Sprintf("svc-%d", i)
+		}
+		rawJSON, _ := json.Marshal(ids)
+		specs := string(rawJSON)
+
+		p := &entity.Professional{ID: "pro-1", Name: "Juan", Status: "active", Specialties: &specs}
+		err := repo.Update(adminCtx(), p)
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "excede el límite") {
+			t.Errorf("expected 'excede el límite' in error, got: %v", err)
 		}
 	})
 

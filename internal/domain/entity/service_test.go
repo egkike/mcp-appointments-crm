@@ -45,3 +45,54 @@ func TestService_Duration(t *testing.T) {
 		})
 	}
 }
+
+func TestService_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		svc     *Service
+		wantErr bool
+	}{
+		{
+			name: "valid service",
+			svc:  &Service{Name: "Corte de pelo", DurationMinutes: 30, Price: 1500.0},
+		},
+		{
+			name:    "empty name",
+			svc:     &Service{Name: "", DurationMinutes: 30, Price: 1500.0},
+			wantErr: true,
+		},
+		{
+			name:    "whitespace-only name",
+			svc:     &Service{Name: "   ", DurationMinutes: 30, Price: 1500.0},
+			wantErr: true,
+		},
+		{
+			name:    "zero duration",
+			svc:     &Service{Name: "Corte", DurationMinutes: 0, Price: 1500.0},
+			wantErr: true,
+		},
+		{
+			name:    "negative duration",
+			svc:     &Service{Name: "Corte", DurationMinutes: -10, Price: 1500.0},
+			wantErr: true,
+		},
+		{
+			name:    "zero price",
+			svc:     &Service{Name: "Corte", DurationMinutes: 30, Price: 0},
+			wantErr: true,
+		},
+		{
+			name:    "negative price",
+			svc:     &Service{Name: "Corte", DurationMinutes: 30, Price: -100},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.svc.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

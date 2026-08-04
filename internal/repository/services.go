@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
@@ -26,25 +26,14 @@ func NewServicesRepo(db *sql.DB) *ServicesRepo {
 	return &ServicesRepo{db: db}
 }
 
-// validateService checks business-rule invariants for a service before it
-// reaches the database. Used by both Save and Update.
-func validateService(s *entity.Service) error {
-	if strings.TrimSpace(s.Name) == "" {
-		return fmt.Errorf("el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
-	}
-	if s.DurationMinutes <= 0 {
-		return fmt.Errorf("la duración debe ser mayor a 0 minutos: %w", domain.ErrInvalidInput)
-	}
-	if s.Price <= 0 {
-		return fmt.Errorf("el precio debe ser mayor a 0: %w", domain.ErrInvalidInput)
-	}
-	return nil
-}
-
 // Save inserts a new service. Returns domain.ErrInvalidInput if duration_minutes <= 0,
 // name is empty, or price is zero or negative.
+// Requires admin or owner role.
 func (r *ServicesRepo) Save(ctx context.Context, s *entity.Service) error {
-	if err := validateService(s); err != nil {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("crear servicio: %w", err)
+	}
+	if err := s.Validate(); err != nil {
 		return fmt.Errorf("crear servicio: %w", err)
 	}
 	_, err := r.db.ExecContext(ctx,
@@ -102,8 +91,12 @@ func (r *ServicesRepo) FindActive(ctx context.Context) ([]*entity.Service, error
 
 // Update updates an existing service. Returns domain.ErrInvalidInput for invalid
 // fields, domain.ErrNotFound if no row matches.
+// Requires admin or owner role.
 func (r *ServicesRepo) Update(ctx context.Context, s *entity.Service) error {
-	if err := validateService(s); err != nil {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("actualizar servicio: %w", err)
+	}
+	if err := s.Validate(); err != nil {
 		return fmt.Errorf("actualizar servicio: %w", err)
 	}
 	result, err := r.db.ExecContext(ctx,
@@ -126,7 +119,11 @@ func (r *ServicesRepo) Update(ctx context.Context, s *entity.Service) error {
 }
 
 // Delete removes a service by ID. Returns domain.ErrNotFound if no row matches.
+// Requires admin or owner role.
 func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("eliminar servicio: %w", err)
+	}
 	result, err := r.db.ExecContext(ctx, `DELETE FROM services WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("eliminar servicio: %w", err)
