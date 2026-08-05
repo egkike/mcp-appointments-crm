@@ -12,7 +12,7 @@
 | Estimated changed lines | ~750–950 |
 | 400-line budget risk | High |
 | Chained PRs recommended | Yes |
-| Suggested split | PR 1 → PR 2 → PR 3 → PR 4 |
+| Suggested split | PR 1 (P3.3) → PR 2 (P3.4a-d) → PR 3 (P4.1+P4.2) — final |
 | Delivery strategy | ask-on-risk |
 | Chain strategy | stacked-to-main |
 
@@ -27,8 +27,8 @@ Chain strategy: stacked-to-main
 |------|------|-----------|----------------------|-----------------|-------------------|
 | 1 | P3.3 domain entity enrichment | PR 1 | `go test -v -race ./internal/domain/entity/...` | N/A (pure unit tests) | Revert `internal/domain/entity/*` changes + repo validator callers |
 | 2 | P3.4 infra cleanup (uuid/errors/validation) | PR 2 | `go test -v -race ./internal/repository/...` | N/A (sqlmock tests) | Revert `internal/idgen/uuid.go`, `internal/repository/sqlite_errors.go`, caller updates |
-| 3 | P3.4c delete `internal/model/` + verify | PR 3 | `go test -v -race ./...` | `go build ./...` | Revert `internal/repository/*.go` `model→entity` changes; restore `internal/model/` |
-| 4 | P4 composition root | PR 4 | `go test -v -race ./...` | `go run ./cmd/mcp-server` exits 0 | Delete `cmd/mcp-server/main.go` |
+| 3 | P3.4c delete `internal/model/` + verify | PR 2 (folded) | `go test -v -race ./...` | `go build ./...` | Revert `internal/repository/*.go` `model→entity` changes; restore `internal/model/` |
+| 4 | P4 composition root | PR 3 (final) | `go test -v -race ./...` | `go run ./cmd/mcp-server` exits 0 | Delete `cmd/mcp-server/main.go` |
 
 ## Completed
 
@@ -76,14 +76,8 @@ Chain strategy: stacked-to-main
 
 ## Phase 4 — DI Wiring
 
-- [ ] P4.1 — Create `cmd/mcp-server/main.go` as composition root only: open SQLite via `internal/db`, construct all repos, construct all use cases, verify no concrete type leaks beyond `cmd/`, exit 0. No SSE server, no `internal/mcp/`.
+- [x] P4.1 — Create `cmd/mcp-server/main.go` as composition root only: open SQLite via `internal/db`, construct all repos, construct all use cases, verify no concrete type leaks beyond `cmd/`, exit 0. No SSE server, no `internal/mcp/`.
+  > **Actual impl**: Created `cmd/mcp-server/main.go` (142 lines). Wires 9 repos (`NewAccountsRepo` with logger, 8 others plain). Constructs `BookingValidator` once (TASK-FU.3 singleton), shared between `CreateBookingUseCase` and `RescheduleBookingUseCase` (both 7 args). Wires `CheckAvailabilityUseCase` with `AvailabilityChecker` interface + `AvailabilityDeps` struct. `GetBooking` and `CancelBooking` receive only `BookingsRepo`. DB path: `MCP_DB_PATH` env var or `./data/appointments.db` default. Logger: `slog.Default()`. Exit 0 on success with INFO line; exit 1 on DB open failure. Decision on `bookingValidator` interface (D4): KEPT as narrow contract in `internal/application/usecase/validator.go` — `domain.BookingValidator` deferred until a third consumer appears (documented in code comment per TASK-FU.3 resolution). No `init()` functions, no DI containers, no reflection. No SSE server or `internal/mcp/`.
+  - **Wiring reminder check**: All 7 items from the reminder block satisfied. `accountsRepo`, `clientsRepo`, `pendingAlertsRepo` are constructed but not yet wired to use cases (future MCP transport layer consumers).
 
-  **Wiring reminder (deferred from `feat-booking-validator-service` TASK-FU.3 / TASK-B.6 / TASK-C.6):**
-  - The project is `internal/`-only today (no `main.go`, no `cmd/`). The library compiles because the 7-arg constructors have no production caller yet — only test mocks invoke them. P4.1 is where the first real caller is created.
-  - **`NewCreateBookingUseCase(bookings, services, professionals, businessProfile, businessHoursException, schedules, validator)`** — 7 args. All 5 new repos + `*service.BookingValidator` singleton.
-  - **`NewRescheduleBookingUseCase(bookings, services, professionals, businessProfile, businessHoursException, schedules, validator)`** — 7 args. Same shape. The `*service.BookingValidator` singleton is shared between both use cases (declared once, two consumers).
-  - **`NewBookingValidator()` returns a stateless `*service.BookingValidator`** — construct once in `main.go`, pass to both use cases (do NOT construct twice).
-  - The narrow `bookingValidator` interface in `internal/application/usecase/validator.go` is a local contract (narrow to the use case layer). At P4.1, decide whether to promote it to `internal/domain/service/` (consumer-facing `domain.BookingValidator`) — domain has a zero-dep rule, so the interface placement is a design decision. Document the choice in the code comment.
-  - The remaining use cases (`GetBooking`, `CancelBooking`, `CheckAvailability`, `ListClients`, etc.) need their existing deps only — no new params from this change. `CheckAvailability` keeps using the inline resolution + `ValidateBookingTimeSlot` helper (TASK-FU.2 deferred to a separate change).
-
-- [ ] P4.2 — Verify Phase 4: `go build ./...` passes; `go test -v -race ./...` passes; no `init()` functions for DI; `go run ./cmd/mcp-server` exits 0 with the composition root wired.
+- [x] P4.2 — Verify Phase 4: `go build ./...` passes; `go test -v -race ./...` passes (9 packages); no `init()` functions for DI (`grep -r 'func init()' cmd/` empty); `go run ./cmd/mcp-server` exits 0 with `composition root wired successfully repos=9 usecases=5 booking_validator_shared=true`; `go vet ./...` clean; `golangci-lint run ./...` 0 issues.
