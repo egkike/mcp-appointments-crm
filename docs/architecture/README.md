@@ -31,3 +31,4 @@ We use a lightweight ADR format inspired by Michael Nygard's template:
 | [0010](./0010-admin-tui.md) | TUI menú operacional (`mcp-appointments-crm admin tui`) for owner/admin/staff account management | accepted | 2026-06-29 |
 | [0011](./0011-owner-as-client.md) | Owner/admin/staff pueden ser clientes del negocio (mismo phone, doble rol) — `CallerResolver` combina accounts+clients info | accepted | 2026-06-29 |
 | [0012](./0012-hermes-chat-local.md) | Segundo canal de comunicación — Chat nativo de Hermes (operación local, sub-comando del binario) con `MCP_CALLER_ID` env var override | accepted | 2026-06-29 |
+| [0013](./0013-layered-architecture.md) | Layered architecture — Clean Architecture + Ports & Adapters (Hexagonal): `internal/domain/repository/` (puertos) + `internal/repository/` (adaptadores), domain zero-dep rule, compile-time interface checks, composition root único en `cmd/mcp-server/main.go` | accepted | 2026-08-05 |
