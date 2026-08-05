@@ -9,7 +9,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
 func TestClientsRepo_Create(t *testing.T) {
@@ -21,7 +20,7 @@ func TestClientsRepo_Create(t *testing.T) {
 			WithArgs("cli-1", "Juan", "+5491112345678", nil, nil).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		c := &model.Client{ID: "cli-1", Name: "Juan", Phone: "+5491112345678"}
+		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: "+5491112345678"}
 		err := repo.Create(context.Background(), c)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -36,7 +35,7 @@ func TestClientsRepo_Create(t *testing.T) {
 			WithArgs("cli-2", "Dup", "+5491112345678", nil, nil).
 			WillReturnError(errors.New("UNIQUE constraint failed: clients.phone"))
 
-		c := &model.Client{ID: "cli-2", Name: "Dup", Phone: "+5491112345678"}
+		c := &entity.Client{ID: "cli-2", Name: "Dup", Phone: "+5491112345678"}
 		err := repo.Create(context.Background(), c)
 		if !errors.Is(err, domain.ErrConflict) {
 			t.Errorf("expected domain.ErrConflict, got %v", err)
@@ -47,7 +46,7 @@ func TestClientsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		c := &model.Client{ID: "cli-2", Name: "", Phone: "+5491112345678"}
+		c := &entity.Client{ID: "cli-2", Name: "", Phone: "+5491112345678"}
 		err := repo.Create(context.Background(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty name, got %v", err)
@@ -58,7 +57,7 @@ func TestClientsRepo_Create(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		c := &model.Client{ID: "cli-2", Name: "Juan", Phone: ""}
+		c := &entity.Client{ID: "cli-2", Name: "Juan", Phone: ""}
 		err := repo.Create(context.Background(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty phone, got %v", err)
@@ -73,7 +72,7 @@ func TestClientsRepo_Create(t *testing.T) {
 			WithArgs("cli-1", "Juan", "+5491112345678", nil, nil).
 			WillReturnError(errors.New("disk full"))
 
-		c := &model.Client{ID: "cli-1", Name: "Juan", Phone: "+5491112345678"}
+		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: "+5491112345678"}
 		err := repo.Create(context.Background(), c)
 		if err == nil {
 			t.Fatal("expected error, got nil")
@@ -329,7 +328,7 @@ func TestClientsRepo_Update(t *testing.T) {
 			WithArgs("Updated", "+5491112345678", nil, nil, "cli-1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		c := &model.Client{ID: "cli-1", Name: "Updated", Phone: "+5491112345678"}
+		c := &entity.Client{ID: "cli-1", Name: "Updated", Phone: "+5491112345678"}
 		err := repo.Update(context.Background(), c)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -344,7 +343,7 @@ func TestClientsRepo_Update(t *testing.T) {
 			WithArgs("Ghost", "+0000000000", nil, nil, "missing").
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		c := &model.Client{ID: "missing", Name: "Ghost", Phone: "+0000000000"}
+		c := &entity.Client{ID: "missing", Name: "Ghost", Phone: "+0000000000"}
 		err := repo.Update(context.Background(), c)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
@@ -359,7 +358,7 @@ func TestClientsRepo_Update(t *testing.T) {
 			WithArgs("Juan", "+5491199999999", nil, nil, "cli-1").
 			WillReturnError(errors.New("UNIQUE constraint failed: clients.phone"))
 
-		c := &model.Client{ID: "cli-1", Name: "Juan", Phone: "+5491199999999"}
+		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: "+5491199999999"}
 		err := repo.Update(context.Background(), c)
 		if !errors.Is(err, domain.ErrConflict) {
 			t.Errorf("expected domain.ErrConflict, got %v", err)
@@ -370,7 +369,7 @@ func TestClientsRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		c := &model.Client{ID: "cli-1", Name: "", Phone: "+5491112345678"}
+		c := &entity.Client{ID: "cli-1", Name: "", Phone: "+5491112345678"}
 		err := repo.Update(context.Background(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
@@ -381,7 +380,7 @@ func TestClientsRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		c := &model.Client{ID: "cli-1", Name: "Juan", Phone: ""}
+		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: ""}
 		err := repo.Update(context.Background(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
@@ -396,7 +395,7 @@ func TestClientsRepo_Update(t *testing.T) {
 			WithArgs("Updated", "+5491112345678", nil, nil, "cli-1").
 			WillReturnError(errors.New("disk full"))
 
-		c := &model.Client{ID: "cli-1", Name: "Updated", Phone: "+5491112345678"}
+		c := &entity.Client{ID: "cli-1", Name: "Updated", Phone: "+5491112345678"}
 		err := repo.Update(context.Background(), c)
 		if err == nil {
 			t.Fatal("expected error, got nil")

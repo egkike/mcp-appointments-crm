@@ -10,7 +10,6 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
 // Compile-time interface conformance check.
@@ -141,7 +140,7 @@ func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
 // SearchFTS performs a full-text search on services using FTS5 MATCH.
 // Results are ordered by FTS5 rank (most relevant first).
 // Returns domain.ErrInvalidInput if the query contains FTS5 operator characters.
-func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*model.Service, error) {
+func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*entity.Service, error) {
 	if err := validateFTSQuery(query); err != nil {
 		return nil, fmt.Errorf("buscar servicios: %w", err)
 	}
@@ -160,11 +159,11 @@ func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*model.Se
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
-	var services []*model.Service
+	var services []*entity.Service
 	for rows.Next() {
-		s := &model.Service{}
+		s := &entity.Service{}
 		if err := rows.Scan(&s.ID, &s.Name, &s.Description, &s.DurationMinutes,
-			&s.Price, &s.IsActive, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			&s.Price, &s.Active, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("buscar servicios: escaneo: %w", err)
 		}
 		services = append(services, s)

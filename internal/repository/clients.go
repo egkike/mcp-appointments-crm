@@ -11,7 +11,6 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 	"github.com/egkike/mcp-appointments-crm/internal/idgen"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
 // Compile-time interface conformance check.
@@ -49,7 +48,7 @@ func (r *ClientsRepo) Save(ctx context.Context, c *entity.Client) error {
 
 // Create inserts a new client. Returns domain.ErrInvalidInput if name or phone is empty.
 // Returns domain.ErrConflict if the phone is already in use (UNIQUE violation).
-func (r *ClientsRepo) Create(ctx context.Context, c *model.Client) error {
+func (r *ClientsRepo) Create(ctx context.Context, c *entity.Client) error {
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("crear cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
@@ -106,7 +105,7 @@ func (r *ClientsRepo) FindByPhone(ctx context.Context, phone string) (*entity.Cl
 
 // GetOrCreate inserts a new client if the phone does not exist, or returns
 // the existing client. Idempotent: does not overwrite the existing name.
-func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*model.Client, error) {
+func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*entity.Client, error) {
 	if strings.TrimSpace(phone) == "" {
 		return nil, fmt.Errorf("obtener o crear cliente: el teléfono no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
@@ -121,7 +120,7 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*mod
 		return nil, fmt.Errorf("obtener o crear cliente: inserción: %w", err)
 	}
 
-	c := &model.Client{}
+	c := &entity.Client{Active: true}
 	err = r.db.QueryRowContext(ctx,
 		`SELECT id, name, phone, email, preferences, created_at, updated_at
 		 FROM clients WHERE phone = ?`, phone,
@@ -136,7 +135,7 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*mod
 // Update updates an existing client. Returns domain.ErrInvalidInput if name or phone
 // is empty. Returns domain.ErrNotFound if no row matches.
 // Returns domain.ErrConflict if the new phone violates the UNIQUE constraint.
-func (r *ClientsRepo) Update(ctx context.Context, c *model.Client) error {
+func (r *ClientsRepo) Update(ctx context.Context, c *entity.Client) error {
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("actualizar cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
@@ -184,7 +183,7 @@ func (r *ClientsRepo) Delete(ctx context.Context, id string) error {
 // SearchFTS performs a full-text search on clients using FTS5 MATCH.
 // Results are ordered by FTS5 rank (most relevant first).
 // Returns domain.ErrInvalidInput if the query contains FTS5 operator characters.
-func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Client, error) {
+func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*entity.Client, error) {
 	if err := validateFTSQuery(query); err != nil {
 		return nil, fmt.Errorf("buscar clientes: %w", err)
 	}
@@ -203,9 +202,9 @@ func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*model.Cli
 	}
 	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
 
-	var clients []*model.Client
+	var clients []*entity.Client
 	for rows.Next() {
-		c := &model.Client{}
+		c := &entity.Client{Active: true}
 		if err := rows.Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Preferences,
 			&c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("buscar clientes: escaneo: %w", err)
