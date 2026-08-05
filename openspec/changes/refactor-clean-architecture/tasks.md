@@ -70,4 +70,13 @@ Chain strategy: stacked-to-main
 ## Phase 4 — DI Wiring
 
 - [ ] P4.1 — Create `cmd/mcp-server/main.go` as composition root only: open SQLite via `internal/db`, construct all repos, construct all use cases, verify no concrete type leaks beyond `cmd/`, exit 0. No SSE server, no `internal/mcp/`.
-- [ ] P4.2 — Verify Phase 4: `go build ./...` passes; `go test -v -race ./...` passes; no `init()` functions for DI.
+
+  **Wiring reminder (deferred from `feat-booking-validator-service` TASK-FU.3 / TASK-B.6 / TASK-C.6):**
+  - The project is `internal/`-only today (no `main.go`, no `cmd/`). The library compiles because the 7-arg constructors have no production caller yet — only test mocks invoke them. P4.1 is where the first real caller is created.
+  - **`NewCreateBookingUseCase(bookings, services, professionals, businessProfile, businessHoursException, schedules, validator)`** — 7 args. All 5 new repos + `*service.BookingValidator` singleton.
+  - **`NewRescheduleBookingUseCase(bookings, services, professionals, businessProfile, businessHoursException, schedules, validator)`** — 7 args. Same shape. The `*service.BookingValidator` singleton is shared between both use cases (declared once, two consumers).
+  - **`NewBookingValidator()` returns a stateless `*service.BookingValidator`** — construct once in `main.go`, pass to both use cases (do NOT construct twice).
+  - The narrow `bookingValidator` interface in `internal/application/usecase/validator.go` is a local contract (narrow to the use case layer). At P4.1, decide whether to promote it to `internal/domain/service/` (consumer-facing `domain.BookingValidator`) — domain has a zero-dep rule, so the interface placement is a design decision. Document the choice in the code comment.
+  - The remaining use cases (`GetBooking`, `CancelBooking`, `CheckAvailability`, `ListClients`, etc.) need their existing deps only — no new params from this change. `CheckAvailability` keeps using the inline resolution + `ValidateBookingTimeSlot` helper (TASK-FU.2 deferred to a separate change).
+
+- [ ] P4.2 — Verify Phase 4: `go build ./...` passes; `go test -v -race ./...` passes; no `init()` functions for DI; `go run ./cmd/mcp-server` exits 0 with the composition root wired.
