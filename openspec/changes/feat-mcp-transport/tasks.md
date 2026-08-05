@@ -107,7 +107,7 @@ Branch: `feat/feat-mcp-transport-2` off `feat/feat-mcp-transport-1`.
 - [ ] **T-10** Integration + e2e + guard tests
   - Files: `internal/mcp/server_integration_test.go` (80), `internal/mcp/e2e_test.go` (65), `internal/mcp/no_repo_import_test.go` (15)
   - Depends: T-09
-  - Acceptance: `/mcp` happy path (`initialize` → `tools/list` → `tools/call check_availability`) with in-memory SQLite; 401/403 → JSON-RPC; `TestNoRepositoryImport` guard passes
+  - Acceptance: `/mcp` happy path (`initialize` → `tools/list` → `tools/call check_availability`) with temp-file SQLite (WAL); 401/403 → JSON-RPC; `TestNoRepositoryImport` guard passes
   - Test: `httptest` + real use cases + temp-file SQLite (WAL)
   - Commit: `test(mcp): add /mcp integration tests and e2e mock client`
 

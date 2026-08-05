@@ -60,7 +60,7 @@ Loopback validation is NOT a per-request wrapper; ADR-0007 mandates it run **bef
 ¹ `.env` parsing is implemented in `internal/config/dotenv.go` (in-house per ADR-0007 §D5). If that package does not yet exist at apply time, this change adds it (~20 LOC) as a PR 1 work unit. **Open question Q-O1** tracks whether it already ships with Fase 1.
 
 **Import graph** (enforced by `go vet` + a grep guard test):
-- `internal/mcp/` imports: `net/http`, `log/slog`, `context`, `encoding/json`, `errors/fmt`, `os/signal`, `github.com/modelcontextprotocol/go-sdk/mcp`, `internal/application/dto`, `internal/application/usecase` (interfaces only, via `ports.go`), `internal/auth` (Caller extraction), `internal/domain` (SemanticError).
+- `internal/mcp/` imports: `net/http`, `log/slog`, `context`, `encoding/json`, `errors`, `fmt`, `os/signal`, `github.com/modelcontextprotocol/go-sdk/mcp`, `internal/application/dto`, `internal/application/usecase` (interfaces only, via `ports.go`), `internal/auth` (Caller extraction), `internal/domain` (SemanticError). (`errors` and `fmt` are two distinct standard-library packages, not one `errors/fmt` path — resolves R2-002.)
 - `internal/mcp/` does **NOT** import `internal/repository`. A compile-time guard test (`TestNoRepositoryImport`) greps the package source for the forbidden import path and fails otherwise (REQ-MT-012, REQ-ARCH-INTMCP-003).
 
 **Consumer interfaces** (`ports.go`) — declared in the consumer package per C5; concrete use cases satisfy them structurally (same pattern as `internal/application/usecase/validator.go`):
@@ -147,7 +147,7 @@ logger.Info("mcp server stopped", "drained", shutdown.Drained, "force_closed", s
 - `mcp.NewServer(impl *mcp.Implementation, opts *mcp.ServerOptions) *mcp.Server`
 - `mcp.AddTool[In, Out any](s *mcp.Server, t *mcp.Tool, h mcp.ToolHandlerFor[In, Out])` — typed handler `func(ctx, *CallToolRequest, In) (*CallToolResult, Out, error)`
 - `mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server, *mcp.StreamableHTTPOptions) *mcp.StreamableHTTPHandler` → implements `http.Handler`
-- `mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: ...}`
+- `mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: 1 << 20}` (1 MiB — tool-call payloads are small booking inputs; bounds memory for a loopback-only listener; `1 << 20` literal, resolves R4-003)
 - `mcp.ServerOptions{Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{ListChanged: false}}}`
 - Tool input/output schemas inferred from Go structs via `jsonschema:"..."` tags (no hand-written JSON schemas).
 
@@ -197,7 +197,7 @@ mcp.AddTool(server, &mcp.Tool{Name:"create_booking", Description:"Crea una reser
 `slog` is the project default (ADR-0013, existing main.go D2). `slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))` is called once at the top of `main()` (composition root). All `internal/mcp/` logging goes through a `*slog.Logger` injected via `Config` (never the package-global `slog.Default()` directly — testability).
 
 **Log shapes** (REQ-MT-011):
-- Request log (per request via a `loggingMiddleware` around the mux, or via the SDK method-handler middleware pattern from the SDK `examples/server/middleware`): `{method, path, status, duration_ms, caller_role}`. `caller_role` only — **never** `caller.ID`, `X-Caller-Id` value, client names, or booking notes (PII policy, AGENTS.md).
+- Request log (per request via a `loggingMiddleware` around the mux, or via the SDK method-handler middleware pattern from the SDK `examples/server/middleware`): `{request_id, method, path, status, duration_ms, caller_role}`. `caller_role` only — **never** `caller.ID`, `X-Caller-Id` value, client names, or booking notes (PII policy, AGENTS.md). The same `request_id` UUID is reused in the error log (below) so a request can be correlated end-to-end (resolves R4-004).
 - Error log: `{request_id, error_code, message}` where `request_id` is a UUID generated per request (no correlation to caller PII).
 - Startup log: `{bind, port, version, sdk_protocol_version, tools_registered: 6}`.
 - Shutdown log: `{drained, force_closed}` from `ShutdownResult`.
@@ -237,9 +237,9 @@ mcp.AddTool(server, &mcp.Tool{Name:"create_booking", Description:"Crea una reser
 | Unit | `errors.go` — semantic/infra/auth mapping | `errors.As` golden cases | 90%+ |
 | Unit | `auth_translator.go` — 401/403 → JSON-RPC translation | `httptest.ResponseRecorder` wrapping a fake 401/403 inner handler; assert JSON-RPC body + code + Spanish msg | 90%+ |
 | Unit | tool handlers (×6) — use case interaction, arg validation | mock `*Port` interfaces from `ports.go` (fake structs, no mockgen — matches existing `mocks_test.go` style) | 80%+ |
-| Integration | `/mcp` happy path: `initialize` → `tools/list` (6 tools) → `tools/call` (`check_availability`) | `httptest.NewServer` + real `mcp.NewServer` + in-memory SQLite (`:memory:` via `modernc.org/sqlite`, WAL pragmas) | covered |
+| Integration | `/mcp` happy path: `initialize` → `tools/list` (6 tools) → `tools/call` (`check_availability`) | `httptest.NewServer` + real `mcp.NewServer` + SQLite on a temp file (`t.TempDir()`; WAL needs a real path, NOT `:memory:` — resolves R3-002) | covered |
 | Integration | auth wired: 401 → JSON-RPC `-32000`, 403 → `-32001` (REQ-AM-WIRED-004) | hit `/mcp` with/without `X-Caller-Id`, with client role calling staff-only tool | covered |
-| E2E | mock LLM client (struct satisfying the SDK client surface) doing `initialize` → `tools/list` → `tools/call` against `httptest` server with real use cases + in-memory DB | `internal/mcp/e2e_test.go` | covered |
+| E2E | mock LLM client (struct satisfying the SDK client surface) doing `initialize` → `tools/list` → `tools/call` against `httptest` server with real use cases + SQLite on a temp file | `internal/mcp/e2e_test.go` | covered |
 | Guard | `TestNoRepositoryImport` — grep `internal/mcp/*.go` for `internal/repository"` | compile-time-ish test | enforced |
 
 All tests run with `-race` (AGENTS.md pre-flight). `go-sqlmock` (existing project pattern, `internal/repository/testutil_test.go`) is used for the booking-use-case interaction tests where in-memory SQLite is too heavy. In-memory SQLite is used for `/mcp` integration + e2e (real schema bootstrap via `db.NewDatabase` against a temp file, NOT `:memory:` — `modernc.org/sqlite` WAL needs a file path; use `t.TempDir()`).
