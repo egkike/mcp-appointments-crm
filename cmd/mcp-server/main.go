@@ -56,6 +56,10 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() {
+		// Intentional: log Close() error but don't change the exit code.
+		// For a server-style binary, a clean shutdown that surfaces a
+		// benign close-time error should NOT flip the systemd unit to
+		// failed. Use os.Exit(1) only for fatal startup errors.
 		if cerr := database.Close(); cerr != nil {
 			logger.Error("failed to close database", "error", cerr)
 		}
