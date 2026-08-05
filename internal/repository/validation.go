@@ -1,5 +1,13 @@
 package repository
 
+// These validation regexes/helpers live in the repository layer (not in
+// internal/validation/) because they are only used to validate data
+// arriving from the SQLite layer (date strings, FTS5 query syntax).
+// Domain and application layers do their own validation at the
+// entity/use-case boundary. If cross-layer validation is ever needed,
+// this can be promoted to internal/validation/ — for now, single-call-site
+// helpers belong with their callers.
+
 import (
 	"fmt"
 	"regexp"

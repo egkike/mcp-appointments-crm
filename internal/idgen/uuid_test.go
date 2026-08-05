@@ -14,6 +14,47 @@ import (
 //   - the 17th hex digit (variant) must be 8, 9, a, or b
 var uuidV4Regex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
+func TestNewUUID(t *testing.T) {
+	t.Run("returns a non-empty UUID v4 string", func(t *testing.T) {
+		id := idgen.NewUUID()
+		if id == "" {
+			t.Fatal("NewUUID() returned empty string")
+		}
+		if !uuidV4Regex.MatchString(id) {
+			t.Errorf("NewUUID() = %q; want valid UUID v4 format", id)
+		}
+	})
+
+	t.Run("format matches New() output", func(t *testing.T) {
+		id1 := idgen.NewUUID()
+		id2, err := idgen.New()
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+		if len(id1) != len(id2) {
+			t.Errorf("NewUUID() len=%d, New() len=%d; want same length", len(id1), len(id2))
+		}
+		if !uuidV4Regex.MatchString(id1) || !uuidV4Regex.MatchString(id2) {
+			t.Error("both must match UUID v4 format")
+		}
+	})
+
+	t.Run("returns unique values across many calls", func(t *testing.T) {
+		const n = 10000
+		seen := make(map[string]struct{}, n)
+		for i := 0; i < n; i++ {
+			id := idgen.NewUUID()
+			if id == "" {
+				t.Fatal("NewUUID() returned empty string")
+			}
+			if _, dup := seen[id]; dup {
+				t.Fatalf("collision after %d iterations: id %q appeared twice", i, id)
+			}
+			seen[id] = struct{}{}
+		}
+	})
+}
+
 func TestNew(t *testing.T) {
 	t.Run("returns a non-empty string", func(t *testing.T) {
 		id, err := idgen.New()

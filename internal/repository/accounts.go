@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -369,12 +368,4 @@ func scanAccountRow(rows *sql.Rows) (*entity.Account, error) {
 	a.ProfessionalID = profID
 	a.Active = isActive == 1
 	return &a, nil
-}
-
-// isSingleOwnerViolation checks if the error is the SQLite single-owner trigger.
-func isSingleOwnerViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "single-owner invariant")
 }

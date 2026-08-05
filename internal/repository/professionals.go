@@ -12,7 +12,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/idgen"
 )
 
 // Compile-time interface conformance check.
@@ -68,7 +68,7 @@ func (r *ProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) er
 		}
 	}
 
-	p.ID = model.NewUUID()
+	p.ID = idgen.NewUUID()
 
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO professionals (id, name, role_specialty, status, email, phone, specialties)
@@ -212,6 +212,11 @@ func (r *ProfessionalsRepo) validateSpecialtiesExist(ctx context.Context, servic
 		placeholders[i] = "?"
 		args[i] = id
 	}
+	// gosec G201 false positive: placeholders are static "?" strings joined by
+	// "," — no user input flows into the SQL template. This is the N+1 fix
+	// from issue #40 (PR #43). Suppressing gosec here is the documented
+	// safe-by-construction pattern.
+	//nolint:gosec
 	query := fmt.Sprintf(`SELECT id FROM services WHERE id IN (%s)`, strings.Join(placeholders, ","))
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {

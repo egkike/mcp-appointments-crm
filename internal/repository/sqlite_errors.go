@@ -1,10 +1,3 @@
-// Package repository provides the data-access layer for the application.
-//
-// Error handling contract:
-//   - Sentinel errors (domain.ErrNotFound, domain.ErrConflict, domain.ErrInvalidInput)
-//     for CRUD control flow, usable with errors.Is.
-//   - domain.SemanticError for business-domain errors (e.g., the 5-step
-//     check_availability chain), usable with errors.As.
 package repository
 
 import (
@@ -31,4 +24,12 @@ func isUniqueViolation(err error) bool {
 		return sqliteErr.Code() == sqliteConstraintUnique
 	}
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// isSingleOwnerViolation checks if the error is the SQLite single-owner trigger.
+func isSingleOwnerViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "single-owner invariant")
 }
