@@ -61,9 +61,9 @@ Branch: `feat/feat-mcp-transport-1` off `main`.
 - [ ] **T-04** Graceful shutdown
   - Files: `internal/mcp/shutdown.go` (55), `internal/mcp/shutdown_test.go` (45)
   - Depends: T-03
-  - Acceptance: SIGTERM/SIGINT → `http.Server.Shutdown(ctx 5s)`; in-flight drains or force-closes; `ShutdownResult{Drained, ForceClosed}` logged
+  - Acceptance: SIGTERM/SIGINT → `http.Server.Shutdown(ctx 10s)` (per REQ-MT-010 — deadline must exceed the SQLite `busy_timeout=5000` to avoid force-closing an in-flight non-idempotent mutation); in-flight drains or force-closes; `ShutdownResult{Drained, ForceClosed}` logged
   - Test: send SIGTERM to test process with in-flight request
-  - Commit: `feat(mcp): add graceful shutdown with 5s drain boundary`
+  - Commit: `feat(mcp): add graceful shutdown with 10s drain boundary`
 
 - [ ] **T-05** Wire transport into main.go + add SDK dependency
   - Files: `cmd/mcp-server/main.go` (50 net), `go.mod`/`go.sum` (5)
@@ -146,7 +146,7 @@ T-01 → T-02 → T-03 → T-04 → T-05 ─────────────
 1. `feat(mcp): add loopback bind validator with Spanish error`
 2. `feat(mcp): add config loader, healthz endpoint, and buildinfo package`
 3. `feat(mcp): integrate go-sdk v1.2.0 with NewStreamableHTTPHandler`
-4. `feat(mcp): add graceful shutdown with 5s drain boundary`
+4. `feat(mcp): add graceful shutdown with 10s drain boundary`
 5. `feat(cmd): wire transport skeleton into composition root`
 
 ### PR 2 (6 commits, base: `feat/feat-mcp-transport-1`)

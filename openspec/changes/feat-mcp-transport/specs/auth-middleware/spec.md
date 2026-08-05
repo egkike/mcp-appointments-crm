@@ -9,12 +9,12 @@
 
 ### REQ-AM-WIRED-001 — Middleware wrapped at composition root
 
-`auth.AuthMiddleware.Wrap(http.Handler)` MUST be wrapped around the MCP handler at the composition root (`cmd/mcp-server/main.go`). Every MCP request MUST be processed by the middleware before reaching the transport.
+At the composition root (`cmd/mcp-server/main.go`) the handler registered on `/mcp` MUST be the composed chain `jsonrpcAuthTranslator(auth.AuthMiddleware.Wrap(mcpHandler))`, per the design §4 (the JSON-RPC auth translator is the OUTERMOST handler, so the middleware is wrapped around the transport AND every request is processed by the middleware before reaching it).
 
-#### Scenario: Middleware wraps MCP handler
+#### Scenario: Auth chain wrapped around MCP handler
 - GIVEN the composition root wiring
 - WHEN reviewed
-- THEN `authMiddleware.Wrap(mcpHandler)` MUST be the handler registered on `/mcp`
+- THEN the handler registered on `/mcp` MUST be `jsonrpcAuthTranslator(authMiddleware.Wrap(mcpHandler))`, with the translator outermost so it can preserve the request `id` when re-emitting 401/403 as JSON-RPC
 
 ### REQ-AM-WIRED-002 — 401 translated to JSON-RPC error
 
