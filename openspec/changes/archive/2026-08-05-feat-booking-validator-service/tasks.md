@@ -1,9 +1,10 @@
 # Tasks: feat-booking-validator-service
 
 > **Change**: feat-booking-validator-service
-> **Status**: Planned
+> **Status**: Complete — archived 2026-08-05
 > **Related**: Issues #22, #23
 > **PRs**: 3 (incremental rollout, see `proposal.md` §Rollout)
+> **Archive note**: Post-merge ceremony checkboxes (commit/push/PR/JD/ask-user) reconciled to `[x]` at archive time per orchestrator authorization — all 3 PRs (#37/#38/#39) merged on `origin/main`. Tasks B.6/C.6 remain unchecked: DI wiring in `cmd/mcp-server/main.go` DEFERRED to refactor-clean-architecture P4.1a (file does not exist yet; by design). TASK-FU.* items are out-of-scope deferred follow-ups, not completed work.
 
 ## PR #A — BookingValidator + shared helper + AvailabilityService refactor
 
@@ -60,25 +61,33 @@
 
 ### Commit + Push + PR
 
-- [ ] TASK-A.11 — Create branch `feat/feat-booking-validator-apply-pr-a` from main
-- [ ] TASK-A.12 — `git add` only the 4 new files + `availability.go` + `tasks.md`
-  > Do NOT add the parked `openspec/changes/feat-booking-validator-service/exploration.md` (it's a record, not part of this PR)
-- [ ] TASK-A.13 — GGA pre-commit. If GGA picks up the parked file, run `git rm --cached openspec/changes/feat-booking-validator-service/exploration.md && git commit --amend --no-edit`
-- [ ] TASK-A.14 — Commit message: `feat(domain/service): PR-A BookingValidator + ValidateBookingTimeSlot helper + AvailabilityService refactor (#22, #23)`
-  > Body: Adds the new BookingValidator domain service and the shared ValidateBookingTimeSlot helper, refactors AvailabilityService.CheckAvailability to delegate to the helper (byte-equivalent, 16-subtest regression gate). Closes the ErrCode gap for #22, #23.
-- [ ] TASK-A.15 — Push to origin, open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-a --title "feat(domain/service): PR-A BookingValidator + shared helper + AvailabilityService refactor (#22, #23)"`
-- [ ] TASK-A.16 — Judgment Day: 2 judges (jd-judge-a, jd-judge-b) in parallel, blind, against commit SHA
-  > If both judges report zero severe findings → terminal_state=approved
-  > If any severe finding → fix-actor round (max 2 rounds per skill contract)
-- [ ] TASK-A.17 — After terminal_state=approved → ask user "¿Hacemos commit?" and wait for green light
+- [x] TASK-A.11 — Create branch `feat/feat-booking-validator-apply-pr-a` from main
+  > done by PR #37 (branch created from `main` HEAD pre-merge)
+- [x] TASK-A.12 — `git add` only the 4 new files + `availability.go` + `tasks.md`
+  > done by PR #37. Do NOT add the parked `openspec/changes/feat-booking-validator-service/exploration.md` (it's a record, not part of this PR)
+- [x] TASK-A.13 — GGA pre-commit. If GGA picks up the parked file, run `git rm --cached openspec/changes/feat-booking-validator-service/exploration.md && git commit --amend --no-edit`
+  > done by PR #37 — GGA passed (4 non-blocking suggestions; 2 doc-comment contracts applied, AvailabilityDeps narrowing skipped to honor REQ-AV-1)
+- [x] TASK-A.14 — Commit message: `feat(domain/service): PR-A BookingValidator + ValidateBookingTimeSlot helper + AvailabilityService refactor (#22, #23)`
+  > done by PR #37 — merged as `1aab45c` (2026-08-04T17:47:53Z)
+- [x] TASK-A.15 — Push to origin, open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-a --title "feat(domain/service): PR-A BookingValidator + shared helper + AvailabilityService refactor (#22, #23)"`
+  > done by PR #37 — https://github.com/egkike/mcp-appointments-crm/pull/37
+- [x] TASK-A.16 — Judgment Day: 2 judges (jd-judge-a, jd-judge-b) in parallel, blind, against commit SHA
+  > done by PR #37 — all JD findings closed (F1+F2). If both judges report zero severe findings → terminal_state=approved
+- [x] TASK-A.17 — After terminal_state=approved → ask user "¿Hacemos commit?" and wait for green light
+  > done by PR #37 — user approved, PR merged
 
 ### Pre-flight gates (verify before each commit)
 
-- [ ] TASK-A.18 — `go fmt ./...` clean
-- [ ] TASK-A.19 — `go vet ./...` clean
-- [ ] TASK-A.20 — `go build -o /dev/null ./...` passes
-- [ ] TASK-A.21 — `golangci-lint run ./...` 0 issues
-- [ ] TASK-A.22 — `go test -v -race ./...` all pass (including the 16 availability_test.go subtests unmodified)
+- [x] TASK-A.18 — `go fmt ./...` clean
+  > done by PR #37 — gofmt clean per apply-progress obs #631
+- [x] TASK-A.19 — `go vet ./...` clean
+  > done by PR #37 — vet clean per apply-progress obs #631
+- [x] TASK-A.20 — `go build -o /dev/null ./...` passes
+  > done by PR #37 — build clean per apply-progress obs #631
+- [x] TASK-A.21 — `golangci-lint run ./...` 0 issues
+  > done by PR #37 — 0 issues per apply-progress obs #631
+- [x] TASK-A.22 — `go test -v -race ./...` all pass (including the 16 availability_test.go subtests unmodified)
+  > done by PR #37 — 201 PASS / 0 FAIL -race across 9 packages (15 TestCheckAvailability subtests + TestHHMMToMinutes regression gate, zero diff to availability_test.go)
 
 ---
 
@@ -122,14 +131,18 @@
 ### Pre-flight + Commit + PR
 - [x] TASK-B.7 — Create branch `feat/feat-booking-validator-apply-pr-b` from main
   > Actual impl: branch created from `main` HEAD `1aab45c` (post PR-A merge). Initial state had uncommitted modifications on main (rescued from sdd-apply sub-agent crash) — branch was created via `git checkout -b` to preserve the work.
-- [ ] TASK-B.8 — `git add` modified files: `create_booking.go`, `create_booking_test.go`, `cmd/mcp-server/main.go`, `tasks.md`
-  > Note: only 3 files actually modified (main.go does not exist). The list above is the original spec; reality is `create_booking.go`, `create_booking_test.go`, `mocks_test.go`, `tasks.md`. The parked `exploration.md` is excluded.
-- [ ] TASK-B.9 — GGA pre-commit
-- [ ] TASK-B.10 — Commit message: `feat(usecase): PR-B CreateBookingUseCase integrates BookingValidator (#22, #23)`
-- [ ] TASK-B.11 — Push to origin and open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-b --title "feat(usecase): PR-B CreateBookingUseCase integrates BookingValidator (#22, #23)"`
-- [ ] TASK-B.12 — Judgment Day: 2 judges in parallel
-- [ ] TASK-B.13 — Ask user "¿Hacemos commit?" after approval
-  > Note: orchestrator handles this gate (TASK-A.17 pattern from PR #A).
+- [x] TASK-B.8 — `git add` modified files: `create_booking.go`, `create_booking_test.go`, `cmd/mcp-server/main.go`, `tasks.md`
+  > done by PR #38. Note: only 3 files actually modified (main.go does not exist). The list above is the original spec; reality is `create_booking.go`, `create_booking_test.go`, `mocks_test.go`, `tasks.md`. The parked `exploration.md` is excluded.
+- [x] TASK-B.9 — GGA pre-commit
+  > done by PR #38
+- [x] TASK-B.10 — Commit message: `feat(usecase): PR-B CreateBookingUseCase integrates BookingValidator (#22, #23)`
+  > done by PR #38 — merged as `478dac3` (2026-08-04T18:13:45Z)
+- [x] TASK-B.11 — Push to origin and open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-b --title "feat(usecase): PR-B CreateBookingUseCase integrates BookingValidator (#22, #23)"`
+  > done by PR #38 — https://github.com/egkike/mcp-appointments-crm/pull/38
+- [x] TASK-B.12 — Judgment Day: 2 judges in parallel
+  > done by PR #38 — JD findings closed (F1)
+- [x] TASK-B.13 — Ask user "¿Hacemos commit?" after approval
+  > done by PR #38 — user approved, PR merged. Note: orchestrator handles this gate (TASK-A.17 pattern from PR #A).
 - [x] TASK-B.14 — `go test -v -race ./...` all pass
   > Actual impl: 10/10 packages PASS, 0 races. `TestCreateBookingUseCase` 8/8 + `TestCreateBookingUseCase_Execute` 8/8.
 - [x] TASK-B.15 — `golangci-lint run ./...` 0 issues
@@ -173,10 +186,10 @@
   > Actual impl: committed as `0ea949c` with the title above + deferral body for C.6.
 - [x] TASK-C.11 — Push to origin and open PR via `gh pr create --base main --head feat/feat-booking-validator-apply-pr-c --title "feat(usecase): PR-C RescheduleBookingUseCase integrates BookingValidator + cleanup (#22, #23)"`
   > Actual impl: branch pushed to origin; PR opened → https://github.com/egkike/mcp-appointments-crm/pull/39
-- [ ] TASK-C.12 — Judgment Day: 2 judges in parallel
-  > Note: JD is NOT executed by the apply sub-agent (this environment has no subagent `task` tool). The orchestrator launches jd-judge-a / jd-judge-b in parallel against commit `0ea949c` / PR #39 head after this apply returns.
-- [ ] TASK-C.13 — Ask user "¿Hacemos commit?" after approval
-  > Note: orchestrator handles this gate (TASK-A.17 pattern from PR #A).
+- [x] TASK-C.12 — Judgment Day: 2 judges in parallel
+  > done by PR #39 — JD findings closed (F1+F2). Note: JD is NOT executed by the apply sub-agent (this environment has no subagent `task` tool). The orchestrator launches jd-judge-a / jd-judge-b in parallel against commit `0ea949c` / PR #39 head after this apply returns.
+- [x] TASK-C.13 — Ask user "¿Hacemos commit?" after approval
+  > done by PR #39 — user approved, PR merged (2026-08-04T18:34:47Z). Note: orchestrator handles this gate (TASK-A.17 pattern from PR #A).
 - [x] TASK-C.14 — `go test -v -race ./...` all pass
   > Actual impl: 9/9 packages PASS, 0 races. `TestRescheduleBookingUseCase` 9/9 + `TestRescheduleBookingUseCase_Execute` 9/9.
 - [x] TASK-C.15 — `golangci-lint run ./...` 0 issues
@@ -198,11 +211,16 @@
 
 ## Success Criteria
 
-- [ ] PR #A merged: `BookingValidator` + `ValidateBookingTimeSlot` exist; `AvailabilityService` 16-subtest regression gate passes
-- [ ] PR #B merged: `CreateBookingUseCase` emits all 7 ErrCode* values
-- [ ] PR #C merged: `RescheduleBookingUseCase` emits all 7 ErrCode* values
-- [ ] Issues #22 and #23 are closable (ErrCode gap closed, knowledge consolidated in domain service)
-- [ ] `refactor-clean-architecture` P3.3b-d and P4 are unblocked
+- [x] PR #A merged: `BookingValidator` + `ValidateBookingTimeSlot` exist; `AvailabilityService` 16-subtest regression gate passes
+  > done by PR #37 (`1aab45c`); regression gate: 15 TestCheckAvailability subtests + TestHHMMToMinutes pass unmodified (201/201 -race total)
+- [x] PR #B merged: `CreateBookingUseCase` emits all 7 ErrCode* values
+  > done by PR #38 (`478dac3`)
+- [x] PR #C merged: `RescheduleBookingUseCase` emits all 7 ErrCode* values
+  > done by PR #39 (`8fae672`)
+- [x] Issues #22 and #23 are closable (ErrCode gap closed, knowledge consolidated in domain service)
+  > Issues #22 and #23 CLOSED with summary comments referencing the 3 PRs (per session summary obs #635)
+- [x] `refactor-clean-architecture` P3.3b-d and P4 are unblocked
+  > P3.3 in progress (merged PR #42 `f2f5969`); P4.1a captured TASK-FU.3 wiring reminder (commit `3bad038`, 2026-08-05)
 
 ---
 
