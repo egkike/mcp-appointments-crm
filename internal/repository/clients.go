@@ -10,6 +10,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
+	"github.com/egkike/mcp-appointments-crm/internal/idgen"
 	"github.com/egkike/mcp-appointments-crm/internal/model"
 )
 
@@ -114,7 +115,7 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*mod
 	}
 	_, err := r.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO clients (id, name, phone) VALUES (?, ?, ?)`,
-		model.NewUUID(), name, phone,
+		idgen.NewUUID(), name, phone,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("obtener o crear cliente: inserción: %w", err)

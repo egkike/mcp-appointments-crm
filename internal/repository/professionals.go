@@ -12,7 +12,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
-	"github.com/egkike/mcp-appointments-crm/internal/model"
+	"github.com/egkike/mcp-appointments-crm/internal/idgen"
 )
 
 // Compile-time interface conformance check.
@@ -68,7 +68,7 @@ func (r *ProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) er
 		}
 	}
 
-	p.ID = model.NewUUID()
+	p.ID = idgen.NewUUID()
 
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO professionals (id, name, role_specialty, status, email, phone, specialties)

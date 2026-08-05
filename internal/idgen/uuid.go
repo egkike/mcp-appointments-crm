@@ -24,3 +24,21 @@ func New() (string, error) {
 	b[8] = (b[8] & 0x3f) | 0x80 // variant RFC 4122
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
+
+// NewUUID is a convenience wrapper around [New]. It returns the UUID string
+// and discards the error. Use [New] directly when you need to handle entropy
+// failures explicitly. NewUUID exists as a drop-in replacement for
+// callers that previously used model.NewUUID() (which called
+// github.com/google/uuid with no error path).
+//
+// When crypto/rand fails (extremely rare), NewUUID returns an empty string.
+// Repository callers that insert the result into a TEXT PRIMARY KEY column
+// will fail with an explicit SQLite constraint violation, surfacing the
+// problem reliably instead of silently producing a zero-value UUID.
+func NewUUID() string {
+	id, err := New()
+	if err != nil {
+		return ""
+	}
+	return id
+}
