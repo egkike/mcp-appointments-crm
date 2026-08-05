@@ -55,17 +55,24 @@ Chain strategy: stacked-to-main
 
 ### P3.4 — Delete obsolete files
 
-- [ ] P3.4a — Migrate `model.NewUUID()` callers at `internal/repository/clients.go:117` and `internal/repository/professionals.go:85` to `idgen.NewUUID()` (add wrapper in `internal/idgen/uuid.go` if missing).
-- [ ] P3.4b — Delete `internal/repository/errors.go`; move `isUniqueViolation()` + `sqliteConstraintUnique` to new `internal/repository/sqlite_errors.go`; update `isSingleOwnerViolation()` in `accounts.go` to live alongside SQLite helpers; migrate `errors_test.go`.
-- [ ] P3.4c — Delete `internal/model/` (10 files, 203 LOC): update `clients.go`, `professionals.go`, `services.go`, and `clients_test.go` to use `entity.*` equivalents; remove `github.com/google/uuid` from `go.mod` if unused.
-- [ ] P3.4d — Decide `datePattern`/`timeHHMMRe` destination: keep package-private in `internal/repository/validation.go` OR move to `internal/validation/`; document decision in code comment and update tasks.
+- [x] P3.4a — Migrate `model.NewUUID()` callers at `internal/repository/clients.go:117` and `internal/repository/professionals.go:85` to `idgen.NewUUID()` (add wrapper in `internal/idgen/uuid.go` if missing).
+  > **Actual impl**: Added `idgen.NewUUID()` wrapper (returns string, discards error, calls `New()`). Migrated `clients.go:117` and `professionals.go:71` (corrected line number — was 85 in tasks, actual is 71). Added `TestNewUUID` (3 subtests: non-empty UUID v4, format matches New(), uniqueness across 10k calls). Removed `model` import from `professionals.go` (sole usage migrated).
+
+- [x] P3.4b — Delete `internal/repository/errors.go`; move `isUniqueViolation()` + `sqliteConstraintUnique` to new `internal/repository/sqlite_errors.go`; update `isSingleOwnerViolation()` in `accounts.go` to live alongside SQLite helpers; migrate `errors_test.go`.
+  > **Actual impl**: Created `doc.go` (package comment), `sqlite_errors.go` (isUniqueViolation, sqliteConstraintUnique, isSingleOwnerViolation moved from accounts.go). Deleted `errors.go`. `git mv errors_test.go → sqlite_errors_test.go`. Removed unused `strings` import from `accounts.go`.
+
+- [x] P3.4c — Delete `internal/model/` (10 files, 203 LOC): update `clients.go`, `professionals.go`, `services.go`, and `clients_test.go` to use `entity.*` equivalents; remove `github.com/google/uuid` from `go.mod` if unused.
+  > **Actual impl**: Migrated ALL `model.*` references in `clients.go` (Create/GetOrCreate/Update/SearchFTS → entity.Client), `services.go` (SearchFTS → entity.Service, s.IsActive → s.Active), and `clients_test.go` (10 × model.Client → entity.Client). Set `Active: true` on entity.Client construction (clients table has no is_active column). Removed 11 files from `internal/model/`. Ran `go mod tidy` — `google/uuid` stays as indirect dep of `modernc.org/sqlite`.
+
+- [x] P3.4d — Decide `datePattern`/`timeHHMMRe` destination: keep package-private in `internal/repository/validation.go` OR move to `internal/validation/`; document decision in code comment and update tasks.
+  > **Decision**: KEPT in `internal/repository/validation.go`. These regexes are only used by the repository layer to validate data arriving from SQLite (date strings, FTS5 query syntax). Documented rationale in code comment at top of `validation.go`.
 
 ### P3.5 — Verify Phase 3
 
-- [ ] P3.5a — `go build ./...` passes
-- [ ] P3.5b — `go test -v -race ./...` passes
-- [ ] P3.5c — `grep -r 'database/sql' internal/domain/` returns empty
-- [ ] P3.5d — All `var _ domain.XxxRepository = (*Impl)(nil)` compile checks pass
+- [x] P3.5a — `go build ./...` passes
+- [x] P3.5b — `go test -v -race ./...` passes (9 packages, 0 failures, 0 races)
+- [x] P3.5c — `grep -r 'database/sql' internal/domain/` returns empty (only a doc comment mention, no real imports)
+- [x] P3.5d — All `var _ domain.XxxRepository = (*Impl)(nil)` compile checks pass
 
 ## Phase 4 — DI Wiring
 
