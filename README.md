@@ -53,6 +53,11 @@ go test -v -race ./...             # tests
 golangci-lint run ./...            # lint
 ```
 
+Development is orchestrated with
+[Gentle AI](https://github.com/Gentleman-Programming/gentle-ai) — the project
+follows its spec-driven development (SDD) workflow and review gates
+(`openspec/changes/`, judgment day, receipt-driven development on PRs).
+
 ## License
 
 MIT License — see the [LICENSE](./LICENSE) file.
