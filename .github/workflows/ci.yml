@@ -1,42 +1,25 @@
 # CI for code changes — MCP Appointments CRM
 #
-# Runs the repository's pre-commit verification pipeline on every PR (and on
-# direct pushes to main) that touches Go code or CI config itself. Docs-only
-# changes (README, docs/, openspec/) do NOT trigger this workflow.
+# Verifies Go code on every PR (and on direct pushes to main). The workflow
+# itself runs on every push/PR so that a required status check is ALWAYS
+# reported; path filtering happens at the JOB level via dorny/paths-filter.
+# When no Go code changed, the "ci" job is skipped and GitHub treats a skipped
+# required check as approved (an absent check would instead block the push).
+# Docs-only changes therefore flow to main directly without friction.
 #
 # Pipeline mirrors AGENTS.md "Pre-Commit Checklist":
 #   go fmt -> go vet -> golangci-lint -> go build -> go test -race -> govulncheck
 #
-# Name of this job is "ci" — register it as a required status check in branch
-# protection for main to make it a merge gate.
+# Name of this job is "ci" (job name "Verify Go code") — registered as the
+# required status check in the main-ci-gate branch ruleset.
 
 name: ci
 
 on:
   pull_request:
     branches: [main]
-    paths:
-      - '*.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'internal/**'
-      - 'cmd/**'
-      - 'pkg/**'
-      - 'scripts/**'
-      - '.golangci.yml'
-      - '.github/workflows/ci.yml'
   push:
     branches: [main]
-    paths:
-      - '*.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'internal/**'
-      - 'cmd/**'
-      - 'pkg/**'
-      - 'scripts/**'
-      - '.golangci.yml'
-      - '.github/workflows/ci.yml'
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -46,8 +29,35 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect Go changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - '*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'internal/**'
+              - 'cmd/**'
+              - 'pkg/**'
+              - 'scripts/**'
+              - '.golangci.yml'
+              - '.github/workflows/ci.yml'
+
   ci:
     name: Verify Go code
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
