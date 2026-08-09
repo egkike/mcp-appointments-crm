@@ -1,0 +1,89 @@
+# CI for code changes — MCP Appointments CRM
+#
+# Runs the repository's pre-commit verification pipeline on every PR (and on
+# direct pushes to main) that touches Go code or CI config itself. Docs-only
+# changes (README, docs/, openspec/) do NOT trigger this workflow.
+#
+# Pipeline mirrors AGENTS.md "Pre-Commit Checklist":
+#   go fmt -> go vet -> golangci-lint -> go build -> go test -race -> govulncheck
+#
+# Name of this job is "ci" — register it as a required status check in branch
+# protection for main to make it a merge gate.
+
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'internal/**'
+      - 'cmd/**'
+      - 'pkg/**'
+      - 'scripts/**'
+      - '.golangci.yml'
+      - '.github/workflows/ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - '*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'internal/**'
+      - 'cmd/**'
+      - 'pkg/**'
+      - 'scripts/**'
+      - '.golangci.yml'
+      - '.github/workflows/ci.yml'
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Verify Go code
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+          check-latest: true
+
+      - name: Print Go version
+        run: go version
+
+      - name: Format check
+        run: |
+          go fmt ./...
+          test -z "$(git diff --name-only)" || { echo "go fmt modified files:"; git diff --name-only; exit 1; }
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          args: run ./...
+
+      - name: Build
+        run: go build -o /dev/null ./...
+
+      - name: Test (race enabled)
+        run: go test -v -race -count=1 ./...
+
+      - name: Dependency vulnerability scan
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
