@@ -2,8 +2,8 @@
 
 > **Estado**: Aprobado
 > **Owner**: Kike
-> **Versión**: 1.0
-> **Última actualización**: 2026-06-26
+> **Versión**: 1.7
+> **Última actualización**: 2026-08-09
 
 ---
 
@@ -103,9 +103,14 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 
 - `cmd/mcp-server/` — entry point del servidor MCP.
 - `internal/db/` — conexión, pragmas, schema (ya existe `database.go`). Incluye la tabla `schema_version` para tracking de versión del esquema.
-- `internal/domain/` — nuevo (refactor): entidades con comportamiento (`entity/`), interfaces de repositorio (`repository/`), servicios de dominio (`service/`) y errores de dominio (`errors.go`). Dependencia cero de infraestructura.
+- `internal/domain/` — capa de dominio (Fase 1b): `entity/` (entidades con comportamiento), `repository/` (interfaces), `service/` (reglas de negocio, p.ej. la cadena de 5 pasos de `check_availability` en §3.7.13) y `errors.go` (errores de dominio). Todos implementados y en producción. Dependencia cero de infraestructura.
 - `internal/repository/` — repos por tabla con prepared statements. En refactor para implementar interfaces de `internal/domain/repository/`.
-- `internal/model/` — structs de dominio originales. **En migración**: reemplazados progresivamente por `internal/domain/entity/`.
+- `internal/model/` — structs de dominio originales. **Eliminado** en Fase 1b (commit `8c90861`, "P3.4 infra cleanup"): consumidores migrados a `internal/domain/entity/`.
+- `internal/application/` — capa de aplicación (Fase 1b): `usecase/` (casos de uso, p.ej. `check_availability.go`) y `dto/` (objetos de transferencia). Los use cases se inyectan en los handlers MCP (Fase 2).
+- `internal/auth/` — capa de autorización (Fase 0): schema `accounts`, repos y middleware `AuthMiddleware`. En producción.
+- `internal/idgen/` — generador de IDs para entidades. En producción.
+- `internal/config/` — configuración del servidor (bind, puerto, paths). En producción.
+- `internal/validation/` — validaciones de datos por campo (regex/type/length). En producción.
 - `internal/mcp/` — futuro: handlers de tools MCP, registro del server.
 - `scripts/install.sh` — script de despliegue para VPS del cliente.
 - `scripts/backup.sh` — nuevo: script bash portable de backup (usa `sqlite3 .backup` para consistencia).
@@ -838,15 +843,17 @@ Un LLM (Hermes) comprometido o mal configurado **no puede escalar a admin** porq
 
 La capa de autorización se implementa como un **change SDD separado** (`feat-authorization`) **antes** de los PRs complejos de `feat-db-layer` (sobre todo antes de PR 3, que expone datos de staff y clients via `check_availability`).
 
-**Estado al 2026-07-16:**
+**Estado al 2026-08-09:**
 
 1. ✅ **`feat-authorization`** (Fase 0) — schema, repo (`internal/auth/`), middleware (`AuthMiddleware`), integración con el flujo MCP. Mergeado en main como PR #8 (commit `c235ed5 feat(auth): add auth primitives`).
 2. ✅ **`feat-db-layer` PR 1 + PR 2** — schema de 10 tablas + 5 repos simples (`accounts`, `business_profile`, `services`, `clients`, `business_hours_exception`). Mergeado en main como PR #7 (commit `2c1ffd8 feat(db-layer): integrate PR 1 + PR 2 + feat-authorization reconciliation`).
 3. ✅ **`feat-db-layer` PR 3a** — 5 repos complejos con `auth.Caller` integration (`professionals`, `schedules`, `pending_alerts`, `bookings`, `datetime` helpers + `auth_helpers`). Mergeado en main como PR #9 (commit `1fc3eb1 feat(repository): add 5 repos with auth.Caller wiring`).
-4. ⏳ **`feat-db-layer` PR 3b** — `BookingsRepo.CheckAvailability` (5-step chain, §3.7.13). Pendiente. Cuando mergee, la Fase 1 queda cerrada.
-5. **Fase 2+** (handlers MCP, TUI menú operacional con seed del owner)
+4. ✅ **PR 3b `CheckAvailability`** — implementado como **use case** en lugar de método de repo: `internal/application/usecase/check_availability.go` (decisión tomada durante la Fase 1b; la cadena de 5 pasos vive en `internal/domain/service/availability.go`, §3.7.13). **Fase 1 CERRADA**.
+5. ✅ **Fase 1b `clean-architecture-refactor`** — ARCHIVADA el 2026-08-09 (commit `988baeb docs(sdd): archive refactor-clean-architecture`). `internal/model/` eliminado (commit `8c90861`); capas `internal/application/{usecase,dto}` y `internal/domain/` (entity/repository/service) creadas; ADR-0013 documenta la arquitectura en capas.
+6. ⏳ **Deuda de auth (actualizada)** — `internal/repository/services.go` ya tiene `auth.Caller` wiring (3 refs). Siguen **pendientes** `internal/repository/clients.go` y `internal/repository/business_hours_exception.go` (solo 2 de los 3 repos de PR 2 sin wiring). El change `feat-repository-auth-integration` está planeado como requisito previo a Fase 2.
+7. **Fase 2+** (handlers MCP, TUI menú operacional con seed del owner)
 
-**Nota sobre la integración de auth en repos de PR 2:** los 5 repos de PR 1+2 fueron escritos antes de que `feat-authorization` estuviera mergeado, por lo que 3 de ellos (`services`, `clients`, `business_hours_exception`) aún **no tienen `auth.Caller` wiring**. Solo `accounts` (PR 1) y los 4 repos de PR 3a lo tienen integrado. Un change de follow-up `feat-repository-auth-integration` está planeado para cerrar esta deuda antes de Fase 2 (cuando los handlers MCP empiecen a invocar los métodos de los repos de PR 2).
+**Nota sobre la integración de auth en repos de PR 2:** los repos de PR 1+2 fueron escritos antes de que `feat-authorization` estuviera mergeado, por lo que inicialmente no tenían `auth.Caller` wiring. `services.go` fue cableado en Fase 1. Una vez cerrado el wiring pendiente de `clients.go` y `business_hours_exception.go` (change `feat-repository-auth-integration`), la deuda queda saldada antes de Fase 2 (cuando los handlers MCP empiecen a invocar los métodos de los repos de PR 2).
 
 ### 3.8.8 TUI menú operacional (Fase 2+)
 
@@ -1154,20 +1161,19 @@ Override con otro caller_id (debug):
 - [ ] `golangci-lint run ./...` pasa
 - [ ] Aprobado en code review + pasa CI
 
-**Estado al 2026-07-16** (3 de 3 PRs mergeados, fase en cierre):
+**Estado al 2026-08-09 (Fase 1 CERRADA):**
 
-- ✅ **PR 1** (foundation: schema 10-tablas + 8 models + sentinels + FTS5 integration test) — mergeado en main como parte de PR #7 (commit `2c1ffd8`).
-- ✅ **PR 2** (4 repos simples: `BusinessProfile`, `Services`, `Clients`, `BusinessHoursException`) — mergeado en main como parte de PR #7.
+- ✅ **PR 1 + PR 2** (foundation: schema 10-tablas + 8 models + sentinels + FTS5 integration test + 4 repos simples) — mergeados en main como parte de PR #7 (commit `2c1ffd8`).
 - ✅ **PR 3a** (4 repos complejos con `auth.Caller` integration: `Professionals`, `Schedules`, `PendingAlerts`, `Bookings` + `datetime` helpers) — mergeado en main como PR #9 (commit `1fc3eb1`).
-- ⏳ **PR 3b** (`BookingsRepo.CheckAvailability` — 5-step chain §3.7.13) — **pendiente**. Cuando mergee, la Fase 1 queda cerrada. PR 3b ya está planeado: branch `feat/feat-db-layer-apply-pr3b` desde main, ~220 LOC, single dominant lens reliability, 10 scenarios como subtests.
+- ✅ **PR 3b** — `CheckAvailability` implementado como **use case** en Fase 1b: `internal/application/usecase/check_availability.go`.
 
-**Stats finales de Fase 1** (post PR 3b, Fase 1 cerrada):
-- 10 repos implementados (todos, incluido `BookingsRepo.CheckAvailability`)
-- 418 tests passing, 87.4% coverage
-- 3 PRs mergeados: PR #7 (foundation + 4 repos simples), PR #9 (5 repos complejos), PR #10 (CheckAvailability)
-- Fase 1 cerrada y archivada en `openspec/changes/archive/2026-07-29-feat-db-layer/`
+**Stats finales de Fase 1** (medidas al cierre, 2026-08-09):
+- 10 repos implementados (todos, incluido `CheckAvailability` como use case en `internal/application/usecase/check_availability.go`)
+- Cobertura real medida en el cierre: `internal/repository` 87.6%, `internal/domain` 100%, `internal/application/usecase` 83.4%, `internal/auth` 86.2%, `internal/domain/entity` 97.0%, `internal/domain/service` 88.3%
+- PRs mergeados: PR #7 (foundation + 4 repos simples), PR #9 (5 repos complejos); Fase 1b completada en PRs #37–#45
+- Fase 1 cerrada y archivada en `openspec/changes/archive/2026-07-29-feat-db-layer/`; Fase 1b archivada en `openspec/changes/archive/2026-08-05-refactor-clean-architecture/`
 
-**Siguiente**: Fase 1b (clean-architecture-refactor) — en progreso. 4 sub-fases, ~2000 LOC, 7 PRs planeados. Ver `openspec/changes/refactor/clean-architecture/`.
+**Siguiente**: Fase 1b (clean-architecture-refactor) — **ARCHIVADA** el 2026-08-09 (commit `988baeb`). 4 sub-fases completadas (~2000 LOC), `internal/model/` eliminado, ADR-0013 registra la arquitectura en capas. Ver `openspec/changes/refactor/clean-architecture/`. **Siguiente: Fase 2 (mcp-server-core / feat-mcp-transport)**.
 
 ### Fase 1b: clean-architecture-refactor (Estimación: M)
 
@@ -1200,6 +1206,8 @@ Override con otro caller_id (debug):
 - Implementación de tools RF2, RF4, RF5, RF6 (mínimo viable: identidad, recursos, ficha de cliente, ciclo de reservas). Cada tool recibe un use case por constructor, no un repo directamente. Cada tool se registra con `RequiredRoles` (e.g., `create_professional` requiere `admin` o `owner`).
 - **`cmd/mcp-server/admin_tui.go`**: sub-comando TUI menú que opera directamente sobre `AccountsRepo` desde el binario principal (no es un binario separado). No es un MCP tool; es otro proceso. **Nota de scope**: el TUI es opcional en Fase 2 (puede ser un follow-up si el alcance se vuelve grande). El MVP de Fase 2 puede enfocarse en el middleware de auth.
 - Templates de user-level service unit (systemd `~/.config/systemd/user/`, launchd `~/Library/LaunchAgents/`, Task Scheduler user task) con bind a `127.0.0.1` (default, configurable vía `MCP_BIND`)
+
+> **Decisión de transporte MCP (2026-08-09)**: transportar MCP vía go-sdk v1.2.0 Streamable HTTP (`NewStreamableHTTPHandler` con `Stateless` + `JSONResponse`); fallback **Plan B**: implementación manual JSON-RPC. El change SDD `feat-mcp-transport` está planeado (`openspec/changes/feat-mcp-transport/`) y es el siguiente trabajo SDD tras cerrar Fase 1b.
 
 **Definition of Done**:
 - [ ] 6+ tools MCP registrados y funcionales
@@ -1351,3 +1359,4 @@ Override con otro caller_id (debug):
 | 2026-06-29 | 1.4 | Kike | ADR-0011: owner/admin/staff que también son clientes del negocio (mismo phone, doble rol). El `CallerResolver` ejecuta 2 queries cuando la cuenta existe en `accounts` (popular el `ClientID` desde `clients`). Permite que el dueño se corte el pelo en su propia peluquería sin fricción. Defense-in-depth intacta: el `Role` del `Caller` (no el `ClientID`) determina los permisos. Setup vía TUI menú "Add Yourself as Client" (Fase 2+). Nueva subsección en §3.8.8 documenta el caso. |
 | 2026-06-29 | 1.5 | Kike | ADR-0012: segundo canal de comunicación — el Chat nativo de Hermes (local CLI/IDE), además del bot de WhatsApp/Telegram. El TUI menú guarda el `X-Caller-Id` del owner en `~/.config/mcp-appointments-crm/caller-id` durante el seed (Fase 2). El Chat es sub-comando del binario (`mcp-appointments-crm hermes chat`), corre en la VPS, se conecta al MCP server en loopback. Override con `MCP_CALLER_ID` env var (debug, multi-user). Defense-in-depth: admin del OS (SSH) sigue siendo el gatekeeper; el LLM no puede falsificar el caller_id. Nueva subsección §3.8.9 documenta el caso. |
 | 2026-07-16 | 1.6 | Kike | PR 3a de `feat-db-layer` mergeado en main (commit `1fc3eb1`, PR #9): 5 repos nuevos con `auth.Caller` integration (`Professionals`, `Schedules`, `PendingAlerts`, `Bookings` + `datetime` helpers + `auth_helpers`). `BookingsRepo.RescheduleBooking` ahora usa el mismo atomic `UPDATE ... WHERE NOT EXISTS` que `CreateBooking`, con disambiguation post-UPDATE (overlap vs cancelación concurrente vs borrado concurrente, vía re-query de `status`). `GetBooking`/`CancelBooking`/`RescheduleBooking` usan dynamic WHERE auth (cross-tenant y not-found colapsan a `ErrNotFound` — no existence oracle). §3.8.4: ejemplo de código actualizado de `ListBookings` (no implementado) a `GetBooking` (implementado, con switch por role y filtro WHERE). §3.8.7: orden de implementación documenta que `feat-authorization` + `feat-db-layer` PR 1+2+3a están mergeados, falta PR 3b para cerrar Fase 1. §3.7.13: nuevo "Paso 4b" documenta el atomic guard + disambiguation de `reschedule_booking`. §7: status de Fase 1 actualizado (3 de 3 PRs mergeados, falta `CheckAvailability` para cerrar la fase). **Deuda de auth pendiente**: los 3 repos de PR 2 (`services`, `clients`, `business_hours_exception`) aún no tienen `auth.Caller` wiring; un change de follow-up `feat-repository-auth-integration` está planeado antes de Fase 2. |
+| 2026-08-09 | 1.7 | Kike | Fase 1b (clean-architecture-refactor) archivada (commit `988baeb`): `internal/model/` eliminado, capas `internal/domain/` y `internal/application/` en producción, ADR-0013 registra la arquitectura. Fase 1 cerrada (CheckAvailability implementado como use case). Deuda de auth reducida: `services.go` con `auth.Caller` wiring; `clients.go` y `business_hours_exception.go` pendientes (`feat-repository-auth-integration`). Decisión de transporte MCP (2026-08-09): Streamable HTTP via go-sdk v1.2.0 (Plan A), JSON-RPC manual como Plan B — change `feat-mcp-transport` planeado en openspec. |
