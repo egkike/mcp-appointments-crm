@@ -98,9 +98,11 @@ rbac := auth.ToolRBAC{
     "create_booking":      {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
     "cancel_booking":      {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
     "reschedule_booking":  {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-    "get_booking":         {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+    "get_booking":         {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
     "get_business_profile":{auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-    // check_availability: any authenticated caller (no RBAC entry).
+    // check_availability: any authenticated caller (no RBAC entry — open set,
+    // deliberately not enumerated; an absent entry means "any authenticated
+    // caller" per the ToolRBAC contract in internal/auth/middleware.go).
 }
 authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
 
@@ -122,7 +124,7 @@ mux := http.NewServeMux()
 mux.Handle("/mcp", srv.Handler(authMW)) // translator(authMW.Wrap(streamableHandler))
 mux.Handle("/healthz", mcp.Healthz(cfg.Version))
 
-httpSrv := &http.Server{Addr: net.JoinHostPort(cfg.Bind, cfg.Port), Handler: mux}
+httpSrv := &http.Server{Addr: net.JoinHostPort(cfg.Bind, cfg.Port), Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 logger.Info("mcp server starting", "bind", cfg.Bind, "port", cfg.Port, "version", cfg.Version)
 
 shutdown := mcp.Run(httpSrv) // blocks until SIGTERM/SIGINT, returns ShutdownResult
@@ -133,6 +135,8 @@ logger.Info("mcp server stopped", "drained", shutdown.Drained, "force_closed", s
 **Signal handling** (exact pattern): `sigCh := make(chan os.Signal, 1); signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT); <-sigCh; ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second); defer cancel(); httpSrv.Shutdown(ctx)`. `Shutdown` returns in ≤10s; `ShutdownResult` counts how many in-flight requests finished vs. were force-closed at the 10s boundary (tracked via a `sync.WaitGroup` of accepted connections + a `done` channel).
 
 **Shutdown deadline vs SQLite busy_timeout** (reviews R4-002): the shutdown deadline (10s) is deliberately **longer than the project-mandated `_busy_timeout=5000`** (AGENTS.md). Rationale: a non-idempotent in-flight mutation (`create_booking`) blocked on the write lock can wait up to 5s for the lock before committing; if the shutdown deadline were 5s it would force-close at the exact lock-acquisition boundary, silently drop the JSON-RPC response, and drive a client retry that creates a **duplicate booking**. At 10s the in-flight mutation has margin to acquire the lock and commit with its response before the deadline, so force-close at the boundary is reserved for genuinely stuck requests. The 5s figure from the earlier spec draft is revised to 10s in REQ-MT-010; no idempotency-key/dedup is introduced in this change (out of scope), but the deadline headroom is the documented mitigation. This is tracked as follow-up FEAT-1 for a future idempotency-key on booking mutation tools.
+
+> **RDD R4-001 (accepted, documented decision)**: under *sustained* write contention (a queue of >1 writer behind the busy_timeout), the 5s per-transaction window could cascade past the 10s margin and force-close a non-idempotent in-flight mutation, producing a client retry that duplicates the booking. This is an accepted residual risk for a **single trusted loopback client** (Hermes serializes its calls in practice): the 10s margin covers the single-writer case (the realistic scenario), the failure is bounded to shutdown time only, and FEAT-1 (idempotency key on booking mutations) is the tracked, deferred fix. No dedup table or outbox is introduced in this change.
 
 **Loopback validation** (exact): `ip := net.ParseIP(bind); if ip == nil { return hostnameError }; if !ip.IsLoopback() { return nonLoopbackError }`. Exact Spanish messages from ADR-0007 §D4:
 - `0.0.0.0` → `Error: MCP_BIND=0.0.0.0 expone el server en TODAS las interfaces. Use solo direcciones loopback (127.0.0.0/8 o ::1).`
@@ -155,11 +159,13 @@ logger.Info("mcp server stopped", "drained", shutdown.Drained, "force_closed", s
 
 **`X-Caller-Id` extraction**: `auth.AuthMiddleware` runs **outside** the SDK handler and injects the resolved `Caller` into `r.Context()` via `auth.WithCaller`. The SDK derives tool-handler `ctx` from the request context, so handlers call `auth.FromContext(ctx)` (REQ-MT-007). Verified composition model — the SDK middleware example shows `r *http.Request` reaches the server factory and context propagates to tool handlers. RED test asserts `auth.FromContext(ctx)` is populated inside a registered tool.
 
+**Translator body bound** (resolves R1-001/R4-004): `jsonrpcAuthTranslator` reads `r.Body` with an explicit **bounded** read — `io.LimitReader(r.Body, 1<<20+1)` — mirroring the SDK's `MaxRequestBodyBytes: 1 MiB` cap. If the buffered body exceeds 1 MiB the translator short-circuits with HTTP 413 (request body too large) and never forwards the oversized payload to the SDK; this makes the memory bound enforceable at the outermost layer regardless of the SDK's own limit. Together with the `ReadHeaderTimeout`/`ReadTimeout`/`WriteTimeout`/`IdleTimeout` on `http.Server` (§3), the pre-auth surface cannot drive unbounded allocation. (Loopback-only listener: exploit risk is low; the bound is defense-in-depth.)
+
 **Tool registration** (one paragraph each — all use typed `mcp.AddTool` with struct-tag JSON schemas):
 
 - **`check_availability`**: input `{professional_id?, service_id?, start_datetime, end_datetime?}` → `CheckAvailabilityPort.Execute`. Roles: any authenticated. Output `{available: bool, message?: string}`. Handler builds `dto.CheckAvailabilityInput{Caller: ctxCaller, ...}`, returns the result.
 - **`create_booking`**: input `{client_id, service_id, professional_id, start_datetime, notes?}` → `CreateBookingPort.Execute`. Roles: owner/admin/staff. The RBAC entry in `main.go` enforces coarse-grained rejection; `auth.RequireClientMatch` inside the use case enforces fine-grained (staff calendar / client self). Output `{booking_id, start_datetime, end_datetime}`.
-- **`get_booking`**: input `{booking_id}` → `GetBookingPort.Execute`. `auth.AuthorizeBookingAccess` (inside use case) enforces cross-tenant isolation. Output full `BookingView`.
+- **`get_booking`**: input `{booking_id}` → `GetBookingPort.Execute`. Roles: owner/admin/staff + client (self-service). The RBAC entry in `main.go` admits all four roles; `auth.AuthorizeBookingAccess` (inside use case) enforces cross-tenant isolation — a client can only retrieve their own bookings, staff only their own calendar, admin/owner any. Output full `BookingView`.
 - **`cancel_booking`**: input `{booking_id, reason}` → `CancelBookingPort.Execute`. Roles: owner/admin/staff. Output `{status: "cancelled"}`.
 - **`reschedule_booking`**: input `{booking_id, new_start_datetime}` → `RescheduleBookingPort.Execute`. Roles: owner/admin/staff. Output `{booking_id, start_datetime, end_datetime}`.
 - **`get_business_profile`** (NEW): input `{}` → `BusinessProfilePort.Execute(ctx)`. Roles: owner/admin/staff. Output the full `entity.BusinessProfile` serialised via the SDK's output-schema inference. (Lazy-init in the repo guarantees a row always exists.)
@@ -202,7 +208,9 @@ mcp.AddTool(server, &mcp.Tool{Name:"create_booking", Description:"Crea una reser
 - Startup log: `{bind, port, version, sdk_protocol_version, tools_registered: 6}`.
 - Shutdown log: `{drained, force_closed}` from `ShutdownResult`.
 
-**Auth audit**: the existing `auth.AuthMiddleware` already emits an audit log for admin/owner callers (`internal/auth/middleware.go:79–84`, hashed `caller_hash` — SHA-256 prefix, no PII). This change **reuses** that pattern unchanged; no separate `internal/auth/audit.go` exists today and none is needed. The audit log fires from inside `AuthMiddleware.Wrap`, which still runs (it is the inner handler the translator wraps). Q-AM-1 (open) tracks whether the audit key should be a dedicated `slog` sub-logger for filtering in journald — deferred, current "privileged access" line is sufficient.
+> **RDD R4-003 (accepted, documented decision)**: no metrics, counters, or histograms are exposed in this change (only structured `slog` logs). Programmatic detection of auth failures, rising business-error rates, or DB outages is deferred to Fase 3 (Q-A4 — Prometheus metrics endpoint). Mitigation within this change: every log line carries `request_id` for end-to-end correlation, and `ShutdownResult.ForceClosed > 0` is logged as an error-level line, so the enumerated failure modes remain detectable via structured log queries on a single-client loopback server.
+
+**Auth audit**: the existing `auth.AuthMiddleware` already emits an audit log for admin/owner callers — in `Wrap`, step 4 (the `caller.Role == RoleAdmin || caller.Role == RoleOwner` branch that logs `"privileged access"` with `caller_hash`, `hashCallerID` — SHA-256 prefix, no PII; see `internal/auth/middleware.go`, `AuthMiddleware.Wrap`). This change **reuses** that pattern unchanged; no separate `internal/auth/audit.go` exists today and none is needed. The audit log fires from inside `AuthMiddleware.Wrap`, which still runs (it is the inner handler the translator wraps). Q-AM-1 (open) tracks whether the audit key should be a dedicated `slog` sub-logger for filtering in journald — deferred, current "privileged access" line is sufficient.
 
 ## 7. Error handling
 
@@ -253,6 +261,8 @@ Per `work-unit-commits` + `chained-pr` skills, with **`feature-branch-chain`** (
 ### PR 1 — Transport skeleton (~300–350 LOC)
 **Behavior**: binary starts, validates loopback, binds `127.0.0.1:3000`, answers `initialize` + `tools/list` (0 tools), shuts down on SIGTERM. **No auth wired. No tools registered.**
 
+> **LOC reconciliation**: these ranges are production-only, per-unit estimates. The authoritative forecast is the `tasks.md` PR Breakdown (848 prod total: PR 1 = 428, PR 2 = 420; 1383 changed lines with tests). Proposal §8's 570–720 was the pre-task-range estimate; tasks.md supersedes both.
+
 | # | Commit (work unit) | Files | Verification |
 |---|--------------------|-------|---------------|
 | 1 | `feat(mcp): add loopback bind validator + unit tests` | `internal/mcp/loopback.go`, `loopback_test.go`, `doc.go` | `go test ./internal/mcp -run Loopback -race` green |
@@ -270,7 +280,7 @@ Per `work-unit-commits` + `chained-pr` skills, with **`feature-branch-chain`** (
 | 7 | `feat(usecase): add GetBusinessProfile use case` | `internal/application/usecase/get_business_profile.go`, `_test.go`, `main.go` | use case unit test green |
 | 8 | `feat(mcp): register 6 booking/profile tools + error mapping` | `tools_booking.go`, `tools_profile.go`, `ports.go`, `errors.go` (full map), `_test.go` (×6 with mock ports) | `tools/list` returns 6; tools/call paths covered |
 | 9 | `test(mcp): add /mcp integration + e2e mock-client` | `server_integration_test.go`, `e2e_test.go`, `no_repo_import_test.go` | integration + e2e + guard green |
-| 10 | `docs(prd): SSE → Streamable HTTP (MCP 2025-11-25)` | `docs/PRD.md` (§3.1, §9.1, §1118, §1318), `docs/architecture/0007-server-config.md` | doc-only render check |
+| 10 | `docs(prd): SSE → Streamable HTTP (MCP 2025-11-25)` | `docs/PRD.md` (§2.2, §3.1–§3.3, §5.2, §6.1–§6.2, §7, §8.1–§8.2, glosario — todas las menciones de "SSE"), `docs/architecture/0007-server-config.md` | doc-only render check |
 
 Risk if PR 2 > 400 LOC: split commit 9 (integration vs e2e) into its own chained PR (per `chained-pr` skill). Documented as Q-PR1.
 
@@ -302,15 +312,19 @@ None add **runtime** dependencies beyond the Go binary itself — no cgo, no sha
 - **Q-A5** — `0.0.0.0` explicit reject message: confirmed in §3 (ADR-0007 literal Spanish string).
 - **Q-A6** — does the auth translator reuse the middleware's Spanish body or the spec's literal string? Use the spec's literal string for `-32000`/`-32001` (REQ-AM-WIRED-002/003 mandate them verbatim); the middleware already emits the same strings, so they coincide.
 
-## 12. Risk mitigations (from proposal §6)
+## 12. Risk mitigations
 
-| # | Severity | Finding | Mitigation (concrete, this change) |
-|---|----------|---------|-----|
-| R1 | CRITICAL | SDK may not support 2026-07-28 (POST-only). | Target 2025-11-25 with `Stateless:true` (§4) — gives GET→405 now AND a no-code-change path to 2026-07-28. Plan B (hand-rolled) documented; gated at apply if `mcp.NewStreamableHTTPHandler` proves unworkable. |
-| R2 | WARNING | PRD says "SSE" (deprecated). | In-scope doc fix in PR 2 commit 10 (§9). |
-| R3 | RESOLVED | Hermes Streamable HTTP support. | No action — obs #664 verified. |
-| R4 | SUGGESTION | POST-only vs POST+GET sessions. | `Stateless:true` already POST-only with GET→405 (§4). |
-| R5 | WARNING | ADR-0005 "no external deps" tension. | §10 explicit trade-off: SDK is compile-time Go module, consistent with existing `modernc.org/sqlite`; ADR-0005 scoped to system runtime tools, not Go modules. Plan B fallback if contested. |
+The **canonical risk table lives in `proposal.md` §6** (R1–R5: finding + mitigation). This section does NOT duplicate it — it records only the design-specific deltas that make each mitigation concrete:
+
+| # | Severity | Proposal §6 mitigation | Design delta (this file) |
+|---|----------|------------------------|--------------------------|
+| R1 | CRITICAL | Target 2025-11-25; Plan B fallback. | `Stateless:true` → GET 405 now + no-code-change path to 2026-07-28 (§4). Plan B gated at apply if `mcp.NewStreamableHTTPHandler` proves unworkable. |
+| R2 | WARNING | PRD doc fix in-scope. | PR 2 commit 10 (§9) touches exactly the cited PRD sections. |
+| R3 | RESOLVED | No action — obs #664. | Verified Hermes v0.20 speaks Streamable HTTP; no fallback needed. |
+| R4 | SUGGESTION | Document downgrade path. | `Stateless:true` is already POST-only with GET→405 (§4); downgrade is a config flip, no code change. |
+| R5 | WARNING | SDK is compile-time only. | §10 explicit ADR-0005 analysis: consistent with `modernc.org/sqlite`; Plan B fallback if contested. |
+
+Update `proposal.md` §6 and this table together; do not let them drift.
 
 ## Threat Matrix
 

@@ -17,7 +17,7 @@ Chained PRs recommended: Yes
 Chain strategy: feature-branch-chain
 400-line budget risk: High
 
-> **LOC methodology**: per-file estimate from design §2 verified against existing code shapes (DTOs, use cases, auth middleware). Design §2 file estimates sum to 905 prod for `internal/mcp/` alone; proposal §8 said 570–720 prod total. My computation: 830 prod (higher than proposal, consistent with design file-level detail). PR-level estimates in design §9 (300–350 / 270–370) appear to count production-only and are optimistic; actual changed lines including tests exceed 400 per PR.
+> **LOC methodology**: the forecast is **projected applied LOC** (production code + tests to be written), NOT current spec LOC — the six current spec files sum to 952 lines (numstat: 321+163+45+44+191+188) and are not part of the forecast. Per-file production estimates come from design §2, verified against existing code shapes; design §2 file estimates sum to 905 prod for `internal/mcp/` alone, and the PR breakdown below (848 prod total: PR 1 = 428, PR 2 = 420) is the authoritative per-PR figure after task-level trimming; design §9's 300–350 / 270–370 and proposal §8's 570–720 are earlier production-only ranges superseded here. Total changed lines (1383 = 848 prod + 520 test + 15 doc) drive the 400-line budget risk.
 
 ### PR Breakdown
 
@@ -47,7 +47,7 @@ Branch: `feat/feat-mcp-transport-1` off `main`.
 - [ ] **T-02** Config loader + healthz + buildinfo
   - Files: `internal/buildinfo/buildinfo.go` (8), `internal/mcp/config.go` (55), `internal/mcp/healthz.go` (22), `internal/mcp/healthz_test.go` (25), `internal/config/dotenv.go` (20)
   - Depends: T-01
-  - Acceptance: `MCP_BIND`/`MCP_PORT` env precedence (env > `.env` > default `127.0.0.1:3000`); `/healthz` returns `{"status":"ok","version":"..."}`
+  - Acceptance: `MCP_BIND`/`MCP_PORT` env precedence (flag tier reserved — none today; env > `.env` > default `127.0.0.1:3000`, per REQ-MT-013/ADR-0007); `/healthz` returns `{"status":"ok","version":"..."}`
   - Test: `t.Setenv` + `httptest` for healthz
   - Commit: `feat(mcp): add config loader, healthz endpoint, and buildinfo package`
 
@@ -112,7 +112,7 @@ Branch: `feat/feat-mcp-transport-2` off `feat/feat-mcp-transport-1`.
   - Commit: `test(mcp): add /mcp integration tests and e2e mock client`
 
 - [ ] **T-11** PRD + ADR doc fix
-  - Files: `docs/PRD.md` (§3.1, §9.1, §1118, §1318), `docs/architecture/0007-server-config.md`
+  - Files: `docs/PRD.md` (§2.2, §3.1–§3.3, §5.2, §6.1–§6.2, §7, §8.1–§8.2, glosario — todas las menciones de "SSE"), `docs/architecture/0007-server-config.md`
   - Depends: T-10
   - Acceptance: "SSE" → "Streamable HTTP (MCP 2025-11-25)" in all cited sections
   - Commit: `docs(prd): update transport terminology from SSE to Streamable HTTP`
@@ -177,6 +177,7 @@ Chain strategy: `feature-branch-chain` — only the tracker branch (`feat/feat-m
 - [ ] `go build -o /dev/null ./...` — passes
 - [ ] `go test -v -race ./...` — passes
 - [ ] `golangci-lint run ./...` — 0 issues
+- [ ] `govulncheck ./...` — 0 vulnerabilities (dependency audit; PR 1 T-05 adds the only new module, go-sdk, so the gate runs from that commit onward)
 - [ ] GGA (Gentle Guardian Angel) — runs on commit, must pass
 
 ## Open Questions for Implementer

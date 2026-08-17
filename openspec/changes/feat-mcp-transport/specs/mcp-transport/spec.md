@@ -73,7 +73,7 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 #### Scenario: Valid tool call
 - GIVEN a `tools/call` for `check_availability` with valid args
 - WHEN dispatched
-- THEN the response contains `result.content` with the tool output
+- THEN the response MUST be a JSON-RPC result whose `result.content` is an array with exactly one item of shape `{"type": "text", "text": "<JSON of the typed tool output>"}` (SDK text-content envelope; the `text` payload is the JSON-serialized output object, e.g. `{"available": true}`)
 
 #### Scenario: Unknown tool
 - GIVEN a `tools/call` for `nonexistent_tool`
@@ -88,6 +88,11 @@ Every request MUST pass through `auth.AuthMiddleware`. The resolved `Caller` MUS
 - GIVEN a request with valid `X-Caller-Id`
 - WHEN the handler executes
 - THEN `auth.FromContext(ctx)` returns the resolved `Caller`
+
+#### Scenario: Invalid or unknown caller rejected before handler
+- GIVEN a request with an `X-Caller-Id` that does not resolve to a known account (unknown ID, malformed format)
+- WHEN processed
+- THEN the response MUST be a JSON-RPC 2.0 error with code `-32000` and the resolver's Spanish message (auth layer rejects before any tool handler runs; `auth.FromContext(ctx)` is never reached)
 
 ### REQ-MT-008 — Auth errors as JSON-RPC
 
@@ -110,7 +115,9 @@ Business-logic errors MUST surface as JSON-RPC 2.0 errors with the `*domain.Sema
 #### Scenario: Overlap error
 - GIVEN a `create_booking` that overlaps an existing booking
 - WHEN dispatched
-- THEN the JSON-RPC error message MUST be `"el Profesional {name} ya tiene una reserva de {a} a {b}."`
+- THEN the JSON-RPC error message MUST be the domain's overlap message, which follows the template `"el Profesional {name} ya tiene una reserva de {a} a {b}."` with: `{name}` = the professional's name as stored (no case change), `{a}` = `start_datetime` rendered `HH:MM` (24-hour, zero-padded), `{b}` = `end_datetime` rendered `HH:MM` (24-hour, zero-padded)
+
+> **Template semantics**: the `{...}` placeholders are interpolation slots, not literal characters in the emitted message; the golden-output test asserts the fully substituted string (e.g. `"el Profesional Juan ya tiene una reserva de 10:00 a 11:00."`).
 
 ### REQ-MT-010 — Graceful shutdown
 
@@ -141,7 +148,7 @@ The transport MUST declare consumer interfaces in `internal/mcp/`. It MUST NOT i
 
 ### REQ-MT-013 — Configuration via env vars
 
-Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007 (env vars > `.env` > defaults). Defaults: `127.0.0.1:3000`.
+Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: explicit flag (reserved tier, none exist today) > env vars > `.env` > defaults. Defaults: `127.0.0.1:3000`.
 
 #### Scenario: Custom port
 - GIVEN `MCP_PORT=4000`
@@ -152,24 +159,50 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007 (env
 
 `GET /healthz` MUST return `200 OK` with JSON `{"status":"ok","version":"<x.y.z>"}`.
 
+> **Liveness-only by design (accepted)** (RDD R3-010/R4-002): `/healthz` is deliberately a liveness probe, NOT a readiness probe — it does NOT check SQLite connectivity, WAL state, or schema version. Rationale: loopback-only, single trusted client (Hermes); DB failures surface immediately as `-32603` on the next `tools/call`, which is the client-visible signal. A separate readiness/DB probe is deferred to Fase 3 (Q-A4).
+
 #### Scenario: Health check passes
 - GIVEN the server is running
 - WHEN `GET /healthz` is called
 - THEN response is `200` with `{"status":"ok","version":"..."}`
 
+#### Scenario: DB unreachable still reports liveness
+- GIVEN SQLite is unreachable (disk full, WAL corruption, permissions)
+- WHEN `GET /healthz` is called
+- THEN response is STILL `200` `{"status":"ok","version":"..."}` (accepted liveness-only semantics; the DB failure surfaces as `-32603` on `tools/call`)
+
 ### REQ-MT-015 — Tool registry
 
 | Tool | Roles | Input | Output |
 |------|-------|-------|--------|
-| `check_availability` | owner, admin, staff, client | `{professional_id?, service_id?, start_datetime, end_datetime?}` | `{available: bool, message?: string}` |
+| `check_availability` | any authenticated (open set — no RBAC entry; per ToolRBAC contract an absent entry means "any authenticated", matching design §3) | `{professional_id?, service_id?, start_datetime, end_datetime?}` | `{available: bool, message?: string}` |
 | `create_booking` | owner, admin, staff | `{client_id, service_id, professional_id, start_datetime, notes?}` | `{booking_id, start_datetime, end_datetime}` |
-| `get_booking` | owner, admin, staff | `{booking_id}` | full booking object |
+| `get_booking` | owner, admin, staff, client (self) | `{booking_id}` | `BookingView` — `{id, client_id, professional_id, service_id, start_datetime, end_datetime, status, notes?, payment_method?, created_at, updated_at}` |
 | `cancel_booking` | owner, admin, staff | `{booking_id, reason}` | `{status: "cancelled"}` |
 | `reschedule_booking` | owner, admin, staff | `{booking_id, new_start_datetime}` | `{booking_id, start_datetime, end_datetime}` |
-| `get_business_profile` | owner, admin, staff | `{}` | full business profile object |
+| `get_business_profile` | owner, admin, staff | `{}` | `BusinessProfile` serialised via SDK output-schema inference from `entity.BusinessProfile` fields: `{id, name, industry?, country?, address?, latitude?, longitude?, cover_photo_url?, public_phone?, messenger_platform?, messenger_id?, contact_email?, website_url?, general_description?, currency_code, currency_symbol, accepted_payment_methods?, timezone, slot_interval_minutes, business_hours, created_at, updated_at}` (key names follow the SDK's inferred schema from the Go struct fields; the field SET is pinned here) |
+
+> **get_booking role semantics** (RDD R3-001): clients MAY retrieve their own bookings — the RBAC entry admits all four roles and `auth.AuthorizeBookingAccess` inside the use case enforces cross-tenant isolation (client → own bookings only; staff → linked professional's calendar; admin/owner → any).
 
 #### Scenario: Tool input validated
 - GIVEN a `create_booking` call missing `client_id`
+- WHEN dispatched
+- THEN response MUST contain a JSON-RPC error indicating invalid input
+
+#### Scenario: Other required fields validated (RDD R3-007)
+- GIVEN a `create_booking` call missing `service_id` (or `professional_id` / `start_datetime`)
+- WHEN dispatched
+- THEN response MUST contain a JSON-RPC error indicating invalid input
+- GIVEN a `get_booking` call missing `booking_id`
+- WHEN dispatched
+- THEN response MUST contain a JSON-RPC error indicating invalid input
+- GIVEN a `cancel_booking` call missing `reason`
+- WHEN dispatched
+- THEN response MUST contain a JSON-RPC error indicating invalid input
+- GIVEN a `reschedule_booking` call missing `new_start_datetime`
+- WHEN dispatched
+- THEN response MUST contain a JSON-RPC error indicating invalid input
+- GIVEN a `check_availability` call missing required `start_datetime`
 - WHEN dispatched
 - THEN response MUST contain a JSON-RPC error indicating invalid input
 
@@ -188,4 +221,6 @@ All tools MUST return `*domain.SemanticError` Spanish messages for business-rule
 #### Scenario: Not-working-day error
 - GIVEN a booking attempt on a day the professional doesn't work
 - WHEN dispatched
-- THEN error message MUST be `"el Profesional {name} no trabaja los {día}."`
+- THEN error message MUST follow the template `"el Profesional {name} no trabaja los {día}."` with: `{name}` = the professional's name as stored, `{día}` = the day of week in lowercase Spanish, plural form matching the article `los` (e.g. `domingos`, `martes` — `martes` is invariant)
+
+> **Template semantics**: `{día}` is an interpolation slot rendered in the plural day form (the article `los` is fixed); a golden test asserts the fully substituted string (e.g. `"el Profesional Juan no trabaja los domingos."`).

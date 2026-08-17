@@ -81,7 +81,7 @@ This finding is persisted in Engram at `sdd/feat-mcp-transport/explore/discovery
 
 ### Q2 — PRD terminology drift on "SSE" — **CONFIRMED: in-scope doc fix**
 
-PRD §3.1 / §9.1 / §1118 / §1318 + ADR-0007 say "SSE" but the MCP spec deprecates the SSE transport. The "SSE" wording in the project docs is colloquial / outdated. **Decision**: update PRD §3.1 / §9.1 / §1118 / §1318 and ADR-0007 to use "Streamable HTTP (MCP 2025-11-25)" as a small in-scope doc fix in this change. Estimated 10–15 lines of doc edits.
+PRD §2.2, §3.1–§3.3, §5.2, §6.1–§6.2, §7 (Fase 2), §8.1–§8.2 y el glosario (todas las menciones de "SSE") + ADR-0007 say "SSE" but the MCP spec deprecates the SSE transport. The "SSE" wording in the project docs is colloquial / outdated. **Decision**: update those PRD sections and ADR-0007 to use "Streamable HTTP (MCP 2025-11-25)" as a small in-scope doc fix in this change. Estimated 10–15 lines of doc edits.
 
 ### Q3 — Tool floor (6 vs more) — **CONFIRMED: 6 tools (option a)**
 
@@ -140,8 +140,10 @@ Rough breakdown (Plan A path):
 - `internal/mcp/` transport + server registration + tool handlers + consumer interfaces: ~450–600 LOC.
 - `cmd/mcp-server/main.go` extension (HTTP server, signal handling, shutdown, loopback validation, middleware wiring): ~120 LOC.
 - Tests (JSON-RPC framing, `/mcp` integration, e2e mock client, loopback validation, shutdown): ~400–500 LOC test code (not counted in review LOC budget the same way, but stress on PR size).
-- PRD §3.1/§9.1 doc fix: ~10 lines.
+- PRD "SSE" doc fix (todas las secciones citadas en Q2): ~10 lines.
 - **Estimated total production LOC: ~570–720.**
+
+> **LOC reconciliation (superseded by tasks.md)**: this estimate was the pre-tasks range. The authoritative forecast is the `tasks.md` PR Breakdown (848 prod total: PR 1 = 428, PR 2 = 420; 1383 changed lines with tests), which reconciles the per-file detail in `design.md` §2/§9.
 
 **PR strategy** (against the 400-line review budget): the total exceeds 400 LOC. **Recommend**: 2 chained PRs —
 1. **PR 1** (~300–350 LOC): `internal/mcp/` transport adapter + server skeleton + loopback validation + JSON-RPC framing + unit tests; binary starts, binds loopback, answers `initialize`/`tools/list` with zero tools, shuts down. No auth wiring yet.
