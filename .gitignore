@@ -28,3 +28,6 @@ coverage.html
 
 # Local codegraph knowledge graph (regenerate with `codegraph init`)
 .codegraph/
+
+# Local Pi agent state (persona/config, machine-local)
+.pi/
