@@ -57,7 +57,7 @@ Before staging, committing, or pushing any code to the repository, you **MUST** 
 ### Always Ask Before Commit
 
 After verification passes, ALWAYS ask user:
-- "¿Quieres hacer juicio sobre lo realizado?"
+- "¿Corremos el gate de verificación (RDD o JD según el routing del Verification & Review Protocol)?"
 - "¿Hacemos commit?"
 
 Wait for user confirmation before proceeding.
@@ -108,8 +108,12 @@ Wait for user confirmation before proceeding.
    ```
    □ Delegar implementación (sdd-apply async)
    □ Revisar resultado
-   □ Lanzar juicio (2 jueces)
-   □ Si hay issues → Fix → Juicio again
+   □ Correr sdd-verify (conformidad con spec)
+   □ Correr el gate según routing (Verification & Review Protocol):
+       sensible → RDD (1 corrección acotada)
+       funcional medio → JD (2 rondas)
+       trivial/docs → readback estructural
+   □ Si hay issues → Fix → correr el gate de nuevo (sin loop infinito)
    □ Si pasa → Commit + Push
    □ Si PR > budget lines → hacer chained PR (ver abajo)
    ```
@@ -238,7 +242,27 @@ Before every commit, verify:
 
 ---
 
-## Review & Judgment Protocol
+## Verification & Review Protocol
+
+Verification routing is **exclusive**: one path per change, never both by default.
+
+### Routing
+
+| Change type | Gate | Notes |
+|-------------|------|-------|
+| **Sensitive** | RDD (native review, receipt) | auth/RBAC, transport/network (HTTP/SSE), DB/schema, new dependencies (go.mod), >400 changed lines, PII |
+| **Functional medium** | JD (2 blind judges) | business logic, multi-file refactors — no security/network |
+| **Trivial / docs** | Structural readback | single-file mechanical fixes, documentation |
+
+- Both gates together only on explicit user request (e.g. RDD with doubtful findings → JD as second opinion).
+- `sdd-verify` always runs before the gate (spec conformance, REQ coverage, tests).
+
+### RDD Gate (native, receipt-driven)
+
+- Runs `gentle-ai review` with lenses scaled to risk (0 / 1 focus / 4R).
+- Produces an immutable receipt that authorizes delivery (commit/push/PR).
+- At most 1 scoped correction per candidate; no loop-until-clean.
+- Post-approval findings are follow-ups for the next slice, they do not reopen review.
 
 ### Judgment Day Process
 
@@ -246,7 +270,7 @@ Before every commit, verify:
 2. Launch two independent blind judge agents
 3. Synthesize findings from both judges
 4. Apply fixes for identified issues
-5. Re-judge until both pass OR escalate to user
+5. Re-judge until both pass OR escalate to user (max 2 rounds)
 
 ### What Gets Judged
 
