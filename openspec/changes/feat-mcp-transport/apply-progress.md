@@ -1,3 +1,61 @@
+# Apply Progress — feat-mcp-transport (PR 2: Auth + 6 tools + e2e)
+
+Status: **IN PROGRESS** (T-06..T-11) — branch `feat/feat-mcp-transport-2` off `main` (8800b66).
+
+## Commits (PR 2)
+
+| # | Hash | Message | GGA |
+|---|------|---------|-----|
+| 1 | `99bfd4c` | feat(mcp): add jsonrpcAuthTranslator wrapping AuthMiddleware | PASSED (3 retries: strict-mode ambiguity on first runs; review FAILED → fixed W-1 stream-through recorder + S-1..S-3; W-2 WriteTimeout documented; W-3 db path → structured log) |
+| 2 | `68b9af8` | feat(usecase): add GetBusinessProfile use case | PASSED (1 ambiguous retry; docs files unstaged after cache-tree dangling-blob corruption — PR 1 workaround) |
+| 3 | `0d796b3` | feat(mcp): add consumer port interfaces and business error mapping | PASSED (first try) |
+| 4 | `0f77d1c` | feat(mcp): register 6 booking and profile tools against use case ports | PASSED (4 attempts: each review FAILED/ambiguous with new findings → fixed union of W-1 Notes bound, W-2 dotenv path in error string, S-3 casing, W-4 duplicated slot-resolution block → extracted `service.ResolveSlotContext`, S-5 staging bridge removed atomically, S-6 stale D3 comment, W-7 transport contract documented, S-8 PaymentMethod deferral comment, S-9 honest tool descriptions; `.git` cache-tree corruption → `git hash-object -w` forced blobs; docs unstaged) |
+| 5 | `6076287` | test(mcp): add /mcp integration tests and e2e mock client | PASSED (first try) |
+| 6 | `8b5dd00` | docs(prd): update transport terminology from SSE to Streamable HTTP | PASSED (no .go staged → GGA skipped, expected) |
+
+## PR 2 deviations from design/tasks (documented)
+
+1. **`Server.AuthHandler(authMW)` instead of `Handler(authMW)`** — design §4 sketched `srv.Handler(authMW)`; PR 1 shipped `Handler()` with zero args (jsonParseGuard + streamable). Added `AuthHandler` to keep PR 1 tests green; `Handler()` remains the unauthenticated path for transport tests.
+2. **413 enforcement stays in `jsonParseGuard`, not the translator** — design §162 assumed SDK `MaxRequestBodyBytes` (v1.4.1 has none — R3-003). The translator forwards the bounded body (max+1 restored) to the inner guard, which is the single 413 enforcement point for both auth and unauth paths. Unauthenticated oversized POSTs answer 401-envelope first (clearer than 413).
+3. **Auth errors map for ALL methods, not just POST** — GET /mcp without X-Caller-Id → 200 + `-32000` envelope (auth precedes the SDK's 405; documented edge case).
+4. **GGA hardening folded into commit 1**: statusRecorder streams through non-auth statuses (SSE-safe, W-1); `validToolName` charset guard before path rewrite (S-1); JSON-RPC id normalized to string|number|null (S-2); body read error → 400 (S-3); `WriteTimeout` documented as JSON-only-safe (W-2); DB path removed from error string → structured log field (W-3).
+5. **RBAC path bridge**: translator rewrites `r.URL.Path` = tool name for `tools/call`; RBAC + audit log key on the tool name (internal/auth untouched).
+6. **`check_availability`** has NO RBAC entry = "any authenticated caller" (open set per ToolRBAC contract) — still requires X-Caller-Id.
+
+## PR 2 TDD Cycle Evidence (Strict Mode)
+
+| Task | Test File | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-----|-------|-------------|----------|
+| T-06 | `internal/mcp/auth_translator_test.go` (17 tests) | ✅ Observed: `undefined: jsonrpcAuthTranslator` (build fail) before implementation | ✅ `99bfd4c`; `go test -race -count=1 ./...` 10/10 packages ok | ✅ 17 cases: 401 missing header / 401 unknown caller / 403 RBAC / 500 resolver / 200 passthrough + path rewrite + caller injection / non-tool path untouched / invalid JSON null id / notification null id / 405 passthrough / unauth GET envelope / read-error 400 / object id → null / hostile tool name / AuthHandler composition (missing header + SDK unknown-tool passthrough) | ✅ GGA-driven (see deviations #4) |
+| T-07 | `internal/application/usecase/get_business_profile_test.go` (3 subtests) | ✅ Observed: `undefined: NewGetBusinessProfileUseCase` before implementation | ✅ `68b9af8`; 10/10 packages ok | ✅ 3 cases: happy path / not-found → `ErrCodeNotFound` "perfil del negocio no encontrado" / repo failure wrapped `%w` (REQ-BK-XX semantics); `mockBusinessProfileRepo` reused from mocks_test.go (no go-sqlmock — deviation #7) | ➖ None needed — GGA PASSED first try |
+| T-08 | `internal/mcp/errors_test.go` (5 golden subtests) | ✅ Observed: `undefined: toMCPError` before implementation | ✅ `0d796b3`; 10/10 packages ok | ✅ 5 cases: SemanticError → `-32002` + message / wrapped SemanticError (errors.As) / raw ErrNotFound → `-32603` (infra, no leak) / generic error → `-32603` / nil → nil; ports.go 6 interfaces compile-checked via mock ports in tools_test.go | ✅ GGA-driven — errors.go comment v1.2.0→v1.4.1 (R3-003) |
+| T-09 | `internal/mcp/tools_test.go` (12 tests, ~460 lines) | ✅ Observed: build fail `unknown field CheckAvailability in struct literal` (Config had no ports) before implementation | ✅ `0f77d1c`; 10/10 packages ok; `golangci-lint` 0 issues | ✅ 12 cases: tools/list 6 names (SDK sorts alphabetically — set compare) / per-tool happy path with caller propagation (REQ-MT-007) + output contract incl. `start_datetime`/`end_datetime` on create+reschedule (REQ-MT-015, DTO extension) / unknown tool → `-32601` (REQ-MT-006 guard) / missing required arg → `-32602` / bad datetime → `-32602` / missing caller → `-32002` (fail-closed) / SemanticError → `-32002` + message / infra error → `-32603` / notes > 2000 → `-32002` (transport bound) | ✅ GGA-driven — see commit 4 row (resolver extraction, guards, casing, transport contract doc) |
+| T-10 | `internal/mcp/server_integration_test.go` (6 tests) + `e2e_test.go` (1) + `no_repo_import_test.go` (1) + `logging_test.go` (2) + `shutdown_test.go` (+1) | ✅ Observed: `undefined: loggingMiddleware` / `undefined: postMCPCaller` (build fail) before implementation | ✅ `6076287`; 10/10 packages ok; `golangci-lint` 0 issues | ✅ 6 integration cases: happy path initialize(2025-11-25)→tools/list(6)→check_availability available:true over temp-file SQLite (WAL) with production composition (repos→UCs→RBAC→AuthHandler); missing X-Caller-Id → `-32000`; client-role create_booking → `-32001`; healthz liveness regression ({ok,test}); 413 >1MiB; second-signal force-close (SIGINT→SIGTERM, ForceClosed=1, Drained=0); e2e: real go-sdk client, StreamableClientTransport + DisableStandaloneSSE + X-Caller-Id RoundTripper, ListTools=6 + CallTool available:true; no-repo-import source guard (REQ-MT-012); logging: 1 line/request, request_id 32-hex, post-rewrite path, real status, caller_role | ✅ 3 RED-loop fixes (test-only): Monday 2026-08-24 (2026-08-03 was past → "No se puede reservar en el pasado"); chain order authMW.Wrap(logging) — caller injected BEFORE logging; int64 vs int status compare |
+| T-11 | `docs/PRD.md` (14 edits) + `docs/architecture/0007-server-config.md` (1 edit) | ➖ N/A (docs) | ✅ `8b5dd00` | ✅ 13 SSE mentions reworded (metric name, architecture bullets, component table, objective, acceptance checkbox, risk/dependency rows, glossary → "Streamable HTTP (spec 2025-11-25)"); remaining "sse" matches are `messenger_*` false positives | ➖ N/A (docs) |
+
+## PR 2 deviations from design/tasks (documented)
+
+1. **Tool inputs use `time.Time`, not RFC3339 strings** — the design (§ T-09) planned string datetimes parsed in handlers. DTOs already use `time.Time`; go-sdk v1.4.1 typed `AddTool` infers `date-time` from `time.Time` (jsonschema-go) and answers `-32602` for malformed input — zero manual parsing, same contract. Deviates from design text; REQ-MT-015 input contract unchanged.
+2. **DTO result extension for REQ-MT-015 output contract** — `CreateBookingResult`/`RescheduleBookingResult` gained `start_datetime`/`end_datetime` (computed by the use cases; the transport has no repo access). Existing use case tests asserted only BookingID/Status → safe; new assertions live in tools_test.go.
+3. **`reason` (cancel_booking) and `end_datetime` (check_availability) accepted but not persisted/evaluated** — REQ-MT-015 input contract honored; tool `Description` now states both explicitly so the LLM client is not misled (GGA W-4).
+4. **Unknown-tool guard (`-32601`) is a transport pre-dispatch guard** (`unknownToolGuard` in errors.go), not an SDK change — SDK answers `-32602` "unknown tool %q"; REQ-MT-006 resolved by intercepting `tools/call` for unregistered names before the SDK (HTTP 200 + `-32601` envelope, id preserved). TestAuthHandlerComposition updated accordingly (was asserting SDK `-32602` passthrough).
+5. **`service.ResolveSlotContext` extraction** (GGA W-4, rule of three) — the 45-line professional/profile/timezone/exception/schedule resolution duplicated in create_booking + reschedule_booking now lives in `internal/domain/service/slot_context.go` (op-prefixed errors preserve each caller's identity). AvailabilityService keeps its own variant (string-based start, different error semantics; convergence documented in the resolver comment).
+6. **Validation-message casing convention** (GGA S-3) — validation guards use capitalized sentence case ("Identificador de reserva requerido", "Profesional es requerido"); the not-found family stays lowercase ("reserva no encontrada"). Documented here as the convention; a full sweep of pre-existing messages is out of PR 2 scope.
+7. **Transport error contract documented** (GGA W-7) — protocol violations (malformed JSON/oversized) → native 400/413 + best-effort envelope (MCP-spec behavior); auth failures → HTTP 200 + envelope (go-sdk client discards non-200 bodies). Comment block in errors.go.
+8. **Staging bridge removed atomically in commit 4** (GGA S-5) — `_ = accountsRepo/clientsRepo/pendingAlertsRepo` + their constructors deleted; repositories now constructed only when consumed (6 of 9); startup log reports `repos 6 / usecases 6`.
+
+## Next steps (PR 2 remaining)
+
+- ~~T-07 GetBusinessProfile use case → commit 2.~~ ✅
+- ~~T-08 ports + error mapping + errors.go v1.2.0→v1.4.1 comment fix (R3-003) → commit 3.~~ ✅
+- ~~T-09 6 tools + unknownToolGuard (REQ-MT-006: -32601) → commit 4.~~ ✅ `0f77d1c`
+- ~~T-10 integration/e2e/no-repo-import + carry-overs (413 test, second-signal force-close, healthz regression, logging REQ-MT-011) → commit 5.~~ ✅ `6076287`
+- ~~T-11 docs PRD/ADR-0007 → commit 6.~~ ✅ `8b5dd00`
+
+**PR 2 COMPLETE — 6/6 commits. All gates green per commit. Next: sdd-verify + review gate (JD routing per Verification & Review Protocol) + PR push/merge via chain strategy.**
+
+---
+
 # Apply Progress — feat-mcp-transport (PR 1: Transport Skeleton)
 
 Status: **COMPLETED** (T-01..T-05) — branch `feat/feat-mcp-transport-1` off `main` (0d9628e).

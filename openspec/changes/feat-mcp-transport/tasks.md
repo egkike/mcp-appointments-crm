@@ -76,42 +76,42 @@ Branch: `feat/feat-mcp-transport-1` off `main`.
 
 Branch: `feat/feat-mcp-transport-2` off `feat/feat-mcp-transport-1`.
 
-- [ ] **T-06** Auth middleware wiring + JSON-RPC auth translator
+- [x] **T-06** Auth middleware wiring + JSON-RPC auth translator
   - Files: `internal/mcp/auth_translator.go` (70), `internal/mcp/auth_translator_test.go` (60), `cmd/mcp-server/main.go` (20, RBAC + authMW)
   - Depends: T-05
   - Acceptance: 401 → JSON-RPC `-32000` `"no se proporcionó X-Caller-Id"`; 403 → `-32001` `"no tienes permiso para realizar esta acción"`; `auth.FromContext(ctx)` populated inside tool handler (REQ-AM-WIRED-001–004)
   - Test: `httptest.ResponseRecorder` wrapping fake 401/403 inner; assert JSON-RPC body
   - Commit: `feat(mcp): add jsonrpcAuthTranslator wrapping AuthMiddleware`
 
-- [ ] **T-07** GetBusinessProfile use case
+- [x] **T-07** GetBusinessProfile use case
   - Files: `internal/application/usecase/get_business_profile.go` (25), `internal/application/usecase/get_business_profile_test.go` (35), `cmd/mcp-server/main.go` (5)
   - Depends: T-05
   - Acceptance: wraps `BusinessProfileRepo.Get(ctx)`; returns `*entity.BusinessProfile`; requires owner/admin/staff
   - Test: `go-sqlmock` unit test
   - Commit: `feat(usecase): add GetBusinessProfile use case`
 
-- [ ] **T-08** Consumer ports + error mapping
+- [x] **T-08** Consumer ports + error mapping
   - Files: `internal/mcp/ports.go` (40), `internal/mcp/errors.go` (40, full business-code map)
   - Depends: T-06, T-07
   - Acceptance: 6 consumer interfaces declared (no `internal/repository` import); `*domain.SemanticError` → `-32002` + Spanish message; infra → `-32603` generic
   - Test: error mapping unit tests (golden cases)
   - Commit: `feat(mcp): add consumer port interfaces and business error mapping`
 
-- [ ] **T-09** Register 6 tools
+- [x] **T-09** Register 6 tools
   - Files: `internal/mcp/tools_booking.go` (170), `internal/mcp/tools_profile.go` (35), `internal/mcp/tools_test.go` (85)
   - Depends: T-08
   - Acceptance: `tools/list` returns 6 tools; each tool dispatches to mock port; `auth.FromContext(ctx)` propagated; invalid args → `-32602`
   - Test: mock port structs, table-driven per tool
   - Commit: `feat(mcp): register 6 booking and profile tools against use case ports`
 
-- [ ] **T-10** Integration + e2e + guard tests
+- [x] **T-10** Integration + e2e + guard tests
   - Files: `internal/mcp/server_integration_test.go` (80), `internal/mcp/e2e_test.go` (65), `internal/mcp/no_repo_import_test.go` (15)
   - Depends: T-09
   - Acceptance: `/mcp` happy path (`initialize` → `tools/list` → `tools/call check_availability`) with temp-file SQLite (WAL); 401/403 → JSON-RPC; `TestNoRepositoryImport` guard passes
   - Test: `httptest` + real use cases + temp-file SQLite (WAL)
   - Commit: `test(mcp): add /mcp integration tests and e2e mock client`
 
-- [ ] **T-11** PRD + ADR doc fix
+- [x] **T-11** PRD + ADR doc fix
   - Files: `docs/PRD.md` (§2.2, §3.1–§3.3, §5.2, §6.1–§6.2, §7, §8.1–§8.2, glosario — todas las menciones de "SSE"), `docs/architecture/0007-server-config.md`
   - Depends: T-10
   - Acceptance: "SSE" → "Streamable HTTP (MCP 2025-11-25)" in all cited sections
