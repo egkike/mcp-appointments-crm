@@ -9,9 +9,10 @@
 //     (/healthz) on 127.0.0.1:3000, with a graceful 10s drain on SIGTERM/SIGINT
 //   - Exiting 0 on a clean shutdown; 1 on any fatal startup or serve failure
 //
-// The transport skeleton (feat-mcp-transport PR 1) serves the MCP endpoint
-// with zero tools; the tool wiring that consumes the use cases below is added
-// by the follow-up PR of the same change.
+// The transport skeleton (feat-mcp-transport PR 1) served the MCP endpoint
+// with zero tools; PR 2 wires the authenticated transport (AuthMiddleware +
+// JSON-RPC auth translator) and the tool registration that consumes the use
+// cases below.
 //
 // This file is the first production caller of the 7-arg use case constructors
 // introduced in feat-booking-validator-service (TASK-FU.3). No DI containers,
@@ -32,9 +33,13 @@
 //	    internal/domain/entity/ — and ValidateBookingInput references entity
 //	    types). Promotion to internal/domain/service/ is deferred until a
 //	    third consumer appears (TASK-FU.3 resolution).
-//	D5. Transport: mcp.NewServer serves the streamable-HTTP handler behind
-//	    jsonParseGuard; mcp.Run owns listen + serve + graceful shutdown, so
-//	    the composition root never touches the raw listener.
+//
+// D5. Transport: mcp.NewServer serves the streamable-HTTP handler behind
+//
+//	jsonParseGuard; AuthHandler adds AuthMiddleware + the JSON-RPC auth
+//	translator (REQ-AM-WIRED-001/002). mcp.Run owns listen + serve +
+//	graceful shutdown, so the composition root never touches the raw
+//	listener.
 package main
 
 import (
@@ -47,6 +52,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/buildinfo"
 	"github.com/egkike/mcp-appointments-crm/internal/db"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
@@ -92,7 +98,12 @@ func run() error {
 	ctx := context.Background()
 	database, err := db.NewDatabase(ctx, dbPath)
 	if err != nil {
-		return fmt.Errorf("open database %s: %w", dbPath, err)
+		// GGA W-3: the path stays out of the error string (security
+		// checklist: no internal file paths in error messages) and is
+		// logged as a structured field — operator-facing stderr/journal,
+		// never sent to the MCP client.
+		logger.Error("open database failed", "path", dbPath, "error", err)
+		return fmt.Errorf("open database: %w", err)
 	}
 	defer func() {
 		// Intentional: log Close() error but don't change the exit code.
@@ -159,13 +170,13 @@ func run() error {
 
 	// ── D3: Use cases are wired but not yet invoked ──
 	//
-	// The variables accountsRepo, clientsRepo, and pendingAlertsRepo are
-	// constructed but not yet wired to any use case — they will be consumed
-	// by the MCP tools of the follow-up PR (feat-mcp-transport PR 2:
-	// ListClients, CreateAlert, etc.).
-	//
-	// The use case variables are consumed by that same PR; this composition
-	// root only verifies the wiring compiles and exits.
+	// Staged-PR bridge (GGA W-2): the repositories and use cases below are
+	// constructed now so the composition root compiles against the real
+	// dependency graph; the `_ =` block is removed atomically when the
+	// tool-wiring commit of this PR registers the MCP tools that consume
+	// them (ListClients, CreateAlert, etc.). check_availability is the one
+	// use case already reachable at runtime: it feeds no tool yet, but the
+	// authenticated /mcp endpoint below is live.
 	_ = accountsRepo
 	_ = clientsRepo
 	_ = pendingAlertsRepo
@@ -175,19 +186,41 @@ func run() error {
 	_ = rescheduleBookingUC
 	_ = checkAvailabilityUC
 
-	// ── D5: Transport skeleton ──
+	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
+	//
+	// Every /mcp request must carry X-Caller-Id; check_availability has no
+	// RBAC entry (any authenticated caller — open set), the other five tools
+	// restrict by role. RBAC keys on r.URL.Path, so the JSON-RPC auth
+	// translator rewrites the path to the tool name for tools/call requests.
+	resolver := auth.NewCallerResolver(database.Conn)
+	rbac := auth.ToolRBAC{
+		"create_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+		"cancel_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+		"get_booking":          {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
+		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+	}
+	authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
+
+	// ── D5: Authenticated transport (tools registered by the tool-wiring
+	// commit of this PR) ──
 
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", mcp.Healthz(cfg.Version))
-	mux.Handle("/mcp", mcp.NewServer(cfg).Handler())
+	mux.Handle("/mcp", mcp.NewServer(cfg).AuthHandler(authMW))
 
 	httpSrv := &http.Server{
 		Addr:              net.JoinHostPort(cfg.Bind, cfg.Port),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// WriteTimeout stays set (30s): the transport is JSON-only
+		// (Stateless + JSONResponse, REQ-MT-002), so no long-lived SSE
+		// stream can exist and the deadline is the fail-secure bound for a
+		// stuck handler. mcp.Run's 10s drain owns shutdown (REQ-MT-010).
+		// Revisit if SSE streaming is ever enabled (GGA W-2).
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	logger.Info("mcp server starting",
