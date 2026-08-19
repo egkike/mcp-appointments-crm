@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-
-	"github.com/egkike/mcp-appointments-crm/internal/auth"
 )
 
 // loggingMiddleware emits exactly one structured log line per /mcp request
@@ -27,15 +25,19 @@ import (
 //     the translator) or the final passthrough status (200/405/413/400);
 //   - duration_ms: handler wall time;
 //   - caller_role: the resolved caller's role, "none" when the request
-//     carried no identity (auth failures included).
+//     carried no identity (auth failures included). The role is annotated on
+//     the recorder by AuthMiddleware where the caller is resolved — the
+//     caller is injected on a request COPY that never propagates back to this
+//     middleware, so the request context cannot carry it (JD fix B-2
+//     regression fix).
 func loggingMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{w: w}
 		next.ServeHTTP(rec, r)
 		role := "none"
-		if c, ok := auth.FromContext(r.Context()); ok {
-			role = string(c.Role)
+		if rec.callerRole != "" {
+			role = rec.callerRole
 		}
 		logger.Info("mcp request",
 			"request_id", newRequestID(),

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 )
 
@@ -35,12 +36,30 @@ func recordAttrs(r slog.Record) map[string]any {
 	return attrs
 }
 
-// chainWithCaller wraps inner with a caller-injected context, simulating what
-// AuthMiddleware does in production (the logging middleware sits inside it).
-func chainWithCaller(inner http.Handler, caller *auth.Caller) http.Handler {
+// mcpRequestRecords returns only the logging middleware's own lines
+// (REQ-MT-011): the SDK server writes its activity logs to the same logger,
+// so captures are filtered by the middleware's message before asserting.
+func mcpRequestRecords(h *captureHandler) []slog.Record {
+	var out []slog.Record
+	for _, r := range h.records {
+		if r.Message == "mcp request" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// chainWithCallerRole wraps inner with a recorder annotation, mirroring what
+// AuthMiddleware does in production: the caller role is annotated on the
+// response recorder, because the caller is injected on a request COPY that
+// never propagates back to the outer logging middleware (JD fix B-2
+// regression fix).
+func chainWithCallerRole(inner http.Handler, caller *auth.Caller) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if caller != nil {
-			r = r.WithContext(auth.WithCaller(r.Context(), *caller))
+			if rr, ok := w.(auth.CallerRoleRecorder); ok {
+				rr.RecordCallerRole(caller.Role)
+			}
 		}
 		inner.ServeHTTP(w, r)
 	})
@@ -52,7 +71,7 @@ func TestLoggingMiddlewareEmitsOneLinePerRequest(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	chain := chainWithCaller(loggingMiddleware(logger, inner), &auth.Caller{ID: "owner-1", Role: auth.RoleOwner})
+	chain := loggingMiddleware(logger, chainWithCallerRole(inner, &auth.Caller{ID: "owner-1", Role: auth.RoleOwner}))
 
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/create_booking", nil)
@@ -97,8 +116,8 @@ func TestLoggingMiddlewareCallerRoleDefaultsToNone(t *testing.T) {
 	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	// No caller in the context: the request never carried an identity.
-	chain := chainWithCaller(loggingMiddleware(logger, inner), nil)
+	// No caller: the request never carried an identity.
+	chain := loggingMiddleware(logger, chainWithCallerRole(inner, nil))
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/mcp", nil)
 	chain.ServeHTTP(httptest.NewRecorder(), req)
@@ -145,4 +164,85 @@ func TestLoggingMiddlewareAuthDeniedLogsRealStatus(t *testing.T) {
 	if attrs["caller_role"] != "none" {
 		t.Errorf("caller_role = %v; want none", attrs["caller_role"])
 	}
+}
+
+// ── JD fix B-2 regression: the FULL AuthHandler composition logs the REAL caller role ──
+
+// TestAuthHandlerLogsCallerRole exercises the production AuthHandler
+// composition end to end — loggingMiddleware(methodGate(jsonrpcAuthTranslator(
+// authMW.Wrap(...)))) with a sqlmock-backed resolver — and asserts the logged
+// line carries the resolved caller's role (REQ-MT-011). Regression from JD fix
+// B-2: the logging middleware now sits OUTSIDE the auth chain, but
+// authMW.Wrap injects the caller on a request COPY that flows down and never
+// propagates back, so reading auth.FromContext(r.Context()) in the middleware
+// yielded "none" for every authenticated request. The role must reach the log
+// through the recorder chain instead of the request context.
+func TestAuthHandlerLogsCallerRole(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New(): %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	cap := &captureHandler{}
+	logger := slog.New(cap)
+	srv := NewServer(Config{Version: "test", Logger: logger})
+	mw := auth.NewAuthMiddleware(auth.NewCallerResolver(db), auth.ToolRBAC{}, logger)
+	chain := srv.AuthHandler(mw)
+
+	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}`
+
+	t.Run("authenticated request logs the resolved role", func(t *testing.T) {
+		mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = \\?").
+			WithArgs("owner-1").
+			WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+				AddRow("owner", nil, 1))
+		mock.ExpectQuery("SELECT id FROM clients WHERE id = \\?").
+			WithArgs("owner-1").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+		req := postJSON(initialize)
+		req.Header.Set("X-Caller-Id", "owner-1")
+		rec := httptest.NewRecorder()
+		chain.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; want 200", rec.Code)
+		}
+		lines := mcpRequestRecords(cap)
+		if len(lines) != 1 {
+			t.Fatalf("mcp request lines = %d; want 1", len(lines))
+		}
+		attrs := recordAttrs(lines[0])
+		if attrs["caller_role"] != auth.RoleOwner {
+			t.Errorf("caller_role = %v; want %q (REQ-MT-011)", attrs["caller_role"], auth.RoleOwner)
+		}
+		if attrs["status"] != int64(http.StatusOK) {
+			t.Errorf("status = %v; want 200", attrs["status"])
+		}
+	})
+
+	t.Run("denied request logs caller_role=none and the real status", func(t *testing.T) {
+		// POST without X-Caller-Id: the client receives the 200 JSON-RPC
+		// envelope, but the log must carry the REAL auth status (401) and
+		// caller_role=none.
+		req := postJSON(initialize)
+		rec := httptest.NewRecorder()
+		chain.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; want 200 (envelope)", rec.Code)
+		}
+		lines := mcpRequestRecords(cap)
+		if len(lines) != 2 {
+			t.Fatalf("mcp request lines = %d; want 2", len(lines))
+		}
+		attrs := recordAttrs(lines[1])
+		if attrs["caller_role"] != "none" {
+			t.Errorf("caller_role = %v; want none", attrs["caller_role"])
+		}
+		if attrs["status"] != int64(http.StatusUnauthorized) {
+			t.Errorf("status = %v; want 401 (REAL auth status)", attrs["status"])
+		}
+	})
 }

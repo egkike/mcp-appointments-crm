@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
@@ -77,6 +78,18 @@ func jsonrpcAuthTranslator(next http.Handler) http.Handler {
 
 		rec := &statusRecorder{w: w}
 		next.ServeHTTP(rec, r)
+
+		// Forward the resolved caller's role to the outer recorder (the
+		// logging middleware): AuthMiddleware annotated it on this recorder
+		// where the caller was resolved, because the caller-bearing request is
+		// a COPY that never propagates back up — the role travels through the
+		// recorder chain instead of the request context (JD fix B-2
+		// regression). Unset for auth failures (401/403/500), which log "none".
+		if rec.callerRole != "" {
+			if rr, ok := w.(auth.CallerRoleRecorder); ok {
+				rr.RecordCallerRole(rec.callerRole)
+			}
+		}
 
 		// Any status other than the three translated codes was already
 		// streamed through to the client by statusRecorder (headers, status
@@ -239,10 +252,21 @@ type statusRecorder struct {
 	status      int
 	reported    bool // status came from reportRealStatus (real auth status)
 	wroteHeader bool
+	callerRole  string
 	body        bytes.Buffer
 }
 
 func (r *statusRecorder) Header() http.Header { return r.w.Header() }
+
+// RecordCallerRole annotates the resolved caller's role for the request log
+// (REQ-MT-011). AuthMiddleware calls it where the caller is resolved; the
+// first annotation wins so an outer recorder's own annotation is never
+// overwritten by the forwarding inner one.
+func (r *statusRecorder) RecordCallerRole(role string) {
+	if r.callerRole == "" {
+		r.callerRole = role
+	}
+}
 
 // reportRealStatus records the real status decided by the inner chain
 // (reported by the JSON-RPC auth translator) without touching the wire: the

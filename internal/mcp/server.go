@@ -78,9 +78,14 @@ func (s *Server) Handler() http.Handler {
 // middleware sits OUTSIDE the translator (JD fix B-2): auth-rejected requests
 // still produce their structured log line with the REAL status — the
 // translator reports it through statusRecorder before re-emitting the failure
-// as a 200 envelope — and the caller role from the context when present,
-// else "none".
+// as a 200 envelope. The caller role for the log line is annotated on the
+// recorder by AuthMiddleware where the caller is resolved and forwarded
+// through the recorder chain (the caller is injected on a request COPY that
+// never propagates back to the middleware), else "none".
 func (s *Server) AuthHandler(authMW *auth.AuthMiddleware) http.Handler {
+	if authMW == nil {
+		panic("mcp: AuthHandler requires a non-nil AuthMiddleware")
+	}
 	postChain := jsonrpcAuthTranslator(authMW.Wrap(s.Handler()))
 	methodGate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

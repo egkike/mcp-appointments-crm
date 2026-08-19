@@ -470,6 +470,18 @@ func TestAuthHandlerUnauthenticatedGETMethodNotAllowed(t *testing.T) {
 	}
 }
 
+// ── fail-fast wiring guards (GGA WARNING-2) ──
+
+func TestAuthHandlerPanicsOnNilMiddleware(t *testing.T) {
+	srv := NewServer(Config{Version: "test"})
+	defer func() {
+		if recover() == nil {
+			t.Fatal("AuthHandler(nil) did not panic; must fail fast at wiring time, not per-request")
+		}
+	}()
+	srv.AuthHandler(nil)
+}
+
 // ── body read failure short-circuits with 400 (GGA S-3) ──
 
 type failingBodyReader struct{}
