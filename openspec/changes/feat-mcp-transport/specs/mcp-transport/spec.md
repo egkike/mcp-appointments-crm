@@ -175,7 +175,7 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 
 | Tool | Roles | Input | Output |
 |------|-------|-------|--------|
-| `check_availability` | any authenticated (open set — no RBAC entry; per ToolRBAC contract an absent entry means "any authenticated", matching design §3) | `{professional_id?, service_id?, start_datetime, end_datetime?}` | `{available: bool, message?: string}` |
+| `check_availability` | any authenticated (open set — no RBAC entry; per ToolRBAC contract an absent entry means "any authenticated", matching design §3) | `{service_id, professional_id, start_datetime, end_datetime?}` | `{available: bool, message?: string}` |
 | `create_booking` | owner, admin, staff | `{client_id, service_id, professional_id, start_datetime, notes?}` | `{booking_id, start_datetime, end_datetime}` |
 | `get_booking` | owner, admin, staff, client (self) | `{booking_id}` | `BookingView` — `{id, client_id, professional_id, service_id, start_datetime, end_datetime, status, notes?, payment_method?, created_at, updated_at}` |
 | `cancel_booking` | owner, admin, staff | `{booking_id, reason}` | `{status: "cancelled"}` |
@@ -206,13 +206,13 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 - WHEN dispatched
 - THEN response MUST contain a JSON-RPC error indicating invalid input
 
-#### Scenario: check_availability optional flags validated
-- GIVEN a `check_availability` call with only `start_datetime` present (professional_id/service_id/end_datetime absent)
-- WHEN dispatched
-- THEN it MUST succeed (those fields are optional) and return `{available: bool, message?: string}`
-- GIVEN a `check_availability` call missing required `start_datetime`
+#### Scenario: check_availability required flags validated
+- GIVEN a `check_availability` call with only `start_datetime` present (service_id/professional_id/end_datetime absent)
 - WHEN dispatched
 - THEN response MUST contain a JSON-RPC error indicating invalid input
+- GIVEN a `check_availability` call with `service_id`, `professional_id` and `start_datetime` present (`end_datetime` omitted)
+- WHEN dispatched
+- THEN it MUST succeed and return `{available: bool, message?: string}`
 
 ### REQ-MT-016 — Spanish semantic errors for all tools
 

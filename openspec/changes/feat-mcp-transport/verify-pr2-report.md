@@ -16,6 +16,8 @@ build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca49599
 
 # Verification Report — feat-mcp-transport, PR 2 (T-06..T-11)
 
+> **JD fix A-1 amendment (2026-08-19)**: REQ-MT-015 `check_availability` input was amended in `spec.md` to require `service_id` and `professional_id` (the spec table previously marked them optional and the "optional flags" scenario claimed a `start_datetime`-only call succeeds). The code already required both fields (no `omitempty` on the input struct tags), so only the spec text changed. The amended compliance row below is marked accordingly.
+
 **Change**: feat-mcp-transport (PR 2 slice: Auth + 6 tools + e2e + doc fix)
 **Version**: spec 2026-08-05
 **Mode**: Strict TDD
@@ -83,7 +85,7 @@ All six PR 2 checkboxes are marked `[x]` in `tasks.md` (working tree; see S-1). 
 | REQ-MT-012 Consumer interfaces | No repository import | `TestNoRepositoryImport` (source scan of non-test files) + verifier grep of `internal/mcp/` → zero `internal/repository` imports; 6 ports in `ports.go` | ✅ COMPLIANT |
 | REQ-MT-015 Tool registry | Tool input validated | `TestToolMissingRequiredArgInvalidParams` (-32602, missing `client_id`), `TestToolInvalidDatetimeInvalidParams` (-32602), `TestToolMissingCallerUnauthenticated` (fail-closed -32002) | ✅ COMPLIANT |
 | REQ-MT-015 | Other required fields validated | SDK jsonschema `required` arrays verified in live `tools/list` output (`cancel_booking` requires `booking_id`+`reason`); missing `service_id`/`professional_id`/`start_datetime`/`booking_id`/`reason`/`new_start_datetime` all `required` by schema (no omitempty) | ✅ COMPLIANT |
-| REQ-MT-015 | check_availability optional flags | `TestToolCheckAvailability` succeeds with only service/professional/start (end_datetime omitted); struct tags: `end_datetime`/`professional_id`/`service_id` optional | ✅ COMPLIANT |
+| REQ-MT-015 | check_availability required flags (**scenario AMENDED by JD fix A-1**: `service_id` + `professional_id` are REQUIRED; `start_datetime`-only → JSON-RPC invalid-input error) | `TestToolCheckAvailability` succeeds with service/professional/start (end_datetime omitted); struct tags: `end_datetime` optional, `service_id`/`professional_id` required (no omitempty) | ✅ COMPLIANT (amended) |
 | REQ-MT-015 output contracts | create/reschedule window | `TestToolCreateBooking`/`TestToolRescheduleBooking` assert `start_datetime`+`end_datetime` in structuredContent (DTO extension, deviation #2) | ✅ COMPLIANT |
 | REQ-MT-015 output contracts | get_booking BookingView / cancel status / profile | `TestToolGetBooking` (view fields), `TestToolCancelBooking` (`{booking_id,status}`), `TestToolGetBusinessProfile` (entity serialization) | ✅ COMPLIANT |
 | REQ-MT-016 Spanish semantic errors | Not-working-day error | `toMCPError` golden (verbatim Spanish message), `TestToolSemanticErrorMapsToBusinessCode`; day-template rendering is domain-side (REQ-BV-4, existing tests), transport passes `se.Message` unchanged | ✅ COMPLIANT |
