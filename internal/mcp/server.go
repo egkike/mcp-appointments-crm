@@ -61,13 +61,20 @@ func (s *Server) Handler() http.Handler {
 }
 
 // AuthHandler returns the production /mcp HTTP handler: the unauthenticated
-// Handler chain wrapped by AuthMiddleware, the per-request logging middleware
-// (REQ-MT-011) and the JSON-RPC auth translator (REQ-AM-WIRED-001).
+// Handler chain wrapped by AuthMiddleware, the JSON-RPC auth translator
+// (REQ-AM-WIRED-001) and the per-request logging middleware (REQ-MT-011),
+// composed from the outside as:
+//
+//	loggingMiddleware(jsonrpcAuthTranslator(authMW.Wrap(handler)))
+//
 // AuthMiddleware authorizes by r.URL.Path, so the translator rewrites the
 // path to the tool name for tools/call requests and translates HTTP
 // 401/403/500 into JSON-RPC error envelopes (REQ-AM-WIRED-002). The logging
-// middleware sits INSIDE AuthMiddleware: it observes the real auth decision
-// (status before envelope translation) and the rewritten path.
+// middleware sits OUTSIDE the translator (JD fix B-2): auth-rejected requests
+// still produce their structured log line with the REAL status — the
+// translator reports it through statusRecorder before re-emitting the failure
+// as a 200 envelope — and the caller role from the context when present,
+// else "none".
 func (s *Server) AuthHandler(authMW *auth.AuthMiddleware) http.Handler {
-	return jsonrpcAuthTranslator(authMW.Wrap(loggingMiddleware(s.cfg.Logger, s.Handler())))
+	return loggingMiddleware(s.cfg.Logger, jsonrpcAuthTranslator(authMW.Wrap(s.Handler())))
 }

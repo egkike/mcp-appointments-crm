@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -107,5 +108,41 @@ func TestLoggingMiddlewareCallerRoleDefaultsToNone(t *testing.T) {
 	}
 	if role := recordAttrs(cap.records[0])["caller_role"]; role != "none" {
 		t.Errorf("caller_role = %v; want none", role)
+	}
+}
+
+// ── auth-rejected requests are logged with the REAL status (JD fix B-2) ──
+
+func TestLoggingMiddlewareAuthDeniedLogsRealStatus(t *testing.T) {
+	cap := &captureHandler{}
+	logger := slog.New(cap)
+	// Production composition (JD fix B-2): loggingMiddleware OUTSIDE
+	// jsonrpcAuthTranslator. The inner chain rejects the request (missing
+	// X-Caller-Id → 401) and the translator re-emits it as a 200 JSON-RPC
+	// envelope; the log line must carry the REAL auth status (401), not the
+	// envelope's 200, and caller_role must be "none".
+	authReject := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no se proporcionó X-Caller-Id", http.StatusUnauthorized)
+	})
+	chain := loggingMiddleware(logger, jsonrpcAuthTranslator(authReject))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+	rec := httptest.NewRecorder()
+	chain.ServeHTTP(rec, req)
+
+	// The client still receives the translated envelope (HTTP 200).
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (envelope)", rec.Code)
+	}
+	if len(cap.records) != 1 {
+		t.Fatalf("records = %d; want 1", len(cap.records))
+	}
+	attrs := recordAttrs(cap.records[0])
+	if attrs["status"] != int64(http.StatusUnauthorized) {
+		t.Errorf("status = %v; want 401 (REAL auth status, JD fix B-2)", attrs["status"])
+	}
+	if attrs["caller_role"] != "none" {
+		t.Errorf("caller_role = %v; want none", attrs["caller_role"])
 	}
 }

@@ -11,16 +11,20 @@ import (
 )
 
 // loggingMiddleware emits exactly one structured log line per /mcp request
-// (REQ-MT-011), sitting inside AuthMiddleware so it observes the REAL
-// decision the auth chain made:
+// (REQ-MT-011). It composes OUTSIDE jsonrpcAuthTranslator (JD fix B-2) so
+// auth-rejected requests still produce their log line: for 401/403/500 the
+// translator reports the inner chain's REAL status through statusRecorder
+// before re-emitting the failure as a 200 envelope, and the recorder keeps
+// that real status for the log while streaming the envelope to the client.
+// For passthrough statuses the recorder observes the final status directly.
 //
 //   - request_id: 32-hex-char random identifier (crypto/rand; the design's
 //     google/uuid v1.6.0 would add a dependency for a single field — stdlib
 //     keeps go.mod untouched, deviation documented);
 //   - method, path: the path is observed AFTER the JSON-RPC auth translator
 //     rewrote it to the tool name for tools/call — the RBAC key;
-//   - status: the status BEFORE the translator maps 401/403/500 to 200
-//     envelopes (the log reflects what auth actually decided);
+//   - status: the REAL status the auth chain decided (401/403/500 reported by
+//     the translator) or the final passthrough status (200/405/413/400);
 //   - duration_ms: handler wall time;
 //   - caller_role: the resolved caller's role, "none" when the request
 //     carried no identity (auth failures included).

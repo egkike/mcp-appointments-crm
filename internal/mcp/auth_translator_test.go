@@ -128,11 +128,41 @@ func TestAuthTranslator401UnknownCaller(t *testing.T) {
 		t.Fatalf("status = %d; want 200", rec.Code)
 	}
 	code, msg, id := decodeEnvelope(t, rec)
-	if code != -32000 || msg != "no se proporcionó X-Caller-Id" {
-		t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, "no se proporcionó X-Caller-Id")
+	// JD fix A-2/B-1: an X-Caller-Id that is PRESENT but unknown must carry
+	// the resolver's Spanish message, not the missing-header one (REQ-MT-007
+	// scenario "Invalid or unknown caller rejected before handler").
+	if code != -32000 || msg != "no te reconozco. Por favor regístrate primero." {
+		t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, "no te reconozco. Por favor regístrate primero.")
 	}
 	if string(id) != `"abc"` {
 		t.Errorf("id = %s; want \"abc\"", id)
+	}
+}
+
+// ── 401: disabled caller id ──
+
+func TestAuthTranslator401DisabledCaller(t *testing.T) {
+	chain, mock := buildAuthChain(t, auth.ToolRBAC{}, &recordingHandler{})
+	mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = \\?").
+		WithArgs("ghost").
+		WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+			AddRow("owner", nil, 0))
+
+	req := postJSON(`{"jsonrpc":"2.0","id":8,"method":"initialize","params":{}}`)
+	req.Header.Set("X-Caller-Id", "ghost")
+	rec := doChain(t, chain, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	code, msg, id := decodeEnvelope(t, rec)
+	// JD fix A-2/B-1: a disabled account is also a 401 with the resolver's
+	// Spanish message ("tu cuenta está deshabilitada...", resolver.go).
+	if code != -32000 || msg != "tu cuenta está deshabilitada. Contacta al administrador." {
+		t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, "tu cuenta está deshabilitada. Contacta al administrador.")
+	}
+	if string(id) != "8" {
+		t.Errorf("id = %s; want 8", id)
 	}
 }
 

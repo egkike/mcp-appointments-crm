@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
@@ -16,6 +17,11 @@ const (
 	codeAuthRequired = -32000
 	codeForbidden    = -32001
 
+	// msgAuthRequired is the fallback 401 message when AuthMiddleware wrote
+	// an empty body (it normally writes "no se proporcionó X-Caller-Id" for a
+	// missing header; unknown/disabled callers carry the resolver's Spanish
+	// message instead — both are forwarded verbatim from the buffered body,
+	// see jsonrpcAuthTranslator).
 	msgAuthRequired = "no se proporcionó X-Caller-Id"
 	msgForbidden    = "no tienes permiso para realizar esta acción"
 	msgInternal     = "error interno del servidor"
@@ -29,7 +35,11 @@ const (
 // those failures as HTTP 200 + a JSON-RPC error object with the original
 // request id:
 //
-//	401 → -32000 "no se proporcionó X-Caller-Id"
+//	401 → -32000 with the middleware's message: "no se proporcionó
+//	      X-Caller-Id" when the header is MISSING, or the resolver's Spanish
+//	      message when the header is PRESENT but the caller is unknown or
+//	      disabled (REQ-MT-007 "Invalid or unknown caller rejected before
+//	      handler"; JD fix A-2/B-1 — the buffered body is forwarded verbatim)
 //	403 → -32001 "no tienes permiso para realizar esta acción"
 //	500 → -32603 "error interno del servidor"
 //
@@ -47,7 +57,7 @@ func jsonrpcAuthTranslator(next http.Handler) http.Handler {
 			if err != nil {
 				// Body could not be read at all: never forward a partially
 				// consumed body to the inner chain (GGA S-3).
-				http.Error(w, "failed to read request body", http.StatusBadRequest)
+				http.Error(w, "no se pudo leer el cuerpo de la solicitud", http.StatusBadRequest)
 				return
 			}
 			// Always restore what was read: the inner jsonParseGuard
@@ -74,13 +84,36 @@ func jsonrpcAuthTranslator(next http.Handler) http.Handler {
 		// for GET, 413/400 from jsonParseGuard).
 		switch rec.status {
 		case http.StatusUnauthorized:
-			writeJSONRPCError(w, codeAuthRequired, msgAuthRequired, id)
+			// Forward the middleware's own body: it distinguishes the
+			// missing-header case ("no se proporcionó X-Caller-Id") from a
+			// present-but-unknown/disabled caller, whose message comes from
+			// the resolver (JD fix A-2/B-1). The fallback only fires for an
+			// exotic 401 written without a body.
+			msg := strings.TrimSpace(rec.body.String())
+			if msg == "" {
+				msg = msgAuthRequired
+			}
+			reportRealStatus(w, rec.status)
+			writeJSONRPCError(w, codeAuthRequired, msg, id)
 		case http.StatusForbidden:
+			reportRealStatus(w, rec.status)
 			writeJSONRPCError(w, codeForbidden, msgForbidden, id)
 		case http.StatusInternalServerError:
+			reportRealStatus(w, rec.status)
 			writeJSONRPCError(w, int(jsonrpc.CodeInternalError), msgInternal, id)
 		}
 	})
+}
+
+// reportRealStatus forwards the inner chain's REAL status to an outer
+// recorder (the logging middleware, JD fix B-2) before the translated 200
+// envelope is emitted, so the request log carries the true auth decision
+// (401/403/500) instead of the envelope's 200. No-op for writers that do not
+// implement realStatusReporter.
+func reportRealStatus(w http.ResponseWriter, status int) {
+	if r, ok := w.(realStatusReporter); ok {
+		r.reportRealStatus(status)
+	}
 }
 
 // requestID extracts the JSON-RPC request id without validating the rest of
@@ -156,7 +189,7 @@ func validToolName(name string) bool {
 
 // isToolNameChar reports whether c is allowed inside a tool name.
 func isToolNameChar(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_'
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }
 
 // writeJSONRPCError emits a JSON-RPC 2.0 error envelope with HTTP 200 so the
@@ -186,6 +219,15 @@ func translatedCode(code int) bool {
 		code == http.StatusInternalServerError
 }
 
+// realStatusReporter is implemented by statusRecorder so jsonrpcAuthTranslator
+// can report the inner chain's REAL status (401/403/500) to an outer recorder
+// (the logging middleware, JD fix B-2) before re-emitting the failure as a 200
+// envelope: the request log then carries the true auth decision while the
+// client still receives the translated envelope.
+type realStatusReporter interface {
+	reportRealStatus(code int)
+}
+
 // statusRecorder lets the translator decide the final status without
 // buffering the whole response (GGA W-1). Headers and bodies of non-translated
 // statuses stream through to the real ResponseWriter immediately — a future
@@ -195,19 +237,35 @@ func translatedCode(code int) bool {
 type statusRecorder struct {
 	w           http.ResponseWriter
 	status      int
+	reported    bool // status came from reportRealStatus (real auth status)
 	wroteHeader bool
 	body        bytes.Buffer
 }
 
 func (r *statusRecorder) Header() http.Header { return r.w.Header() }
 
+// reportRealStatus records the real status decided by the inner chain
+// (reported by the JSON-RPC auth translator) without touching the wire: the
+// translator follows with the 200 envelope, which must still stream through.
+// The first report wins; once reported, the status is pinned for the log and
+// WriteHeader/Write forward verbatim.
+func (r *statusRecorder) reportRealStatus(code int) {
+	if r.wroteHeader || r.status != 0 {
+		return
+	}
+	r.status = code
+	r.reported = true
+}
+
 func (r *statusRecorder) WriteHeader(code int) {
 	if r.wroteHeader {
 		return
 	}
 	r.wroteHeader = true
-	r.status = code
-	if !translatedCode(code) {
+	if !r.reported {
+		r.status = code
+	}
+	if !translatedCode(r.status) || r.reported {
 		r.w.WriteHeader(code)
 	}
 }
@@ -216,7 +274,7 @@ func (r *statusRecorder) Write(p []byte) (int, error) {
 	if !r.wroteHeader {
 		r.WriteHeader(http.StatusOK)
 	}
-	if !translatedCode(r.status) {
+	if !translatedCode(r.status) || r.reported {
 		return r.w.Write(p)
 	}
 	return r.body.Write(p)
