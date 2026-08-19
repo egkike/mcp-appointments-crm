@@ -389,12 +389,101 @@ func TestToolGetBusinessProfile(t *testing.T) {
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_business_profile", `{}`))
 
-	var out entity.BusinessProfile
+	var out businessProfileOut
 	if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
 	if out.Name != "Mi Negocio" || out.Timezone != "America/Argentina/Buenos_Aires" {
 		t.Errorf("profile = %+v; want Mi Negocio + tz", out)
+	}
+}
+
+// ── get_business_profile output contract pinned (JD fix B-3) ──
+
+func TestToolGetBusinessProfileOutputKeysPinned(t *testing.T) {
+	srv, ports := newToolServer(t)
+	// Every field populated, including all optional ones, so the emitted
+	// JSON carries the FULL contract key set.
+	ports.profile.executeFn = func(context.Context) (*entity.BusinessProfile, error) {
+		return &entity.BusinessProfile{
+			ID:                     "singleton",
+			Name:                   "Mi Negocio",
+			Industry:               strPtr("salud"),
+			Country:                strPtr("AR"),
+			Address:                strPtr("Av. Siempre Viva 742"),
+			Latitude:               f64Ptr(-34.6037),
+			Longitude:              f64Ptr(-58.3816),
+			CoverPhotoURL:          strPtr("https://example.com/cover.jpg"),
+			PublicPhone:            strPtr("+5491100000000"),
+			MessengerPlatform:      strPtr("whatsapp"),
+			MessengerID:            strPtr("5491100000000"),
+			ContactEmail:           strPtr("hola@minegocio.com"),
+			WebsiteURL:             strPtr("https://minegocio.com"),
+			GeneralDescription:     strPtr("Descripción"),
+			CurrencyCode:           "ARS",
+			CurrencySymbol:         "$",
+			AcceptedPaymentMethods: strPtr(`["cash"]`),
+			Timezone:               "America/Argentina/Buenos_Aires",
+			SlotIntervalMinutes:    30,
+			BusinessHours:          `{"1":{"open":"09:00","close":"18:00"}}`,
+			CreatedAt:              "2026-01-01T00:00:00Z",
+			UpdatedAt:              "2026-01-02T00:00:00Z",
+		}, nil
+	}
+
+	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_business_profile", `{}`))
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+
+	// The REQ-MT-015 output contract: exactly this snake_case key set,
+	// independent of entity.BusinessProfile's Go field names (JD fix B-3).
+	wantKeys := []string{
+		"id", "name", "industry", "country", "address", "latitude", "longitude",
+		"cover_photo_url", "public_phone", "messenger_platform", "messenger_id",
+		"contact_email", "website_url", "general_description", "currency_code",
+		"currency_symbol", "accepted_payment_methods", "timezone",
+		"slot_interval_minutes", "business_hours", "created_at", "updated_at",
+	}
+	if len(out) != len(wantKeys) {
+		t.Fatalf("output has %d keys; want exactly %d: %s", len(out), len(wantKeys), mustJSON(t, out))
+	}
+	for _, k := range wantKeys {
+		if _, ok := out[k]; !ok {
+			t.Errorf("output missing key %q; got %s", k, mustJSON(t, out))
+		}
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
+func f64Ptr(f float64) *float64 { return &f }
+
+// ── get_business_profile input contract (GGA W-1 closure) ──
+
+// The SDK infers {"type":"object","additionalProperties":false} from the
+// empty input struct, so any non-empty argument object is rejected with
+// -32602 before the handler runs (REQ-MT-015 input contract is exactly {}).
+func TestToolGetBusinessProfileRejectsArguments(t *testing.T) {
+	srv, _ := newToolServer(t)
+
+	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_business_profile", `{"foo":1}`))
+	wantErrorCode(t, resp, -32602)
+}
+
+// A port returning (nil, nil) must fail closed with a business not-found
+// error, never a nil dereference (GGA S-1).
+func TestToolGetBusinessProfileNilProfileFailsClosed(t *testing.T) {
+	srv, ports := newToolServer(t)
+	ports.profile.executeFn = func(context.Context) (*entity.BusinessProfile, error) {
+		return nil, nil
+	}
+
+	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_business_profile", `{}`))
+	wantErrorCode(t, resp, -32002)
+	if resp.Error.Message != "perfil del negocio no encontrado" {
+		t.Errorf("error.message = %q; want %q", resp.Error.Message, "perfil del negocio no encontrado")
 	}
 }
 
