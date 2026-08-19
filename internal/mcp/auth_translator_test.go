@@ -431,17 +431,42 @@ func TestAuthHandlerComposition(t *testing.T) {
 	})
 }
 
-func TestAuthTranslatorUnauthenticatedGETMapsToEnvelope(t *testing.T) {
-	chain, _ := buildAuthChain(t, auth.ToolRBAC{}, &recordingHandler{})
+func TestAuthHandlerUnauthenticatedGETMethodNotAllowed(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New(): %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
 
-	rec := doChain(t, chain, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/mcp", nil))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := NewServer(Config{Version: "test", Logger: logger})
+	mw := auth.NewAuthMiddleware(auth.NewCallerResolver(db), auth.ToolRBAC{}, logger)
+	chain := srv.AuthHandler(mw)
 
+	// GET /mcp must answer 405 (REQ-MT-002, JD fix A-3): the method gate
+	// bypasses the auth chain for non-POST requests and lets the SDK
+	// Streamable HTTP handler answer 405 — never a 200 JSON-RPC envelope
+	// for an unauthenticated GET. The Accept header mirrors a real SSE
+	// client (the SDK answers 400 without it, see TestServerGetMethodNotAllowed).
+	getReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/mcp", nil)
+	getReq.Header.Set("Accept", "text/event-stream")
+	rec := doChain(t, chain, getReq)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d; want 405 (REQ-MT-002)", rec.Code)
+	}
+
+	// POST without X-Caller-Id still maps to the JSON-RPC envelope
+	// (translator behavior unchanged for POST).
+	rec = doChain(t, chain, postJSON(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"create_booking","arguments":{}}}`))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200", rec.Code)
 	}
-	code, _, _ := decodeEnvelope(t, rec)
-	if code != -32000 {
-		t.Errorf("error.code = %d; want -32000", code)
+	code, msg, id := decodeEnvelope(t, rec)
+	if code != -32000 || msg != "no se proporcionó X-Caller-Id" {
+		t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, "no se proporcionó X-Caller-Id")
+	}
+	if string(id) != "7" {
+		t.Errorf("id = %s; want 7", id)
 	}
 }
 

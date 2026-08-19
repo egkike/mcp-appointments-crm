@@ -62,10 +62,15 @@ func (s *Server) Handler() http.Handler {
 
 // AuthHandler returns the production /mcp HTTP handler: the unauthenticated
 // Handler chain wrapped by AuthMiddleware, the JSON-RPC auth translator
-// (REQ-AM-WIRED-001) and the per-request logging middleware (REQ-MT-011),
-// composed from the outside as:
+// (REQ-AM-WIRED-001) and the per-request logging middleware (REQ-MT-011).
 //
-//	loggingMiddleware(jsonrpcAuthTranslator(authMW.Wrap(handler)))
+// Method gate (REQ-MT-002, JD fix A-3): POST is the sole MCP endpoint.
+// Non-POST requests bypass the auth chain and go straight to the SDK
+// Streamable HTTP handler, which answers 405 Method Not Allowed — an
+// unauthenticated GET /mcp must never produce a 200 JSON-RPC envelope.
+// POST requests run the authenticated chain, composed from the outside as:
+//
+//	loggingMiddleware(methodGate(jsonrpcAuthTranslator(authMW.Wrap(handler))))
 //
 // AuthMiddleware authorizes by r.URL.Path, so the translator rewrites the
 // path to the tool name for tools/call requests and translates HTTP
@@ -76,5 +81,13 @@ func (s *Server) Handler() http.Handler {
 // as a 200 envelope — and the caller role from the context when present,
 // else "none".
 func (s *Server) AuthHandler(authMW *auth.AuthMiddleware) http.Handler {
-	return loggingMiddleware(s.cfg.Logger, jsonrpcAuthTranslator(authMW.Wrap(s.Handler())))
+	postChain := jsonrpcAuthTranslator(authMW.Wrap(s.Handler()))
+	methodGate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.Handler().ServeHTTP(w, r)
+			return
+		}
+		postChain.ServeHTTP(w, r)
+	})
+	return loggingMiddleware(s.cfg.Logger, methodGate)
 }
