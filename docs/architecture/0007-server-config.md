@@ -7,7 +7,7 @@
 ## Context
 
 The MCP server binds to a TCP port on a loopback address to expose the
-SSE endpoint to the local LLM client (Hermes). The original PRD
+Streamable HTTP endpoint to the local LLM client (Hermes). The original PRD
 hardcoded `127.0.0.1:3000` with no configuration mechanism. After
 review on 2026-06-25, the user identified two gaps:
 
