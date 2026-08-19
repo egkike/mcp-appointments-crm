@@ -38,34 +38,34 @@ Chain strategy: feature-branch-chain
 
 Branch: `feat/feat-mcp-transport-1` off `main`.
 
-- [ ] **T-01** Loopback validator + package doc
+- [x] **T-01** Loopback validator + package doc
   - Files: `internal/mcp/doc.go` (8), `internal/mcp/loopback.go` (45), `internal/mcp/loopback_test.go` (55)
   - Acceptance: rejects `0.0.0.0`/`localhost`/`192.168.1.5`/`::ffff:8.8.8.8`; accepts `127.0.0.1`/`127.1.2.3`/`::1`; Spanish errors per ADR-0007 §D4
   - Test: table-driven unit, no I/O
   - Commit: `feat(mcp): add loopback bind validator with Spanish error`
 
-- [ ] **T-02** Config loader + healthz + buildinfo
+- [x] **T-02** Config loader + healthz + buildinfo
   - Files: `internal/buildinfo/buildinfo.go` (8), `internal/mcp/config.go` (55), `internal/mcp/healthz.go` (22), `internal/mcp/healthz_test.go` (25), `internal/config/dotenv.go` (20)
   - Depends: T-01
   - Acceptance: `MCP_BIND`/`MCP_PORT` env precedence (flag tier reserved — none today; env > `.env` > default `127.0.0.1:3000`, per REQ-MT-013/ADR-0007); `/healthz` returns `{"status":"ok","version":"..."}`
   - Test: `t.Setenv` + `httptest` for healthz
   - Commit: `feat(mcp): add config loader, healthz endpoint, and buildinfo package`
 
-- [ ] **T-03** Streamable HTTP transport skeleton
+- [x] **T-03** Streamable HTTP transport skeleton
   - Files: `internal/mcp/server.go` (90), `internal/mcp/transport.go` (45), `internal/mcp/errors.go` (25, parse-error only), `internal/mcp/server_test.go` (55)
   - Depends: T-01, T-02
   - Acceptance: `initialize` returns `protocolVersion: "2025-11-25"` + capabilities; `tools/list` returns 0 tools; `GET /mcp` → 405; malformed JSON → `-32700`
   - Test: `httptest.NewServer` + real `mcp.NewServer` (Stateless mode)
   - Commit: `feat(mcp): integrate go-sdk v1.2.0 with NewStreamableHTTPHandler`
 
-- [ ] **T-04** Graceful shutdown
+- [x] **T-04** Graceful shutdown
   - Files: `internal/mcp/shutdown.go` (55), `internal/mcp/shutdown_test.go` (45)
   - Depends: T-03
   - Acceptance: SIGTERM/SIGINT → `http.Server.Shutdown(ctx 10s)` (per REQ-MT-010 — deadline must exceed the SQLite `busy_timeout=5000` to avoid force-closing an in-flight non-idempotent mutation); in-flight drains or force-closes; `ShutdownResult{Drained, ForceClosed}` logged
   - Test: send SIGTERM to test process with in-flight request
   - Commit: `feat(mcp): add graceful shutdown with 10s drain boundary`
 
-- [ ] **T-05** Wire transport into main.go + add SDK dependency
+- [x] **T-05** Wire transport into main.go + add SDK dependency
   - Files: `cmd/mcp-server/main.go` (50 net), `go.mod`/`go.sum` (5)
   - Depends: T-01–T-04
   - Acceptance: replace `_ =` block + `os.Exit(0)` with real wiring; binary binds `127.0.0.1:3000`; `go build ./...` + `go test -race ./...` green
@@ -172,13 +172,13 @@ Chain strategy: `feature-branch-chain` — only the tracker branch (`feat/feat-m
 
 ## Pre-flight Gates (per commit)
 
-- [ ] `gofmt -l .` — empty output
-- [ ] `go vet ./...` — clean
-- [ ] `go build -o /dev/null ./...` — passes
-- [ ] `go test -v -race ./...` — passes
-- [ ] `golangci-lint run ./...` — 0 issues
-- [ ] `govulncheck ./...` — 0 vulnerabilities (dependency audit; PR 1 T-05 adds the only new module, go-sdk, so the gate runs from that commit onward)
-- [ ] GGA (Gentle Guardian Angel) — runs on commit, must pass
+- [x] `gofmt -l .` — empty output
+- [x] `go vet ./...` — clean
+- [x] `go build -o /dev/null ./...` — passes
+- [x] `go test -v -race ./...` — passes
+- [x] `golangci-lint run ./...` — 0 issues
+- [x] `govulncheck ./...` — 0 vulnerabilities (dependency audit; PR 1 T-05 adds the only new module, go-sdk, so the gate runs from that commit onward)
+- [x] GGA (Gentle Guardian Angel) — runs on commit, must pass
 
 ## Open Questions for Implementer
 

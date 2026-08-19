@@ -115,9 +115,11 @@ Business-logic errors MUST surface as JSON-RPC 2.0 errors with the `*domain.Sema
 #### Scenario: Overlap error
 - GIVEN a `create_booking` that overlaps an existing booking
 - WHEN dispatched
-- THEN the JSON-RPC error message MUST be the domain's overlap message, which follows the template `"el Profesional {name} ya tiene una reserva de {a} a {b}."` with: `{name}` = the professional's name as stored (no case change), `{a}` = `start_datetime` rendered `HH:MM` (24-hour, zero-padded), `{b}` = `end_datetime` rendered `HH:MM` (24-hour, zero-padded)
+- THEN the JSON-RPC error message MUST be the domain's overlap message passed through verbatim: `"Profesional {id} ya tiene una reserva en ese horario"` with `{id}` = the professional ID as provided (`internal/application/usecase/create_booking.go`)
 
-> **Template semantics**: the `{...}` placeholders are interpolation slots, not literal characters in the emitted message; the golden-output test asserts the fully substituted string (e.g. `"el Profesional Juan ya tiene una reserva de 10:00 a 11:00."`).
+> **Template semantics**: `{id}` is an interpolation slot, not a literal character; the message carries no time window and uses the professional ID (not the name). `reschedule_booking` emits the sibling template `"Profesional {id} ya tiene una reserva en el nuevo horario"` on the same code path. The availability validator (check_availability result path) emits `"Profesional {name} ya tiene una reserva de {start} a {end}."` with `{name}` as stored and `{start}`/`{end}` RFC3339 UTC timestamps (`internal/domain/service/booking_time_validator.go`).
+>
+> **Amendment (2026-08-19, W-1)**: the original template `"el Profesional {name} ya tiene una reserva de {a} a {b}."` (HH:MM) described aspirational domain messages that do not exist in production; the domain messages above pre-date this change (present at base `0d9628e`) and this change's contract is verbatim passthrough of `*domain.SemanticError.Message` (REQ-MT-009 body). Precedent: REQ-MT-015 amendment (`faf431a`).
 
 ### REQ-MT-010 — Graceful shutdown
 
@@ -221,6 +223,8 @@ All tools MUST return `*domain.SemanticError` Spanish messages for business-rule
 #### Scenario: Not-working-day error
 - GIVEN a booking attempt on a day the professional doesn't work
 - WHEN dispatched
-- THEN error message MUST follow the template `"el Profesional {name} no trabaja los {día}."` with: `{name}` = the professional's name as stored, `{día}` = the day of week in lowercase Spanish, plural form matching the article `los` (e.g. `domingos`, `martes` — `martes` is invariant)
+- THEN error message MUST be the domain's not-working-day message passed through verbatim, following the template `"Profesional {name} no trabaja los {día}."` with: `{name}` = the professional's name as stored (no case change, no leading article), `{día}` = the day of week in lowercase Spanish, plural form matching the article `los` (e.g. `domingos`, `martes` — `martes` is invariant)
 
-> **Template semantics**: `{día}` is an interpolation slot rendered in the plural day form (the article `los` is fixed); a golden test asserts the fully substituted string (e.g. `"el Profesional Juan no trabaja los domingos."`).
+> **Template semantics**: `{día}` is an interpolation slot rendered in the plural day form (the article `los` is fixed and the message has no `el` article before `Profesional`); the golden test asserts the fully substituted string (e.g. `"Profesional Juan no trabaja los domingos."`), sourced from `internal/domain/service/booking_time_validator.go`.
+>
+> **Amendment (2026-08-19, W-1)**: the original template `"el Profesional {name} no trabaja los {día}."` (with leading `el`) described an aspirational domain message that does not exist in production; the message above pre-dates this change (present at base `0d9628e`) and this change's contract is verbatim passthrough (REQ-MT-016 body). Precedent: REQ-MT-015 amendment (`faf431a`).
