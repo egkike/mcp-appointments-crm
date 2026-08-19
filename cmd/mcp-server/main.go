@@ -168,6 +168,9 @@ func run() error {
 		availabilityChecker, availabilityDeps,
 	)
 
+	// 6th use case (Q3): get_business_profile wraps the singleton profile repo.
+	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
+
 	// ── D3: Use cases are wired but not yet invoked ──
 	//
 	// Staged-PR bridge (GGA W-2): the repositories and use cases below are
@@ -185,6 +188,7 @@ func run() error {
 	_ = createBookingUC
 	_ = rescheduleBookingUC
 	_ = checkAvailabilityUC
+	_ = getBusinessProfileUC
 
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
