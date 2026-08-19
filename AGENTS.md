@@ -57,7 +57,7 @@ Before staging, committing, or pushing any code to the repository, you **MUST** 
 ### Always Ask Before Commit
 
 After verification passes, ALWAYS ask user:
-- "¿Corremos el gate de verificación (RDD o JD según el routing del Verification & Review Protocol)?"
+- "¿Corremos el gate de verificación (JD o readback estructural según el routing del Verification & Review Protocol)?"
 - "¿Hacemos commit?"
 
 Wait for user confirmation before proceeding.
@@ -250,14 +250,17 @@ Verification routing is **exclusive**: one path per change, never both by defaul
 
 | Change type | Gate | Notes |
 |-------------|------|-------|
-| **Sensitive** | RDD (native review, receipt) | auth/RBAC, transport/network (HTTP/SSE), DB/schema, new dependencies (go.mod), >400 changed lines, PII |
+| **Sensitive** | JD (2 blind judges) + ordinary delivery policy | auth/RBAC, transport/network (HTTP/SSE), DB/schema, new dependencies (go.mod), >400 changed lines, PII |
 | **Functional medium** | JD (2 blind judges) | business logic, multi-file refactors — no security/network |
 | **Trivial / docs** | Structural readback | single-file mechanical fixes, documentation |
 
-- Both gates together only on explicit user request (e.g. RDD with doubtful findings → JD as second opinion).
+- Both gates together only on explicit user request (e.g. a doubtful JD verdict → second opinion or escalation).
+- JD issues no receipt and grants no delivery authority by itself; delivery closes under ordinary repository policy (GGA hooks, CI green, PR review approval).
 - `sdd-verify` always runs before the gate (spec conformance, REQ coverage, tests).
 
 ### RDD Gate (native, receipt-driven)
+
+> **Currently disabled** (off, decided by global). While disabled, no `gentle-ai review` lifecycle runs and review gates report `disabled/unmanaged`; delivery follows ordinary repository policy. Re-enable with `gentle-ai review mode enable --scope global` when the transport supports it.
 
 - Runs `gentle-ai review` with lenses scaled to risk (0 / 1 focus / 4R).
 - Produces an immutable receipt that authorizes delivery (commit/push/PR).
