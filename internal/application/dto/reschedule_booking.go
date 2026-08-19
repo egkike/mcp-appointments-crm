@@ -24,4 +24,9 @@ type RescheduleBookingResult struct {
 	BookingID string `json:"booking_id"`
 	// Status is the booking status after rescheduling (typically "pending" or "confirmed").
 	Status string `json:"status"`
+	// StartDatetime and EndDatetime are the new booking window
+	// (REQ-MT-015 output contract). Populated by the use case — the MCP
+	// transport has no repository access and cannot recompute the end time.
+	StartDatetime time.Time `json:"start_datetime"`
+	EndDatetime   time.Time `json:"end_datetime"`
 }

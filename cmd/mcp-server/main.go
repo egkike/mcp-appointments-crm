@@ -115,14 +115,11 @@ func run() error {
 		}
 	}()
 
-	// ── Construct all 9 repositories ──
+	// ── Construct repositories (only those the wired use cases consume) ──
 
-	accountsRepo := repository.NewAccountsRepo(database.Conn, logger)
 	bookingsRepo := repository.NewBookingsRepo(database.Conn)
 	bizHoursExRepo := repository.NewBusinessHoursExceptionRepo(database.Conn)
 	bizProfRepo := repository.NewBusinessProfileRepo(database.Conn)
-	clientsRepo := repository.NewClientsRepo(database.Conn)
-	pendingAlertsRepo := repository.NewPendingAlertsRepo(database.Conn)
 	prosRepo := repository.NewProfessionalsRepo(database.Conn)
 	schedulesRepo := repository.NewSchedulesRepo(database.Conn)
 	servicesRepo := repository.NewServicesRepo(database.Conn)
@@ -171,25 +168,6 @@ func run() error {
 	// 6th use case (Q3): get_business_profile wraps the singleton profile repo.
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
 
-	// ── D3: Use cases are wired but not yet invoked ──
-	//
-	// Staged-PR bridge (GGA W-2): the repositories and use cases below are
-	// constructed now so the composition root compiles against the real
-	// dependency graph; the `_ =` block is removed atomically when the
-	// tool-wiring commit of this PR registers the MCP tools that consume
-	// them (ListClients, CreateAlert, etc.). check_availability is the one
-	// use case already reachable at runtime: it feeds no tool yet, but the
-	// authenticated /mcp endpoint below is live.
-	_ = accountsRepo
-	_ = clientsRepo
-	_ = pendingAlertsRepo
-	_ = getBookingUC
-	_ = cancelBookingUC
-	_ = createBookingUC
-	_ = rescheduleBookingUC
-	_ = checkAvailabilityUC
-	_ = getBusinessProfileUC
-
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
 	// Every /mcp request must carry X-Caller-Id; check_availability has no
@@ -206,12 +184,25 @@ func run() error {
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
 
-	// ── D5: Authenticated transport (tools registered by the tool-wiring
-	// commit of this PR) ──
+	// ── D5: Authenticated transport (T-09: tools wired) ──
+	//
+	// The six use cases back the MCP tools through the consumer ports
+	// (internal/mcp/ports.go). A nil port would leave its tool unregistered;
+	// the production composition injects all six.
+	srv := mcp.NewServer(mcp.Config{
+		Version:            cfg.Version,
+		Logger:             logger,
+		CheckAvailability:  checkAvailabilityUC,
+		CreateBooking:      createBookingUC,
+		GetBooking:         getBookingUC,
+		CancelBooking:      cancelBookingUC,
+		RescheduleBooking:  rescheduleBookingUC,
+		GetBusinessProfile: getBusinessProfileUC,
+	})
 
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", mcp.Healthz(cfg.Version))
-	mux.Handle("/mcp", mcp.NewServer(cfg).AuthHandler(authMW))
+	mux.Handle("/mcp", srv.AuthHandler(authMW))
 
 	httpSrv := &http.Server{
 		Addr:              net.JoinHostPort(cfg.Bind, cfg.Port),
@@ -230,8 +221,8 @@ func run() error {
 	logger.Info("mcp server starting",
 		"addr", httpSrv.Addr,
 		"version", cfg.Version,
-		"repos", 9,
-		"usecases", 5,
+		"repos", 6,
+		"usecases", 6,
 		"booking_validator_shared", true,
 	)
 

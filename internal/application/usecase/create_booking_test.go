@@ -292,6 +292,31 @@ func TestCreateBookingUseCase(t *testing.T) {
 		}
 	})
 
+	t.Run("empty professional_id returns invalid input", func(t *testing.T) {
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+
+		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
+			Caller:         adminCaller(),
+			ClientID:       "c1",
+			ServiceID:      "s1",
+			ProfessionalID: "",
+			StartTime:      futureStart,
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sem *domain.SemanticError
+		if !errors.As(err, &sem) {
+			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
+		}
+		if sem.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeInvalidInput)
+		}
+		if !strings.Contains(sem.Message, "Profesional") {
+			t.Errorf("expected message to mention professional; got %q", sem.Message)
+		}
+	})
+
 	t.Run("zero start_time returns invalid input", func(t *testing.T) {
 		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
 

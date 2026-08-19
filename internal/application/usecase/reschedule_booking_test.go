@@ -109,6 +109,28 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 		}
 	})
 
+	t.Run("empty booking id rejected before repo dispatch", func(t *testing.T) {
+		uc := NewRescheduleBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+
+		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
+			Caller:       adminCaller(),
+			NewStartTime: futureStart,
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		var sem *domain.SemanticError
+		if !errors.As(err, &sem) {
+			t.Fatalf("expected *domain.SemanticError; got %T: %v", err, err)
+		}
+		if sem.Code != domain.ErrCodeInvalidInput {
+			t.Errorf("code = %q; want %q", sem.Code, domain.ErrCodeInvalidInput)
+		}
+		if !strings.Contains(sem.Message, "Identificador de reserva requerido") {
+			t.Errorf("expected Spanish message; got %q", sem.Message)
+		}
+	})
+
 	t.Run("client accessing another clients booking", func(t *testing.T) {
 		booking := pendingBooking()
 		booking.ClientID = "c2"

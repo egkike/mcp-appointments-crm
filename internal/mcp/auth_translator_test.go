@@ -12,7 +12,9 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"time"
 )
 
 // recordingHandler captures what the authenticated chain saw and answers a
@@ -314,7 +316,17 @@ func TestAuthHandlerComposition(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv := NewServer(Config{Version: "test", Logger: logger})
+	executed := false
+	srv := NewServer(Config{
+		Version: "test",
+		Logger:  logger,
+		CreateBooking: &mockCreateBookingPort{
+			executeFn: func(ctx context.Context, in dto.CreateBookingInput) (*dto.CreateBookingResult, error) {
+				executed = true
+				return &dto.CreateBookingResult{BookingID: "b9", StartDatetime: fixedTime(), EndDatetime: fixedTime().Add(30 * time.Minute)}, nil
+			},
+		},
+	})
 	rbac := auth.ToolRBAC{"create_booking": {auth.RoleOwner}}
 	mw := auth.NewAuthMiddleware(auth.NewCallerResolver(db), rbac, logger)
 	chain := srv.AuthHandler(mw)
@@ -333,7 +345,7 @@ func TestAuthHandlerComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("authorized call reaches the SDK and returns its error", func(t *testing.T) {
+	t.Run("authorized call reaches the SDK tool behind translator and auth", func(t *testing.T) {
 		mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = \\?").
 			WithArgs("owner-1").
 			WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
@@ -342,7 +354,37 @@ func TestAuthHandlerComposition(t *testing.T) {
 			WithArgs("owner-1").
 			WillReturnRows(sqlmock.NewRows([]string{"id"}))
 
-		req := postJSON(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"create_booking","arguments":{}}}`)
+		req := postJSON(`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"create_booking","arguments":{"client_id":"c1","service_id":"s1","professional_id":"p1","start_datetime":"2026-08-03T10:00:00Z"}}}`)
+		req.Header.Set("X-Caller-Id", "owner-1")
+		rec := doChain(t, chain, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; want 200", rec.Code)
+		}
+		var resp struct {
+			Result json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
+		}
+		if len(resp.Result) == 0 {
+			t.Fatalf("expected a result envelope; got %s", rec.Body.String())
+		}
+		if !executed {
+			t.Error("the create_booking port was not executed; the call did not reach the SDK tool")
+		}
+	})
+
+	t.Run("authorized call for an unregistered tool answers -32601 from the transport guard", func(t *testing.T) {
+		mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = \\?").
+			WithArgs("owner-1").
+			WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}).
+				AddRow("owner", nil, 1))
+		mock.ExpectQuery("SELECT id FROM clients WHERE id = \\?").
+			WithArgs("owner-1").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+		req := postJSON(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"no_such_tool","arguments":{}}}`)
 		req.Header.Set("X-Caller-Id", "owner-1")
 		rec := doChain(t, chain, req)
 
@@ -350,10 +392,11 @@ func TestAuthHandlerComposition(t *testing.T) {
 			t.Fatalf("status = %d; want 200", rec.Code)
 		}
 		code, _, _ := decodeEnvelope(t, rec)
-		// PR 1 ships zero tools, so the SDK answers "unknown tool" with
-		// -32602; proving the SDK handler runs behind translator + auth.
-		if code != -32602 {
-			t.Errorf("error.code = %d; want -32602 (SDK unknown tool passthrough)", code)
+		// The transport guard answers -32601 for unregistered tools before
+		// the SDK sees them (REQ-MT-006); the SDK itself would answer
+		// -32602 "unknown tool".
+		if code != -32601 {
+			t.Errorf("error.code = %d; want -32601 (REQ-MT-006 transport guard)", code)
 		}
 	})
 }

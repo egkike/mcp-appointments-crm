@@ -110,3 +110,69 @@ func writeParseError(w http.ResponseWriter) {
 		ID: json.RawMessage("null"),
 	})
 }
+
+// Transport error contract (GGA W-7, REQ-MT-003 vs REQ-AM-WIRED-002): the
+// JSON-RPC transport answers two kinds of failures with two different HTTP
+// statuses, deliberately:
+//
+//   - Protocol violations (malformed JSON, oversized body) → native HTTP
+//     400/413 plus a best-effort JSON-RPC envelope. This is the MCP-spec
+//     behavior for malformed requests; the envelope is a debugging aid for
+//     non-SDK clients, and SDK clients report the native status correctly.
+//   - Authorization failures (401/403/500) → HTTP 200 with a JSON-RPC error
+//     envelope. The go-sdk client treats any non-200 response as a transport
+//     failure and never parses the body; without the 200 envelope the LLM
+//     would receive a bare transport error instead of the actionable
+//     -32000/-32001 code. This is the REQ-AM-WIRED-002 contract.
+//
+// jsonParseGuard implements the first category; jsonrpcAuthTranslator
+// implements the second.
+
+// unknownToolGuard answers tools/call requests for unregistered tools with a
+// JSON-RPC -32601 "Method not found" envelope BEFORE the SDK sees them
+// (REQ-MT-006). Verified against go-sdk v1.4.1: the SDK answers an unknown
+// tool with -32602 "unknown tool %q", but the MCP spec requires -32601 for a
+// method that does not exist. Argument validation of KNOWN tools stays with
+// the SDK (-32602 for missing/invalid arguments, untouched by this guard).
+//
+// The guard reads the body bounded and restores it, so it composes safely
+// inside jsonParseGuard. When the body cannot be decoded (no method, no
+// params), the request falls through to the SDK handler.
+func unknownToolGuard(names map[string]struct{}, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes+1))
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if len(body) > maxRequestBodyBytes || !json.Valid(body) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var call struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params struct {
+				Name string `json:"name"`
+			} `json:"params"`
+		}
+		if json.Unmarshal(body, &call) != nil || call.Method != "tools/call" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, ok := names[call.Params.Name]; ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		id := json.RawMessage("null")
+		if validJSONRPCID(call.ID) {
+			id = call.ID
+		}
+		writeJSONRPCError(w, int(jsonrpc.CodeMethodNotFound), "Method not found", id)
+	})
+}

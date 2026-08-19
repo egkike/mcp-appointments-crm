@@ -10,10 +10,12 @@ import (
 
 // Server owns the MCP SDK server and its Streamable HTTP handler
 // (REQ-ARCH-INTMCP-001). Tool handlers are registered on the SDK server in
-// PR 2; the skeleton answers initialize and tools/list (0 tools).
+// PR 2 (T-09); toolNames is the registry the transport guard consults to
+// answer tools/call for unknown tools with -32601 (REQ-MT-006).
 type Server struct {
-	impl *mcp.Server
-	cfg  Config
+	impl      *mcp.Server
+	cfg       Config
+	toolNames map[string]struct{}
 }
 
 // NewServer builds the MCP server for the given configuration. Version feeds
@@ -32,14 +34,30 @@ func NewServer(cfg Config) *Server {
 			Tools: &mcp.ToolCapabilities{ListChanged: false},
 		},
 	})
-	return &Server{impl: impl, cfg: cfg}
+	srv := &Server{
+		impl:      impl,
+		cfg:       cfg,
+		toolNames: make(map[string]struct{}),
+	}
+	srv.registerTools()
+	return srv
+}
+
+// registerTools wires the six MCP tools onto the SDK server (T-09). Tools
+// whose port is nil are skipped, keeping the skeleton behavior (zero tools)
+// for transport-level tests. Each registered tool also enters toolNames, the
+// registry consulted by unknownToolGuard (REQ-MT-006).
+func (s *Server) registerTools() {
+	s.registerBookingTools()
+	s.registerProfileTool()
 }
 
 // Handler returns the /mcp HTTP handler: the SDK Streamable HTTP handler
-// (stateless, JSON responses) wrapped by the JSON-RPC parse guard. This is the
-// unauthenticated path used by transport-level tests.
+// (stateless, JSON responses) wrapped by the JSON-RPC parse guard and the
+// unknown-tool guard (REQ-MT-006). This is the unauthenticated path used by
+// transport-level tests.
 func (s *Server) Handler() http.Handler {
-	return jsonParseGuard(streamableHandler(s.impl, s.cfg.Logger))
+	return jsonParseGuard(unknownToolGuard(s.toolNames, streamableHandler(s.impl, s.cfg.Logger)))
 }
 
 // AuthHandler returns the production /mcp HTTP handler: the unauthenticated

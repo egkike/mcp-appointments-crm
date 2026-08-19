@@ -138,10 +138,10 @@ func toolCallName(body []byte) string {
 // validToolName reports whether the tool name is a plain identifier suitable
 // for use as the RBAC path key. Only [A-Za-z0-9_] is accepted so a hostile
 // name can never smuggle path separators, query characters or fragments into
-// the route (GGA S-1). A well-formed but unregistered name currently falls
-// through to the SDK's unknown-tool rejection (-32602); the registered-tool
-// allowlist that answers -32601 is enforced by unknownToolGuard once tool
-// registration lands (REQ-MT-006, tool-wiring commit of this PR).
+// the route (GGA S-1). A well-formed but unregistered name falls through to
+// unknownToolGuard, which answers -32601 "Method not found" (REQ-MT-006); the
+// registered-tool allowlist lives in Server.toolNames, populated by tool
+// registration (T-09).
 func validToolName(name string) bool {
 	if name == "" {
 		return false
