@@ -28,6 +28,11 @@ func (uc *CancelBookingUseCase) Execute(ctx context.Context, input dto.CancelBoo
 	if err := auth.RequireAuthenticated(input.Caller); err != nil {
 		return nil, err
 	}
+	// Empty BookingID fails fast with a semantic error instead of a lookup
+	// that would misreport the cause as "reserva no encontrada" (GGA S-4).
+	if input.BookingID == "" {
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "Identificador de reserva requerido"}
+	}
 	booking, err := uc.bookings.FindByID(ctx, input.BookingID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {

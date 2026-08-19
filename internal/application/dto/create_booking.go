@@ -34,4 +34,9 @@ type CreateBookingInput struct {
 type CreateBookingResult struct {
 	// BookingID is the unique identifier of the newly created booking.
 	BookingID string `json:"booking_id"`
+	// StartDatetime and EndDatetime are the computed booking window
+	// (REQ-MT-015 output contract). Populated by the use case — the MCP
+	// transport has no repository access and cannot recompute the end time.
+	StartDatetime time.Time `json:"start_datetime"`
+	EndDatetime   time.Time `json:"end_datetime"`
 }

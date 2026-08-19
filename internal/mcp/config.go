@@ -18,12 +18,23 @@ const (
 
 // Config holds the MCP server configuration. Bind and Port are resolved by
 // LoadConfig (env > .env > default); Version and Logger are injected by the
-// composition root.
+// composition root. The six port fields carry the application use cases that
+// back the MCP tools (T-09): a nil port keeps the skeleton behavior (the
+// corresponding tool is not registered), which keeps transport-level tests
+// green. internal/mcp only consumes the ports through the interfaces declared
+// in ports.go; the composition root injects concrete *usecase values.
 type Config struct {
 	Bind    string
 	Port    string
 	Version string
 	Logger  *slog.Logger
+
+	CheckAvailability  CheckAvailabilityPort
+	CreateBooking      CreateBookingPort
+	GetBooking         GetBookingPort
+	CancelBooking      CancelBookingPort
+	RescheduleBooking  RescheduleBookingPort
+	GetBusinessProfile BusinessProfilePort
 }
 
 // LoadConfig resolves MCP_BIND and MCP_PORT with ADR-0007 precedence:
@@ -49,7 +60,7 @@ func LoadConfig() (Config, error) {
 func loadConfigFrom(envPath string) (Config, error) {
 	vars, err := config.LoadDotEnv(envPath)
 	if err != nil {
-		return Config{}, fmt.Errorf("load dotenv %s: %w", envPath, err)
+		return Config{}, fmt.Errorf("load dotenv: %w", err)
 	}
 	return Config{
 		Bind:    firstNonEmpty(os.Getenv("MCP_BIND"), vars["MCP_BIND"], defaultBind),

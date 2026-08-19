@@ -44,7 +44,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 | Métrica | Baseline | Target | Plazo |
 |---------|----------|--------|-------|
 | Tools MCP expuestas | 0 | 12+ | 2026-Q4 |
-| Latencia SSE p95 en `check_availability` | TBD | < 100 ms | 2026-Q4 |
+| Latencia p95 en `check_availability` | TBD | < 100 ms | 2026-Q4 |
 | Tiempo de instalación en VPS limpia | TBD | < 5 min | 2026-Q4 |
 | Cobertura de tests del repository layer | 0% | > 80% | 2026-Q4 |
 | Tamaño del binario compilado (linux/amd64) | TBD | < 25 MB | 2026-Q4 |
@@ -56,13 +56,13 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 
 ### 3.1 In Scope
 
-- Binario `mcp-server` en Go que expone tools MCP vía SSE en `127.0.0.1:3000`.
+- Binario `mcp-server` en Go que expone tools MCP vía Streamable HTTP en `127.0.0.1:3000`.
 - Persistencia en SQLite (archivo local) con WAL, `busy_timeout=5000`, `foreign_keys=ON`, `synchronous=NORMAL`.
 - Soporte FTS5 con triggers `AFTER INSERT/UPDATE/DELETE` para sincronización automática.
 - Script `install.sh` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
 - Script `scripts/backup.sh` portable (bash, sin scheduler automático) que produce un backup consistente del `.db` con `sqlite3 .backup` + gzip.
 - Templates de service unit para Linux (`mcp-appointments-crm.service`), macOS (`com.mcp.appointments.server.plist`) y Windows (`mcp-appointments-crm.xml` para Task Scheduler).
-- Endpoint SSE expuesto **únicamente** en loopback. Bind default `127.0.0.1` (IPv4); `MCP_BIND` may also be set to `::1` (IPv6) u otra dirección loopback (127.0.0.0/8). Validación acepta loopback (127.0.0.0/8 o ::1). Ver [ADR-0007](../architecture/0007-server-config.md). Puerto default `3000`. Configurable vía env vars `MCP_BIND` y `MCP_PORT`. Precedencia (mayor a menor): env vars del sistema > `~/.config/mcp-appointments-crm/.env` (o equivalente platform-native) > defaults. El binario **no hace fallback automático** de puerto. Si `MCP_BIND` no es loopback (127.0.0.0/8 o ::1), falla con error de seguridad antes de bindear. Ver [ADR-0007](../architecture/0007-server-config.md).
+- Endpoint MCP (Streamable HTTP) expuesto **únicamente** en loopback. Bind default `127.0.0.1` (IPv4); `MCP_BIND` may also be set to `::1` (IPv6) u otra dirección loopback (127.0.0.0/8). Validación acepta loopback (127.0.0.0/8 o ::1). Ver [ADR-0007](../architecture/0007-server-config.md). Puerto default `3000`. Configurable vía env vars `MCP_BIND` y `MCP_PORT`. Precedencia (mayor a menor): env vars del sistema > `~/.config/mcp-appointments-crm/.env` (o equivalente platform-native) > defaults. El binario **no hace fallback automático** de puerto. Si `MCP_BIND` no es loopback (127.0.0.0/8 o ::1), falla con error de seguridad antes de bindear. Ver [ADR-0007](../architecture/0007-server-config.md).
 - Manejo de errores con mensajes semánticos en español, sin stack traces al LLM.
 - Tests unitarios sobre el repository layer con `go-sqlmock`.
 - Linter `golangci-lint` con defaults (errcheck, govet, ineffassign, staticcheck, unused).
@@ -72,7 +72,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 
 - UI web o aplicación móvil (la interfaz es Hermes).
 - Autenticación de usuarios (el sistema corre en loopback y confía en el cliente conectado).
-- HTTPS, TLS, certificados (el transporte es SSE plano en loopback).
+- HTTPS, TLS, certificados (el transporte es HTTP plano — Streamable HTTP — en loopback).
 - Rate limiting HTTP (la contención de concurrencia se maneja a nivel de SQLite).
 - Panel de administración web (el dueño opera vía Hermes).
 - Integración directa con WhatsApp/Telegram (esos canales son responsabilidad de Hermes).
@@ -84,7 +84,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 
 - El cliente final del producto (no del sistema, sino del dueño del negocio) tiene una VPS Linux propia o está dispuesto a contratar una (Hetzner, DigitalOcean, etc. desde $3.50/mes).
 - El cliente instala y configura Hermes de forma autónoma en la misma máquina.
-- Hermes soporta MCP sobre SSE y puede configurarse para apuntar a `http://127.0.0.1:3000/mcp`.
+- Hermes soporta MCP sobre Streamable HTTP y puede configurarse para apuntar a `http://127.0.0.1:3000/mcp`.
 - La base de datos SQLite cabe en una sola VPS; no se anticipa necesidad de sharding ni replicación.
 - El upstream LLM que mueve Hermes es capaz de traducir los mensajes semánticos en español al lenguaje del usuario final.
 - El stack Go + SQLite (vía `modernc.org/sqlite`) sigue siendo soportado por las herramientas estándar del ecosistema.
@@ -1092,7 +1092,7 @@ Override con otro caller_id (debug):
 | Categoría | Requerimiento | Métrica / Target |
 |-----------|---------------|------------------|
 | Concurrencia SQLite | Múltiples readers + 1 writer concurrentes desde tools MCP | WAL + `busy_timeout=5000`; 0 colisiones en pruebas de carga con 50 goroutines |
-| Latencia SSE | Latencia del endpoint `check_availability` | p95 < 100 ms en VPS con 2 vCPU / 2 GB RAM |
+| Latencia | Latencia del endpoint `check_availability` | p95 < 100 ms en VPS con 2 vCPU / 2 GB RAM |
 | Tamaño binario | Tamaño del binario compilado (linux/amd64) | < 25 MB con `modernc.org/sqlite` |
 | Portabilidad | Debe correr en Linux/amd64, Linux/arm64 y macOS/amd64, macOS/arm64 | Compilación cross-platform verificada en CI |
 | Disponibilidad | El servicio debe reiniciarse automáticamente ante crash | Unit de systemd con `Restart=always` (equivalente launchd `KeepAlive=true`) |
@@ -1113,7 +1113,7 @@ Override con otro caller_id (debug):
 
 - **Backend**: Go 1.26.4 (binario `mcp-server`)
 - **Base de Datos**: SQLite vía `modernc.org/sqlite` v1.53+ (pure Go, sin CGo) con FTS5 nativo
-- **MCP**: Protocolo MCP sobre SSE en `http://127.0.0.1:3000/mcp` (loopback por default; bind y puerto configurables vía `MCP_BIND` + `MCP_PORT` — ver ADR-0007)
+- **MCP**: Protocolo MCP (Streamable HTTP, spec 2025-11-25) en `http://127.0.0.1:3000/mcp` (loopback por default; bind y puerto configurables vía `MCP_BIND` + `MCP_PORT` — ver ADR-0007)
 - **Infraestructura**: binarios nativos en la VPS/PC del cliente, gestionados por el service manager del SO
 - **Build**: `go build -o /dev/null ./...`, `go test -v -race ./...`, `golangci-lint run ./...`
 - **Distribución**: Script `install.sh` descargable vía `curl | bash` desde GitHub
@@ -1122,7 +1122,7 @@ Override con otro caller_id (debug):
 
 | Sistema | Tipo | Propósito | Criticidad |
 |---------|------|-----------|------------|
-| Hermes (agente IA) | MCP over SSE | Interfaz conversacional con clientes y admin | Bloqueante |
+| Hermes (agente IA) | MCP over Streamable HTTP | Interfaz conversacional con clientes y admin | Bloqueante |
 | LLM (OpenAI, Anthropic, local, etc.) | API HTTP (vía Hermes) | Cerebro del agente; lo configura el cliente | Bloqueante (depende de Hermes) |
 | WhatsApp / Telegram | API HTTP (vía Hermes) | Canal de mensajería con clientes finales | Importante |
 | GitHub Releases | HTTPS | Descarga del binario y del `install.sh` | Bloqueante |
@@ -1198,7 +1198,7 @@ Override con otro caller_id (debug):
 
 ### Fase 2: mcp-server-core (Estimación: L)
 
-**Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía SSE en `127.0.0.1:3000`. **Además, integrar la capa de `auth` (incluye el middleware HTTP con el header `X-Caller-Id`)** y el **TUI menú operacional** (sub-comando `mcp-appointments-crm admin tui` para gestión de cuentas admin/staff/owner — ver §3.8.8). Los use cases de `internal/application/` se inyectan directamente en los handlers MCP.
+**Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía Streamable HTTP en `127.0.0.1:3000`. **Además, integrar la capa de `auth` (incluye el middleware HTTP con el header `X-Caller-Id`)** y el **TUI menú operacional** (sub-comando `mcp-appointments-crm admin tui` para gestión de cuentas admin/staff/owner — ver §3.8.8). Los use cases de `internal/application/` se inyectan directamente en los handlers MCP.
 
 **Entregables**:
 - `cmd/mcp-server/main.go` con DI: construye repos concretos, los inyecta en use cases, los use cases se inyectan en handlers MCP
@@ -1211,7 +1211,7 @@ Override con otro caller_id (debug):
 
 **Definition of Done**:
 - [ ] 6+ tools MCP registrados y funcionales
-- [ ] Endpoint SSE responde en `http://127.0.0.1:3000/mcp` (o en el bind/puerto configurado vía `MCP_BIND`/`MCP_PORT`/`.env`)
+- [ ] Endpoint Streamable HTTP responde en `http://127.0.0.1:3000/mcp` (o en el bind/puerto configurado vía `MCP_BIND`/`MCP_PORT`/`.env`)
 - [ ] El servicio corre bajo el usuario que invoca `install.sh` (verificable con `systemctl --user show mcp-appointments-crm -p User` o `ps -o user= -p $(pgrep mcp-server)`)
 - [ ] El puerto 3000 NO es accesible desde la red del host (`curl 192.168.x.x:3000` falla)
 - [ ] Todos los errores lógicos retornan mensajes en español, sin stack traces
@@ -1298,7 +1298,7 @@ Override con otro caller_id (debug):
 
 | # | Riesgo | Probabilidad | Impacto | Mitigación |
 |---|--------|--------------|---------|------------|
-| R1 | El ecosistema MCP para Go no tiene una librería estable al momento de iniciar Fase 2 | Media | Alto | Plan B: implementar el protocolo MCP a mano sobre el stdlib (es JSON-RPC sobre SSE, no es complejo). Empezar a evaluar a partir de Fase 1. |
+| R1 | El ecosistema MCP para Go no tiene una librería estable al momento de iniciar Fase 2 | Media | Alto | Plan B: implementar el protocolo MCP a mano sobre el stdlib (es JSON-RPC sobre HTTP, no es complejo). Empezar a evaluar a partir de Fase 1. |
 | R2 | `modernc.org/sqlite` introduce un overhead de performance vs. `mattn/go-sqlite3` (CGo) | Media | Bajo | Benchmark en Fase 1. Si el overhead es > 30%, reevaluar y considerar migrar a CGo con `CGO_ENABLED=1`. |
 | R3 | El script `curl | bash` es vector de ataque si alguien compromete el repo o el dominio | Baja | Alto | Servir el script siempre por HTTPS desde GitHub. Documentar la verificación de integridad (checksum) en el manual de instalación. |
 | R4 | Concurrencia real (50+ requests simultáneos) genera locks visibles al LLM | Media | Alto | WAL + `busy_timeout=5000` configurado desde Fase 1. Pruebas de carga antes de Fase 2. Mensajes semánticos claros cuando busy_timeout expira. |
@@ -1310,7 +1310,7 @@ Override con otro caller_id (debug):
 
 | # | Dependencia | Tipo | Estado | Owner |
 |---|-------------|------|--------|-------|
-| D1 | Hermes agent con soporte MCP sobre SSE | Bloqueante | Externa, se asume disponible | Cliente |
+| D1 | Hermes agent con soporte MCP sobre Streamable HTTP | Bloqueante | Externa, se asume disponible | Cliente |
 | D2 | VPS o PC del cliente con SO soportado (Linux, macOS 13+, Windows 10+) | Bloqueante | Aprovisionar por el cliente | Cliente |
 | D3 | Suscripción a un LLM (OpenAI, Anthropic, etc.) | Bloqueante | Aprovisionar por el cliente | Cliente |
 | D4 | Cuenta de WhatsApp Business / Telegram Bot | Paralela | Configurar por el cliente vía Hermes | Cliente |
@@ -1323,7 +1323,7 @@ Override con otro caller_id (debug):
 ### 9.1 Glosario
 
 - **MCP (Model Context Protocol)**: protocolo abierto que permite a un agente de IA invocar herramientas (tools) de un servidor externo de forma estandarizada. Spec: <https://modelcontextprotocol.io>.
-- **SSE (Server-Sent Events)**: estándar HTTP que permite al servidor enviar mensajes push al cliente sobre una conexión persistente. Usado en este proyecto para que Hermes consuma los tools MCP.
+- **Streamable HTTP**: variante de transporte de MCP (spec 2025-11-25) sobre HTTP/JSON-RPC en una sola conexión, sin Server-Sent Events. Usado en este proyecto para que Hermes consuma los tools MCP.
 - **Hermes**: agente de IA conversacional open source que actúa como interfaz de usuario natural para el cliente final. No es parte de este proyecto; el cliente lo instala por separado.
 - **Loopback / `127.0.0.1`**: dirección IP que apunta a la propia máquina. El puerto 3000 está expuesto solo en loopback para que solo procesos locales (como Hermes en la misma VPS) puedan acceder.
 - **WAL (Write-Ahead Logging)**: modo de SQLite donde las escrituras se appendean a un log antes de aplicarse al archivo principal. Mejora la concurrencia entre readers y writers.

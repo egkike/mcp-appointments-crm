@@ -539,6 +539,11 @@ func TestMiddleware_AuditLog_Admin(t *testing.T) {
 	if attrs["caller_hash"] != hashCallerID(id) {
 		t.Errorf("audit caller_hash = %v; want %q", attrs["caller_hash"], hashCallerID(id))
 	}
+	// The audit hash is the FULL 256-bit digest (64 hex chars), never a
+	// truncated prefix (GGA WARNING-1).
+	if got := attrs["caller_hash"].(string); len(got) != 64 {
+		t.Errorf("audit caller_hash length = %d; want 64 (full SHA-256 digest)", len(got))
+	}
 	if attrs["tool"] != "/tools/admin-tool" {
 		t.Errorf("audit tool = %v; want %q", attrs["tool"], "/tools/admin-tool")
 	}
@@ -635,4 +640,15 @@ func TestMiddleware_NoAuditLog_Staff(t *testing.T) {
 	if len(recs) != 0 {
 		t.Errorf("staff should not trigger audit log; got %d records", len(recs))
 	}
+}
+
+// ── fail-fast wiring guards (GGA WARNING-2) ──
+
+func TestNewAuthMiddlewarePanicsOnNilResolver(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewAuthMiddleware(nil, ...) did not panic; must fail fast at wiring time, not per-request")
+		}
+	}()
+	NewAuthMiddleware(nil, ToolRBAC{}, slog.Default())
 }

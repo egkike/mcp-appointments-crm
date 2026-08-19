@@ -251,3 +251,70 @@ func TestRunReturnsServeError(t *testing.T) {
 		t.Error("run returned nil error on serve failure, want non-nil")
 	}
 }
+
+// TestRunSecondSignalForcesImmediateClose verifies the second-signal path
+// (REQ-MT-010): a request is stuck in the handler when the first signal
+// starts the drain; a SECOND signal during the drain must force-close the
+// connection immediately instead of waiting out the (10s) grace deadline.
+func TestRunSecondSignalForcesImmediateClose(t *testing.T) {
+	started := make(chan struct{})
+	handlerDone := make(chan struct{})
+	block := make(chan struct{})
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(started)
+		defer close(handlerDone)
+		<-block
+		w.WriteHeader(http.StatusOK)
+	})
+	srv, ln, addr := newTestHTTPServer(t, handler)
+
+	sigCh := make(chan os.Signal, 2)
+	resultCh := make(chan ShutdownResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		res, err := run(context.Background(), srv, ln, discardLogger(), 10*time.Second, sigCh)
+		resultCh <- res
+		errCh <- err
+	}()
+
+	go func() {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+addr, nil)
+		if err != nil {
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
+	// Deterministic ordering: the handler is inside user code when the first
+	// signal arrives; the second signal lands during the drain, long before
+	// the 10s deadline.
+	<-started
+	sigCh <- syscall.SIGINT
+	sigCh <- syscall.SIGTERM
+
+	select {
+	case result := <-resultCh:
+		if result.ForceClosed != 1 {
+			t.Errorf("ForceClosed = %d; want 1 (second signal killed the stuck connection)", result.ForceClosed)
+		}
+		if result.Drained != 0 {
+			t.Errorf("Drained = %d; want 0 (no request completed during drain)", result.Drained)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("run did not return after the second signal (force close)")
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	// Unblock the handler so no goroutine leaks past the test.
+	close(block)
+	select {
+	case <-handlerDone:
+	case <-time.After(2 * time.Second):
+		t.Error("handler did not return after being unblocked")
+	}
+}
