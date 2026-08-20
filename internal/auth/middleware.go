@@ -58,9 +58,11 @@ func NewAuthMiddleware(resolver *CallerResolver, rbac ToolRBAC, logger *slog.Log
 //  1. Read X-Caller-Id (case-insensitive per RFC 7230).
 //  2. If missing/empty → 401.
 //  3. Resolve caller via CallerResolver; if ErrUnauthenticated → 401.
-//  4. RBAC check (BEFORE next.ServeHTTP): if tool requires roles and caller lacks them → 403.
-//  5. If caller.Role is admin or owner → emit audit log.
-//  6. Inject caller into context and call next.ServeHTTP.
+//  4. Annotate the resolved role on the recorder (REQ-MT-011), BEFORE the
+//     RBAC gate: a 403 denial must log the caller's REAL role, not "none".
+//  5. RBAC check (BEFORE next.ServeHTTP): if tool requires roles and caller lacks them → 403.
+//  6. If caller.Role is admin or owner → emit audit log.
+//  7. Inject caller into context and call next.ServeHTTP.
 //
 // RBAC precondition: authorization keys on r.URL.Path, which MUST already
 // carry the tool name when this middleware guards the /mcp route — the outer
@@ -84,12 +86,29 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 				http.Error(w, err.Error(), http.StatusUnauthorized)
 				return
 			}
-			// Unexpected error (DB failure, etc.) — 500
+			// Unexpected error (DB failure, etc.) — 500. Log the cause
+			// server-side with a hashed caller reference: the raw ID is PII
+			// and the resolver error text no longer embeds it.
+			m.logger.Error("auth: caller resolution failed",
+				"caller_hash", hashCallerID(id),
+				"error", err,
+			)
 			http.Error(w, "error interno", http.StatusInternalServerError)
 			return
 		}
 
-		// Step 3: RBAC check BEFORE calling next
+		// Step 3: annotate the caller's role on the recorder for the request
+		// log (REQ-MT-011), BEFORE the RBAC gate: the caller is injected on a
+		// request COPY that never propagates back to the outer logging
+		// middleware, so the role travels through the recorder chain instead.
+		// Annotating right after resolve means BOTH allowed and denied (403)
+		// requests carry the real role; 401 paths never reach this point
+		// (unknown caller) and log "none".
+		if rr, ok := w.(CallerRoleRecorder); ok {
+			rr.RecordCallerRole(caller.Role)
+		}
+
+		// Step 4: RBAC check BEFORE calling next
 		tool := r.URL.Path
 		if roles, ok := m.rbac[tool]; ok && len(roles) > 0 {
 			if !roleAllowed(caller.Role, roles) {
@@ -98,7 +117,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			}
 		}
 
-		// Step 4: audit log for privileged callers (hashed ID — no PII in logs)
+		// Step 5: audit log for privileged callers (hashed ID — no PII in logs)
 		if caller.Role == RoleAdmin || caller.Role == RoleOwner {
 			m.logger.Info("privileged access",
 				"caller_hash", hashCallerID(caller.ID),
@@ -106,15 +125,8 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			)
 		}
 
-		// Step 5: inject caller into context and call next
+		// Step 6: inject caller into context and call next
 		ctx := WithCaller(r.Context(), caller)
-		// Annotate the caller role on the recorder for the request log
-		// (REQ-MT-011): the injected context lives on a request COPY that
-		// never propagates back to the outer logging middleware, so the role
-		// travels through the recorder chain instead (JD fix B-2 regression).
-		if rr, ok := w.(CallerRoleRecorder); ok {
-			rr.RecordCallerRole(caller.Role)
-		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -129,14 +141,16 @@ func roleAllowed(role string, allowed []string) bool {
 	return false
 }
 
-// hashCallerID returns the SHA-256 digest of the caller ID for audit logging:
-// a stable correlation key that keeps raw PII (phone numbers, emails) out of
-// log output. The digest is one-way but NOT non-reversible: caller IDs are
-// low-entropy (phone numbers, emails — a ~10^10–10^11 value space), so an
-// offline enumeration over the ID space can recover them from any unkeyed
-// digest. Acceptable for this loopback, single-tenant deployment whose logs
-// never leave the host; a keyed HMAC is required before logs are shipped
-// off-host (documented deviation, defense-in-depth tradeoff).
+// hashCallerID returns the SHA-256 digest of the caller ID for audit and
+// error logs: a stable correlation key that keeps raw PII (phone numbers,
+// emails) out of log output. The digest is one-way but NOT non-reversible:
+// caller IDs are low-entropy (phone numbers, emails — a ~10^10–10^11 value
+// space), so an offline enumeration over the ID space can recover them from
+// any unkeyed digest. Accepted deviation, signed off by the project owner on
+// 2026-08-20: this server is loopback-only (127.0.0.1), single-tenant, and its
+// logs never leave the host. A keyed HMAC is required BEFORE logs are shipped
+// off-host (defense-in-depth tradeoff, per GGA WARNING-1 on commit
+// followups-mcp-suggestions).
 func hashCallerID(id string) string {
 	h := sha256.Sum256([]byte(id))
 	return fmt.Sprintf("%x", h[:]) // full 256-bit digest (64 hex chars)

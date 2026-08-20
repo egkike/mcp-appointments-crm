@@ -284,3 +284,12 @@ func TestResolve_ClientsDBError(t *testing.T) {
 		t.Errorf("unmet expectations: %v", err)
 	}
 }
+
+func TestNewCallerResolverPanicsOnNilDB(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewCallerResolver(nil) did not panic; must fail fast at wiring time, not per-request")
+		}
+	}()
+	NewCallerResolver(nil)
+}

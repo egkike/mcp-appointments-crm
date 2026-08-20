@@ -245,4 +245,41 @@ func TestAuthHandlerLogsCallerRole(t *testing.T) {
 			t.Errorf("status = %v; want 401 (REAL auth status)", attrs["status"])
 		}
 	})
+
+	t.Run("denied request logs the real caller role and the real status", func(t *testing.T) {
+		// S-1 follow-up: a 403 RBAC denial resolves a REAL caller (client-1)
+		// and must log that resolved role — the annotation now happens right
+		// after resolve, BEFORE the RBAC gate — plus the REAL status (403),
+		// not the envelope's 200 and not "none".
+		rbac := auth.ToolRBAC{"create_booking": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff}}
+		deniedMW := auth.NewAuthMiddleware(auth.NewCallerResolver(db), rbac, logger)
+		deniedChain := srv.AuthHandler(deniedMW)
+
+		mock.ExpectQuery("SELECT role, professional_id, is_active FROM accounts WHERE id = \\?").
+			WithArgs("client-1").
+			WillReturnRows(sqlmock.NewRows([]string{"role", "professional_id", "is_active"}))
+		mock.ExpectQuery("SELECT id FROM clients WHERE id = \\?").
+			WithArgs("client-1").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("client-1"))
+
+		req := postJSON(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"create_booking","arguments":{}}}`)
+		req.Header.Set("X-Caller-Id", "client-1")
+		rec := httptest.NewRecorder()
+		deniedChain.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; want 200 (envelope)", rec.Code)
+		}
+		lines := mcpRequestRecords(cap)
+		if len(lines) != 3 {
+			t.Fatalf("mcp request lines = %d; want 3", len(lines))
+		}
+		attrs := recordAttrs(lines[2])
+		if attrs["caller_role"] != auth.RoleClient {
+			t.Errorf("caller_role = %v; want %q (resolved role, S-1)", attrs["caller_role"], auth.RoleClient)
+		}
+		if attrs["status"] != int64(http.StatusForbidden) {
+			t.Errorf("status = %v; want 403 (REAL auth status)", attrs["status"])
+		}
+	})
 }

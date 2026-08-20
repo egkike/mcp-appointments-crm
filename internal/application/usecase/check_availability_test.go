@@ -219,8 +219,12 @@ func TestCheckAvailabilityUseCase(t *testing.T) {
 		checker := &mockAvailabilityChecker{
 			CheckAvailabilityFn: func(_ context.Context, _ *service.CheckAvailabilityParams, _ service.AvailabilityDeps) (*service.CheckAvailabilityResult, error) {
 				return nil, &domain.SemanticError{
-					Code:    domain.ErrCodeBookingOverlap,
-					Message: "el Profesional Juan ya tiene una reserva de 2026-08-03T10:00:00Z a 2026-08-03T11:00:00Z.",
+					Code: domain.ErrCodeBookingOverlap,
+					// Mirrors the real domain template (booking_time_validator.go:
+					// "Profesional %s ya tiene una reserva de %s a %s." interpolates
+					// the professional's display name) — no leading "el", RFC3339
+					// UTC slot bounds.
+					Message: "Profesional Juan ya tiene una reserva de 2026-08-03T10:00:00Z a 2026-08-03T11:00:00Z.",
 				}
 			},
 		}

@@ -539,3 +539,45 @@ func TestAuthTranslatorHostileToolNameNotRewritten(t *testing.T) {
 		t.Errorf("inner saw path %q; want /mcp (hostile name must not reach the RBAC key)", inner.path)
 	}
 }
+
+// ── statusRecorder.Flush forwarding (S-2 follow-up) ──
+
+// flushRecordingWriter wraps httptest.ResponseRecorder and records flush
+// calls, so tests can assert statusRecorder propagates Flush to an underlying
+// http.Flusher.
+type flushRecordingWriter struct {
+	*httptest.ResponseRecorder
+	flushed bool
+}
+
+func (w *flushRecordingWriter) Flush() { w.flushed = true }
+
+// nonFlushingWriter exposes only the ResponseWriter surface (Header/Write/
+// WriteHeader) WITHOUT Flush, so tests can assert statusRecorder no-ops
+// safely when the underlying writer is not an http.Flusher.
+type nonFlushingWriter struct {
+	rec *httptest.ResponseRecorder
+}
+
+func (w *nonFlushingWriter) Header() http.Header         { return w.rec.Header() }
+func (w *nonFlushingWriter) Write(p []byte) (int, error) { return w.rec.Write(p) }
+func (w *nonFlushingWriter) WriteHeader(code int)        { w.rec.WriteHeader(code) }
+
+func TestStatusRecorderFlushForwardsToFlusher(t *testing.T) {
+	inner := &flushRecordingWriter{ResponseRecorder: httptest.NewRecorder()}
+	rec := &statusRecorder{w: inner}
+
+	rec.Flush()
+
+	if !inner.flushed {
+		t.Error("Flush() did not propagate to the underlying http.Flusher")
+	}
+}
+
+func TestStatusRecorderFlushNoOpsWithoutFlusher(t *testing.T) {
+	rec := &statusRecorder{w: &nonFlushingWriter{rec: httptest.NewRecorder()}}
+
+	// Must not panic when the underlying writer does not implement
+	// http.Flusher (streaming clients keep working without a flush source).
+	rec.Flush()
+}
