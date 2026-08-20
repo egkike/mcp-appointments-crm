@@ -114,6 +114,16 @@ func okHandler() http.HandlerFunc {
 	}
 }
 
+// roleRecorder wraps httptest.ResponseRecorder and captures the annotated
+// caller role (CallerRoleRecorder), mirroring the statusRecorder chain the
+// MCP transport builds around AuthMiddleware.
+type roleRecorder struct {
+	*httptest.ResponseRecorder
+	recorded string
+}
+
+func (r *roleRecorder) RecordCallerRole(role string) { r.recorded = role }
+
 // ctxHandler captures the caller from context for verification.
 func ctxHandler(t *testing.T, wantID string) http.HandlerFunc {
 	t.Helper()
@@ -438,6 +448,41 @@ func TestMiddleware_RBAC_ClientDenied(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "no tienes permiso") {
 		t.Errorf("body = %q; want to contain 'no tienes permiso'", rec.Body.String())
+	}
+	if called {
+		t.Error("downstream handler should NOT have been called")
+	}
+}
+
+// TestMiddleware_RBAC_DeniedStillRecordsCallerRole covers the S-1 follow-up:
+// a 403 RBAC denial must STILL annotate the RESOLVED caller's role on the
+// recorder — the annotation happens right after resolve, BEFORE the RBAC gate
+// — so the request log shows the real role instead of "none".
+func TestMiddleware_RBAC_DeniedStillRecordsCallerRole(t *testing.T) {
+	t.Parallel()
+	h := &mwTestHandler{}
+	logger := slog.New(h)
+	rbac := ToolRBAC{"/tools/admin-only": {RoleAdmin}}
+	mw, mock := newMiddlewareWithMock(t, rbac, logger)
+
+	id := "+5491100003333"
+	expectClientResolved(mock, id)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/tools/admin-only", nil)
+	req.Header.Set("X-Caller-Id", id)
+	rec := &roleRecorder{ResponseRecorder: httptest.NewRecorder()}
+
+	called := false
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	})
+	mw.Wrap(handler).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d; want %d", rec.Code, http.StatusForbidden)
+	}
+	if rec.recorded != RoleClient {
+		t.Errorf("RecordCallerRole called with %q; want %q (resolved role)", rec.recorded, RoleClient)
 	}
 	if called {
 		t.Error("downstream handler should NOT have been called")

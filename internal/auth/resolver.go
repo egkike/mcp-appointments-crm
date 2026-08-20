@@ -32,7 +32,13 @@ type CallerResolver struct {
 }
 
 // NewCallerResolver creates a resolver with an already-open *sql.DB.
+// A nil *sql.DB panics at wiring time (fail fast, same as
+// NewAuthMiddleware): a per-request nil deref in the middle of the auth
+// chain would kill the connection instead of producing a controlled 500.
 func NewCallerResolver(db *sql.DB) *CallerResolver {
+	if db == nil {
+		panic("auth: NewCallerResolver requires a non-nil *sql.DB")
+	}
 	return &CallerResolver{db: db}
 }
 
@@ -80,7 +86,10 @@ func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
 		default:
 			// Real DB failure mid-resolution: do NOT mask as a successful
 			// (caller, nil) — return the error so the middleware responds 500.
-			return Caller{}, fmt.Errorf("resolve caller %q: %w", id, err)
+			// The caller ID is intentionally NOT embedded here: it is PII and
+			// would leak into server logs; the middleware logs a hashed
+			// caller reference for correlation instead.
+			return Caller{}, fmt.Errorf("resolve caller: %w", err)
 		}
 
 	case errors.Is(err, sql.ErrNoRows):
@@ -95,9 +104,11 @@ func (r *CallerResolver) Resolve(ctx context.Context, id string) (Caller, error)
 		if errors.Is(err, sql.ErrNoRows) {
 			return Caller{}, &authError{msg: msgNotRecognized, inner: domain.ErrUnauthenticated}
 		}
-		return Caller{}, fmt.Errorf("resolve caller %q: %w", id, err)
+		// DB failure — no PII in the error text (see note in step 2).
+		return Caller{}, fmt.Errorf("resolve caller: %w", err)
 
 	default:
-		return Caller{}, fmt.Errorf("resolve caller %q: %w", id, err)
+		// DB failure — no PII in the error text (see note in step 2).
+		return Caller{}, fmt.Errorf("resolve caller: %w", err)
 	}
 }
