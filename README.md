@@ -37,7 +37,7 @@ go run ./cmd/mcp-server   # exposes the MCP endpoint on http://127.0.0.1:3000/mc
 
 ## Architecture
 
-- **Language**: Go 1.26.4 with `modernc.org/sqlite` (pure Go, no CGo)
+- **Language**: Go 1.26.7 with `modernc.org/sqlite` (pure Go, no CGo)
 - **Database**: SQLite with WAL mode, FTS5 full-text search, `busy_timeout=5000`
 - **TUI**: [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea) ecosystem
 - **Transport**: MCP over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3000` (loopback only) — go-sdk v1.2.0, implemented (`feat-mcp-transport`, archived 2026-08-19)
@@ -55,7 +55,7 @@ go run ./cmd/mcp-server   # exposes the MCP endpoint on http://127.0.0.1:3000/mc
 
 ## Development
 
-Requires Go 1.26.4+.
+Requires Go 1.26.7+.
 
 ```bash
 go build -o /dev/null ./...        # compile

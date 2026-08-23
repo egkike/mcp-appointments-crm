@@ -94,7 +94,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - **Repository pattern** sobre `*sql.DB`, con una capa de repos por tabla (`clients`, `services`, `professionals`, `bookings`, etc.) que centraliza las queries con prepared statements.
 - **MCP server framework**: evaluar e integrar una librería MCP para Go (oficial de `modelcontextprotocol/go-sdk` o equivalente); si no hay una estable al momento, se implementa el protocolo a mano.
 - **FTS5 sync via triggers** SQL declarados en el schema, no en código Go. La fuente de verdad es la tabla relacional; el FTS es un índice derivado.
-- **Binario nativo en Go 1.26.4** con `modernc.org/sqlite` (pure Go, sin CGo, sin capas de contenedor). Se distribuye como binario único cross-compiled para 5 plataformas. Binario corre como **user-level service** (sin root, sin `appuser` dedicado) bajo el usuario que invoca `install.sh`.
+- **Binario nativo en Go 1.26.7** con `modernc.org/sqlite` (pure Go, sin CGo, sin capas de contenedor). Se distribuye como binario único cross-compiled para 5 plataformas. Binario corre como **user-level service** (sin root, sin `appuser` dedicado) bajo el usuario que invoca `install.sh`.
 - **Prompts interactivos en `install.sh`** (bash) con validación regex/string por campo antes de permitir avanzar. Un checkpoint (`setup.json.tmp`) cubre la cancelación del usuario.
 - **Trazabilidad de errores** con `fmt.Errorf("...: %w", err)` y mensajes semánticos en español para devolver al LLM.
 - **Tradeoff principal**: usar `modernc.org/sqlite` (pure Go) a cambio de un binario ~5 MB más grande que el driver CGo. Se acepta porque simplifica el build cross-platform (no requiere toolchain C en target ni runtime de contenedor).
@@ -1114,7 +1114,7 @@ Override con otro caller_id (debug):
 
 ### 6.1 Stack Técnico
 
-- **Backend**: Go 1.26.4 (binario `mcp-server`)
+- **Backend**: Go 1.26.7 (binario `mcp-server`)
 - **Base de Datos**: SQLite vía `modernc.org/sqlite` v1.53+ (pure Go, sin CGo) con FTS5 nativo
 - **MCP**: Protocolo MCP (Streamable HTTP, spec 2025-11-25) en `http://127.0.0.1:3000/mcp` (loopback por default; bind y puerto configurables vía `MCP_BIND` + `MCP_PORT` — ver ADR-0007)
 - **Infraestructura**: binarios nativos en la VPS/PC del cliente, gestionados por el service manager del SO
