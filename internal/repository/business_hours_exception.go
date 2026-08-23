@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
@@ -36,6 +37,10 @@ func NewBusinessHoursExceptionRepo(db *sql.DB) *BusinessHoursExceptionRepo {
 //
 // Returns domain.ErrInvalidInput for validation failures, domain.ErrConflict for duplicate dates.
 func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *entity.BusinessHoursException) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("crear excepción: %w", err)
+	}
+
 	// Validate date format and calendar validity via shared helper.
 	if err := validateExceptionDate(ex.ExceptionDate); err != nil {
 		return fmt.Errorf("crear excepción: %w", err)
@@ -87,6 +92,10 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *entity.Busi
 // no exception exists for that date. The time component of date is ignored;
 // only the calendar date matters.
 func (r *BusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*entity.BusinessHoursException, error) {
+	if _, err := auth.RequireCaller(ctx); err != nil {
+		return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date.Format("2006-01-02"), err)
+	}
+
 	dateStr := date.Format("2006-01-02")
 	ex := &entity.BusinessHoursException{}
 	err := r.db.QueryRowContext(ctx,
@@ -106,6 +115,10 @@ func (r *BusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*
 // List returns all exceptions within the [from, to] date range (inclusive),
 // ordered by exception_date ascending.
 func (r *BusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
+	if _, err := auth.RequireCaller(ctx); err != nil {
+		return nil, fmt.Errorf("listar excepciones: %w", err)
+	}
+
 	fromStr := from.Format("2006-01-02")
 	toStr := to.Format("2006-01-02")
 	rows, err := r.db.QueryContext(ctx,
@@ -137,6 +150,9 @@ func (r *BusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Tim
 
 // Delete removes an exception by ID. Returns domain.ErrNotFound if no row matches.
 func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id int) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("eliminar excepción: %w", err)
+	}
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM business_hours_exception WHERE id = ?`, id)
 	if err != nil {

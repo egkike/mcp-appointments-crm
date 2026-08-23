@@ -93,6 +93,9 @@ func NewClientsRepo(db *sql.DB) *ClientsRepo {
 
 // Save inserts or updates a client (upsert by ID).
 func (r *ClientsRepo) Save(ctx context.Context, c *entity.Client) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("guardar cliente: %w", err)
+	}
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("guardar cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
@@ -113,6 +116,9 @@ func (r *ClientsRepo) Save(ctx context.Context, c *entity.Client) error {
 // Create inserts a new client. Returns domain.ErrInvalidInput if name or phone is empty.
 // Returns domain.ErrConflict if the phone is already in use (UNIQUE violation).
 func (r *ClientsRepo) Create(ctx context.Context, c *entity.Client) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("crear cliente: %w", err)
+	}
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("crear cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
@@ -135,11 +141,21 @@ func (r *ClientsRepo) Create(ctx context.Context, c *entity.Client) error {
 
 // FindByID returns a client by ID. Returns domain.ErrNotFound if not found.
 func (r *ClientsRepo) FindByID(ctx context.Context, id string) (*entity.Client, error) {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("obtener cliente %s: %w", id, err)
+	}
+
 	c := &entity.Client{Active: true}
-	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, phone, email, preferences, created_at, updated_at
-		 FROM clients WHERE id = ?`, id,
-	).Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Preferences,
+	query := `SELECT id, name, phone, email, preferences, created_at, updated_at
+		 FROM clients WHERE id = ?`
+	args := []any{id}
+	query, args, err = applyClientsAuthFilter(caller, query, args)
+	if err != nil {
+		return nil, fmt.Errorf("obtener cliente %s: %w", id, err)
+	}
+
+	err = r.db.QueryRowContext(ctx, query, args...).Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Preferences,
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -152,6 +168,10 @@ func (r *ClientsRepo) FindByID(ctx context.Context, id string) (*entity.Client, 
 
 // FindByPhone returns a client by phone number. Returns domain.ErrNotFound if not found.
 func (r *ClientsRepo) FindByPhone(ctx context.Context, phone string) (*entity.Client, error) {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, err)
+	}
+
 	c := &entity.Client{Active: true}
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, name, phone, email, preferences, created_at, updated_at
@@ -170,13 +190,23 @@ func (r *ClientsRepo) FindByPhone(ctx context.Context, phone string) (*entity.Cl
 // GetOrCreate inserts a new client if the phone does not exist, or returns
 // the existing client. Idempotent: does not overwrite the existing name.
 func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*entity.Client, error) {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("obtener o crear cliente: %w", err)
+	}
+	if caller.Role != auth.RoleAdmin && caller.Role != auth.RoleOwner {
+		if caller.Role != auth.RoleClient || caller.ClientID == nil || phone == "" || phone != *caller.ClientID {
+			return nil, fmt.Errorf("obtener o crear cliente: %w", domain.ErrForbidden)
+		}
+	}
+
 	if strings.TrimSpace(phone) == "" {
 		return nil, fmt.Errorf("obtener o crear cliente: el teléfono no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("obtener o crear cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
-	_, err := r.db.ExecContext(ctx,
+	_, err = r.db.ExecContext(ctx,
 		`INSERT OR IGNORE INTO clients (id, name, phone) VALUES (?, ?, ?)`,
 		idgen.NewUUID(), name, phone,
 	)
@@ -200,6 +230,9 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*ent
 // is empty. Returns domain.ErrNotFound if no row matches.
 // Returns domain.ErrConflict if the new phone violates the UNIQUE constraint.
 func (r *ClientsRepo) Update(ctx context.Context, c *entity.Client) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("actualizar cliente: %w", err)
+	}
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("actualizar cliente: el nombre no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
@@ -230,6 +263,9 @@ func (r *ClientsRepo) Update(ctx context.Context, c *entity.Client) error {
 
 // Delete removes a client by ID. Returns domain.ErrNotFound if no row matches.
 func (r *ClientsRepo) Delete(ctx context.Context, id string) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
+		return fmt.Errorf("eliminar cliente: %w", err)
+	}
 	result, err := r.db.ExecContext(ctx, `DELETE FROM clients WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("eliminar cliente: %w", err)
@@ -248,19 +284,28 @@ func (r *ClientsRepo) Delete(ctx context.Context, id string) error {
 // Results are ordered by FTS5 rank (most relevant first).
 // Returns domain.ErrInvalidInput if the query contains FTS5 operator characters.
 func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*entity.Client, error) {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("buscar clientes: %w", err)
+	}
+
 	if err := validateFTSQuery(query); err != nil {
 		return nil, fmt.Errorf("buscar clientes: %w", err)
 	}
 
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT c.id, c.name, c.phone, c.email, c.preferences,
+	sqlQuery := `SELECT c.id, c.name, c.phone, c.email, c.preferences,
 			c.created_at, c.updated_at
 		 FROM clients c
 		 JOIN clients_fts f ON c.rowid = f.rowid
 		 WHERE f MATCH ?
-		 ORDER BY bm25(f)`,
-		query,
-	)
+		 ORDER BY bm25(f)`
+	args := []any{query}
+	sqlQuery, args, err = applyClientsAuthFilter(caller, sqlQuery, args)
+	if err != nil {
+		return nil, fmt.Errorf("buscar clientes: %w", err)
+	}
+
+	rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("buscar clientes: %w", err)
 	}

@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -21,7 +20,7 @@ func TestClientsRepo_Create(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: "+5491112345678"}
-		err := repo.Create(context.Background(), c)
+		err := repo.Create(adminCtx(), c)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -36,7 +35,7 @@ func TestClientsRepo_Create(t *testing.T) {
 			WillReturnError(errors.New("UNIQUE constraint failed: clients.phone"))
 
 		c := &entity.Client{ID: "cli-2", Name: "Dup", Phone: "+5491112345678"}
-		err := repo.Create(context.Background(), c)
+		err := repo.Create(adminCtx(), c)
 		if !errors.Is(err, domain.ErrConflict) {
 			t.Errorf("expected domain.ErrConflict, got %v", err)
 		}
@@ -47,7 +46,7 @@ func TestClientsRepo_Create(t *testing.T) {
 		repo := NewClientsRepo(db)
 
 		c := &entity.Client{ID: "cli-2", Name: "", Phone: "+5491112345678"}
-		err := repo.Create(context.Background(), c)
+		err := repo.Create(adminCtx(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty name, got %v", err)
 		}
@@ -58,7 +57,7 @@ func TestClientsRepo_Create(t *testing.T) {
 		repo := NewClientsRepo(db)
 
 		c := &entity.Client{ID: "cli-2", Name: "Juan", Phone: ""}
-		err := repo.Create(context.Background(), c)
+		err := repo.Create(adminCtx(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty phone, got %v", err)
 		}
@@ -73,7 +72,7 @@ func TestClientsRepo_Create(t *testing.T) {
 			WillReturnError(errors.New("disk full"))
 
 		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: "+5491112345678"}
-		err := repo.Create(context.Background(), c)
+		err := repo.Create(adminCtx(), c)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -96,7 +95,7 @@ func TestClientsRepo_FindByID(t *testing.T) {
 			WithArgs("cli-1").
 			WillReturnRows(rows)
 
-		c, err := repo.FindByID(context.Background(), "cli-1")
+		c, err := repo.FindByID(adminCtx(), "cli-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -119,7 +118,7 @@ func TestClientsRepo_FindByID(t *testing.T) {
 			WithArgs("missing").
 			WillReturnError(sql.ErrNoRows)
 
-		_, err := repo.FindByID(context.Background(), "missing")
+		_, err := repo.FindByID(adminCtx(), "missing")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -133,7 +132,7 @@ func TestClientsRepo_FindByID(t *testing.T) {
 			WithArgs("cli-1").
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.FindByID(context.Background(), "cli-1")
+		_, err := repo.FindByID(adminCtx(), "cli-1")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -153,7 +152,7 @@ func TestClientsRepo_FindByPhone(t *testing.T) {
 			WithArgs("+5491112345678").
 			WillReturnRows(rows)
 
-		c, err := repo.FindByPhone(context.Background(), "+5491112345678")
+		c, err := repo.FindByPhone(adminCtx(), "+5491112345678")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -173,7 +172,7 @@ func TestClientsRepo_FindByPhone(t *testing.T) {
 			WithArgs("+0000000000").
 			WillReturnError(sql.ErrNoRows)
 
-		_, err := repo.FindByPhone(context.Background(), "+0000000000")
+		_, err := repo.FindByPhone(adminCtx(), "+0000000000")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -187,7 +186,7 @@ func TestClientsRepo_FindByPhone(t *testing.T) {
 			WithArgs("+5491112345678").
 			WillReturnError(errors.New("connection lost"))
 
-		_, err := repo.FindByPhone(context.Background(), "+5491112345678")
+		_, err := repo.FindByPhone(adminCtx(), "+5491112345678")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -204,7 +203,7 @@ func TestClientsRepo_Save(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: "+5491112345678"}
-		err := repo.Save(context.Background(), c)
+		err := repo.Save(adminCtx(), c)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -215,7 +214,7 @@ func TestClientsRepo_Save(t *testing.T) {
 		repo := NewClientsRepo(db)
 
 		c := &entity.Client{ID: "cli-1", Name: "", Phone: "+5491112345678"}
-		err := repo.Save(context.Background(), c)
+		err := repo.Save(adminCtx(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty name, got %v", err)
 		}
@@ -226,7 +225,7 @@ func TestClientsRepo_Save(t *testing.T) {
 		repo := NewClientsRepo(db)
 
 		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: ""}
-		err := repo.Save(context.Background(), c)
+		err := repo.Save(adminCtx(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty phone, got %v", err)
 		}
@@ -250,7 +249,7 @@ func TestClientsRepo_GetOrCreate(t *testing.T) {
 			WithArgs("+5491112345678").
 			WillReturnRows(rows)
 
-		c, err := repo.GetOrCreate(context.Background(), "+5491112345678", "Juan")
+		c, err := repo.GetOrCreate(adminCtx(), "+5491112345678", "Juan")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -275,7 +274,7 @@ func TestClientsRepo_GetOrCreate(t *testing.T) {
 			WithArgs("+5491112345678").
 			WillReturnRows(rows)
 
-		c, err := repo.GetOrCreate(context.Background(), "+5491112345678", "Juan Updated")
+		c, err := repo.GetOrCreate(adminCtx(), "+5491112345678", "Juan Updated")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -292,7 +291,7 @@ func TestClientsRepo_GetOrCreate(t *testing.T) {
 			WithArgs(sqlmock.AnyArg(), "Juan", "+5491112345678").
 			WillReturnError(errors.New("disk full"))
 
-		_, err := repo.GetOrCreate(context.Background(), "+5491112345678", "Juan")
+		_, err := repo.GetOrCreate(adminCtx(), "+5491112345678", "Juan")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -302,7 +301,7 @@ func TestClientsRepo_GetOrCreate(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		_, err := repo.GetOrCreate(context.Background(), "", "Juan")
+		_, err := repo.GetOrCreate(adminCtx(), "", "Juan")
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty phone, got %v", err)
 		}
@@ -312,7 +311,7 @@ func TestClientsRepo_GetOrCreate(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		_, err := repo.GetOrCreate(context.Background(), "+5491112345678", "")
+		_, err := repo.GetOrCreate(adminCtx(), "+5491112345678", "")
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty name, got %v", err)
 		}
@@ -329,7 +328,7 @@ func TestClientsRepo_Update(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
 		c := &entity.Client{ID: "cli-1", Name: "Updated", Phone: "+5491112345678"}
-		err := repo.Update(context.Background(), c)
+		err := repo.Update(adminCtx(), c)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -344,7 +343,7 @@ func TestClientsRepo_Update(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		c := &entity.Client{ID: "missing", Name: "Ghost", Phone: "+0000000000"}
-		err := repo.Update(context.Background(), c)
+		err := repo.Update(adminCtx(), c)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -359,7 +358,7 @@ func TestClientsRepo_Update(t *testing.T) {
 			WillReturnError(errors.New("UNIQUE constraint failed: clients.phone"))
 
 		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: "+5491199999999"}
-		err := repo.Update(context.Background(), c)
+		err := repo.Update(adminCtx(), c)
 		if !errors.Is(err, domain.ErrConflict) {
 			t.Errorf("expected domain.ErrConflict, got %v", err)
 		}
@@ -370,7 +369,7 @@ func TestClientsRepo_Update(t *testing.T) {
 		repo := NewClientsRepo(db)
 
 		c := &entity.Client{ID: "cli-1", Name: "", Phone: "+5491112345678"}
-		err := repo.Update(context.Background(), c)
+		err := repo.Update(adminCtx(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -381,7 +380,7 @@ func TestClientsRepo_Update(t *testing.T) {
 		repo := NewClientsRepo(db)
 
 		c := &entity.Client{ID: "cli-1", Name: "Juan", Phone: ""}
-		err := repo.Update(context.Background(), c)
+		err := repo.Update(adminCtx(), c)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -396,7 +395,7 @@ func TestClientsRepo_Update(t *testing.T) {
 			WillReturnError(errors.New("disk full"))
 
 		c := &entity.Client{ID: "cli-1", Name: "Updated", Phone: "+5491112345678"}
-		err := repo.Update(context.Background(), c)
+		err := repo.Update(adminCtx(), c)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -412,7 +411,7 @@ func TestClientsRepo_Delete(t *testing.T) {
 			WithArgs("cli-1").
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		err := repo.Delete(context.Background(), "cli-1")
+		err := repo.Delete(adminCtx(), "cli-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -426,7 +425,7 @@ func TestClientsRepo_Delete(t *testing.T) {
 			WithArgs("missing").
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		err := repo.Delete(context.Background(), "missing")
+		err := repo.Delete(adminCtx(), "missing")
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -440,7 +439,7 @@ func TestClientsRepo_Delete(t *testing.T) {
 			WithArgs("cli-1").
 			WillReturnError(errors.New("connection lost"))
 
-		err := repo.Delete(context.Background(), "cli-1")
+		err := repo.Delete(adminCtx(), "cli-1")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -460,7 +459,7 @@ func TestClientsRepo_SearchFTS(t *testing.T) {
 			WithArgs("alergia").
 			WillReturnRows(rows)
 
-		results, err := repo.SearchFTS(context.Background(), "alergia")
+		results, err := repo.SearchFTS(adminCtx(), "alergia")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -484,7 +483,7 @@ func TestClientsRepo_SearchFTS(t *testing.T) {
 			WithArgs("María").
 			WillReturnRows(rows)
 
-		results, err := repo.SearchFTS(context.Background(), "María")
+		results, err := repo.SearchFTS(adminCtx(), "María")
 		if err != nil {
 			t.Fatalf("expected no error for accented query, got: %v", err)
 		}
@@ -497,7 +496,7 @@ func TestClientsRepo_SearchFTS(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		_, err := repo.SearchFTS(context.Background(), "")
+		_, err := repo.SearchFTS(adminCtx(), "")
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty query, got %v", err)
 		}
@@ -507,7 +506,7 @@ func TestClientsRepo_SearchFTS(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		_, err := repo.SearchFTS(context.Background(), "juan* OR algo")
+		_, err := repo.SearchFTS(adminCtx(), "juan* OR algo")
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for query with *, got %v", err)
 		}
@@ -521,7 +520,7 @@ func TestClientsRepo_SearchFTS(t *testing.T) {
 			WithArgs("juan").
 			WillReturnError(errors.New("FTS5 corrupt"))
 
-		_, err := repo.SearchFTS(context.Background(), "juan")
+		_, err := repo.SearchFTS(adminCtx(), "juan")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
