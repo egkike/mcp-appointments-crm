@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"testing"
@@ -27,7 +26,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			IsClosed:      true,
 			Reason:        &reason,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -49,7 +48,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -63,7 +62,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-12-25T00:00:00",
 			IsClosed:      true,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for datetime, got %v", err)
 		}
@@ -77,7 +76,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "25/12/2026",
 			IsClosed:      true,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for slashes, got %v", err)
 		}
@@ -94,7 +93,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      nil,
 			CloseTime:     &close,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for nil open_time, got %v", err)
 		}
@@ -111,7 +110,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     nil,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for nil close_time, got %v", err)
 		}
@@ -129,7 +128,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for open>close, got %v", err)
 		}
@@ -147,7 +146,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for is_closed with times, got %v", err)
 		}
@@ -165,7 +164,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for single-digit hour, got %v", err)
 		}
@@ -183,7 +182,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for time with seconds, got %v", err)
 		}
@@ -201,7 +200,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for hour=25, got %v", err)
 		}
@@ -219,7 +218,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for minute=70, got %v", err)
 		}
@@ -233,7 +232,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-13-45",
 			IsClosed:      true,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for invalid calendar date, got %v", err)
 		}
@@ -247,7 +246,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-02-30",
 			IsClosed:      true,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for Feb 30, got %v", err)
 		}
@@ -265,7 +264,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrConflict) {
 			t.Errorf("expected domain.ErrConflict, got %v", err)
 		}
@@ -283,7 +282,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 		}
-		err := repo.Create(context.Background(), ex)
+		err := repo.Create(adminCtx(), ex)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -307,7 +306,7 @@ func TestBusinessHoursExceptionRepo_Get(t *testing.T) {
 			WillReturnRows(rows)
 
 		date := time.Date(2026, 12, 25, 0, 0, 0, 0, time.UTC)
-		ex, err := repo.Get(context.Background(), date)
+		ex, err := repo.Get(adminCtx(), date)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -328,7 +327,7 @@ func TestBusinessHoursExceptionRepo_Get(t *testing.T) {
 			WillReturnError(sql.ErrNoRows)
 
 		date := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		_, err := repo.Get(context.Background(), date)
+		_, err := repo.Get(adminCtx(), date)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -343,7 +342,7 @@ func TestBusinessHoursExceptionRepo_Get(t *testing.T) {
 			WillReturnError(errors.New("connection lost"))
 
 		date := time.Date(2026, 12, 25, 0, 0, 0, 0, time.UTC)
-		_, err := repo.Get(context.Background(), date)
+		_, err := repo.Get(adminCtx(), date)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -368,7 +367,7 @@ func TestBusinessHoursExceptionRepo_List(t *testing.T) {
 
 		from := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 		to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
-		exceptions, err := repo.List(context.Background(), from, to)
+		exceptions, err := repo.List(adminCtx(), from, to)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -393,7 +392,7 @@ func TestBusinessHoursExceptionRepo_List(t *testing.T) {
 
 		from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 		to := time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)
-		exceptions, err := repo.List(context.Background(), from, to)
+		exceptions, err := repo.List(adminCtx(), from, to)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -412,7 +411,7 @@ func TestBusinessHoursExceptionRepo_List(t *testing.T) {
 
 		from := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 		to := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
-		_, err := repo.List(context.Background(), from, to)
+		_, err := repo.List(adminCtx(), from, to)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -428,7 +427,7 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 			WithArgs(1).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 
-		err := repo.Delete(context.Background(), 1)
+		err := repo.Delete(adminCtx(), 1)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -442,7 +441,7 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 			WithArgs(999).
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
-		err := repo.Delete(context.Background(), 999)
+		err := repo.Delete(adminCtx(), 999)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
@@ -456,7 +455,7 @@ func TestBusinessHoursExceptionRepo_Delete(t *testing.T) {
 			WithArgs(1).
 			WillReturnError(errors.New("disk full"))
 
-		err := repo.Delete(context.Background(), 1)
+		err := repo.Delete(adminCtx(), 1)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}

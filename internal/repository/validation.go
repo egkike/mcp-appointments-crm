@@ -32,6 +32,11 @@ var (
 	// pass validation while FTS5 operator characters (*, +, -, NOT, OR, AND)
 	// are rejected.
 	ftsQueryRe = regexp.MustCompile(`[^\p{L}\p{N}\s\-]`)
+
+	// ftsOperatorRe matches whole-word FTS5 operators that would alter
+	// query semantics (AND, OR, NOT) or a +/- prefix after whitespace or
+	// another operator. Inline hyphens inside a single term remain allowed.
+	ftsOperatorRe = regexp.MustCompile(`(?i)(^|\s)(NOT|AND|OR)(\s|$)|[\s\-+]\s*[-+]`)
 )
 
 // validateExceptionDate checks that date is a valid YYYY-MM-DD string
@@ -50,7 +55,9 @@ func validateExceptionDate(date string) error {
 }
 
 // validateFTSQuery checks that a full-text search query is non-empty and
-// does not contain FTS5 operator characters.
+// does not contain FTS5 operator characters or whole-word operators that
+// would alter the query semantics. Queries are bound with ? placeholders,
+// so this validation is purely about preventing unintended FTS5 syntax.
 // Returns domain.ErrInvalidInput wrapping error if invalid.
 func validateFTSQuery(query string) error {
 	if strings.TrimSpace(query) == "" {
@@ -59,5 +66,25 @@ func validateFTSQuery(query string) error {
 	if ftsQueryRe.MatchString(query) {
 		return fmt.Errorf("la consulta contiene caracteres no permitidos: %w", domain.ErrInvalidInput)
 	}
+	if isFTSOperatorQuery(query) {
+		return fmt.Errorf("la consulta contiene operadores FTS5 no permitidos: %w", domain.ErrInvalidInput)
+	}
 	return nil
+}
+
+// isFTSOperatorQuery rejects whole-word FTS5 operators and leading +/-.
+// Inline hyphens (e.g. "geo-local") are still allowed because the tokenizer
+// keeps the term as one token; leading/trailing or repeated operators are not.
+func isFTSOperatorQuery(query string) bool {
+	trimmed := strings.TrimSpace(query)
+	if len(trimmed) > 0 {
+		first := trimmed[0]
+		if first == '+' || first == '-' {
+			return true
+		}
+	}
+	if ftsOperatorRe.MatchString(query) {
+		return true
+	}
+	return false
 }
