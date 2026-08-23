@@ -1,6 +1,6 @@
 module github.com/egkike/mcp-appointments-crm
 
-go 1.26.6
+go 1.26.7
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
