@@ -17,12 +17,21 @@ import (
 // Compile-time interface conformance check.
 var _ domainrepo.ClientsRepo = (*ClientsRepo)(nil)
 
-// applyClientsAuthFilter modifies a clients query and args based on the caller's
+// sqlArgs is the driver-bound argument slice. Kept as []any only because
+// database/sql.QueryContext/ExecContext accept variadic ...any. Domain inputs
+// (phone, id, etc.) remain concrete types.
+type sqlArgs = []any
+
+// applyClientsAuthFilter composes a clients query and args based on the caller's
 // role. Unlike applyAuthFilter (bookings), the clients table has no client_id
 // column — the row's own PK id IS the client id — so the client scope clause is
 // " AND id = ?". Staff and unknown roles have no legitimate scope on clients and
 // are rejected outright (ErrForbidden). Admin/owner: query unchanged.
-func applyClientsAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []any) (string, []any, error) {
+//
+// baseQuery must end at the WHERE clause (no trailing ORDER BY/LIMIT). suffix
+// holds any trailing clauses and is appended after the optional scope filter.
+// This avoids parsing SQL with string searches.
+func applyClientsAuthFilter(caller *auth.Caller, baseQuery string, suffix string, baseArgs sqlArgs) (string, sqlArgs, error) {
 	if caller == nil { // defensive backstop; callers use RequireCaller first
 		return "", nil, &domain.SemanticError{
 			Code:    domain.ErrCodeUnauthenticated,
@@ -31,9 +40,8 @@ func applyClientsAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []an
 		}
 	}
 
-	args := make([]any, len(baseArgs), len(baseArgs)+1)
+	args := make(sqlArgs, len(baseArgs), len(baseArgs)+1)
 	copy(args, baseArgs)
-	query := baseQuery
 
 	var filterClause string
 	var filterArg any
@@ -59,25 +67,10 @@ func applyClientsAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []an
 	}
 
 	if filterClause == "" {
-		return query, args, nil
+		return baseQuery + suffix, args, nil
 	}
 
-	upper := strings.ToUpper(query)
-	insertPos := len(query)
-	if idx := strings.LastIndex(upper, "ORDER BY"); idx >= 0 {
-		insertPos = idx
-	}
-	if idx := strings.LastIndex(upper, "LIMIT"); idx >= 0 && idx < insertPos {
-		insertPos = idx
-	}
-
-	suffix := query[insertPos:]
-	if suffix != "" {
-		query = query[:insertPos] + filterClause + " " + suffix
-	} else {
-		query = query[:insertPos] + filterClause
-	}
-	return query, append(args, filterArg), nil
+	return baseQuery + filterClause + suffix, append(args, filterArg), nil
 }
 
 // ClientsRepo provides CRUD, FTS5 search, and phone-based lookup for the
@@ -149,8 +142,8 @@ func (r *ClientsRepo) FindByID(ctx context.Context, id string) (*entity.Client, 
 	c := &entity.Client{Active: true}
 	query := `SELECT id, name, phone, email, preferences, created_at, updated_at
 		 FROM clients WHERE id = ?`
-	args := []any{id}
-	query, args, err = applyClientsAuthFilter(caller, query, args)
+	args := sqlArgs{id}
+	query, args, err = applyClientsAuthFilter(caller, query, "", args)
 	if err != nil {
 		return nil, fmt.Errorf("obtener cliente %s: %w", id, err)
 	}
@@ -159,17 +152,29 @@ func (r *ClientsRepo) FindByID(ctx context.Context, id string) (*entity.Client, 
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener cliente %s: %w", id, domain.ErrNotFound)
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeNotFound,
+				Message: "Cliente no encontrado",
+				Cause:   domain.ErrNotFound,
+			}
 		}
-		return nil, fmt.Errorf("obtener cliente %s: %w", id, err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al obtener el cliente",
+			Cause:   err,
+		}
 	}
 	return c, nil
 }
 
 // FindByPhone returns a client by phone number. Returns domain.ErrNotFound if not found.
+// Only admin/owner may call this endpoint. Admin is a trusted role with
+// unrestricted client PII access by design (PRD §3.8.4), so no additional
+// per-row scope is applied; the role gate itself prevents disclosure to
+// staff/clients regardless of whether the phone exists.
 func (r *ClientsRepo) FindByPhone(ctx context.Context, phone string) (*entity.Client, error) {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
-		return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, err)
+		return nil, fmt.Errorf("obtener cliente por teléfono: %w", err)
 	}
 
 	c := &entity.Client{Active: true}
@@ -180,9 +185,17 @@ func (r *ClientsRepo) FindByPhone(ctx context.Context, phone string) (*entity.Cl
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, domain.ErrNotFound)
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeNotFound,
+				Message: "Cliente no encontrado",
+				Cause:   domain.ErrNotFound,
+			}
 		}
-		return nil, fmt.Errorf("obtener cliente por teléfono %s: %w", phone, err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al buscar el cliente",
+			Cause:   err,
+		}
 	}
 	return c, nil
 }
@@ -194,8 +207,11 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*ent
 	if err != nil {
 		return nil, fmt.Errorf("obtener o crear cliente: %w", err)
 	}
+	// Client self-service is anchored on the caller's chat/phone ID (caller.ID),
+	// not on caller.ClientID (the UUID primary key). A client may only bootstrap
+	// their own record using the phone number they are calling from.
 	if caller.Role != auth.RoleAdmin && caller.Role != auth.RoleOwner {
-		if caller.Role != auth.RoleClient || caller.ClientID == nil || phone == "" || phone != *caller.ClientID {
+		if caller.Role != auth.RoleClient || phone == "" || phone != caller.ID {
 			return nil, fmt.Errorf("obtener o crear cliente: %w", domain.ErrForbidden)
 		}
 	}
@@ -211,7 +227,11 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*ent
 		idgen.NewUUID(), name, phone,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("obtener o crear cliente: inserción: %w", err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al crear el cliente",
+			Cause:   err,
+		}
 	}
 
 	c := &entity.Client{Active: true}
@@ -221,7 +241,11 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*ent
 	).Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Preferences,
 		&c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("obtener o crear cliente: consulta: %w", err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al recuperar el cliente",
+			Cause:   err,
+		}
 	}
 	return c, nil
 }
@@ -294,34 +318,46 @@ func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*entity.Cl
 	}
 
 	sqlQuery := `SELECT c.id, c.name, c.phone, c.email, c.preferences,
-			c.created_at, c.updated_at
+		c.created_at, c.updated_at
 		 FROM clients c
 		 JOIN clients_fts f ON c.rowid = f.rowid
-		 WHERE f MATCH ?
-		 ORDER BY bm25(f)`
-	args := []any{query}
-	sqlQuery, args, err = applyClientsAuthFilter(caller, sqlQuery, args)
+		 WHERE f MATCH ?`
+	args := sqlArgs{query}
+	suffix := " ORDER BY bm25(f)"
+	sqlQuery, args, err = applyClientsAuthFilter(caller, sqlQuery, suffix, args)
 	if err != nil {
 		return nil, fmt.Errorf("buscar clientes: %w", err)
 	}
 
 	rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
-		return nil, fmt.Errorf("buscar clientes: %w", err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al buscar clientes",
+			Cause:   err,
+		}
 	}
-	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+	defer func() { _ = rows.Close() }()
 
 	var clients []*entity.Client
 	for rows.Next() {
 		c := &entity.Client{Active: true}
 		if err := rows.Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Preferences,
 			&c.CreatedAt, &c.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("buscar clientes: escaneo: %w", err)
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeInternal,
+				Message: "Error interno al leer resultados",
+				Cause:   err,
+			}
 		}
 		clients = append(clients, c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("buscar clientes: iteración: %w", err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno durante la búsqueda",
+			Cause:   err,
+		}
 	}
 	return clients, nil
 }

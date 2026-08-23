@@ -83,7 +83,11 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *entity.Busi
 		if isUniqueViolation(err) {
 			return fmt.Errorf("crear excepción: la fecha %s ya existe: %w", ex.ExceptionDate, domain.ErrConflict)
 		}
-		return fmt.Errorf("crear excepción: %w", err)
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al crear la excepción",
+			Cause:   err,
+		}
 	}
 	return nil
 }
@@ -91,6 +95,9 @@ func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *entity.Busi
 // Get returns the exception for a given date. Returns domain.ErrNotFound if
 // no exception exists for that date. The time component of date is ignored;
 // only the calendar date matters.
+// Any authenticated caller may read exceptions: availability is a hot path
+// used by the booking flow (PRD §3.7.13 Paso 3a). The data is non-sensitive
+// business calendar metadata, so no additional role filter is required.
 func (r *BusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*entity.BusinessHoursException, error) {
 	if _, err := auth.RequireCaller(ctx); err != nil {
 		return nil, fmt.Errorf("obtener excepción por fecha %s: %w", date.Format("2006-01-02"), err)
@@ -107,7 +114,11 @@ func (r *BusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("obtener excepción por fecha %s: %w", dateStr, domain.ErrNotFound)
 		}
-		return nil, fmt.Errorf("obtener excepción por fecha %s: %w", dateStr, err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al obtener la excepción",
+			Cause:   err,
+		}
 	}
 	return ex, nil
 }
@@ -129,21 +140,33 @@ func (r *BusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Tim
 		fromStr, toStr,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("listar excepciones: %w", err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al listar excepciones",
+			Cause:   err,
+		}
 	}
-	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+	defer func() { _ = rows.Close() }()
 
 	var exceptions []*entity.BusinessHoursException
 	for rows.Next() {
 		ex := &entity.BusinessHoursException{}
 		if err := rows.Scan(&ex.ID, &ex.ExceptionDate, &ex.IsClosed, &ex.OpenTime,
 			&ex.CloseTime, &ex.Reason, &ex.CreatedAt); err != nil {
-			return nil, fmt.Errorf("listar excepciones: escaneo: %w", err)
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeInternal,
+				Message: "Error interno al leer excepciones",
+				Cause:   err,
+			}
 		}
 		exceptions = append(exceptions, ex)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("listar excepciones: iteración: %w", err)
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno durante el listado",
+			Cause:   err,
+		}
 	}
 	return exceptions, nil
 }
@@ -156,11 +179,19 @@ func (r *BusinessHoursExceptionRepo) Delete(ctx context.Context, id int) error {
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM business_hours_exception WHERE id = ?`, id)
 	if err != nil {
-		return fmt.Errorf("eliminar excepción: %w", err)
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al eliminar la excepción",
+			Cause:   err,
+		}
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("eliminar excepción: filas afectadas: %w", err)
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInternal,
+			Message: "Error interno al verificar la eliminación",
+			Cause:   err,
+		}
 	}
 	if n == 0 {
 		return fmt.Errorf("eliminar excepción: %w", domain.ErrNotFound)

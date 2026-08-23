@@ -102,6 +102,14 @@ func TestValidateFTSQuery(t *testing.T) {
 		{"asterisk", "juan*", true},
 		{"plus sign", "juan+", true},
 		{"quotes", `"juan"`, true},
+		{"hyphen prefix", "-penicilina", true},
+		{"plus prefix", "+alergia", true},
+		{"whitespace then hyphen operator", "alergia -penicilina", true},
+		{"whole word AND", "juan AND maria", true},
+		{"whole word OR", "juan OR maria", true},
+		{"whole word NOT", "juan NOT maria", true},
+		{"lowercase operator", "juan and maria", true},
+		{"trailing operator", "juan AND", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

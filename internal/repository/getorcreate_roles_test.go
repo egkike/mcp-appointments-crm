@@ -6,8 +6,20 @@ import (
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
+
+// clientPhoneCtx returns a context for a client caller whose chat/phone ID is
+// phone and whose internal client UUID is clientID. GetOrCreate anchors the
+// self-service permission on the phone (caller.ID), not on caller.ClientID.
+func clientPhoneCtx(phone, clientID string) context.Context {
+	return auth.WithCaller(context.Background(), auth.Caller{
+		ID:       phone,
+		Role:     auth.RoleClient,
+		ClientID: &clientID,
+	})
+}
 
 func TestClientsRepo_GetOrCreate_Roles(t *testing.T) {
 	t.Run("admin unrestricted", func(t *testing.T) {
@@ -47,7 +59,7 @@ func TestClientsRepo_GetOrCreate_Roles(t *testing.T) {
 			}).AddRow("cli-1", "Juan", "+5491112345678", nil, nil,
 				"2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"))
 
-		c, err := repo.GetOrCreate(clientCtx("+5491112345678"), "+5491112345678", "Juan")
+		c, err := repo.GetOrCreate(clientPhoneCtx("+5491112345678", "cli-1"), "+5491112345678", "Juan")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -60,7 +72,7 @@ func TestClientsRepo_GetOrCreate_Roles(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewClientsRepo(db)
 
-		_, err := repo.GetOrCreate(clientCtx("cli-1"), "+5491199999999", "Juan")
+		_, err := repo.GetOrCreate(clientPhoneCtx("+5491112345678", "cli-1"), "+5491199999999", "Juan")
 		if !errors.Is(err, domain.ErrForbidden) {
 			t.Errorf("got %v, want ErrForbidden", err)
 		}
