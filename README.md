@@ -12,13 +12,14 @@ are complete; next up: Fase 3 (mcp-server-advanced). See the
 
 The MCP server currently exposes 6 tools: `check_availability`, `create_booking`,
 `get_booking`, `cancel_booking`, `reschedule_booking` and `get_business_profile`
-(auth via `X-Caller-Id` header + RBAC).
+(auth via `X-Caller-Id` header + RBAC, repository layer 10/10 repos with `auth.Caller` wiring — see PR #50).
 
 | Phase | Description | Status |
 |---|---|---|
 | 1 | db-layer + clean-architecture-refactor (Fase 1b) | ✅ Done (archived 2026-08-09, commit `988baeb`) |
 | 2 | mcp-server-core (Streamable HTTP + booking/profile tools) | ✅ Done (archived 2026-08-19, PRs #46/#47) |
-| 3 | mcp-server-advanced (alerts, loyalty, professional schedule) | ⏳ Planned |
+| 2.5 | repository auth hardening (clients + BHE) | ✅ Done (PR #50, 2026-08-23 — 10/10 repos with `auth.Caller`) |
+| 3 | mcp-server-advanced (alerts, loyalty, professional schedule) | ⏳ Next — ready (auth debt cleared) |
 | 4 | config-wizard TUI (Bubble Tea) | ⏳ Planned |
 | 5 | install-and-service (user-level, cross-platform) | ⏳ Planned |
 
