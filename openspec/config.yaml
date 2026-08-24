@@ -1,14 +1,15 @@
 schema: spec-driven
 
 # Cap de líneas por PR para el Review Workload Guard.
-# Fijado en 600 desde Fase 1 (db-layer). Histórico efectivo:
+# Fijado en 400 (restaurado 2026-08-24 por decisión de sesión — Fase 3).
+# Histórico efectivo:
 #   - Fase 1 P1a: 1145 LOC (chained en 2 PRs)
 #   - Fase 2 P2b2a: 1551 LOC (chained en 2 PRs)
-#   - Fase 3 P3.1: 1954 LOC (size:exception, single PR)
-# Cuando un PR excede 600, estrategia default = chained PRs.
+#   - Fase 1b P3.1: 1954 LOC (size:exception, single PR)
+# Cuando un PR excede 400, estrategia default = chained PRs.
 # size:exception requiere justificación explícita en la PR description.
-# Revisado y alineado 2026-08-02.
-review_budget_lines: 600
+# Revisado y alineado 2026-08-24 (sesión Fase 3, preflight 400).
+review_budget_lines: 400
 
 context: |
   Project: mcp-appointments-crm
