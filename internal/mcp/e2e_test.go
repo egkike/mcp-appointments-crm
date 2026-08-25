@@ -56,16 +56,14 @@ func TestE2EMockClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 6 {
-		t.Errorf("tools = %d; want 6", len(tools.Tools))
+	if len(tools.Tools) != 8 {
+		t.Errorf("tools = %d; want 8", len(tools.Tools))
 	}
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "check_availability",
+		Name: "search_services_advanced",
 		Arguments: map[string]any{
-			"service_id":      "s1",
-			"professional_id": "p1",
-			"start_datetime":  "2026-08-24T10:00:00-03:00",
+			"query_text": "Consulta",
 		},
 	})
 	if err != nil {
@@ -78,7 +76,7 @@ func TestE2EMockClient(t *testing.T) {
 	if !ok {
 		t.Fatalf("structuredContent = %T; want map[string]any", result.StructuredContent)
 	}
-	if avail, _ := sc["available"].(bool); !avail {
-		t.Errorf("available = %v; want true (valid Monday slot)", sc["available"])
+	if results, _ := sc["results"].([]any); len(results) != 1 {
+		t.Errorf("results = %v; want 1 service", sc["results"])
 	}
 }

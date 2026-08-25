@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
@@ -54,14 +55,23 @@ func validateExceptionDate(date string) error {
 	return nil
 }
 
-// validateFTSQuery checks that a full-text search query is non-empty and
-// does not contain FTS5 operator characters or whole-word operators that
-// would alter the query semantics. Queries are bound with ? placeholders,
-// so this validation is purely about preventing unintended FTS5 syntax.
-// Returns domain.ErrInvalidInput wrapping error if invalid.
+// MaxFTSQueryLen bounds the length of an FTS5 query string. This limits
+// the memory and CPU surface of MATCH clauses against untrusted upstream
+// input without affecting legitimate searches.
+const MaxFTSQueryLen = 200
+
+// validateFTSQuery checks that a full-text search query is non-empty, does not
+// exceed MaxFTSQueryLen, does not contain FTS5 operator characters, and does
+// not contain whole-word operators that would alter the query semantics.
+// Queries are bound with ? placeholders, so this validation is purely about
+// preventing unintended FTS5 syntax. Returns domain.ErrInvalidInput wrapping
+// error if invalid.
 func validateFTSQuery(query string) error {
 	if strings.TrimSpace(query) == "" {
 		return fmt.Errorf("consulta vacía: %w", domain.ErrInvalidInput)
+	}
+	if utf8.RuneCountInString(query) > MaxFTSQueryLen {
+		return fmt.Errorf("la consulta excede la longitud máxima: %w", domain.ErrInvalidInput)
 	}
 	if ftsQueryRe.MatchString(query) {
 		return fmt.Errorf("la consulta contiene caracteres no permitidos: %w", domain.ErrInvalidInput)

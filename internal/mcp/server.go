@@ -50,6 +50,7 @@ func NewServer(cfg Config) *Server {
 func (s *Server) registerTools() {
 	s.registerBookingTools()
 	s.registerProfileTool()
+	s.registerSearchTools()
 }
 
 // Handler returns the /mcp HTTP handler: the SDK Streamable HTTP handler

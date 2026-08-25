@@ -17,4 +17,9 @@ type ClientsRepo interface {
 
 	// Save inserts or updates a client (upsert by ID).
 	Save(ctx context.Context, c *entity.Client) error
+
+	// SearchFTS performs a full-text search on clients using FTS5 MATCH.
+	// Results are ordered by FTS5 rank (bm25 ASC). Returns
+	// domain.ErrInvalidInput if the query is empty or contains FTS5 operators.
+	SearchFTS(ctx context.Context, query string) ([]*entity.Client, error)
 }

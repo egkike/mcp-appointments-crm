@@ -23,4 +23,9 @@ type ServicesRepo interface {
 
 	// Delete removes a service by ID. Returns domain.ErrNotFound if missing.
 	Delete(ctx context.Context, id string) error
+
+	// SearchFTS performs a full-text search on services using FTS5 MATCH.
+	// Results are ordered by FTS5 rank (bm25 ASC). Returns
+	// domain.ErrInvalidInput if the query is empty or contains FTS5 operators.
+	SearchFTS(ctx context.Context, query string) ([]*entity.Service, error)
 }

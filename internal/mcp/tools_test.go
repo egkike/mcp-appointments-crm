@@ -67,6 +67,22 @@ func (m *mockBusinessProfilePort) Execute(ctx context.Context) (*entity.Business
 	return m.executeFn(ctx)
 }
 
+type mockSearchClientsAdvancedPort struct {
+	executeFn func(ctx context.Context, in dto.SearchClientsAdvancedInput) (*dto.SearchClientsAdvancedResult, error)
+}
+
+func (m *mockSearchClientsAdvancedPort) Execute(ctx context.Context, in dto.SearchClientsAdvancedInput) (*dto.SearchClientsAdvancedResult, error) {
+	return m.executeFn(ctx, in)
+}
+
+type mockSearchServicesAdvancedPort struct {
+	executeFn func(ctx context.Context, in dto.SearchServicesAdvancedInput) (*dto.SearchServicesAdvancedResult, error)
+}
+
+func (m *mockSearchServicesAdvancedPort) Execute(ctx context.Context, in dto.SearchServicesAdvancedInput) (*dto.SearchServicesAdvancedResult, error) {
+	return m.executeFn(ctx, in)
+}
+
 // ── helpers ──
 
 func ownerCaller() auth.Caller {
@@ -78,42 +94,48 @@ func ownerCallerPtr() *auth.Caller {
 	return &c
 }
 
-// newToolServer builds a Server with all six ports mocked and returns its
+// newToolServer builds a Server with all eight ports mocked and returns its
 // unauthenticated Handler (unit level: caller is injected via the request
 // context, exactly as AuthMiddleware would).
 func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
 	t.Helper()
 	ports := newMockPorts()
 	srv := NewServer(Config{
-		Version:            "test",
-		Logger:             discardLogger(),
-		CheckAvailability:  ports.checkAvail,
-		CreateBooking:      ports.create,
-		GetBooking:         ports.get,
-		CancelBooking:      ports.cancel,
-		RescheduleBooking:  ports.reschedule,
-		GetBusinessProfile: ports.profile,
+		Version:                "test",
+		Logger:                 discardLogger(),
+		CheckAvailability:      ports.checkAvail,
+		CreateBooking:          ports.create,
+		GetBooking:             ports.get,
+		CancelBooking:          ports.cancel,
+		RescheduleBooking:      ports.reschedule,
+		GetBusinessProfile:     ports.profile,
+		SearchClientsAdvanced:  ports.searchClients,
+		SearchServicesAdvanced: ports.searchServices,
 	})
 	return srv, ports
 }
 
 type mockToolPorts struct {
-	checkAvail *mockCheckAvailabilityPort
-	create     *mockCreateBookingPort
-	get        *mockGetBookingPort
-	cancel     *mockCancelBookingPort
-	reschedule *mockRescheduleBookingPort
-	profile    *mockBusinessProfilePort
+	checkAvail     *mockCheckAvailabilityPort
+	create         *mockCreateBookingPort
+	get            *mockGetBookingPort
+	cancel         *mockCancelBookingPort
+	reschedule     *mockRescheduleBookingPort
+	profile        *mockBusinessProfilePort
+	searchClients  *mockSearchClientsAdvancedPort
+	searchServices *mockSearchServicesAdvancedPort
 }
 
 func newMockPorts() *mockToolPorts {
 	return &mockToolPorts{
-		checkAvail: &mockCheckAvailabilityPort{},
-		create:     &mockCreateBookingPort{},
-		get:        &mockGetBookingPort{},
-		cancel:     &mockCancelBookingPort{},
-		reschedule: &mockRescheduleBookingPort{},
-		profile:    &mockBusinessProfilePort{},
+		checkAvail:     &mockCheckAvailabilityPort{},
+		create:         &mockCreateBookingPort{},
+		get:            &mockGetBookingPort{},
+		cancel:         &mockCancelBookingPort{},
+		reschedule:     &mockRescheduleBookingPort{},
+		profile:        &mockBusinessProfilePort{},
+		searchClients:  &mockSearchClientsAdvancedPort{},
+		searchServices: &mockSearchServicesAdvancedPort{},
 	}
 }
 
@@ -220,7 +242,7 @@ func TestToolsListSixTools(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
 	}
-	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile"}
+	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced"}
 	if len(resp.Result.Tools) != len(want) {
 		t.Fatalf("tools/list returned %d tools; want %d: %s", len(resp.Result.Tools), len(want), mustJSON(t, resp.Result.Tools))
 	}

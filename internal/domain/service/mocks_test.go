@@ -22,6 +22,9 @@ func (m *mockServicesRepo) FindActive(context.Context) ([]*entity.Service, error
 func (m *mockServicesRepo) Save(context.Context, *entity.Service) error           { return nil }
 func (m *mockServicesRepo) Update(context.Context, *entity.Service) error         { return nil }
 func (m *mockServicesRepo) Delete(context.Context, string) error                  { return nil }
+func (m *mockServicesRepo) SearchFTS(context.Context, string) ([]*entity.Service, error) {
+	return nil, nil
+}
 
 type mockProfessionalsRepo struct {
 	OnFindByID func(context.Context, string) (*entity.Professional, error)

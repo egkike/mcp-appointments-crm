@@ -57,6 +57,14 @@ func staffCtx(professionalID string) context.Context {
 	})
 }
 
+// staffCtxNoProf returns a context with a staff caller that has no linked professional identity.
+func staffCtxNoProf() context.Context {
+	return auth.WithCaller(context.Background(), auth.Caller{
+		ID:   "staff-1",
+		Role: auth.RoleStaff,
+	})
+}
+
 // clientCtx returns a context with a client caller attached, linked to the given clientID.
 func clientCtx(clientID string) context.Context {
 	return auth.WithCaller(context.Background(), auth.Caller{

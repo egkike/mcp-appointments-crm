@@ -50,3 +50,17 @@ type RescheduleBookingPort interface {
 type BusinessProfilePort interface {
 	Execute(context.Context) (*entity.BusinessProfile, error)
 }
+
+// SearchClientsAdvancedPort performs a role-scoped FTS search on clients.
+// No RBAC entry: all authenticated callers are admitted at the transport;
+// role scoping lives in the repository.
+type SearchClientsAdvancedPort interface {
+	Execute(context.Context, dto.SearchClientsAdvancedInput) (*dto.SearchClientsAdvancedResult, error)
+}
+
+// SearchServicesAdvancedPort performs an owner/admin FTS search on services.
+// No RBAC entry: all authenticated callers are admitted at the transport;
+// role enforcement lives in the use case.
+type SearchServicesAdvancedPort interface {
+	Execute(context.Context, dto.SearchServicesAdvancedInput) (*dto.SearchServicesAdvancedResult, error)
+}

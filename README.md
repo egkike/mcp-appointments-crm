@@ -25,16 +25,43 @@ The MCP server currently exposes 6 tools: `check_availability`, `create_booking`
 
 ## Quickstart
 
-Run the server in development:
+### Development
 
 ```bash
 go run ./cmd/mcp-server   # exposes the MCP endpoint on http://127.0.0.1:3000/mcp (loopback only)
 ```
 
-> A `curl | bash` install script (`scripts/install.sh`, PowerShell `install.ps1` on
-> Windows) will be shipped with the config wizard and service registration in
-> Phases 4–5. No install commands are shown yet because they do not exist —
-> running them would fail.
+### Install — Linux / macOS
+
+```bash
+# latest
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash
+
+# pinned version
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
+```
+
+Installs the prebuilt binary from GitHub Releases, verifies SHA256, registers a
+user-level service (`systemd --user` on Linux, `launchd` on macOS), enables linger
+on Linux, and checks health at `http://127.0.0.1:3000/mcp`.
+
+### Install — Windows
+
+```powershell
+# recommended — builds locally, no SmartScreen "Unknown publisher" dialog, no cert cost
+go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@latest
+# then register as a user-level service
+mcp-server --register-service
+
+# alternative — prebuilt EXE (shows SmartScreen warning for unsigned binary)
+irm https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.ps1 | iex
+```
+
+> See [docs/deployment.md](./docs/deployment.md) for the full runbook (HomeLab VM
+> example, manual download, verification checklist, rollback, troubleshooting) and
+> [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md) for the
+> release rationale (GoReleaser, 5 platforms, checksums, `go install` vs prebuilt
+> EXE trade-offs).
 
 ## Architecture
 
