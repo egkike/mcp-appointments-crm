@@ -138,9 +138,13 @@ func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
 }
 
 // SearchFTS performs a full-text search on services using FTS5 MATCH.
+// Only owner/admin callers are admitted; the caller is resolved from ctx.
 // Results are ordered by FTS5 rank (most relevant first).
 // Returns domain.ErrInvalidInput if the query contains FTS5 operator characters.
 func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*entity.Service, error) {
+	if _, err := auth.RequireRole(ctx, auth.RoleOwner, auth.RoleAdmin); err != nil {
+		return nil, fmt.Errorf("buscar servicios: %w", err)
+	}
 	if err := validateFTSQuery(query); err != nil {
 		return nil, fmt.Errorf("buscar servicios: %w", err)
 	}
@@ -149,9 +153,9 @@ func (r *ServicesRepo) SearchFTS(ctx context.Context, query string) ([]*entity.S
 		`SELECT s.id, s.name, s.description, s.duration_minutes, s.price,
 			s.is_active, s.created_at, s.updated_at
 		 FROM services s
-		 JOIN services_fts f ON s.rowid = f.rowid
-		 WHERE f MATCH ?
-		 ORDER BY bm25(f)`,
+		 JOIN services_fts ON s.rowid = services_fts.rowid
+		 WHERE services_fts MATCH ?
+		 ORDER BY bm25(services_fts)`,
 		query,
 	)
 	if err != nil {

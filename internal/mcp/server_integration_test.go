@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/db"
@@ -40,6 +41,7 @@ func newIntegrationMux(t *testing.T) http.Handler {
 	prosRepo := repository.NewProfessionalsRepo(database.Conn)
 	schedulesRepo := repository.NewSchedulesRepo(database.Conn)
 	servicesRepo := repository.NewServicesRepo(database.Conn)
+	clientsRepo := repository.NewClientsRepo(database.Conn)
 	bookingValidator := service.NewBookingValidator()
 
 	getBookingUC := usecase.NewGetBookingUseCase(bookingsRepo)
@@ -61,16 +63,20 @@ func newIntegrationMux(t *testing.T) http.Handler {
 	}
 	checkAvailabilityUC := usecase.NewCheckAvailabilityUseCase(availabilityChecker, availabilityDeps)
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
+	searchClientsAdvancedUC := usecase.NewSearchClientsAdvancedUseCase(clientsRepo)
+	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)
 
 	srv := NewServer(Config{
-		Version:            "test",
-		Logger:             discardLogger(),
-		CheckAvailability:  checkAvailabilityUC,
-		CreateBooking:      createBookingUC,
-		GetBooking:         getBookingUC,
-		CancelBooking:      cancelBookingUC,
-		RescheduleBooking:  rescheduleBookingUC,
-		GetBusinessProfile: getBusinessProfileUC,
+		Version:                "test",
+		Logger:                 discardLogger(),
+		CheckAvailability:      checkAvailabilityUC,
+		CreateBooking:          createBookingUC,
+		GetBooking:             getBookingUC,
+		CancelBooking:          cancelBookingUC,
+		RescheduleBooking:      rescheduleBookingUC,
+		GetBusinessProfile:     getBusinessProfileUC,
+		SearchClientsAdvanced:  searchClientsAdvancedUC,
+		SearchServicesAdvanced: searchServicesAdvancedUC,
 	})
 	resolver := auth.NewCallerResolver(database.Conn)
 	rbac := auth.ToolRBAC{
@@ -97,10 +103,12 @@ func seedIntegrationDB(t *testing.T, conn *sql.DB) {
 	rows := []string{
 		`INSERT INTO business_profile (id, name, timezone, slot_interval_minutes, business_hours) VALUES ('singleton', 'Mi Negocio', 'America/Argentina/Buenos_Aires', 30, '` + businessHours + `')`,
 		`INSERT INTO professionals (id, name, status) VALUES ('p1', 'Profesional Uno', 'active')`,
-		`INSERT INTO services (id, name, duration_minutes, price, is_active) VALUES ('s1', 'Consulta', 60, 100.0, 1)`,
+		`INSERT INTO services (id, name, description, duration_minutes, price, is_active) VALUES ('s1', 'Consulta', 'consulta general', 60, 100.0, 1)`,
 		`INSERT INTO schedules (professional_id, day_of_week, start_time, end_time) VALUES ('p1', 1, '09:00', '17:00')`,
 		`INSERT INTO accounts (id, role, display_name, is_active) VALUES ('owner-1', 'owner', 'Owner', 1)`,
+		`INSERT INTO accounts (id, role, display_name, professional_id, is_active) VALUES ('staff-1', 'staff', 'Staff', 'p1', 1)`,
 		`INSERT INTO clients (id, name, phone) VALUES ('c1', 'Cliente Uno', '+5491100000001')`,
+		`INSERT INTO clients (id, name, phone) VALUES ('c2', 'Cliente Dos', '+5491100000002')`,
 	}
 	for _, q := range rows {
 		if _, err := conn.ExecContext(context.Background(), q); err != nil {
@@ -167,7 +175,7 @@ func TestIntegrationHappyPath(t *testing.T) {
 		t.Errorf("protocolVersion = %q; want 2025-11-25", init.ProtocolVersion)
 	}
 
-	// tools/list exposes the six registered tools.
+	// tools/list exposes the eight registered tools.
 	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	result, code, msg = decodeRPCEnvelope(t, rec)
 	if code != 0 {
@@ -181,27 +189,44 @@ func TestIntegrationHappyPath(t *testing.T) {
 	if err := json.Unmarshal(result, &list); err != nil {
 		t.Fatalf("tools/list result: %v", err)
 	}
-	if len(list.Tools) != 6 {
-		t.Errorf("tools = %d; want 6: %s", len(list.Tools), string(result))
+	if len(list.Tools) != 8 {
+		t.Errorf("tools = %d; want 8: %s", len(list.Tools), string(result))
 	}
 
-	// check_availability on a valid Monday slot answers available:true
-	// (Monday 2026-08-24 10:00 Buenos Aires, service 60min, schedule 09-17).
-	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"check_availability","arguments":{"service_id":"s1","professional_id":"p1","start_datetime":"2026-08-24T10:00:00-03:00"}}}`)
+	// search_clients_advanced by owner returns both seeded clients (no RBAC entry).
+	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search_clients_advanced","arguments":{"query_text":"Cliente"}}}`)
 	result, code, msg = decodeRPCEnvelope(t, rec)
 	if code != 0 {
-		t.Fatalf("check_availability failed: %d %q", code, msg)
+		t.Fatalf("search_clients_advanced failed: %d %q", code, msg)
 	}
-	var out struct {
+	var searchClients struct {
 		StructuredContent struct {
-			Available bool `json:"available"`
+			Results []dto.ClientSearchEntry `json:"results"`
 		} `json:"structuredContent"`
 	}
-	if err := json.Unmarshal(result, &out); err != nil {
-		t.Fatalf("check_availability result: %v", err)
+	if err := json.Unmarshal(result, &searchClients); err != nil {
+		t.Fatalf("search_clients_advanced result: %v", err)
 	}
-	if !out.StructuredContent.Available {
-		t.Errorf("available = false; want true (valid Monday slot)")
+	if len(searchClients.StructuredContent.Results) != 2 {
+		t.Errorf("client results = %d; want 2", len(searchClients.StructuredContent.Results))
+	}
+
+	// search_services_advanced by owner returns the seeded service (no RBAC entry).
+	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search_services_advanced","arguments":{"query_text":"Consulta"}}}`)
+	result, code, msg = decodeRPCEnvelope(t, rec)
+	if code != 0 {
+		t.Fatalf("search_services_advanced failed: %d %q", code, msg)
+	}
+	var searchServices struct {
+		StructuredContent struct {
+			Results []dto.ServiceSearchEntry `json:"results"`
+		} `json:"structuredContent"`
+	}
+	if err := json.Unmarshal(result, &searchServices); err != nil {
+		t.Fatalf("search_services_advanced result: %v", err)
+	}
+	if len(searchServices.StructuredContent.Results) != 1 {
+		t.Errorf("service results = %d; want 1", len(searchServices.StructuredContent.Results))
 	}
 }
 

@@ -20,10 +20,10 @@ Chain strategy: stacked-to-main
 
 ## Phase 1: FTS Search (PR 1) — REQ-CL-AUTH-004
 
-- [ ] 1.1 RED: staff-filter tests — linked returned (any status), unlinked excluded, nil professional_id forbidden, admin/owner all, client own row, caller-less rejected (REQ-CL-AUTH-004)
-- [ ] 1.2 GREEN: `RoleStaff` subquery branch in `repository/clients.go` (no status predicate); widen `ClientsRepo.SearchFTS`/`ServicesRepo.SearchFTS` in `domain/repository/`; integration: bm25 kept, no-match → empty
-- [ ] 1.3 Create `dto/search.go` (ClientSearchEntry, ServiceSearchEntry) + use cases `search_clients_advanced.go` (repo-scoped, A5), `search_services_advanced.go` (`RequireRole(owner,admin)`, forbidden error); reuse `validateFTSQuery`; unit-test rejection
-- [ ] 1.4 Add 2 ports (`mcp/ports.go`) + config fields; create `mcp/tools_search.go` (empty `query_text` → invalid input); wire `cmd/mcp-server/main.go` (search: no RBAC entry); e2e: transport role-neutral
+- [x] 1.1 RED: staff-filter tests — linked returned (any status), unlinked excluded, nil professional_id forbidden, admin/owner all, client own row, caller-less rejected (REQ-CL-AUTH-004)
+- [x] 1.2 GREEN: `RoleStaff` subquery branch in `repository/clients.go` (no status predicate); widen `ClientsRepo.SearchFTS`/`ServicesRepo.SearchFTS` in `domain/repository/`; integration: bm25 kept, no-match → empty
+- [x] 1.3 Create `dto/search.go` (ClientSearchEntry, ServiceSearchEntry) + use cases `search_clients_advanced.go` (repo-scoped, A5), `search_services_advanced.go` (`RequireRole(owner,admin)`, forbidden error); reuse `validateFTSQuery`; unit-test rejection
+- [x] 1.4 Add 2 ports (`mcp/ports.go`) + config fields; create `mcp/tools_search.go` (empty `query_text` → invalid input); wire `cmd/mcp-server/main.go` (search: no RBAC entry); e2e: transport role-neutral
 
 ## Phase 2: Alert Lifecycle (PR 2) — REQ-PA-LIFE-001/CANCEL-002
 

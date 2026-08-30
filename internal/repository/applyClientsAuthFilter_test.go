@@ -16,12 +16,19 @@ func TestApplyClientsAuthFilter_ErrorSentinels(t *testing.T) {
 		}
 	})
 
-	t.Run("staff -> ErrForbidden", func(t *testing.T) {
+	t.Run("staff -> subquery scope", func(t *testing.T) {
 		profID := "p1"
 		caller := &auth.Caller{ID: "s1", Role: auth.RoleStaff, ProfessionalID: &profID}
-		_, _, err := applyClientsAuthFilter(caller, "SELECT * FROM clients WHERE x = ?", "", nil)
-		if !errors.Is(err, domain.ErrForbidden) {
-			t.Fatalf("expected ErrForbidden, got %v", err)
+		query, args, err := applyClientsAuthFilter(caller, "SELECT * FROM clients WHERE x = ?", " ORDER BY name", sqlArgs{"val"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := "SELECT * FROM clients WHERE x = ? AND id IN (SELECT client_id FROM bookings WHERE professional_id = ?) ORDER BY name"
+		if query != want {
+			t.Errorf("got query %q, want %q", query, want)
+		}
+		if len(args) != 2 || args[0] != "val" || args[1] != "p1" {
+			t.Errorf("got args %v, want [val p1]", args)
 		}
 	})
 

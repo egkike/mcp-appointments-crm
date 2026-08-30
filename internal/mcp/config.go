@@ -29,12 +29,14 @@ type Config struct {
 	Version string
 	Logger  *slog.Logger
 
-	CheckAvailability  CheckAvailabilityPort
-	CreateBooking      CreateBookingPort
-	GetBooking         GetBookingPort
-	CancelBooking      CancelBookingPort
-	RescheduleBooking  RescheduleBookingPort
-	GetBusinessProfile BusinessProfilePort
+	CheckAvailability      CheckAvailabilityPort
+	CreateBooking          CreateBookingPort
+	GetBooking             GetBookingPort
+	CancelBooking          CancelBookingPort
+	RescheduleBooking      RescheduleBookingPort
+	GetBusinessProfile     BusinessProfilePort
+	SearchClientsAdvanced  SearchClientsAdvancedPort
+	SearchServicesAdvanced SearchServicesAdvancedPort
 }
 
 // LoadConfig resolves MCP_BIND and MCP_PORT with ADR-0007 precedence:

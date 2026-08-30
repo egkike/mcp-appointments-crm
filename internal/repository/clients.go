@@ -31,6 +31,9 @@ type sqlArgs = []any
 // baseQuery must end at the WHERE clause (no trailing ORDER BY/LIMIT). suffix
 // holds any trailing clauses and is appended after the optional scope filter.
 // This avoids parsing SQL with string searches.
+//
+// filterClause is built only from the allowlisted constants below; callers never
+// pass dynamic SQL fragments.
 func applyClientsAuthFilter(caller *auth.Caller, baseQuery string, suffix string, baseArgs sqlArgs) (string, sqlArgs, error) {
 	if caller == nil { // defensive backstop; callers use RequireCaller first
 		return "", nil, &domain.SemanticError{
@@ -43,8 +46,13 @@ func applyClientsAuthFilter(caller *auth.Caller, baseQuery string, suffix string
 	args := make(sqlArgs, len(baseArgs), len(baseArgs)+1)
 	copy(args, baseArgs)
 
+	const (
+		filterByClientID      = " AND id = ?"
+		filterByStaffBookings = " AND id IN (SELECT client_id FROM bookings WHERE professional_id = ?)"
+	)
+
 	var filterClause string
-	var filterArg any
+	var filterArg string
 	switch caller.Role {
 	case auth.RoleClient:
 		if caller.ClientID == nil {
@@ -54,8 +62,18 @@ func applyClientsAuthFilter(caller *auth.Caller, baseQuery string, suffix string
 				Cause:   domain.ErrForbidden,
 			}
 		}
-		filterClause = " AND id = ?"
+		filterClause = filterByClientID
 		filterArg = *caller.ClientID
+	case auth.RoleStaff:
+		if caller.ProfessionalID == nil {
+			return "", nil, &domain.SemanticError{
+				Code:    domain.ErrCodeForbidden,
+				Message: "Personal no tiene un profesional asignado",
+				Cause:   domain.ErrForbidden,
+			}
+		}
+		filterClause = filterByStaffBookings
+		filterArg = *caller.ProfessionalID
 	case auth.RoleAdmin, auth.RoleOwner:
 		// no extra filter
 	default:
@@ -125,7 +143,7 @@ func (r *ClientsRepo) Create(ctx context.Context, c *entity.Client) error {
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("crear cliente: el teléfono %s ya existe: %w", c.Phone, domain.ErrConflict)
+			return fmt.Errorf("crear cliente: el teléfono ya está registrado: %w", domain.ErrConflict)
 		}
 		return fmt.Errorf("crear cliente: %w", err)
 	}
@@ -212,7 +230,11 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*ent
 	// their own record using the phone number they are calling from.
 	if caller.Role != auth.RoleAdmin && caller.Role != auth.RoleOwner {
 		if caller.Role != auth.RoleClient || phone == "" || phone != caller.ID {
-			return nil, fmt.Errorf("obtener o crear cliente: %w", domain.ErrForbidden)
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeForbidden,
+				Message: "no tienes permiso para realizar esta acción",
+				Cause:   domain.ErrForbidden,
+			}
 		}
 	}
 
@@ -271,7 +293,7 @@ func (r *ClientsRepo) Update(ctx context.Context, c *entity.Client) error {
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("actualizar cliente: el teléfono %s ya existe: %w", c.Phone, domain.ErrConflict)
+			return fmt.Errorf("actualizar cliente: el teléfono ya está registrado: %w", domain.ErrConflict)
 		}
 		return fmt.Errorf("actualizar cliente: %w", err)
 	}
@@ -320,10 +342,10 @@ func (r *ClientsRepo) SearchFTS(ctx context.Context, query string) ([]*entity.Cl
 	sqlQuery := `SELECT c.id, c.name, c.phone, c.email, c.preferences,
 		c.created_at, c.updated_at
 		 FROM clients c
-		 JOIN clients_fts f ON c.rowid = f.rowid
-		 WHERE f MATCH ?`
+		 JOIN clients_fts ON c.rowid = clients_fts.rowid
+		 WHERE clients_fts MATCH ?`
 	args := sqlArgs{query}
-	suffix := " ORDER BY bm25(f)"
+	suffix := " ORDER BY bm25(clients_fts)"
 	sqlQuery, args, err = applyClientsAuthFilter(caller, sqlQuery, suffix, args)
 	if err != nil {
 		return nil, fmt.Errorf("buscar clientes: %w", err)

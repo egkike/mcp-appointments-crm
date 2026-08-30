@@ -594,7 +594,7 @@ func TestServicesRepo_SearchFTS(t *testing.T) {
 			WithArgs("Corte").
 			WillReturnRows(rows)
 
-		results, err := repo.SearchFTS(context.Background(), "Corte")
+		results, err := repo.SearchFTS(adminCtx(), "Corte")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -619,7 +619,7 @@ func TestServicesRepo_SearchFTS(t *testing.T) {
 			WithArgs("María").
 			WillReturnRows(rows)
 
-		results, err := repo.SearchFTS(context.Background(), "María")
+		results, err := repo.SearchFTS(adminCtx(), "María")
 		if err != nil {
 			t.Fatalf("expected no error for accented query, got: %v", err)
 		}
@@ -632,7 +632,7 @@ func TestServicesRepo_SearchFTS(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		_, err := repo.SearchFTS(context.Background(), "")
+		_, err := repo.SearchFTS(adminCtx(), "")
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty query, got %v", err)
 		}
@@ -642,7 +642,7 @@ func TestServicesRepo_SearchFTS(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewServicesRepo(db)
 
-		_, err := repo.SearchFTS(context.Background(), "corte* OR algo")
+		_, err := repo.SearchFTS(adminCtx(), "corte* OR algo")
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for query with *, got %v", err)
 		}
@@ -656,7 +656,7 @@ func TestServicesRepo_SearchFTS(t *testing.T) {
 			WithArgs("corte").
 			WillReturnError(errors.New("FTS5 corrupt"))
 
-		_, err := repo.SearchFTS(context.Background(), "corte")
+		_, err := repo.SearchFTS(adminCtx(), "corte")
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}

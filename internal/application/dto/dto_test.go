@@ -25,6 +25,10 @@ func TestDTOPackageCompiles(t *testing.T) {
 	_ = GetBookingInput{}
 	_ = GetBookingResult{}
 	_ = BookingView{}
+	_ = SearchClientsAdvancedInput{}
+	_ = SearchClientsAdvancedResult{}
+	_ = SearchServicesAdvancedInput{}
+	_ = SearchServicesAdvancedResult{}
 }
 
 // TestCallerFieldNotSerialized verifies that the Caller field on every Input
@@ -38,6 +42,8 @@ func TestCallerFieldNotSerialized(t *testing.T) {
 		RescheduleBookingInput{Caller: caller, BookingID: "b1"},
 		CheckAvailabilityInput{Caller: caller, ServiceID: "s1"},
 		GetBookingInput{Caller: caller, BookingID: "b1"},
+		SearchClientsAdvancedInput{Caller: caller, QueryText: "juan"},
+		SearchServicesAdvancedInput{Caller: caller, QueryText: "corte"},
 	}
 	for _, input := range inputs {
 		data, err := json.Marshal(input)

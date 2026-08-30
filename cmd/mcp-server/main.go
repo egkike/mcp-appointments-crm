@@ -123,6 +123,7 @@ func run() error {
 	prosRepo := repository.NewProfessionalsRepo(database.Conn)
 	schedulesRepo := repository.NewSchedulesRepo(database.Conn)
 	servicesRepo := repository.NewServicesRepo(database.Conn)
+	clientsRepo := repository.NewClientsRepo(database.Conn)
 
 	// TASK-FU.3: BookingValidator is stateless — construct once, share between
 	// CreateBookingUseCase and RescheduleBookingUseCase. Both use cases accept
@@ -168,6 +169,10 @@ func run() error {
 	// 6th use case (Q3): get_business_profile wraps the singleton profile repo.
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
 
+	// PR 1 (Phase 1): caller-scoped FTS search use cases.
+	searchClientsAdvancedUC := usecase.NewSearchClientsAdvancedUseCase(clientsRepo)
+	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)
+
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
 	// Every /mcp request must carry X-Caller-Id; check_availability has no
@@ -190,14 +195,16 @@ func run() error {
 	// (internal/mcp/ports.go). A nil port would leave its tool unregistered;
 	// the production composition injects all six.
 	srv := mcp.NewServer(mcp.Config{
-		Version:            cfg.Version,
-		Logger:             logger,
-		CheckAvailability:  checkAvailabilityUC,
-		CreateBooking:      createBookingUC,
-		GetBooking:         getBookingUC,
-		CancelBooking:      cancelBookingUC,
-		RescheduleBooking:  rescheduleBookingUC,
-		GetBusinessProfile: getBusinessProfileUC,
+		Version:                cfg.Version,
+		Logger:                 logger,
+		CheckAvailability:      checkAvailabilityUC,
+		CreateBooking:          createBookingUC,
+		GetBooking:             getBookingUC,
+		CancelBooking:          cancelBookingUC,
+		RescheduleBooking:      rescheduleBookingUC,
+		GetBusinessProfile:     getBusinessProfileUC,
+		SearchClientsAdvanced:  searchClientsAdvancedUC,
+		SearchServicesAdvanced: searchServicesAdvancedUC,
 	})
 
 	mux := http.NewServeMux()
@@ -222,7 +229,7 @@ func run() error {
 		"addr", httpSrv.Addr,
 		"version", cfg.Version,
 		"repos", 6,
-		"usecases", 6,
+		"usecases", 8,
 		"booking_validator_shared", true,
 	)
 

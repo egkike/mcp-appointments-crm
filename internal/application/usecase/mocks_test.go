@@ -107,6 +107,7 @@ type mockServicesRepo struct {
 	SaveFn       func(ctx context.Context, s *entity.Service) error
 	UpdateFn     func(ctx context.Context, s *entity.Service) error
 	DeleteFn     func(ctx context.Context, id string) error
+	SearchFTSFn  func(ctx context.Context, query string) ([]*entity.Service, error)
 }
 
 func (m *mockServicesRepo) FindByID(ctx context.Context, id string) (*entity.Service, error) {
@@ -142,6 +143,50 @@ func (m *mockServicesRepo) Delete(ctx context.Context, id string) error {
 		panic("mockServicesRepo.DeleteFn not set")
 	}
 	return m.DeleteFn(ctx, id)
+}
+
+func (m *mockServicesRepo) SearchFTS(ctx context.Context, query string) ([]*entity.Service, error) {
+	if m.SearchFTSFn == nil {
+		panic("mockServicesRepo.SearchFTSFn not set")
+	}
+	return m.SearchFTSFn(ctx, query)
+}
+
+// --- mockClientsRepo ---
+
+type mockClientsRepo struct {
+	FindByIDFn    func(ctx context.Context, id string) (*entity.Client, error)
+	FindByPhoneFn func(ctx context.Context, phone string) (*entity.Client, error)
+	SaveFn        func(ctx context.Context, c *entity.Client) error
+	SearchFTSFn   func(ctx context.Context, query string) ([]*entity.Client, error)
+}
+
+func (m *mockClientsRepo) FindByID(ctx context.Context, id string) (*entity.Client, error) {
+	if m.FindByIDFn == nil {
+		panic("mockClientsRepo.FindByIDFn not set")
+	}
+	return m.FindByIDFn(ctx, id)
+}
+
+func (m *mockClientsRepo) FindByPhone(ctx context.Context, phone string) (*entity.Client, error) {
+	if m.FindByPhoneFn == nil {
+		panic("mockClientsRepo.FindByPhoneFn not set")
+	}
+	return m.FindByPhoneFn(ctx, phone)
+}
+
+func (m *mockClientsRepo) Save(ctx context.Context, c *entity.Client) error {
+	if m.SaveFn == nil {
+		panic("mockClientsRepo.SaveFn not set")
+	}
+	return m.SaveFn(ctx, c)
+}
+
+func (m *mockClientsRepo) SearchFTS(ctx context.Context, query string) ([]*entity.Client, error) {
+	if m.SearchFTSFn == nil {
+		panic("mockClientsRepo.SearchFTSFn not set")
+	}
+	return m.SearchFTSFn(ctx, query)
 }
 
 // --- mockAvailabilityChecker ---
