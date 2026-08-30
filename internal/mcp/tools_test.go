@@ -226,9 +226,9 @@ func fixedTime() time.Time {
 	return time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 }
 
-// ── tools/list exposes exactly the six registered tools ──
+// ── tools/list exposes exactly the eight registered tools ──
 
-func TestToolsListSixTools(t *testing.T) {
+func TestToolsListEightTools(t *testing.T) {
 	srv, _ := newToolServer(t)
 	rec := callMethod(srv.Handler(), "tools/list", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 

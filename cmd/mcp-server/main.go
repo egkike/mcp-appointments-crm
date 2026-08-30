@@ -229,7 +229,7 @@ func run() error {
 		"addr", httpSrv.Addr,
 		"version", cfg.Version,
 		"repos", 6,
-		"usecases", 6,
+		"usecases", 8,
 		"booking_validator_shared", true,
 	)
 

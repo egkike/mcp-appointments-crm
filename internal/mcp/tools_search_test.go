@@ -9,6 +9,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/repository"
 )
 
 func TestToolSearchClientsAdvanced(t *testing.T) {
@@ -116,4 +117,16 @@ func TestSearchToolsUseCaseErrorPropagates(t *testing.T) {
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "search_clients_advanced",
 		`{"query_text":"juan"}`))
 	wantErrorCode(t, resp, -32603)
+}
+
+func TestMaxFTSQueryLenMatchesRepository(t *testing.T) {
+	if maxFTSQueryLen != repository.MaxFTSQueryLen {
+		t.Errorf("mcp.maxFTSQueryLen (%d) != repository.MaxFTSQueryLen (%d); keep transport and repository limits in sync", maxFTSQueryLen, repository.MaxFTSQueryLen)
+	}
+	if maxFTSQueryLen != 200 {
+		t.Errorf("mcp.maxFTSQueryLen = %d; want 200", maxFTSQueryLen)
+	}
+	if repository.MaxFTSQueryLen != 200 {
+		t.Errorf("repository.MaxFTSQueryLen = %d; want 200", repository.MaxFTSQueryLen)
+	}
 }
