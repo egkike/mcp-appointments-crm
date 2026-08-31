@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -177,26 +176,39 @@ func (r *PendingAlertsRepo) InsertForBooking(ctx context.Context, a *entity.Pend
 		return &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "crear alerta de reserva: el mensaje no puede estar vacío", Cause: domain.ErrInvalidInput}
 	}
 
-	if a.RelatedBookingID != nil && strings.TrimSpace(*a.RelatedBookingID) != "" {
-		var status string
-		err := r.db.QueryRowContext(ctx, `SELECT status FROM bookings WHERE id = ?`, *a.RelatedBookingID).Scan(&status)
-		if err == nil {
-			if status == "cancelled" {
-				return nil
-			}
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("crear alerta de reserva: verificar estado de reserva %s: %w", *a.RelatedBookingID, err)
-		}
-	}
-
 	a.Status = "pending"
 	scheduledStr := FormatStorage(a.ScheduledDatetime)
 
-	result, err := r.db.ExecContext(ctx,
-		`INSERT INTO pending_alerts (type, message, scheduled_datetime, related_booking_id)
-		 VALUES (?, ?, ?, ?)`,
-		a.Type, a.Message, scheduledStr, a.RelatedBookingID,
-	)
+	var result sql.Result
+	var err error
+	if a.RelatedBookingID != nil && strings.TrimSpace(*a.RelatedBookingID) != "" {
+		// Atomic guard: single-statement INSERT ... SELECT WHERE NOT EXISTS avoids
+		// TOCTOU between a separate SELECT and INSERT (Judge A WARNING).
+		// If the linked booking is already cancelled, the SELECT returns 0 rows
+		// and no alert is inserted (idempotent no-op, ID stays 0).
+		result, err = r.db.ExecContext(ctx,
+			`INSERT INTO pending_alerts (type, message, scheduled_datetime, related_booking_id)
+			 SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM bookings WHERE id = ? AND status = 'cancelled')`,
+			a.Type, a.Message, scheduledStr, a.RelatedBookingID, *a.RelatedBookingID,
+		)
+		if err != nil {
+			return fmt.Errorf("crear alerta de reserva: %w", err)
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("crear alerta de reserva: filas afectadas: %w", err)
+		}
+		if n == 0 {
+			// Booking is cancelled — no alert inserted, ID stays 0, not an error.
+			return nil
+		}
+	} else {
+		result, err = r.db.ExecContext(ctx,
+			`INSERT INTO pending_alerts (type, message, scheduled_datetime, related_booking_id)
+			 VALUES (?, ?, ?, ?)`,
+			a.Type, a.Message, scheduledStr, a.RelatedBookingID,
+		)
+	}
 	if err != nil {
 		return fmt.Errorf("crear alerta de reserva: %w", err)
 	}

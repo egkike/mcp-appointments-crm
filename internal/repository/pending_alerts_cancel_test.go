@@ -20,11 +20,8 @@ func TestPendingAlertsRepo_InsertForBooking(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
-		mock.ExpectQuery(`SELECT status FROM bookings WHERE id = \?`).
-			WithArgs(bookingID).
-			WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("pending"))
-		mock.ExpectExec(`INSERT INTO pending_alerts \(type, message, scheduled_datetime, related_booking_id\) VALUES \(\?, \?, \?, \?\)`).
-			WithArgs("confirmation_requested", "Confirmar reserva", FormatStorage(scheduled), &bookingID).
+		mock.ExpectExec(`INSERT INTO pending_alerts \(type, message, scheduled_datetime, related_booking_id\) SELECT \?, \?, \?, \? WHERE NOT EXISTS`).
+			WithArgs("confirmation_requested", "Confirmar reserva", FormatStorage(scheduled), &bookingID, bookingID).
 			WillReturnResult(sqlmock.NewResult(42, 1))
 
 		id := "p1"
@@ -44,9 +41,9 @@ func TestPendingAlertsRepo_InsertForBooking(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
-		mock.ExpectQuery(`SELECT status FROM bookings WHERE id = \?`).
-			WithArgs(bookingID).
-			WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("cancelled"))
+		mock.ExpectExec(`INSERT INTO pending_alerts \(type, message, scheduled_datetime, related_booking_id\) SELECT \?, \?, \?, \? WHERE NOT EXISTS`).
+			WithArgs("confirmation_requested", "Confirmar reserva", FormatStorage(scheduled), &bookingID, bookingID).
+			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		ctx := auth.WithCaller(context.Background(), auth.Caller{ID: "staff-1", Role: auth.RoleStaff})
 		alert := &entity.PendingAlert{
