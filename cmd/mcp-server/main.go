@@ -133,22 +133,26 @@ func run() error {
 
 	// ── Wire the 5 domain use cases ──
 
+	// Pending alerts adapter for booking lifecycle (create/cancel/reschedule).
+	pendingAlertsRepo := repository.NewPendingAlertsRepo(database.Conn)
+	alertStore := usecase.NewEnsurePendingAlertsRepo(pendingAlertsRepo)
+
 	// 1-arg use cases: only Bookings repo needed.
 	getBookingUC := usecase.NewGetBookingUseCase(bookingsRepo)
-	cancelBookingUC := usecase.NewCancelBookingUseCase(bookingsRepo)
+	cancelBookingUC := usecase.NewCancelBookingUseCase(bookingsRepo, alertStore, logger)
 
-	// 7-arg use cases: bookings + 5 resolution repos + shared validator.
+	// 7-arg use cases: bookings + 5 resolution repos + shared validator + alert store.
 	// These are the first production callers of the expanded constructors
 	// from feat-booking-validator-service.
 	createBookingUC := usecase.NewCreateBookingUseCase(
 		bookingsRepo, servicesRepo, prosRepo,
 		bizProfRepo, bizHoursExRepo, schedulesRepo,
-		bookingValidator,
+		clientsRepo, bookingValidator, alertStore, logger,
 	)
 	rescheduleBookingUC := usecase.NewRescheduleBookingUseCase(
 		bookingsRepo, servicesRepo, prosRepo,
 		bizProfRepo, bizHoursExRepo, schedulesRepo,
-		bookingValidator,
+		clientsRepo, bookingValidator, alertStore, logger,
 	)
 
 	// CheckAvailability: different shape — takes an AvailabilityChecker
@@ -173,6 +177,10 @@ func run() error {
 	searchClientsAdvancedUC := usecase.NewSearchClientsAdvancedUseCase(clientsRepo)
 	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)
 
+	// PR 2 (Phase 2): alert lifecycle use cases.
+	getPendingAlertsUC := usecase.NewGetPendingAlertsUseCase(pendingAlertsRepo)
+	markAlertAsSentUC := usecase.NewMarkAlertAsSentUseCase(pendingAlertsRepo)
+
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
 	// Every /mcp request must carry X-Caller-Id; check_availability has no
@@ -186,6 +194,8 @@ func run() error {
 		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
 		"get_booking":          {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
+		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
 
@@ -205,6 +215,8 @@ func run() error {
 		GetBusinessProfile:     getBusinessProfileUC,
 		SearchClientsAdvanced:  searchClientsAdvancedUC,
 		SearchServicesAdvanced: searchServicesAdvancedUC,
+		GetPendingAlerts:       getPendingAlertsUC,
+		MarkAlertAsSent:        markAlertAsSentUC,
 	})
 
 	mux := http.NewServeMux()

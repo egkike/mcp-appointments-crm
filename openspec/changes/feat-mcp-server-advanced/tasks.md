@@ -27,11 +27,11 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Alert Lifecycle (PR 2) — REQ-PA-LIFE-001/CANCEL-002
 
-- [ ] 2.1 RED: `CancelByBookingID` tests — pending-only transition, sent/cancelled untouched, no-match nil, idempotent (REQ-PA-CANCEL-002)
-- [ ] 2.2 GREEN: `InsertForBooking` (RequireCaller) + pending-only `CancelByBookingID` in `repository/pending_alerts.go`; create `usecase/alerts.go` (AlertLifecycleStore port, Paso-5 builder UTC, log-don't-fail helper); unit-test message
-- [ ] 2.3 Create `dto/alerts.go`; use cases `get_pending_alerts.go` (`RequireRole(owner,admin)`, oldest-first) + `mark_alert_as_sent.go`; unit tests
-- [ ] 2.4 Inject store into create/cancel/reschedule_booking post-commit: insert `confirmation_requested` / cancel / cancel+insert; alert-save failure logs, booking succeeds (REQ-PA-LIFE-001); integration -race: lifecycle+failure path
-- [ ] 2.5 Add 2 ports/config fields; register tools in `mcp/tools_alerts.go`; add `ToolRBAC` `{owner,admin}` entries in main.go; e2e: staff/client → `-32001` Spanish error
+- [x] 2.1 RED: `CancelByBookingID` tests — pending-only transition, sent/cancelled untouched, no-match nil, idempotent (REQ-PA-CANCEL-002)
+- [x] 2.2 GREEN: `InsertForBooking` (RequireCaller) + pending-only `CancelByBookingID` in `repository/pending_alerts.go`; create `usecase/alerts.go` (AlertLifecycleStore port, Paso-5 builder UTC, log-don't-fail helper); unit-test message
+- [x] 2.3 Create `dto/alerts.go`; use cases `get_pending_alerts.go` (`RequireRole(owner,admin)`, oldest-first) + `mark_alert_as_sent.go`; unit tests
+- [x] 2.4 Inject store into create/cancel/reschedule_booking post-commit: insert `confirmation_requested` / cancel / cancel+insert; alert-save failure logs, booking succeeds (REQ-PA-LIFE-001); integration -race: lifecycle+failure path
+- [x] 2.5 Add 2 ports/config fields; register tools in `mcp/tools_alerts.go`; add `ToolRBAC` `{owner,admin}` entries in main.go; e2e: staff/client → `-32001` Spanish error
 
 ## Phase 3: Loyalty Report (PR 3) — REQ-BK-AGG-001, REQ-LR-001..004
 

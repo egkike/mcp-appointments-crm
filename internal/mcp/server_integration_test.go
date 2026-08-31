@@ -42,15 +42,17 @@ func newIntegrationMux(t *testing.T) http.Handler {
 	schedulesRepo := repository.NewSchedulesRepo(database.Conn)
 	servicesRepo := repository.NewServicesRepo(database.Conn)
 	clientsRepo := repository.NewClientsRepo(database.Conn)
+	pendingAlertsRepo := repository.NewPendingAlertsRepo(database.Conn)
 	bookingValidator := service.NewBookingValidator()
+	alertStore := usecase.NewEnsurePendingAlertsRepo(pendingAlertsRepo)
 
 	getBookingUC := usecase.NewGetBookingUseCase(bookingsRepo)
-	cancelBookingUC := usecase.NewCancelBookingUseCase(bookingsRepo)
+	cancelBookingUC := usecase.NewCancelBookingUseCase(bookingsRepo, alertStore, nil)
 	createBookingUC := usecase.NewCreateBookingUseCase(
-		bookingsRepo, servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, bookingValidator,
+		bookingsRepo, servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, clientsRepo, bookingValidator, alertStore, nil,
 	)
 	rescheduleBookingUC := usecase.NewRescheduleBookingUseCase(
-		bookingsRepo, servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, bookingValidator,
+		bookingsRepo, servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, clientsRepo, bookingValidator, alertStore, nil,
 	)
 	availabilityChecker := service.NewAvailabilityService()
 	availabilityDeps := service.AvailabilityDeps{
@@ -65,6 +67,8 @@ func newIntegrationMux(t *testing.T) http.Handler {
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
 	searchClientsAdvancedUC := usecase.NewSearchClientsAdvancedUseCase(clientsRepo)
 	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)
+	getPendingAlertsUC := usecase.NewGetPendingAlertsUseCase(pendingAlertsRepo)
+	markAlertAsSentUC := usecase.NewMarkAlertAsSentUseCase(pendingAlertsRepo)
 
 	srv := NewServer(Config{
 		Version:                "test",
@@ -77,6 +81,8 @@ func newIntegrationMux(t *testing.T) http.Handler {
 		GetBusinessProfile:     getBusinessProfileUC,
 		SearchClientsAdvanced:  searchClientsAdvancedUC,
 		SearchServicesAdvanced: searchServicesAdvancedUC,
+		GetPendingAlerts:       getPendingAlertsUC,
+		MarkAlertAsSent:        markAlertAsSentUC,
 	})
 	resolver := auth.NewCallerResolver(database.Conn)
 	rbac := auth.ToolRBAC{
@@ -85,6 +91,8 @@ func newIntegrationMux(t *testing.T) http.Handler {
 		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
 		"get_booking":          {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
+		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, discardLogger())
 
@@ -175,7 +183,7 @@ func TestIntegrationHappyPath(t *testing.T) {
 		t.Errorf("protocolVersion = %q; want 2025-11-25", init.ProtocolVersion)
 	}
 
-	// tools/list exposes the eight registered tools.
+	// tools/list exposes the ten registered tools (8 original + 2 alerts PR2).
 	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	result, code, msg = decodeRPCEnvelope(t, rec)
 	if code != 0 {
@@ -189,8 +197,8 @@ func TestIntegrationHappyPath(t *testing.T) {
 	if err := json.Unmarshal(result, &list); err != nil {
 		t.Fatalf("tools/list result: %v", err)
 	}
-	if len(list.Tools) != 8 {
-		t.Errorf("tools = %d; want 8: %s", len(list.Tools), string(result))
+	if len(list.Tools) != 10 {
+		t.Errorf("tools = %d; want 10: %s", len(list.Tools), string(result))
 	}
 
 	// search_clients_advanced by owner returns both seeded clients (no RBAC entry).

@@ -21,4 +21,12 @@ type PendingAlertsRepo interface {
 
 	// Cancel transitions the alert to cancelled status by ID.
 	Cancel(ctx context.Context, id int) error
+
+	// InsertForBooking inserts a new pending alert from a booking-scoped caller.
+	// It validates the alert type and message but does NOT require owner/admin role.
+	InsertForBooking(ctx context.Context, a *entity.PendingAlert) error
+
+	// CancelByBookingID cancels all pending alerts associated with a booking.
+	// Idempotent: returns nil when no pending alert exists.
+	CancelByBookingID(ctx context.Context, bookingID string) error
 }

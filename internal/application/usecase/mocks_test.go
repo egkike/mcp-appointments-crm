@@ -360,6 +360,43 @@ func businessProfileUTC() *entity.BusinessProfile {
 	}
 }
 
+type mockPendingAlertsRepo struct {
+	findPendingResult []*entity.PendingAlert
+	markAsSentID      int
+	markAsSentErr     error
+	cancelErr         error
+	inserted          []*entity.PendingAlert
+	cancelled         []string
+}
+
+func (m *mockPendingAlertsRepo) Save(ctx context.Context, a *entity.PendingAlert) error {
+	m.inserted = append(m.inserted, a)
+	return nil
+}
+
+func (m *mockPendingAlertsRepo) FindPending(ctx context.Context, now time.Time) ([]*entity.PendingAlert, error) {
+	return m.findPendingResult, nil
+}
+
+func (m *mockPendingAlertsRepo) MarkAsSent(ctx context.Context, id int) error {
+	m.markAsSentID = id
+	return m.markAsSentErr
+}
+
+func (m *mockPendingAlertsRepo) Cancel(ctx context.Context, id int) error {
+	return m.cancelErr
+}
+
+func (m *mockPendingAlertsRepo) InsertForBooking(ctx context.Context, a *entity.PendingAlert) error {
+	m.inserted = append(m.inserted, a)
+	return nil
+}
+
+func (m *mockPendingAlertsRepo) CancelByBookingID(ctx context.Context, bookingID string) error {
+	m.cancelled = append(m.cancelled, bookingID)
+	return m.cancelErr
+}
+
 func pendingBooking() *entity.Booking {
 	return &entity.Booking{
 		ID:             "b1",

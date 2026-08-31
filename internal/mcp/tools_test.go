@@ -83,6 +83,22 @@ func (m *mockSearchServicesAdvancedPort) Execute(ctx context.Context, in dto.Sea
 	return m.executeFn(ctx, in)
 }
 
+type mockGetPendingAlertsPort struct {
+	executeFn func(ctx context.Context, in dto.GetPendingAlertsInput) (*dto.GetPendingAlertsResult, error)
+}
+
+func (m *mockGetPendingAlertsPort) Execute(ctx context.Context, in dto.GetPendingAlertsInput) (*dto.GetPendingAlertsResult, error) {
+	return m.executeFn(ctx, in)
+}
+
+type mockMarkAlertAsSentPort struct {
+	executeFn func(ctx context.Context, in dto.MarkAlertAsSentInput) (*dto.MarkAlertAsSentResult, error)
+}
+
+func (m *mockMarkAlertAsSentPort) Execute(ctx context.Context, in dto.MarkAlertAsSentInput) (*dto.MarkAlertAsSentResult, error) {
+	return m.executeFn(ctx, in)
+}
+
 // ── helpers ──
 
 func ownerCaller() auth.Caller {
@@ -94,7 +110,7 @@ func ownerCallerPtr() *auth.Caller {
 	return &c
 }
 
-// newToolServer builds a Server with all eight ports mocked and returns its
+// newToolServer builds a Server with all ten ports mocked and returns its
 // unauthenticated Handler (unit level: caller is injected via the request
 // context, exactly as AuthMiddleware would).
 func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
@@ -111,31 +127,37 @@ func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
 		GetBusinessProfile:     ports.profile,
 		SearchClientsAdvanced:  ports.searchClients,
 		SearchServicesAdvanced: ports.searchServices,
+		GetPendingAlerts:       ports.getPendingAlerts,
+		MarkAlertAsSent:        ports.markAlertAsSent,
 	})
 	return srv, ports
 }
 
 type mockToolPorts struct {
-	checkAvail     *mockCheckAvailabilityPort
-	create         *mockCreateBookingPort
-	get            *mockGetBookingPort
-	cancel         *mockCancelBookingPort
-	reschedule     *mockRescheduleBookingPort
-	profile        *mockBusinessProfilePort
-	searchClients  *mockSearchClientsAdvancedPort
-	searchServices *mockSearchServicesAdvancedPort
+	checkAvail       *mockCheckAvailabilityPort
+	create           *mockCreateBookingPort
+	get              *mockGetBookingPort
+	cancel           *mockCancelBookingPort
+	reschedule       *mockRescheduleBookingPort
+	profile          *mockBusinessProfilePort
+	searchClients    *mockSearchClientsAdvancedPort
+	searchServices   *mockSearchServicesAdvancedPort
+	getPendingAlerts *mockGetPendingAlertsPort
+	markAlertAsSent  *mockMarkAlertAsSentPort
 }
 
 func newMockPorts() *mockToolPorts {
 	return &mockToolPorts{
-		checkAvail:     &mockCheckAvailabilityPort{},
-		create:         &mockCreateBookingPort{},
-		get:            &mockGetBookingPort{},
-		cancel:         &mockCancelBookingPort{},
-		reschedule:     &mockRescheduleBookingPort{},
-		profile:        &mockBusinessProfilePort{},
-		searchClients:  &mockSearchClientsAdvancedPort{},
-		searchServices: &mockSearchServicesAdvancedPort{},
+		checkAvail:       &mockCheckAvailabilityPort{},
+		create:           &mockCreateBookingPort{},
+		get:              &mockGetBookingPort{},
+		cancel:           &mockCancelBookingPort{},
+		reschedule:       &mockRescheduleBookingPort{},
+		profile:          &mockBusinessProfilePort{},
+		searchClients:    &mockSearchClientsAdvancedPort{},
+		searchServices:   &mockSearchServicesAdvancedPort{},
+		getPendingAlerts: &mockGetPendingAlertsPort{},
+		markAlertAsSent:  &mockMarkAlertAsSentPort{},
 	}
 }
 
@@ -226,7 +248,7 @@ func fixedTime() time.Time {
 	return time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 }
 
-// ── tools/list exposes exactly the eight registered tools ──
+// ── tools/list exposes exactly the ten registered tools (8 + 2 alerts PR2) ──
 
 func TestToolsListEightTools(t *testing.T) {
 	srv, _ := newToolServer(t)
@@ -242,7 +264,7 @@ func TestToolsListEightTools(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
 	}
-	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced"}
+	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent"}
 	if len(resp.Result.Tools) != len(want) {
 		t.Fatalf("tools/list returned %d tools; want %d: %s", len(resp.Result.Tools), len(want), mustJSON(t, resp.Result.Tools))
 	}

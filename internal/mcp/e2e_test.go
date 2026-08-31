@@ -56,8 +56,8 @@ func TestE2EMockClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 8 {
-		t.Errorf("tools = %d; want 8", len(tools.Tools))
+	if len(tools.Tools) != 10 {
+		t.Errorf("tools = %d; want 10", len(tools.Tools))
 	}
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{

@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 )
@@ -23,7 +26,10 @@ type RescheduleBookingUseCase struct {
 	bizProf   repository.BusinessProfileRepo
 	bizEx     repository.BusinessHoursExceptionRepo
 	schedules repository.SchedulesRepo
+	clients   repository.ClientsRepo
 	validator bookingValidator
+	alerts    AlertLifecycleStore
+	logger    *slog.Logger
 }
 
 // NewRescheduleBookingUseCase constructs a RescheduleBookingUseCase with the given dependencies.
@@ -33,6 +39,9 @@ type RescheduleBookingUseCase struct {
 // validator call (design.md §3.4). The validator is accepted as the narrow
 // bookingValidator interface so tests can inject a mock; production wiring
 // (P4) passes the concrete *service.BookingValidator.
+//
+// The alerts port cancels the previous confirmation alert and emits a new one
+// after the booking is rescheduled. Pass nil to keep alert lifecycle disabled.
 func NewRescheduleBookingUseCase(
 	bookings repository.BookingsRepo,
 	services repository.ServicesRepo,
@@ -40,7 +49,10 @@ func NewRescheduleBookingUseCase(
 	bizProf repository.BusinessProfileRepo,
 	bizEx repository.BusinessHoursExceptionRepo,
 	schedules repository.SchedulesRepo,
+	clients repository.ClientsRepo,
 	validator bookingValidator,
+	alerts AlertLifecycleStore,
+	logger *slog.Logger,
 ) *RescheduleBookingUseCase {
 	return &RescheduleBookingUseCase{
 		bookings:  bookings,
@@ -49,7 +61,10 @@ func NewRescheduleBookingUseCase(
 		bizProf:   bizProf,
 		bizEx:     bizEx,
 		schedules: schedules,
+		clients:   clients,
 		validator: validator,
+		alerts:    alerts,
+		logger:    logger,
 	}
 }
 
@@ -127,6 +142,7 @@ func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.Resch
 		}
 		return nil, fmt.Errorf("reprogramar reserva: %w", err)
 	}
+	uc.reissueConfirmationAlert(ctx, booking, slot.Professional.Name, input.NewStartTime)
 	// Status preserved: RescheduleBookingUseCase.Execute only changes the
 	// start_datetime of an existing booking; it does NOT change the
 	// booking's status (pending/confirmed/cancelled stays as-is). The
@@ -138,4 +154,40 @@ func (uc *RescheduleBookingUseCase) Execute(ctx context.Context, input dto.Resch
 		StartDatetime: input.NewStartTime,
 		EndDatetime:   newEnd,
 	}, nil
+}
+
+// reissueConfirmationAlert cancels any pending alert for the booking and inserts
+// a new confirmation alert with the updated start time. Failures are logged and
+// intentionally do not affect the booking result.
+func (uc *RescheduleBookingUseCase) reissueConfirmationAlert(ctx context.Context, booking *entity.Booking, proName string, start time.Time) {
+	if uc.alerts == nil {
+		return
+	}
+	if err := uc.alerts.CancelByBookingID(ctx, booking.ID); err != nil {
+		LogAlertFailure(uc.logger, "reschedule_cancel_alert", booking.ID, err)
+		// cancel failure is best-effort and does not block reissue per REQ-PA-LIFE-001
+	}
+	clientName := uc.resolveClientName(ctx, booking.ClientID)
+	alert := ConfirmationAlertFor(clientName, proName, booking.ID, start, time.Now())
+	if err := uc.alerts.InsertForBooking(ctx, alert); err != nil {
+		LogAlertFailure(uc.logger, "reschedule_insert_alert", booking.ID, err)
+	}
+}
+
+// resolveClientName returns the client's name, falling back to the raw ID when
+// the repository is unavailable or the lookup fails. This keeps alert emission
+// best-effort: a missing client never fails the booking mutation.
+func (uc *RescheduleBookingUseCase) resolveClientName(ctx context.Context, clientID string) string {
+	if uc.clients == nil {
+		return clientID
+	}
+	client, err := uc.clients.FindByID(ctx, clientID)
+	if err != nil {
+		LogAlertFailure(uc.logger, "resolve_client_name", clientID, err)
+		return clientID
+	}
+	if client == nil {
+		return clientID
+	}
+	return client.Name
 }
