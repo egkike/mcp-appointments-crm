@@ -110,21 +110,28 @@ func (r *PendingAlertsRepo) FindPending(ctx context.Context, now time.Time) ([]*
 }
 
 // MarkAsSent transitions a pending alert to "sent" status.
-// Idempotent: marking an already-sent or cancelled alert is a no-op (returns nil).
-// Requires admin or owner role.
+// Requires admin or owner role. Returns domain.ErrNotFound when the alert
+// does not exist or is not in pending status (idempotent no-op was replaced
+// with explicit not-found to avoid silent success on cancelled/missing rows).
 func (r *PendingAlertsRepo) MarkAsSent(ctx context.Context, id int) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("marcar alerta %d como enviada: %w", id, err)
 	}
 
-	_, err := r.db.ExecContext(ctx,
+	result, err := r.db.ExecContext(ctx,
 		`UPDATE pending_alerts SET status = 'sent' WHERE id = ? AND status = 'pending'`,
 		id,
 	)
 	if err != nil {
 		return fmt.Errorf("marcar alerta %d como enviada: %w", id, err)
 	}
-	// RowsAffected == 0 means alert was already sent or cancelled → no-op, not an error
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("marcar alerta %d como enviada: filas afectadas: %w", id, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("marcar alerta %d como enviada: %w", id, domain.ErrNotFound)
+	}
 	return nil
 }
 
@@ -144,5 +151,92 @@ func (r *PendingAlertsRepo) Cancel(ctx context.Context, id int) error {
 		return fmt.Errorf("cancelar alerta %d: %w", id, err)
 	}
 	// RowsAffected == 0 means alert was already cancelled or sent → no-op, not an error
+	return nil
+}
+
+// InsertForBooking inserts a new pending alert triggered by a booking mutation.
+// Unlike Save, it only requires an authenticated caller (staff, client, admin or owner)
+// so that booking use cases can emit confirmation alerts without elevating privileges.
+// The alert type must be in the Fase 1 allowlist and the message must be non-empty.
+//
+// Race safety (REQ-PA-LIFE-001): if RelatedBookingID is set and the linked
+// booking is already cancelled, the insert is skipped (no-op, returns nil)
+// using the same DB connection. This makes the post-commit insert idempotent
+// against a concurrent cancel that committed between booking creation and
+// alert insertion.
+func (r *PendingAlertsRepo) InsertForBooking(ctx context.Context, a *entity.PendingAlert) error {
+	if _, err := auth.RequireCaller(ctx); err != nil {
+		return fmt.Errorf("crear alerta de reserva: %w", err)
+	}
+
+	if !a.IsValidType() {
+		return &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: fmt.Sprintf("crear alerta de reserva: tipo de alerta %q no soportado en Fase 1; sólo 'confirmation_requested'", a.Type), Cause: domain.ErrInvalidInput}
+	}
+	if strings.TrimSpace(a.Message) == "" {
+		return &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "crear alerta de reserva: el mensaje no puede estar vacío", Cause: domain.ErrInvalidInput}
+	}
+
+	a.Status = "pending"
+	scheduledStr := FormatStorage(a.ScheduledDatetime)
+
+	var result sql.Result
+	var err error
+	if a.RelatedBookingID != nil && strings.TrimSpace(*a.RelatedBookingID) != "" {
+		// Atomic guard: single-statement INSERT ... SELECT WHERE NOT EXISTS avoids
+		// TOCTOU between a separate SELECT and INSERT (Judge A WARNING).
+		// If the linked booking is already cancelled, the SELECT returns 0 rows
+		// and no alert is inserted (idempotent no-op, ID stays 0).
+		result, err = r.db.ExecContext(ctx,
+			`INSERT INTO pending_alerts (type, message, scheduled_datetime, related_booking_id)
+			 SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM bookings WHERE id = ? AND status = 'cancelled')`,
+			a.Type, a.Message, scheduledStr, a.RelatedBookingID, *a.RelatedBookingID,
+		)
+		if err != nil {
+			return fmt.Errorf("crear alerta de reserva: %w", err)
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("crear alerta de reserva: filas afectadas: %w", err)
+		}
+		if n == 0 {
+			// Booking is cancelled — no alert inserted, ID stays 0, not an error.
+			return nil
+		}
+	} else {
+		result, err = r.db.ExecContext(ctx,
+			`INSERT INTO pending_alerts (type, message, scheduled_datetime, related_booking_id)
+			 VALUES (?, ?, ?, ?)`,
+			a.Type, a.Message, scheduledStr, a.RelatedBookingID,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("crear alerta de reserva: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return fmt.Errorf("crear alerta de reserva: obtener ID: %w", err)
+	}
+	a.ID = int(id)
+
+	return nil
+}
+
+// CancelByBookingID transitions all pending alerts linked to a booking to "cancelled".
+// It requires an authenticated caller. Sent or cancelled alerts are untouched.
+// Returns nil when no pending alert exists (idempotent).
+func (r *PendingAlertsRepo) CancelByBookingID(ctx context.Context, bookingID string) error {
+	if _, err := auth.RequireCaller(ctx); err != nil {
+		return fmt.Errorf("cancelar alerta de reserva: %w", err)
+	}
+
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE pending_alerts SET status = 'cancelled' WHERE related_booking_id = ? AND status = 'pending'`,
+		bookingID,
+	)
+	if err != nil {
+		return fmt.Errorf("cancelar alerta de reserva: %w", err)
+	}
+	// RowsAffected == 0 means no pending alert existed → no-op, not an error
 	return nil
 }

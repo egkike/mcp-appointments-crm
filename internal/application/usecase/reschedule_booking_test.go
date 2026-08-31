@@ -38,7 +38,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 			},
 		}
 		prosRepo, bizRepo, exRepo, schedRepo, validator := rescheduleDeps()
-		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, nil, validator, nil, nil)
 
 		result, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -67,7 +67,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("caller not authenticated", func(t *testing.T) {
-		uc := NewRescheduleBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewRescheduleBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       emptyCaller(),
@@ -91,7 +91,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return nil, domain.ErrNotFound
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -110,7 +110,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("empty booking id rejected before repo dispatch", func(t *testing.T) {
-		uc := NewRescheduleBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewRescheduleBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -139,7 +139,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       clientCaller("c1"),
@@ -162,7 +162,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       staffCaller("staff1", "p1"),
@@ -185,7 +185,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -214,7 +214,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewRescheduleBookingUseCase(bookRepo, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -248,7 +248,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 				return nil, domain.ErrNotFound
 			},
 		}
-		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -281,7 +281,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 			},
 		}
 		prosRepo, bizRepo, exRepo, schedRepo, validator := rescheduleDeps()
-		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, nil, validator, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -319,7 +319,7 @@ func TestRescheduleBookingUseCase(t *testing.T) {
 			},
 		}
 		prosRepo, bizRepo, exRepo, schedRepo, validator := rescheduleDeps()
-		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+		uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, nil, validator, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 			Caller:       adminCaller(),
@@ -435,7 +435,7 @@ func TestRescheduleBookingUseCase_Execute(t *testing.T) {
 				rescheduledCalled = true
 				return tt.repoRet
 			}
-			uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+			uc := NewRescheduleBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, nil, validator, nil, nil)
 
 			result, err := uc.Execute(context.Background(), dto.RescheduleBookingInput{
 				Caller:       adminCaller(),

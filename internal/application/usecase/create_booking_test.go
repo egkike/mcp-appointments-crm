@@ -18,13 +18,13 @@ func TestCreateBookingUseCase(t *testing.T) {
 	futureStart := time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 
 	t.Run("happy path admin creates for any client", func(t *testing.T) {
-		svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, validator := createBookingMocks(activeService(), nil)
+		svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, clientsRepo, validator := createBookingMocks(activeService(), nil)
 		var createdBooking *entity.Booking
 		bookRepo.CreateFn = func(_ context.Context, b *entity.Booking) error {
 			createdBooking = b
 			return nil
 		}
-		uc := NewCreateBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+		uc := NewCreateBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, clientsRepo, validator, nil, nil)
 
 		result, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         adminCaller(),
@@ -62,9 +62,9 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("happy path client creates for themselves", func(t *testing.T) {
-		svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, validator := createBookingMocks(activeService(), nil)
+		svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, clientsRepo, validator := createBookingMocks(activeService(), nil)
 		bookRepo.CreateFn = func(_ context.Context, _ *entity.Booking) error { return nil }
-		uc := NewCreateBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+		uc := NewCreateBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, clientsRepo, validator, nil, nil)
 
 		result, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         clientCaller("c1"),
@@ -82,7 +82,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("caller not authenticated", func(t *testing.T) {
-		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:    auth.Caller{}, // empty ID
@@ -101,7 +101,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("client role creating for another client", func(t *testing.T) {
-		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:    clientCaller("c1"),
@@ -124,7 +124,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("staff role for different professional", func(t *testing.T) {
-		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         staffCaller("staff1", "p1"),
@@ -154,7 +154,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 			},
 		}
 		bookRepo := &mockBookingsRepo{}
-		uc := NewCreateBookingUseCase(bookRepo, svcRepo, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(bookRepo, svcRepo, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         adminCaller(),
@@ -189,7 +189,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 				return inactive, nil
 			},
 		}
-		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, svcRepo, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, svcRepo, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         adminCaller(),
@@ -214,11 +214,11 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("booking overlap", func(t *testing.T) {
-		svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, validator := createBookingMocks(activeService(), nil)
+		svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, _, validator := createBookingMocks(activeService(), nil)
 		bookRepo.CreateFn = func(_ context.Context, _ *entity.Booking) error {
 			return domain.ErrConflict
 		}
-		uc := NewCreateBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+		uc := NewCreateBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, nil, validator, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         adminCaller(),
@@ -243,7 +243,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("empty client_id returns invalid input", func(t *testing.T) {
-		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         adminCaller(),
@@ -268,7 +268,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("empty service_id returns invalid input", func(t *testing.T) {
-		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         adminCaller(),
@@ -293,7 +293,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("empty professional_id returns invalid input", func(t *testing.T) {
-		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         adminCaller(),
@@ -318,7 +318,7 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("zero start_time returns invalid input", func(t *testing.T) {
-		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, &mockBookingValidator{})
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 			Caller:         adminCaller(),
@@ -343,13 +343,13 @@ func TestCreateBookingUseCase(t *testing.T) {
 	})
 }
 
-// createBookingMocks wires the six dependencies the PR #B use case resolves
+// createBookingMocks wires the dependencies the PR #B use case resolves
 // BEFORE calling the validator. The caller may override bookRepo.CreateFn
 // (and any other Fn) afterwards — the mock reads the field at call time.
 func createBookingMocks(svc *entity.Service, validatorRet *domain.SemanticError) (
 	*mockServicesRepo, *mockBookingsRepo, *mockProfessionalsRepo,
 	*mockBusinessProfileRepo, *mockBusinessHoursExceptionRepo,
-	*mockSchedulesRepo, *mockBookingValidator,
+	*mockSchedulesRepo, *mockClientsRepo, *mockBookingValidator,
 ) {
 	svcRepo := &mockServicesRepo{
 		FindByIDFn: func(_ context.Context, _ string) (*entity.Service, error) { return svc, nil },
@@ -369,10 +369,15 @@ func createBookingMocks(svc *entity.Service, validatorRet *domain.SemanticError)
 	schedRepo := &mockSchedulesRepo{
 		FindByProfessionalAndDayFn: func(_ context.Context, _ string, _ int) (*entity.Schedule, error) { return nil, domain.ErrNotFound },
 	}
+	clientsRepo := &mockClientsRepo{
+		FindByIDFn: func(_ context.Context, id string) (*entity.Client, error) {
+			return &entity.Client{ID: id, Name: "Cliente " + id}, nil
+		},
+	}
 	validator := &mockBookingValidator{
 		OnValidate: func(_ context.Context, _ service.ValidateBookingInput) *domain.SemanticError { return validatorRet },
 	}
-	return svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, validator
+	return svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, clientsRepo, validator
 }
 
 // TestCreateBookingUseCase_Execute exercises the 8-row validation matrix from
@@ -418,7 +423,7 @@ func TestCreateBookingUseCase_Execute(t *testing.T) {
 				svc.Active = false
 			}
 			validatorCalled := false
-			svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, validator := createBookingMocks(svc, tt.validatorRet)
+			svcRepo, bookRepo, prosRepo, bizRepo, exRepo, schedRepo, clientsRepo, validator := createBookingMocks(svc, tt.validatorRet)
 			if tt.inactivePro {
 				prosRepo.FindByIDFn = func(_ context.Context, _ string) (*entity.Professional, error) {
 					return &entity.Professional{ID: "p1", Name: "Ana", Status: "inactive"}, nil
@@ -433,7 +438,7 @@ func TestCreateBookingUseCase_Execute(t *testing.T) {
 				createdCalled = true
 				return tt.repoRet
 			}
-			uc := NewCreateBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, validator)
+			uc := NewCreateBookingUseCase(bookRepo, svcRepo, prosRepo, bizRepo, exRepo, schedRepo, clientsRepo, validator, nil, nil)
 
 			result, err := uc.Execute(context.Background(), dto.CreateBookingInput{
 				Caller:         adminCaller(),

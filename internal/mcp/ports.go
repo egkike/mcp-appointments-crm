@@ -64,3 +64,15 @@ type SearchClientsAdvancedPort interface {
 type SearchServicesAdvancedPort interface {
 	Execute(context.Context, dto.SearchServicesAdvancedInput) (*dto.SearchServicesAdvancedResult, error)
 }
+
+// GetPendingAlertsPort returns due pending alerts ordered oldest first.
+// ToolRBAC entry: owner/admin only.
+type GetPendingAlertsPort interface {
+	Execute(context.Context, dto.GetPendingAlertsInput) (*dto.GetPendingAlertsResult, error)
+}
+
+// MarkAlertAsSentPort marks a pending alert as sent.
+// ToolRBAC entry: owner/admin only.
+type MarkAlertAsSentPort interface {
+	Execute(context.Context, dto.MarkAlertAsSentInput) (*dto.MarkAlertAsSentResult, error)
+}

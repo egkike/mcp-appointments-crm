@@ -204,7 +204,7 @@ func TestPendingAlertsRepo_MarkAsSent(t *testing.T) {
 		}
 	})
 
-	t.Run("already-sent alert is no-op", func(t *testing.T) {
+	t.Run("already-sent alert returns not found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
@@ -213,12 +213,12 @@ func TestPendingAlertsRepo_MarkAsSent(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		err := repo.MarkAsSent(adminCtx(), 42)
-		if err != nil {
-			t.Fatalf("expected no error for already-sent alert, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected domain.ErrNotFound for already-sent alert, got %v", err)
 		}
 	})
 
-	t.Run("cancelled alert is no-op", func(t *testing.T) {
+	t.Run("cancelled alert returns not found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewPendingAlertsRepo(db)
 
@@ -228,8 +228,22 @@ func TestPendingAlertsRepo_MarkAsSent(t *testing.T) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 
 		err := repo.MarkAsSent(adminCtx(), 42)
-		if err != nil {
-			t.Fatalf("expected no error for cancelled alert, got %v", err)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected domain.ErrNotFound for cancelled alert, got %v", err)
+		}
+	})
+
+	t.Run("not found returns not found", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewPendingAlertsRepo(db)
+
+		mock.ExpectExec(`UPDATE pending_alerts SET status = .sent. WHERE id = \? AND status = .pending.`).
+			WithArgs(99).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+
+		err := repo.MarkAsSent(adminCtx(), 99)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("expected domain.ErrNotFound for missing alert, got %v", err)
 		}
 	})
 

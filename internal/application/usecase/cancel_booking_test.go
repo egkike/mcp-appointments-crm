@@ -26,7 +26,7 @@ func TestCancelBookingUseCase(t *testing.T) {
 				return nil
 			},
 		}
-		uc := NewCancelBookingUseCase(bookRepo)
+		uc := NewCancelBookingUseCase(bookRepo, nil, nil)
 
 		result, err := uc.Execute(context.Background(), dto.CancelBookingInput{
 			Caller:    adminCaller(),
@@ -44,7 +44,7 @@ func TestCancelBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("caller not authenticated", func(t *testing.T) {
-		uc := NewCancelBookingUseCase(&mockBookingsRepo{})
+		uc := NewCancelBookingUseCase(&mockBookingsRepo{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CancelBookingInput{
 			Caller:    emptyCaller(),
@@ -67,7 +67,7 @@ func TestCancelBookingUseCase(t *testing.T) {
 				return nil, domain.ErrNotFound
 			},
 		}
-		uc := NewCancelBookingUseCase(bookRepo)
+		uc := NewCancelBookingUseCase(bookRepo, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CancelBookingInput{
 			Caller:    adminCaller(),
@@ -92,7 +92,7 @@ func TestCancelBookingUseCase(t *testing.T) {
 	})
 
 	t.Run("empty booking id rejected before repo dispatch", func(t *testing.T) {
-		uc := NewCancelBookingUseCase(&mockBookingsRepo{})
+		uc := NewCancelBookingUseCase(&mockBookingsRepo{}, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CancelBookingInput{
 			Caller: adminCaller(),
@@ -120,7 +120,7 @@ func TestCancelBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewCancelBookingUseCase(bookRepo)
+		uc := NewCancelBookingUseCase(bookRepo, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CancelBookingInput{
 			Caller:    clientCaller("c1"),
@@ -149,7 +149,7 @@ func TestCancelBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewCancelBookingUseCase(bookRepo)
+		uc := NewCancelBookingUseCase(bookRepo, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CancelBookingInput{
 			Caller:    staffCaller("staff1", "p1"),
@@ -178,7 +178,7 @@ func TestCancelBookingUseCase(t *testing.T) {
 				return booking, nil
 			},
 		}
-		uc := NewCancelBookingUseCase(bookRepo)
+		uc := NewCancelBookingUseCase(bookRepo, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CancelBookingInput{
 			Caller:    adminCaller(),
@@ -210,7 +210,7 @@ func TestCancelBookingUseCase(t *testing.T) {
 				return repoErr
 			},
 		}
-		uc := NewCancelBookingUseCase(bookRepo)
+		uc := NewCancelBookingUseCase(bookRepo, nil, nil)
 
 		_, err := uc.Execute(context.Background(), dto.CancelBookingInput{
 			Caller:    adminCaller(),

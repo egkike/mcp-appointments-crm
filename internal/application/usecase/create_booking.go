@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -32,7 +34,10 @@ type CreateBookingUseCase struct {
 	bizProf   repository.BusinessProfileRepo
 	bizEx     repository.BusinessHoursExceptionRepo
 	schedules repository.SchedulesRepo
+	clients   repository.ClientsRepo
 	validator bookingValidator
+	alerts    AlertLifecycleStore
+	logger    *slog.Logger
 }
 
 // NewCreateBookingUseCase constructs a CreateBookingUseCase with the given dependencies.
@@ -42,6 +47,10 @@ type CreateBookingUseCase struct {
 // validator call (design.md §3.4). The validator is accepted as the narrow
 // bookingValidator interface so tests can inject a mock; production wiring
 // (P4) passes the concrete *service.BookingValidator.
+//
+// The alerts port emits the confirmation alert after the booking is persisted.
+// Pass nil to keep alert emission disabled (skeleton behavior); tests use a
+// fakeAlertStore to assert lifecycle behavior.
 func NewCreateBookingUseCase(
 	bookings repository.BookingsRepo,
 	services repository.ServicesRepo,
@@ -49,7 +58,10 @@ func NewCreateBookingUseCase(
 	bizProf repository.BusinessProfileRepo,
 	bizEx repository.BusinessHoursExceptionRepo,
 	schedules repository.SchedulesRepo,
+	clients repository.ClientsRepo,
 	validator bookingValidator,
+	alerts AlertLifecycleStore,
+	logger *slog.Logger,
 ) *CreateBookingUseCase {
 	return &CreateBookingUseCase{
 		bookings:  bookings,
@@ -58,7 +70,10 @@ func NewCreateBookingUseCase(
 		bizProf:   bizProf,
 		bizEx:     bizEx,
 		schedules: schedules,
+		clients:   clients,
 		validator: validator,
+		alerts:    alerts,
+		logger:    logger,
 	}
 }
 
@@ -154,9 +169,41 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 		}
 		return nil, fmt.Errorf("crear reserva: %w", err)
 	}
+	uc.emitConfirmationAlert(ctx, booking, slot.Professional.Name)
 	return &dto.CreateBookingResult{
 		BookingID:     booking.ID,
 		StartDatetime: booking.StartDatetime,
 		EndDatetime:   booking.EndDatetime,
 	}, nil
+}
+
+// emitConfirmationAlert inserts a confirmation alert for the newly created booking.
+// Failures are logged and intentionally do not affect the booking result.
+func (uc *CreateBookingUseCase) emitConfirmationAlert(ctx context.Context, booking *entity.Booking, proName string) {
+	if uc.alerts == nil {
+		return
+	}
+	clientName := uc.resolveClientName(ctx, booking.ClientID)
+	alert := ConfirmationAlertFor(clientName, proName, booking.ID, booking.StartDatetime, time.Now())
+	if err := uc.alerts.InsertForBooking(ctx, alert); err != nil {
+		LogAlertFailure(uc.logger, "create_confirmation", booking.ID, err)
+	}
+}
+
+// resolveClientName returns the client's name, falling back to the raw ID when
+// the repository is unavailable or the lookup fails. This keeps alert emission
+// best-effort: a missing client never fails the booking mutation.
+func (uc *CreateBookingUseCase) resolveClientName(ctx context.Context, clientID string) string {
+	if uc.clients == nil {
+		return clientID
+	}
+	client, err := uc.clients.FindByID(ctx, clientID)
+	if err != nil {
+		LogAlertFailure(uc.logger, "resolve_client_name", clientID, err)
+		return clientID
+	}
+	if client == nil {
+		return clientID
+	}
+	return client.Name
 }

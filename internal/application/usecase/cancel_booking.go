@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -15,11 +16,15 @@ import (
 // CancelBookingUseCase cancels an existing booking after authorization.
 type CancelBookingUseCase struct {
 	bookings repository.BookingsRepo
+	alerts   AlertLifecycleStore
+	logger   *slog.Logger
 }
 
 // NewCancelBookingUseCase constructs a CancelBookingUseCase with the given dependencies.
-func NewCancelBookingUseCase(bookings repository.BookingsRepo) *CancelBookingUseCase {
-	return &CancelBookingUseCase{bookings: bookings}
+// The alerts port cancels any pending confirmation alert after the booking is
+// cancelled. Pass nil to keep alert lifecycle disabled (skeleton behavior).
+func NewCancelBookingUseCase(bookings repository.BookingsRepo, alerts AlertLifecycleStore, logger *slog.Logger) *CancelBookingUseCase {
+	return &CancelBookingUseCase{bookings: bookings, alerts: alerts, logger: logger}
 }
 
 // Execute cancels the identified booking. Caller must be authenticated and
@@ -52,5 +57,17 @@ func (uc *CancelBookingUseCase) Execute(ctx context.Context, input dto.CancelBoo
 		}
 		return nil, fmt.Errorf("cancelar reserva: %w", err)
 	}
+	uc.cancelAlert(ctx, input.BookingID)
 	return &dto.CancelBookingResult{BookingID: input.BookingID, Status: string(entity.BookingStatusCancelled)}, nil
+}
+
+// cancelAlert cancels any pending confirmation alert linked to the booking.
+// Failures are logged and intentionally do not affect the booking result.
+func (uc *CancelBookingUseCase) cancelAlert(ctx context.Context, bookingID string) {
+	if uc.alerts == nil {
+		return
+	}
+	if err := uc.alerts.CancelByBookingID(ctx, bookingID); err != nil {
+		LogAlertFailure(uc.logger, "cancel_alert", bookingID, err)
+	}
 }
