@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
 
 // Hand-rolled mock implementations using function-table style.
@@ -100,4 +101,7 @@ func (m *mockBookingsRepo) SearchByNotes(context.Context, string) ([]*entity.Boo
 }
 func (m *mockBookingsRepo) UpdateStatus(context.Context, string, entity.BookingStatus) error {
 	return nil
+}
+func (m *mockBookingsRepo) AggregateByClient(context.Context, time.Time, time.Time, int) ([]domainrepo.ClientBookingCount, error) {
+	return nil, nil
 }

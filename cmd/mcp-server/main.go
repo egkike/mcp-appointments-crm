@@ -181,6 +181,9 @@ func run() error {
 	getPendingAlertsUC := usecase.NewGetPendingAlertsUseCase(pendingAlertsRepo)
 	markAlertAsSentUC := usecase.NewMarkAlertAsSentUseCase(pendingAlertsRepo)
 
+	// PR 3 (Phase 3): loyalty report use case.
+	getLoyaltyReportUC := usecase.NewGetLoyaltyReportUseCase(bookingsRepo)
+
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
 	// Every /mcp request must carry X-Caller-Id; check_availability has no
@@ -196,6 +199,7 @@ func run() error {
 		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
 		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
 		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
+		"get_loyalty_report":   {auth.RoleOwner, auth.RoleAdmin},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
 
@@ -217,6 +221,7 @@ func run() error {
 		SearchServicesAdvanced: searchServicesAdvancedUC,
 		GetPendingAlerts:       getPendingAlertsUC,
 		MarkAlertAsSent:        markAlertAsSentUC,
+		GetLoyaltyReport:       getLoyaltyReportUC,
 	})
 
 	mux := http.NewServeMux()

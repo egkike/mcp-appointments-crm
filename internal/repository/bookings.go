@@ -504,6 +504,57 @@ func (r *BookingsRepo) SearchByNotes(ctx context.Context, q string) ([]*entity.B
 	return bookings, nil
 }
 
+// scanClientBookingCount scans an aggregate row into a ClientBookingCount.
+func scanClientBookingCount(scan func(dest ...any) error) (domainrepo.ClientBookingCount, error) {
+	var c domainrepo.ClientBookingCount
+	if err := scan(&c.ClientID, &c.Name, &c.Phone, &c.BookingCount); err != nil {
+		return domainrepo.ClientBookingCount{}, err
+	}
+	return c, nil
+}
+
+// AggregateByClient counts non-cancelled bookings per client within the
+// [start, end) UTC window, ordered by booking_count DESC and client name ASC,
+// capped by limit. Only authenticated callers may invoke it; the use case layer
+// enforces the owner/admin role requirement.
+func (r *BookingsRepo) AggregateByClient(ctx context.Context, start, end time.Time, limit int) ([]domainrepo.ClientBookingCount, error) {
+	if _, err := auth.RequireCaller(ctx); err != nil {
+		return nil, fmt.Errorf("agregar reservas por cliente: %w", err)
+	}
+
+	startStr := FormatStorage(start)
+	endStr := FormatStorage(end)
+
+	query := `SELECT c.id, c.name, c.phone, COUNT(*) AS booking_count
+		  FROM clients c
+		  JOIN bookings b ON c.id = b.client_id
+		 WHERE b.status != 'cancelled'
+		   AND b.start_datetime >= ?
+		   AND b.start_datetime < ?
+		 GROUP BY c.id, c.name, c.phone
+		 ORDER BY booking_count DESC, c.name ASC
+		 LIMIT ?`
+
+	rows, err := r.db.QueryContext(ctx, query, startStr, endStr, limit)
+	if err != nil {
+		return nil, fmt.Errorf("agregar reservas por cliente: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+
+	results := make([]domainrepo.ClientBookingCount, 0)
+	for rows.Next() {
+		c, err := scanClientBookingCount(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("agregar reservas por cliente: escaneo: %w", err)
+		}
+		results = append(results, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("agregar reservas por cliente: iteración: %w", err)
+	}
+	return results, nil
+}
+
 // UpdateStatus changes the status of a booking by ID.
 // Auth filter applies. Returns domain.ErrNotFound if no rows are affected.
 func (r *BookingsRepo) UpdateStatus(ctx context.Context, id string, status entity.BookingStatus) error {

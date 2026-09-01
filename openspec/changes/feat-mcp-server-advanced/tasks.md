@@ -35,10 +35,10 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Loyalty Report (PR 3) — REQ-BK-AGG-001, REQ-LR-001..004
 
-- [ ] 3.1 RED: `AggregateByClient` integration tests — cancelled excluded, `[start,end)` bounds, count DESC + name-ASC tie-break, LIMIT caps (REQ-BK-AGG-001)
-- [ ] 3.2 GREEN: interface in `domain/repository/bookings.go`; JOIN+GROUP BY impl in `repository/bookings.go`, parameterized `?` only
-- [ ] 3.3 Create `get_loyalty_report.go` + tests: period enum `last_week|last_month|last_quarter|last_year|all_time`, omitted → last_month, now-UTC windows, invalid → `ErrInvalidInput` (REQ-LR-001); `top_n` clamp [1,100] default 10 (REQ-LR-002)
-- [ ] 3.4 Add LoyaltyReportEntry to `dto/search.go`; port/config field; register `{owner,admin}` noting phone PII; wire main.go; integration: five windows, role rejections, empty → [] (REQ-LR-003/004)
+- [x] 3.1 RED: `AggregateByClient` integration tests — cancelled excluded, `[start,end)` bounds, count DESC + name-ASC tie-break, LIMIT caps (REQ-BK-AGG-001)
+- [x] 3.2 GREEN: interface in `domain/repository/bookings.go`; JOIN+GROUP BY impl in `repository/bookings.go`, parameterized `?` only
+- [x] 3.3 Create `get_loyalty_report.go` + tests: period enum `last_week|last_month|last_quarter|last_year|all_time`, omitted → last_month, now-UTC windows, invalid → `ErrInvalidInput` (REQ-LR-001); `top_n` clamp [1,100] default 10 (REQ-LR-002)
+- [x] 3.4 Add LoyaltyReportEntry to `dto/search.go`; port/config field; register `{owner,admin}` noting phone PII; wire main.go; integration: five windows, role rejections, empty → [] (REQ-LR-003/004)
 
 ## Phase 4: Wiring & E2E (PR 4)
 

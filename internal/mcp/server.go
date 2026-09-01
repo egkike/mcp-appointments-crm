@@ -52,6 +52,7 @@ func (s *Server) registerTools() {
 	s.registerProfileTool()
 	s.registerSearchTools()
 	s.registerAlertTools()
+	s.registerLoyaltyTools()
 }
 
 // Handler returns the /mcp HTTP handler: the SDK Streamable HTTP handler

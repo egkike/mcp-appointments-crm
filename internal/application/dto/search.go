@@ -43,3 +43,26 @@ type SearchServicesAdvancedInput struct {
 type SearchServicesAdvancedResult struct {
 	Results []ServiceSearchEntry `json:"results"`
 }
+
+// LoyaltyReportEntry is a single row in the get_loyalty_report output.
+// It exposes client PII (phone); access is restricted to owner/admin.
+type LoyaltyReportEntry struct {
+	ClientID     string `json:"client_id"`
+	Name         string `json:"name"`
+	Phone        string `json:"phone"`
+	BookingCount int    `json:"booking_count"`
+}
+
+// GetLoyaltyReportInput carries the authenticated caller, the report period and
+// the optional top_n cap. TopN is a pointer so an explicit 0 can be clamped to 1
+// while an omitted value defaults to 10.
+type GetLoyaltyReportInput struct {
+	Caller auth.Caller `json:"-"`
+	Period string      `json:"period,omitempty"`
+	TopN   *int        `json:"top_n,omitempty"`
+}
+
+// GetLoyaltyReportResult is the response body for get_loyalty_report.
+type GetLoyaltyReportResult struct {
+	Results []LoyaltyReportEntry `json:"results"`
+}

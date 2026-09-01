@@ -39,6 +39,7 @@ type Config struct {
 	SearchServicesAdvanced SearchServicesAdvancedPort
 	GetPendingAlerts       GetPendingAlertsPort
 	MarkAlertAsSent        MarkAlertAsSentPort
+	GetLoyaltyReport       GetLoyaltyReportPort
 }
 
 // LoadConfig resolves MCP_BIND and MCP_PORT with ADR-0007 precedence:

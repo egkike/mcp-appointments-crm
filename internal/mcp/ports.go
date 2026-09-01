@@ -76,3 +76,9 @@ type GetPendingAlertsPort interface {
 type MarkAlertAsSentPort interface {
 	Execute(context.Context, dto.MarkAlertAsSentInput) (*dto.MarkAlertAsSentResult, error)
 }
+
+// GetLoyaltyReportPort returns the most frequent clients in a period.
+// ToolRBAC entry: owner/admin only because rows expose phone PII.
+type GetLoyaltyReportPort interface {
+	Execute(context.Context, dto.GetLoyaltyReportInput) (*dto.GetLoyaltyReportResult, error)
+}

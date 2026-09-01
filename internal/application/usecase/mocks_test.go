@@ -7,6 +7,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 )
 
@@ -27,6 +28,7 @@ type mockBookingsRepo struct {
 	ListBookingsForRangeFn func(ctx context.Context, start, end time.Time) ([]*entity.Booking, error)
 	SearchByNotesFn        func(ctx context.Context, q string) ([]*entity.Booking, error)
 	UpdateStatusFn         func(ctx context.Context, id string, status entity.BookingStatus) error
+	AggregateByClientFn    func(ctx context.Context, start, end time.Time, limit int) ([]domainrepo.ClientBookingCount, error)
 }
 
 func (m *mockBookingsRepo) FindByID(ctx context.Context, id string) (*entity.Booking, error) {
@@ -97,6 +99,13 @@ func (m *mockBookingsRepo) UpdateStatus(ctx context.Context, id string, status e
 		panic("mockBookingsRepo.UpdateStatusFn not set")
 	}
 	return m.UpdateStatusFn(ctx, id, status)
+}
+
+func (m *mockBookingsRepo) AggregateByClient(ctx context.Context, start, end time.Time, limit int) ([]domainrepo.ClientBookingCount, error) {
+	if m.AggregateByClientFn == nil {
+		panic("mockBookingsRepo.AggregateByClientFn not set")
+	}
+	return m.AggregateByClientFn(ctx, start, end, limit)
 }
 
 // --- mockServicesRepo ---

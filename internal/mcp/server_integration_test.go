@@ -27,6 +27,14 @@ import (
 // proves the transport contract end-to-end at the HTTP layer.
 func newIntegrationMux(t *testing.T) http.Handler {
 	t.Helper()
+	mux, _ := newIntegrationMuxWithDB(t)
+	return mux
+}
+
+// newIntegrationMuxWithDB is like newIntegrationMux but also returns the
+// underlying database connection so tests can seed extra state.
+func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
+	t.Helper()
 	dir := t.TempDir()
 	database, err := db.NewDatabase(context.Background(), filepath.Join(dir, "test.db"))
 	if err != nil {
@@ -69,6 +77,7 @@ func newIntegrationMux(t *testing.T) http.Handler {
 	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)
 	getPendingAlertsUC := usecase.NewGetPendingAlertsUseCase(pendingAlertsRepo)
 	markAlertAsSentUC := usecase.NewMarkAlertAsSentUseCase(pendingAlertsRepo)
+	getLoyaltyReportUC := usecase.NewGetLoyaltyReportUseCase(bookingsRepo)
 
 	srv := NewServer(Config{
 		Version:                "test",
@@ -83,6 +92,7 @@ func newIntegrationMux(t *testing.T) http.Handler {
 		SearchServicesAdvanced: searchServicesAdvancedUC,
 		GetPendingAlerts:       getPendingAlertsUC,
 		MarkAlertAsSent:        markAlertAsSentUC,
+		GetLoyaltyReport:       getLoyaltyReportUC,
 	})
 	resolver := auth.NewCallerResolver(database.Conn)
 	rbac := auth.ToolRBAC{
@@ -93,13 +103,14 @@ func newIntegrationMux(t *testing.T) http.Handler {
 		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
 		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
 		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
+		"get_loyalty_report":   {auth.RoleOwner, auth.RoleAdmin},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, discardLogger())
 
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", Healthz("test"))
 	mux.Handle("/mcp", srv.AuthHandler(authMW))
-	return mux
+	return mux, database.Conn
 }
 
 // seedIntegrationDB inserts the minimal domain state for the happy path:
@@ -197,8 +208,8 @@ func TestIntegrationHappyPath(t *testing.T) {
 	if err := json.Unmarshal(result, &list); err != nil {
 		t.Fatalf("tools/list result: %v", err)
 	}
-	if len(list.Tools) != 10 {
-		t.Errorf("tools = %d; want 10: %s", len(list.Tools), string(result))
+	if len(list.Tools) != 11 {
+		t.Errorf("tools = %d; want 11: %s", len(list.Tools), string(result))
 	}
 
 	// search_clients_advanced by owner returns both seeded clients (no RBAC entry).
