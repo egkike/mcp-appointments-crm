@@ -43,4 +43,17 @@ type BookingsRepo interface {
 
 	// UpdateStatus changes the status of a booking by ID.
 	UpdateStatus(ctx context.Context, id string, status entity.BookingStatus) error
+
+	// AggregateByClient counts non-cancelled bookings per client within the
+	// [start, end) UTC window, ordered by count DESC and client name ASC, capped
+	// by limit.
+	AggregateByClient(ctx context.Context, start, end time.Time, limit int) ([]ClientBookingCount, error)
+}
+
+// ClientBookingCount is the result row of BookingsRepo.AggregateByClient.
+type ClientBookingCount struct {
+	ClientID     string
+	Name         string
+	Phone        string
+	BookingCount int
 }
