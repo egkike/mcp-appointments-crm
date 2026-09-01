@@ -57,7 +57,7 @@ Before staging, committing, or pushing any code to the repository, you **MUST** 
 ### Always Ask Before Commit
 
 After verification passes, ALWAYS ask user:
-- "¿Corremos el gate de verificación (JD o readback estructural según el routing del Verification & Review Protocol)?"
+- "¿Corremos el gate de verificación (RDD o readback estructural según el routing del Verification & Review Protocol)?"
 - "¿Hacemos commit?"
 
 Wait for user confirmation before proceeding.
@@ -110,9 +110,9 @@ Wait for user confirmation before proceeding.
    □ Revisar resultado
    □ Correr sdd-verify (conformidad con spec)
    □ Correr el gate según routing (Verification & Review Protocol):
-       sensible → RDD (1 corrección acotada)
-       funcional medio → JD (2 rondas)
+       default (sensible + funcional medio) → RDD (0/1/4R, 1 corrección acotada)
        trivial/docs → readback estructural
+       escalada a pedido → JD (2 rondas, solo si owner pide "judgment day")
    □ Si hay issues → Fix → correr el gate de nuevo (sin loop infinito)
    □ Si pasa → Commit + Push
    □ Si PR > budget lines → hacer chained PR (ver abajo)
@@ -250,24 +250,23 @@ Verification routing is **exclusive**: one path per change, never both by defaul
 
 | Change type | Gate | Notes |
 |-------------|------|-------|
-| **Sensitive** | JD (2 blind judges) + ordinary delivery policy | auth/RBAC, transport/network (HTTP/SSE), DB/schema, new dependencies (go.mod), >400 changed lines, PII |
-| **Functional medium** | JD (2 blind judges) | business logic, multi-file refactors — no security/network |
+| **Default** (sensible + funcional medio: auth/RBAC, transport/network HTTP/SSE, DB/schema, new dependencies go.mod, >400 lines, PII, business logic) | RDD (native, receipt-driven) | 0/1/4R lenses auto-scaled to risk, at most 1 scoped correction, immutable receipt authorizes delivery |
 | **Trivial / docs** | Structural readback | single-file mechanical fixes, documentation |
+| **Escalada a pedido** | JD (2 blind judges) | solo si owner pide explícitamente "judgment day" / "hagamos juicio" o RDD deja dudas — no corre junto a RDD por default |
 
-- Both gates together only on explicit user request (e.g. a doubtful JD verdict → second opinion or escalation).
-- JD issues no receipt and grants no delivery authority by itself; delivery closes under ordinary repository policy (GGA hooks, CI green, PR review approval).
+- RDD is the default gate; JD is a second-opinion escalation, never run together unless explicitly requested.
+- JD issues no receipt and grants no delivery authority by itself; delivery closes under ordinary repository policy (GGA hooks, CI green, PR review approval). RDD does issue a receipt — delivery requires it when `review mode: on`.
 - `sdd-verify` always runs before the gate (spec conformance, REQ coverage, tests).
 
-### RDD Gate (native, receipt-driven)
+### RDD Gate (native, receipt-driven — simplified v2.5.0)
 
-> **Currently disabled** (off, decided by global). While disabled, no `gentle-ai review` lifecycle runs and review gates report `disabled/unmanaged`; delivery follows ordinary repository policy. Re-enable with `gentle-ai review mode enable --scope global` when the transport supports it.
+> **Currently enabled** (`on`, decided by global on `gentle-ai 2.5.0`). The simplified native RDD owns verification applicability, risk, bounded 0/1/4R plan, correction impact and terminal receipt. `gentle-ai review mode disable --scope global` turns it off; `disabled/unmanaged` then follows ordinary policy.
 
-- Runs `gentle-ai review` with lenses scaled to risk (0 / 1 focus / 4R).
-- Produces an immutable receipt that authorizes delivery (commit/push/PR).
-- At most 1 scoped correction per candidate; no loop-until-clean.
-- Post-approval findings are follow-ups for the next slice, they do not reopen review.
+- Runs `gentle-ai review` with lenses scaled to risk (0 / 1 focus / 4R) — orchestrator never selects lenses.
+- Produces an immutable receipt that authorizes delivery (commit/push/PR) for gates `post-apply, pre-commit, pre-push, pre-pr, release`.
+- At most 1 scoped correction per frozen candidate; no loop-until-clean. Post-approval findings are follow-ups for next slice.
 
-### Judgment Day Process
+### Judgment Day Process (escalada — solo a pedido)
 
 1. User says "judgment day" or "hagamos juicio"
 2. Launch two independent blind judge agents
