@@ -10,8 +10,10 @@ Runs natively on Linux, macOS, and Windows — no containers, no external servic
 are complete; next up: Fase 3 (mcp-server-advanced). See the
 [implementation roadmap](./docs/PRD.md#8-roadmap-por-fases) in the PRD.
 
-The MCP server currently exposes 6 tools: `check_availability`, `create_booking`,
-`get_booking`, `cancel_booking`, `reschedule_booking` and `get_business_profile`
+The MCP server currently exposes 11 tools: `check_availability`, `create_booking`,
+`get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`,
+`search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`,
+`mark_alert_as_sent` and `get_loyalty_report`
 (auth via `X-Caller-Id` header + RBAC, repository layer 10/10 repos with `auth.Caller` wiring — see PR #50).
 
 | Phase | Description | Status |
