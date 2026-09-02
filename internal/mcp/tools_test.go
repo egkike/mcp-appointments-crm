@@ -99,6 +99,14 @@ func (m *mockMarkAlertAsSentPort) Execute(ctx context.Context, in dto.MarkAlertA
 	return m.executeFn(ctx, in)
 }
 
+type mockGetLoyaltyReportPort struct {
+	executeFn func(ctx context.Context, in dto.GetLoyaltyReportInput) (*dto.GetLoyaltyReportResult, error)
+}
+
+func (m *mockGetLoyaltyReportPort) Execute(ctx context.Context, in dto.GetLoyaltyReportInput) (*dto.GetLoyaltyReportResult, error) {
+	return m.executeFn(ctx, in)
+}
+
 // ── helpers ──
 
 func ownerCaller() auth.Caller {
@@ -110,7 +118,7 @@ func ownerCallerPtr() *auth.Caller {
 	return &c
 }
 
-// newToolServer builds a Server with all ten ports mocked and returns its
+// newToolServer builds a Server with all eleven ports mocked and returns its
 // unauthenticated Handler (unit level: caller is injected via the request
 // context, exactly as AuthMiddleware would).
 func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
@@ -129,6 +137,7 @@ func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
 		SearchServicesAdvanced: ports.searchServices,
 		GetPendingAlerts:       ports.getPendingAlerts,
 		MarkAlertAsSent:        ports.markAlertAsSent,
+		GetLoyaltyReport:       ports.loyalty,
 	})
 	return srv, ports
 }
@@ -144,6 +153,7 @@ type mockToolPorts struct {
 	searchServices   *mockSearchServicesAdvancedPort
 	getPendingAlerts *mockGetPendingAlertsPort
 	markAlertAsSent  *mockMarkAlertAsSentPort
+	loyalty          *mockGetLoyaltyReportPort
 }
 
 func newMockPorts() *mockToolPorts {
@@ -158,6 +168,7 @@ func newMockPorts() *mockToolPorts {
 		searchServices:   &mockSearchServicesAdvancedPort{},
 		getPendingAlerts: &mockGetPendingAlertsPort{},
 		markAlertAsSent:  &mockMarkAlertAsSentPort{},
+		loyalty:          &mockGetLoyaltyReportPort{},
 	}
 }
 
@@ -248,9 +259,9 @@ func fixedTime() time.Time {
 	return time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 }
 
-// ── tools/list exposes exactly the ten registered tools (8 + 2 alerts PR2) ──
+// ── tools/list exposes exactly the eleven registered tools (8 + 2 alerts + 1 loyalty) ──
 
-func TestToolsListEightTools(t *testing.T) {
+func TestToolsListElevenTools(t *testing.T) {
 	srv, _ := newToolServer(t)
 	rec := callMethod(srv.Handler(), "tools/list", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 
@@ -264,7 +275,7 @@ func TestToolsListEightTools(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
 	}
-	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent"}
+	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent", "get_loyalty_report"}
 	if len(resp.Result.Tools) != len(want) {
 		t.Fatalf("tools/list returned %d tools; want %d: %s", len(resp.Result.Tools), len(want), mustJSON(t, resp.Result.Tools))
 	}

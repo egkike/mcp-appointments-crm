@@ -42,6 +42,6 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: Wiring & E2E (PR 4)
 
-- [ ] 4.1 E2E: `tools/list` = 11 descriptors; `-32001` role matrix on gated trio; searches admit all authenticated; invalid inputs (empty `query_text`, missing `alert_id`) — REQ-MT-005/015
-- [ ] 4.2 Gate: `go fmt`/`vet`/`golangci-lint run`; `go build -o /dev/null ./...`; `go test -v -race ./...`
-- [ ] 4.3 Update docs listing 6 tools, if any; pin allowlist `confirmation_requested`; no DDL, no migration
+- [x] 4.1 E2E: `tools/list` = 11 descriptors; `-32001` role matrix on gated trio; searches admit all authenticated; invalid inputs (empty `query_text`, missing `alert_id`) — REQ-MT-005/015
+- [x] 4.2 Gate: `go fmt`/`vet`/`golangci-lint run`; `go build -o /dev/null ./...`; `go test -v -race ./...`
+- [x] 4.3 Update docs listing 6 tools, if any; pin allowlist `confirmation_requested`; no DDL, no migration
