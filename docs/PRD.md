@@ -2,8 +2,8 @@
 
 > **Estado**: Aprobado
 > **Owner**: Kike
-> **Versión**: 1.9
-> **Última actualización**: 2026-08-23
+> **Versión**: 1.10
+> **Última actualización**: 2026-09-02
 
 ---
 
@@ -1244,10 +1244,15 @@ Override con otro caller_id (debug):
 - Tests de integración con SQLite real (no mock) para FTS5 y alerts
 
 **Definition of Done**:
-- [ ] Las búsquedas FTS5 retornan resultados ordenados por rank
-- [ ] Las alertas se generan automáticamente al crear una reserva
-- [ ] El reporte de fidelización retorna el Top N correcto con datos agregados
-- [ ] `go test -v -race ./...` pasa
+- [x] Las búsquedas FTS5 retornan resultados ordenados por rank
+- [x] Las alertas se generan automáticamente al crear una reserva
+- [x] El reporte de fidelización retorna el Top N correcto con datos agregados
+- [x] `go test -v -race ./...` pasa
+
+**Estado al 2026-09-02 (Fase 3 CERRADA — `feat-mcp-server-advanced`):**
+- ✅ PR #51 search FTS (caller-scoped), PR #52 alert lifecycle (pending-only), PR #53 loyalty report (AggregateByClient + period/top_n), PR #54 wiring & E2E (tools/list 11 + RBAC + docs) — 4 PRs stacked-to-main, archivados en `openspec/changes/archive/2026-09-02-feat-mcp-server-advanced/` (16/16 tasks, verify PASS 1/1 43/43, 327 tests, 0 race).
+- ✅ 11 tools: check_availability, create_booking, get_booking, cancel_booking, reschedule_booking, get_business_profile, search_clients_advanced, search_services_advanced, get_pending_alerts, mark_alert_as_sent, get_loyalty_report (REQ-MT-005/015, REQ-PA-LIFE-001/CANCEL-002, REQ-BK-AGG-001, REQ-LR-001..004)
+- ✅ No DDL, no migration, allowlist pinned confirmation_requested
 
 ### Fase 4: install.sh con prompts interactivos (Estimación: S)
 
@@ -1375,3 +1380,4 @@ Override con otro caller_id (debug):
 | 2026-08-09 | 1.7 | Kike | Fase 1b (clean-architecture-refactor) archivada (commit `988baeb`): `internal/model/` eliminado, capas `internal/domain/` y `internal/application/` en producción, ADR-0013 registra la arquitectura. Fase 1 cerrada (CheckAvailability implementado como use case). Deuda de auth reducida: `services.go` con `auth.Caller` wiring; `clients.go` y `business_hours_exception.go` pendientes (`feat-repository-auth-integration`). Decisión de transporte MCP (2026-08-09): Streamable HTTP via go-sdk v1.2.0 (Plan A), JSON-RPC manual como Plan B — change `feat-mcp-transport` planeado en openspec. |
 | 2026-08-20 | 1.8 | Kike | **Fase 2 (mcp-server-core) CERRADA** — `feat-mcp-transport` ejecutado y archivado (PRs #46/#47, `openspec/changes/archive/2026-08-19-feat-mcp-transport/`): transporte Streamable HTTP con go-sdk, 6 tools MCP (`check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`), auth middleware integrada (X-Caller-Id + RBAC + `caller_role` en logs), DI con 6 use cases en `main.go`. Verify final 24/24 REQ, 34/34 escenarios, 276 tests, cobertura 89.7%. Follow-ups S-1..S-4 cerrados (PR #48, 2026-08-20): 403 con rol real, `Flush` y `ResolveSlotContext` al 100% de cobertura. §3.5: `internal/mcp/` marcado implementado. §3.8.7: estado actualizado (handlers MCP ✅, TUI ⏳, deuda de auth `clients.go`/`business_hours_exception.go` verificada pendiente). §5.1: estados de RF2/RF6. §7: Fase 2 cerrada, pendientes (TUI admin, service templates, docs Hermes, `update_business_profile`); siguiente Fase 3. |
 | 2026-08-23 | 1.9 | Kike | **Deuda auth CERRADA + Go 1.26.7** — `feat-repository-auth-integration` mergeado (PR #50, `5aca28d`, 7 REQ, 22 escenarios, JD 2/2 PASS): `clients.go` (8 métodos) y `business_hours_exception.go` (4 métodos) cableados con `auth.Caller` (helper `AND id = ?`, `RequireRole`/`RequireCaller`, fix `GetOrCreate` phone==caller.ID, FTS operator hardening). `go.mod` bumpeado 1.26.6→1.26.7 (PR #49, `4e059ca`). PRD §3.8.7-6 y §7 actualizados: Fase 3 desbloqueada, sin prerequisitos pendientes. |
+| 2026-09-02 | 1.10 | Kike | Fase 3 mcp-server-advanced cerrada (PRs #51-#54, 11 tools, 16/16, verify 1/1 43/43, archive 2026-09-02) |
