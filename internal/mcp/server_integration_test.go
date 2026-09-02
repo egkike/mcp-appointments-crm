@@ -194,7 +194,7 @@ func TestIntegrationHappyPath(t *testing.T) {
 		t.Errorf("protocolVersion = %q; want 2025-11-25", init.ProtocolVersion)
 	}
 
-	// tools/list exposes the ten registered tools (8 original + 2 alerts PR2).
+	// tools/list exposes the eleven registered tools (8 original + 2 alerts + 1 loyalty).
 	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	result, code, msg = decodeRPCEnvelope(t, rec)
 	if code != 0 {
