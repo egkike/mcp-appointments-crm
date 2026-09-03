@@ -3,13 +3,21 @@
 
 . "$(dirname "$0")/../install.sh" || exit 1
 
-_run() { "$1" "$2" >/dev/null 2>&1; }
+# _run_validator_silently: invoca un validador descartando stdout/stderr.
+# Útil cuando solo nos importa el código de retorno.
+_run_validator_silently() { "$1" "$2" >/dev/null 2>&1; }
 
-_chk() {
+# _assert_validator_exit: corre el validador y compara su exit code con
+# el esperado. El mensaje "$3" aparece en el assertEquals de shunit2.
+_assert_validator_exit() {
       local fn=$1 exp=$2 input=$3 msg=$4 rc
-      _run "$fn" "$input"; rc=$?
+      _run_validator_silently "$fn" "$input"; rc=$?
       assertEquals "$msg" "$exp" "$rc"
 }
+
+# Aliases cortos para que las suites se lean compactas.
+_run() { _run_validator_silently "$@"; }
+_chk() { _assert_validator_exit "$@"; }
 
 # String helpers -----------------------------------------------------------
 
@@ -65,6 +73,11 @@ test_validators_batch1() {
       _chk v_symbol 0 '$' 'symbol dollar ok'
 }
 
+# _capture_validator_stderr: ejecuta el validador y captura solo su stderr
+# (donde viven los mensajes en español). El orden "2>&1 >/dev/null" es
+# intencional: redirige stderr al stdout original del subshell, luego
+# cierra stdout, dejando stderr visible para la captura $().
+# shellcheck disable=SC2069
 _run_err() { "$1" "$2" 2>&1 >/dev/null; }
 
 # Validators batch 2 -------------------------------------------------------
@@ -100,11 +113,18 @@ test_validators_batch2() {
       _chk v_payment_list 0 'efectivo, tarjeta' 'payment ok'
       _chk v_payment_list 1 '' 'payment empty fails'
       _chk v_payment_list 1 ',,' 'payment only commas fails'
+      # Edge cases: un solo método y separadores solo con whitespace.
+      _chk v_payment_list 0 'efectivo' 'payment single item ok'
+      _chk v_payment_list 1 '  ,  ' 'payment blank items fails'
 
       _chk v_hhmm 0 09:00 'hhmm ok'
       _chk v_hhmm 1 9:00 'hhmm no leading zero fails'
       _chk v_hhmm 1 '9:00 AM' 'hhmm am pm fails'
       _chk v_hhmm 1 25:00 'hhmm bad hour fails'
+      # Edge cases v_timezone: profundidad y separadores mal formados.
+      _chk v_timezone 0 'Europe/London' 'tz Europe/London ok'
+      _chk v_timezone 1 'invalid//path' 'tz double slash fails'
+      _chk v_timezone 1 'a/b/c/d' 'tz too deep fails'
 }
 
 test_v_time_pair() {
@@ -113,6 +133,9 @@ test_v_time_pair() {
       assertEquals 'inverted' 1 "$(_chk2 18:00 09:00)"
       assertEquals 'same' 1 "$(_chk2 09:00 09:00)"
       assertEquals 'bad format' 1 "$(_chk2 9:00 18:00)"
+      # Cross-midnight se considera inválido: el validador exige inicio
+      # < cierre dentro del mismo día (22:00 -> 06:00 falla).
+      assertEquals 'cross midnight' 1 "$(_chk2 22:00 06:00)"
 }
 
 # Transforms ---------------------------------------------------------------
