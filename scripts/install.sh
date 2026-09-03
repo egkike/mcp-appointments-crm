@@ -78,6 +78,56 @@ str_toupper() {
 }
 
 # ---------------------------------------------------------------------------
+# Field registry
+# ---------------------------------------------------------------------------
+# Arrays paralelos (bash 3.2-safe) con el orden canónico de prompts,
+# validadores, defaults y textos. BP_KEYS es la fuente de verdad para el
+# orden de reanudación.
+
+BP_KEYS=(
+  name industry country address latitude longitude cover_photo_url
+  public_phone messenger_platform messenger_id contact_email website_url
+  general_description accepted_payment_methods currency_code currency_symbol
+  timezone slot_interval_minutes
+)
+
+BP_PROMPTS=(
+  "Nombre del negocio"
+  "Industria"
+  "País (dos letras, ej. AR)"
+  "Dirección"
+  "Latitud"
+  "Longitud"
+  "URL de foto de portada"
+  "Teléfono público"
+  "Plataforma de mensajería (whatsapp/telegram)"
+  "ID de mensajería"
+  "Correo electrónico de contacto"
+  "Sitio web"
+  "Descripción general"
+  "Métodos de pago aceptados (separados por coma)"
+  "Código de moneda (ej. ARS)"
+  "Símbolo de moneda"
+  "Zona horaria (ej. America/Argentina/Buenos_Aires)"
+  "Intervalo de turnos (minutos)"
+)
+
+BP_REQUIRED=(1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
+
+BP_VALIDATORS=(
+  v_nonempty "" v_country "" v_latitude v_longitude v_url
+  v_phone v_messenger_platform "" v_email v_url "" v_payment_list
+  v_currency v_symbol v_timezone v_positive_int
+)
+
+BP_DEFAULTS=("" "" "" "" "" "" "" "" "" "" "" "" "" "" "ARS" "$" "UTC" "30")
+# shellcheck disable=SC2034  # usado por render_setup_business en PR2b
+BP_TYPES=(s s s s n n s s s s s s s l s s s i)
+
+# STAFF_*/SERVICE_*/DAY_* registries: deferred to PR2b (tasks 2.7-2.13).
+
+
+# ---------------------------------------------------------------------------
 # Validators (pure: exit 0 valid / 1 invalid, Spanish error to stderr)
 # ---------------------------------------------------------------------------
 # Regex cheat-sheet (todos están anclados con ^ ... $):
@@ -241,6 +291,163 @@ json_unescape() {
 }
 
 # ---------------------------------------------------------------------------
+# Flat dotted-key store
+# ---------------------------------------------------------------------------
+# STORE contiene líneas "clave=valor" separadas por newline. La clave literal
+# "null" marca un campo opcional respondido en blanco. El registro (arriba)
+# controla los nombres de clave; nunca se usa input del operador como clave.
+
+STORE=""
+
+store_clear() { STORE=""; }
+
+store_has() {
+  local key="$1" line
+  [ -z "$STORE" ] && return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ "${line%%=*}" = "$key" ] && return 0
+  done <<EOF
+$STORE
+EOF
+  return 1
+}
+
+store_get() {
+  local key="$1" line
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "${line%%=*}" = "$key" ]; then
+      printf '%s' "${line#*=}"
+      return 0
+    fi
+  done <<EOF
+$STORE
+EOF
+}
+
+store_set() {
+  local key="$1" value="$2" line new_store=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ "${line%%=*}" = "$key" ]; then
+      new_store="${new_store}${key}=${value}"$'\n'
+    else
+      new_store="${new_store}${line}"$'\n'
+    fi
+  done <<EOF
+$STORE
+EOF
+  if ! store_has "$key"; then
+    new_store="${new_store}${key}=${value}"$'\n'
+  fi
+  STORE="$new_store"
+}
+
+store_unset() {
+  local key="$1" line new_store=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ "${line%%=*}" = "$key" ] && continue
+    new_store="${new_store}${line}"$'\n'
+  done <<EOF
+$STORE
+EOF
+  STORE="$new_store"
+}
+
+checkpoint_render() {
+  local line key value out
+  out="{"
+  out="${out}"$'\n'"  \"version\": 1"
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -z "$line" ] && continue
+    key=${line%%=*}
+    value=${line#*=}
+    out="${out},"$'\n'"  \"$(json_escape "$key")\": "
+    if [ "$value" = "null" ]; then
+      out="${out}null"
+    elif [[ $value =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+      out="${out}${value}"
+    else
+      out="${out}\"$(json_escape "$value")\""
+    fi
+  done <<EOF
+$STORE
+EOF
+  out="${out}"$'\n'"}"
+  printf '%s' "$out"
+}
+
+# ---------------------------------------------------------------------------
+# Checkpoint I/O
+# ---------------------------------------------------------------------------
+
+checkpoint_save() {
+  checkpoint_render | atomic_write "$CHECKPOINT_PATH"
+}
+
+checkpoint_load() {
+  [ -f "$CHECKPOINT_PATH" ] || return 0
+  local line key value version_ok=0
+  while IFS= read -r line; do
+    if [[ $line =~ ^[[:space:]]*\"version\"[[:space:]]*:[[:space:]]*1 ]]; then
+      version_ok=1
+      continue
+    fi
+    if [[ $line =~ ^[[:space:]]*\"([^\"]+)\"[[:space:]]*:[[:space:]]*(.*)$ ]]; then
+      key="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+      value=${value%,}
+      [ "$key" = "version" ] && continue
+      if [ "$value" = "null" ]; then
+        store_set "$key" "null"
+      elif [[ $value =~ ^\"(.*)\"$ ]]; then
+        store_set "$key" "$(json_unescape "${BASH_REMATCH[1]}")"
+      elif [[ $value =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
+        store_set "$key" "$value"
+      fi
+    fi
+  done < "$CHECKPOINT_PATH"
+  [ "$version_ok" -eq 1 ] && return 0
+  return 1
+}
+
+validator_for_key() {
+  local key="$1"
+  case "$key" in
+    business.name) echo v_nonempty ;;
+    business.country) echo v_country ;;
+    business.latitude) echo v_latitude ;;
+    business.longitude) echo v_longitude ;;
+    business.cover_photo_url|business.website_url) echo v_url ;;
+    business.public_phone) echo v_phone ;;
+    business.messenger_platform) echo v_messenger_platform ;;
+    business.contact_email) echo v_email ;;
+    business.currency_code) echo v_currency ;;
+    business.currency_symbol) echo v_symbol ;;
+    business.timezone) echo v_timezone ;;
+        business.slot_interval_minutes) echo v_positive_int ;;
+        business.accepted_payment_methods) echo v_payment_list ;;
+        # PR2b: hours.*/staff.*/services.* validators (tasks 2.7-2.13).
+  esac
+}
+
+revalidate_all() {
+  local line key value validator
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -z "$line" ] && continue
+    key=${line%%=*}
+    value=${line#*=}
+    [ "$value" = "null" ] && continue
+    validator=$(validator_for_key "$key")
+    if [ -n "$validator" ]; then
+      if ! $validator "$value" >/dev/null 2>&1; then
+        store_unset "$key"
+      fi
+    fi
+  done <<EOF
+$STORE
+EOF
+}
+
+# ---------------------------------------------------------------------------
 # Atomic write + path resolution
 # ---------------------------------------------------------------------------
 
@@ -285,8 +492,195 @@ resolve_paths() {
 }
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Prompt engine + helpers
 # ---------------------------------------------------------------------------
+
+prompt_yes_no() {
+  local prompt="$1" raw
+  while true; do
+    printf '%s' "$prompt"
+    if ! read -r raw; then
+      echo '' >&2
+      echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+      exit 1
+    fi
+    raw=$(trim_value "$raw")
+    case "$raw" in
+      [sS]|si|sí) return 0 ;;
+      [nN]|no|"") return 1 ;;
+    esac
+    echo 'Ingrese s para sí o n para no.' >&2
+  done
+}
+
+prompt_field() {
+  local var="$1" prompt="$2" validator="$3" mode="$4" default="${5:-}" transform="${6:-}" raw value
+  while true; do
+    printf '%s' "$prompt"
+    [ "$mode" = "default" ] && [ -n "$default" ] && printf ' [%s]' "$default"
+    printf ': '
+    if ! read -r raw; then
+      echo '' >&2
+      echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+      exit 1
+    fi
+    value=$(trim_value "$raw")
+    if is_blank "$value"; then
+      case "$mode" in
+        required)
+          echo 'Error: este campo es obligatorio.' >&2
+          continue
+          ;;
+        default)
+          value="$default"
+          ;;
+        optional)
+          store_set "$var" "null"
+          checkpoint_save
+          return 0
+          ;;
+      esac
+    fi
+    if [ -n "$validator" ]; then
+      if ! $validator "$value"; then
+        continue
+      fi
+    fi
+    if [ -n "$transform" ]; then
+      value=$($transform "$value")
+    fi
+    store_set "$var" "$value"
+    checkpoint_save
+    return 0
+  done
+}
+
+prompt_day_hours() {
+  local name="$1" key_open="$2" raw start end
+  local key_close="${key_open%.open}.close"
+  while true; do
+    printf 'Horario para %s (cerrado/no trabaja o HH:MM-HH:MM): ' "$name"
+    if ! read -r raw; then
+      echo '' >&2
+      echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+      exit 1
+    fi
+    raw=$(trim_value "$raw")
+    if [ "$raw" = "cerrado" ] || [ "$raw" = "c" ] || [ "$raw" = "no" ]; then
+      store_set "$key_open" "null"
+      checkpoint_save
+      return 0
+    fi
+    start=${raw%%-*}
+    end=${raw##*-}
+    if v_hhmm "$start" >/dev/null 2>&1 && v_hhmm "$end" >/dev/null 2>&1 && v_time_pair "$start" "$end" >/dev/null 2>&1; then
+      store_set "$key_open" "$start"
+      store_set "$key_close" "$end"
+      checkpoint_save
+      return 0
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Section runners
+# ---------------------------------------------------------------------------
+
+run_business_section() {
+  local i=0 n=${#BP_KEYS[@]} field key validator mode default transform prompt
+  n=${#BP_KEYS[@]}
+  while [ $i -lt "$n" ]; do
+    field=${BP_KEYS[i]}
+    key="business.$field"
+    store_has "$key" && { i=$((i + 1)); continue; }
+    validator=${BP_VALIDATORS[i]}
+    if [ "${BP_REQUIRED[i]}" -eq 1 ]; then mode=required; else mode=optional; fi
+    default=${BP_DEFAULTS[i]}
+    [ -n "$default" ] && mode=default
+    prompt=${BP_PROMPTS[i]}
+    transform=""
+    case "$field" in country|currency_code) transform=t_upper ;; esac
+    prompt_field "$key" "$prompt" "$validator" "$mode" "$default" "$transform"
+    i=$((i + 1))
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+
+setup_files_exist() {
+  [ -f "$SETUP_DIR/setup_business.json" ] && \
+  [ -f "$SETUP_DIR/setup_staff.json" ] && \
+  [ -f "$SETUP_DIR/setup_services.json" ]
+}
+
+prompt_rsq() {
+  local raw
+  while true; do
+    printf '[R]eanudar / [S]tart over / [Q]uit: '
+    if ! read -r raw; then
+      echo '' >&2
+      echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+      exit 1
+    fi
+    raw=$(trim_value "$raw")
+    case "$raw" in
+      [rR])
+        if checkpoint_load; then
+          revalidate_all
+          echo 'Reanudando configuración...' >&2
+          return 0
+        fi
+        echo 'Error: checkpoint no reconocido. Elija S para empezar de nuevo o Q para salir.' >&2
+        ;;
+      [sS])
+        rm -f "$CHECKPOINT_PATH"
+        store_clear
+        return 0
+        ;;
+      [qQ])
+        exit 0
+        ;;
+      *)
+        echo 'Opción inválida. Ingrese R, S o Q.' >&2
+        ;;
+    esac
+  done
+}
+
+prompt_reconfigure() {
+  local raw
+  while true; do
+    printf 'Ya existe una configuración. ¿Sobrescribir? (s/N): '
+    if ! read -r raw; then
+      echo '' >&2
+      exit 1
+    fi
+    raw=$(trim_value "$raw")
+    case "$raw" in
+      [sS]|si|sí) return 0 ;;
+      [nN]|no|"") return 1 ;;
+    esac
+    echo 'Ingrese s para sí o n para no.' >&2
+  done
+}
+
+run_setup() {
+  resolve_paths || exit 1
+  mkdir -p "$SETUP_DIR"
+  if [ -f "$CHECKPOINT_PATH" ]; then
+    prompt_rsq
+  elif setup_files_exist; then
+    if ! prompt_reconfigure; then
+      exit 0
+    fi
+  fi
+  run_business_section
+  # PR2b: hours/staff/services, resumen y finalize (tasks 2.7-2.13).
+  echo 'Secciones hours/staff/services: disponible en PR2b.'
+  exit 0
+}
 
 usage() {
   cat <<'EOF'
@@ -300,7 +694,7 @@ EOF
 main() {
   case "${1:-}" in
     --help) usage; exit 0 ;;
-    --setup-only|"") echo 'Setup flow: disponible en el siguiente PR'; exit 0 ;;
+    --setup-only|"") run_setup "$@" ;;
     *) echo "Error: argumento desconocido: $1" >&2; exit 1 ;;
   esac
 }
