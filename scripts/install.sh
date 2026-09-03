@@ -10,22 +10,34 @@
 umask 077
 set -u
 
+# CURRENT_TMP holds the in-flight temp file path used by atomic_write.
+# Single active file at a time (single-threaded script); the EXIT trap
+# cleans it up on normal exit, INT/TERM/HUP on abnormal termination.
+# CONFIG_DIR, SETUP_DIR, CHECKPOINT_PATH are populated by resolve_paths
+# and are intentionally global so the installer flow can reuse them.
 CURRENT_TMP=""
-cleanup_tmp() { rm -f "$CURRENT_TMP"; }
-trap cleanup_tmp EXIT
+cleanup_tmp() { [ -n "$CURRENT_TMP" ] && rm -f "$CURRENT_TMP"; }
+# EXIT for normal exit; INT/TERM/HUP for shell signals (best-effort cleanup).
+# Single-threaded: no race between concurrent atomic_write calls.
+trap cleanup_tmp EXIT INT TERM HUP
 
 # ---------------------------------------------------------------------------
 # String helpers
 # ---------------------------------------------------------------------------
+# Bash 3.2 floor: no ${var^^}, no `tr` con LC_ALL controlado, ni arrays
+# asociativos. Los helpers de abajo hacen trabajo byte a byte a mano
+# para mantener la portabilidad en el /bin/bash stock de macOS.
 
 trim_value() {
   local s="$1" c
+  # Adelante: si el primer byte es espacio/tab/NL/CR, lo recorta.
   while [ -n "$s" ]; do
-    c=${s%"${s#?}"}
+    c=${s%"${s#?}"}            # primer byte (binds tighter que %)
     case $c in [$' \t\n\r']) s=${s#?} ;; *) break ;; esac
   done
+  # Atrás: si el último byte es espacio/tab/NL/CR, lo recorta.
   while [ -n "$s" ]; do
-    c=${s#"${s%?}"}
+    c=${s#"${s%?}"}            # último byte
     case $c in [$' \t\n\r']) s=${s%?} ;; *) break ;; esac
   done
   printf '%s' "$s"
@@ -37,11 +49,17 @@ is_blank() {
   [ -z "$t" ]
 }
 
+# char_code: devuelve el valor numérico del primer byte de $1.
+# LC_ALL=C garantiza que printf '%d' "'$c'" sea estable byte a byte
+# en cualquier locale (sino, locales multibyte lo rompen).
 char_code() {
   local LC_ALL=C
   printf '%d' "'$1'"
 }
 
+# str_toupper: upper-case ASCII por aritmética de código por byte.
+# Bytes 0x61-0x7A (a-z) se convierten a A-Z restando 32. Bytes no-ASCII
+# (acentos, emoji, UTF-8 multibyte) pasan tal cual.
 str_toupper() {
   local s="$1" c out="" i=0 len code
   len=${#s}
@@ -50,6 +68,7 @@ str_toupper() {
     code=$(char_code "$c")
     if [ "$code" -ge 97 ] && [ "$code" -le 122 ]; then
       code=$((code - 32))
+      # Emitir el byte convertido: printf %b interpreta \xHH literalmente.
       c=$(printf '%b' "\\x$(printf '%02x' "$code")")
     fi
     out="${out}${c}"
@@ -61,6 +80,25 @@ str_toupper() {
 # ---------------------------------------------------------------------------
 # Validators (pure: exit 0 valid / 1 invalid, Spanish error to stderr)
 # ---------------------------------------------------------------------------
+# Regex cheat-sheet (todos están anclados con ^ ... $):
+#   v_nonempty          -> rechaza cadenas en blanco (usa is_blank).
+#   v_country           -> exactamente 2 letras ASCII (may/min).
+#   v_email             -> local@dominio.tld sin espacios ni @ adicional.
+#   v_phone             -> E.164: '+' seguido de 8 a 15 dígitos.
+#   v_url               -> http:// o https:// sin espacios.
+#   v_messenger_platform-> enum: whatsapp | telegram.
+#   v_symbol            -> rechaza vacío.
+#   v_latitude/longitude-> rango decimal vía _decimal_range.
+#   v_currency          -> exactamente 3 letras MAYÚSCULAS (ISO 4217).
+#   v_timezone          -> ruta IANA: Area/Location[/Sub] con segmentos
+#                          que arrancan en mayúscula. Acepta "UTC" y
+#                          hasta 2 segmentos "/" (ej. America/Argentina/Buenos_Aires).
+#                          NO acepta "GMT-3" (eso es POSIX TZ, no IANA).
+#   v_positive_int      -> entero > 0; $((10#$1)) evita parsing octal.
+#   v_price             -> decimal >= 0 (acepta 0).
+#   v_payment_list      -> al menos 1 ítem no vacío separado por coma.
+#   v_hhmm              -> 24h HH:MM estricto (01-09 OK, "9:00" NO).
+#   v_time_pair         -> inicio < cierre, ambos v_hhmm válidos.
 
 v_nonempty() { is_blank "$1" && { echo 'Error: este campo no puede estar vacío.' >&2; return 1; }; return 0; }
 v_country() { [[ $1 =~ ^[A-Za-z]{2}$ ]] && return 0; echo 'Error: el país debe tener exactamente dos letras (ej. AR).' >&2; return 1; }
@@ -70,6 +108,9 @@ v_url() { [[ $1 =~ ^https?://[^[:space:]]+$ ]] && return 0; echo 'Error: la URL 
 v_messenger_platform() { case $1 in whatsapp|telegram) return 0 ;; esac; echo 'Error: la plataforma debe ser whatsapp o telegram.' >&2; return 1; }
 v_symbol() { is_blank "$1" && { echo 'Error: el símbolo no puede estar vacío.' >&2; return 1; }; return 0; }
 
+# _decimal_range val bound: chequea que |val| <= bound con parte entera y
+# fraccionar explícitas. Acepta signo opcional, separa int y frac, y exige
+# que frac == "0...0" cuando |int| == bound (no es un half-open abierto).
 _decimal_range() {
   local val="$1" bound="$2" num int frac
   [[ $val =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || return 1
@@ -79,6 +120,8 @@ _decimal_range() {
   [ "$int" -lt "$bound" ] && return 0
   [ "$int" -gt "$bound" ] && return 1
   [ -z "$frac" ] && return 0
+  # Si la parte entera iguala el bound, cualquier dígito != 0 en la fracción
+  # excede el rango (ej. 90.1 falla para v_latitude con bound=90).
   case $frac in *[!0]*) return 1 ;; *) return 0 ;; esac
 }
 
@@ -124,6 +167,17 @@ t_upper() { str_toupper "$1"; }
 # ---------------------------------------------------------------------------
 # JSON helpers
 # ---------------------------------------------------------------------------
+# json_escape/json_unescape son inversos para los caracteres que este
+# instalador produce/consume. Reglas:
+#   - LC_ALL=C fija el locale para que el cálculo por byte sea estable.
+#   - Iteración por bytes con ${s:i:1} (soporte bash 3.2; mapfile no existe).
+#   - Caracteres de control (<0x20, 0x7F) salen como \u00XX; el resto de
+#     bytes >=0x80 (UTF-8 multibyte) pasa verbatim, así no corrompemos
+#     cadenas con acentos o emoji en el JSON final.
+#   - El path \u en unescape solo necesita reconstruir el byte bajo (\u00XX)
+#     porque json_escape nunca emite \uXXXX de cuatro dígitos hex
+#     "altos". Para el instalador no hace falta decodificar Unicode
+#     completo (los strings que guardamos son ASCII + UTF-8 literal).
 
 json_escape() {
   local s="$1" c out="" i=0 len code
@@ -132,13 +186,14 @@ json_escape() {
   while [ $i -lt "$len" ]; do
     c=${s:$i:1}
     case $c in
-      '"') out="${out}\\\"" ;;
-      \\) out="${out}\\\\" ;;
+      '"') out="${out}\\\"" ;;     # literal: \"
+      \\) out="${out}\\\\" ;;      # literal: \\
       $'\n') out="${out}\\n" ;;
       $'\t') out="${out}\\t" ;;
       $'\r') out="${out}\\r" ;;
       *)
         code=$(char_code "$c")
+        # Controles ASCII (<0x20 o ==0x7F) -> \u00XX. >=0x80 verbatim (UTF-8).
         if [ "$code" -lt 32 ] || [ "$code" -eq 127 ]; then
           out="${out}$(printf '\\u00%02X' "$code")"
         else
@@ -166,6 +221,10 @@ json_unescape() {
         t) out="${out}"$'\t'; i=$((i + 2)) ;;
         r) out="${out}"$'\r'; i=$((i + 2)) ;;
         u)
+          # hex = "\u00XX" (siempre 4 hex según nuestro escape).
+          # ${hex#??} descarta "00" y deja los 2 dígitos bajos del byte.
+          # Decodificar el byte alto no es necesario porque el instalador
+          # nunca produce \uXXXX con plano Unicode >0x00FF.
           hex=${s:$((i + 2)):4}
           byte=$(printf '%b' "\\x${hex#??}")
           out="${out}${byte}"
@@ -187,6 +246,15 @@ json_unescape() {
 
 atomic_write() {
   local dest="$1"
+  # Tmp junto al destino garantiza misma partición -> mv atómico POSIX.
+  # El trap EXIT/INT/TERM/HUP limpia el tmp si el script aborta entre
+  # la apertura y el rename. CURRENT_TMP se borra en ambos paths
+  # (éxito y fallo) para que el trap posterior no borre el archivo
+  # final ya movido. Script single-threaded: no hay race entre llamadas.
+  # Durabilidad: si el sistema cae justo después del mv, queda el
+  # archivo viejo (parseable) o el nuevo (parseable); no hay estado
+  # intermedio corrupto. No hacemos fsync del directorio porque el
+  # loader Go de Fase 5 tolera checkpoint ausente con un mensaje claro.
   CURRENT_TMP="${dest}.new.$$"
   cat > "$CURRENT_TMP" && mv -f "$CURRENT_TMP" "$dest"
   local rc=$?
