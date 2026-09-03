@@ -86,7 +86,7 @@ str_toupper() {
 
 BP_KEYS=(
   name industry country address latitude longitude cover_photo_url
-  messenger_platform messenger_id public_phone contact_email website_url
+  public_phone messenger_platform messenger_id contact_email website_url
   general_description accepted_payment_methods currency_code currency_symbol
   timezone slot_interval_minutes
 )
@@ -99,9 +99,9 @@ BP_PROMPTS=(
   "Latitud"
   "Longitud"
   "URL de foto de portada"
+  "Teléfono público"
   "Plataforma de mensajería (whatsapp/telegram)"
   "ID de mensajería"
-  "Teléfono público"
   "Correo electrónico de contacto"
   "Sitio web"
   "Descripción general"
@@ -116,7 +116,7 @@ BP_REQUIRED=(1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)
 
 BP_VALIDATORS=(
   v_nonempty "" v_country "" v_latitude v_longitude v_url
-  v_messenger_platform "" v_phone v_email v_url "" v_payment_list
+  v_phone v_messenger_platform "" v_email v_url "" v_payment_list
   v_currency v_symbol v_timezone v_positive_int
 )
 

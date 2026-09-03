@@ -39,9 +39,9 @@ _business_input() {
     "-34.5" \
     "-58.3" \
     "https://example.com/cover.jpg" \
+    "+5491122334455" \
     "whatsapp" \
     "+5491111111111" \
-    "+5491122334455" \
     "hola@latel.com" \
     "" \
     "Descripción general" \

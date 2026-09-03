@@ -42,6 +42,13 @@ test_is_blank() {
       assertFalse 'text is not blank' 'is_blank "x"'
 }
 
+# BP_KEYS regression guard (REQ-IS-2 order, 18 fields) — ensures resume order matches spec
+# BP_KEYS is the source of truth for resume position derivation (design §6.3).
+test_bp_keys_order() {
+  local expected="name industry country address latitude longitude cover_photo_url public_phone messenger_platform messenger_id contact_email website_url general_description accepted_payment_methods currency_code currency_symbol timezone slot_interval_minutes"
+  assertEquals 'BP_KEYS order equals spec REQ-IS-2 (18 fields)' "$expected" "${BP_KEYS[*]}"
+}
+
 # Validators batch 1 -------------------------------------------------------
 
 test_validators_batch1() {
