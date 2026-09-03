@@ -197,7 +197,7 @@ atomic_write() {
 resolve_paths() {
   if [ -z "${HOME:-}" ]; then
     echo 'Error: la variable HOME no está definida.' >&2
-    exit 1
+    return 1
   fi
   local os
   os=$(uname -s)
@@ -208,7 +208,7 @@ resolve_paths() {
   fi
   if [ -L "$CONFIG_DIR" ]; then
     echo "Error: el directorio de configuración es un enlace simbólico: $CONFIG_DIR" >&2
-    exit 1
+    return 1
   fi
   # shellcheck disable=SC2034
   SETUP_DIR="$CONFIG_DIR/setup"
