@@ -360,7 +360,7 @@ checkpoint_render() {
     [ -z "$line" ] && continue
     key=${line%%=*}
     value=${line#*=}
-        out="${out},"$'\n'"  \"${key}\": "
+        out="${out},"$'\n'"  \"$(json_escape "$key")\": "
     if [ "$value" = "null" ]; then
       out="${out}null"
     elif [[ $value =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
