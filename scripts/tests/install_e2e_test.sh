@@ -187,6 +187,19 @@ test_full_happy_path() {
   assertEquals 'business file mode' '600' "$(stat -c %a "$SETUP_DIR/setup_business.json")"
 }
 
+# R3-001: si finalize no puede escribir, el checkpoint debe conservarse
+test_finalize_write_failure_preserves_checkpoint() {
+  local out rc
+  mkdir -p "$SETUP_DIR"
+  chmod 555 "$SETUP_DIR"
+  out=$(_full_input | _run_install 2>&1)
+  rc=$?
+  chmod 755 "$SETUP_DIR"
+  assertTrue 'install exits nonzero' "[ $rc -ne 0 ]"
+  assertTrue 'checkpoint preserved' "[ -f \"$CHECKPOINT_PATH\" ]"
+  assertTrue 'spanish write error' "printf '%s' \"$out\" | grep -q 'no se pudo guardar'"
+}
+
 test_hours_malformed_reasks() {
   local out rc
   out=$({ _business_input; printf '9:00 AM\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-13:00\ncerrado\n'; _staff_input; _services_input; printf 's\n'; } | _run_install 2>&1)

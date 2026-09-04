@@ -942,20 +942,40 @@ run_summary_confirm() {
 }
 
 finalize() {
-  mkdir -p "$SETUP_DIR"
-  render_setup_business | atomic_write "$SETUP_DIR/setup_business.json"
-  render_setup_staff | atomic_write "$SETUP_DIR/setup_staff.json"
-  render_setup_services | atomic_write "$SETUP_DIR/setup_services.json"
-  rm -f "$CHECKPOINT_PATH"
-  if command -v jq >/dev/null 2>&1; then
-    jq empty "$SETUP_DIR/setup_business.json" >/dev/null 2>&1 || true
-    jq empty "$SETUP_DIR/setup_staff.json" >/dev/null 2>&1 || true
-    jq empty "$SETUP_DIR/setup_services.json" >/dev/null 2>&1 || true
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -m json.tool "$SETUP_DIR/setup_business.json" >/dev/null 2>&1 || true
-    python3 -m json.tool "$SETUP_DIR/setup_staff.json" >/dev/null 2>&1 || true
-    python3 -m json.tool "$SETUP_DIR/setup_services.json" >/dev/null 2>&1 || true
+  if ! mkdir -p "$SETUP_DIR"; then
+    echo 'Error: no se pudo crear el directorio de configuración. El checkpoint se conserva.' >&2
+    return 1
   fi
+  if ! render_setup_business | atomic_write "$SETUP_DIR/setup_business.json"; then
+    echo 'Error: no se pudo guardar setup_business.json. El checkpoint se conserva.' >&2
+    return 1
+  fi
+  if ! render_setup_staff | atomic_write "$SETUP_DIR/setup_staff.json"; then
+    echo 'Error: no se pudo guardar setup_staff.json. El checkpoint se conserva.' >&2
+    return 1
+  fi
+  if ! render_setup_services | atomic_write "$SETUP_DIR/setup_services.json"; then
+    echo 'Error: no se pudo guardar setup_services.json. El checkpoint se conserva.' >&2
+    return 1
+  fi
+  # Validación ANTES de eliminar el checkpoint: si el JSON no valida,
+  # el checkpoint se preserva para poder reanudar sin perder datos.
+  if command -v jq >/dev/null 2>&1; then
+    if ! jq empty "$SETUP_DIR/setup_business.json" >/dev/null 2>&1 || \
+       ! jq empty "$SETUP_DIR/setup_staff.json" >/dev/null 2>&1 || \
+       ! jq empty "$SETUP_DIR/setup_services.json" >/dev/null 2>&1; then
+      echo 'Error: los archivos generados no son JSON válido. El checkpoint se conserva.' >&2
+      return 1
+    fi
+  elif command -v python3 >/dev/null 2>&1; then
+    if ! python3 -m json.tool "$SETUP_DIR/setup_business.json" >/dev/null 2>&1 || \
+       ! python3 -m json.tool "$SETUP_DIR/setup_staff.json" >/dev/null 2>&1 || \
+       ! python3 -m json.tool "$SETUP_DIR/setup_services.json" >/dev/null 2>&1; then
+      echo 'Error: los archivos generados no son JSON válido. El checkpoint se conserva.' >&2
+      return 1
+    fi
+  fi
+  rm -f "$CHECKPOINT_PATH"
   echo "Configuración guardada en:"
   echo "  $SETUP_DIR/setup_business.json"
   echo "  $SETUP_DIR/setup_staff.json"
