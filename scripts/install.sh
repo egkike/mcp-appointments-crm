@@ -230,30 +230,30 @@ t_upper() { str_toupper "$1"; }
 #     completo (los strings que guardamos son ASCII + UTF-8 literal).
 
 json_escape() {
-  local s="$1" c out="" i=0 len code
-  local LC_ALL=C
-  len=${#s}
-  while [ $i -lt "$len" ]; do
-    c=${s:$i:1}
-    case $c in
-      '"') out="${out}\\\"" ;;     # literal: \"
-      \\) out="${out}\\\\" ;;      # literal: \\
-      $'\n') out="${out}\\n" ;;
-      $'\t') out="${out}\\t" ;;
-      $'\r') out="${out}\\r" ;;
-      *)
-        code=$(char_code "$c")
-        # Controles ASCII (<0x20 o ==0x7F) -> \u00XX. >=0x80 verbatim (UTF-8).
-        if [ "$code" -lt 32 ] || [ "$code" -eq 127 ]; then
-          out="${out}$(printf '\\u00%02X' "$code")"
-        else
-          out="${out}${c}"
-        fi
-        ;;
-    esac
-    i=$((i + 1))
-  done
-  printf '%s' "$out"
+  local s="$1"
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\n'/\\n}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\t'/\\t}
+  if [[ "$s" =~ [[:cntrl:]] ]]; then
+    local c out="" i=0 len code
+    local LC_ALL=C
+    len=${#s}
+    while [ $i -lt "$len" ]; do
+      c=${s:$i:1}
+      code=$(char_code "$c")
+      if [ "$code" -lt 32 ] || [ "$code" -eq 127 ]; then
+        out="${out}$(printf '\\u00%02X' "$code")"
+      else
+        out="${out}${c}"
+      fi
+      i=$((i + 1))
+    done
+    printf '%s' "$out"
+  else
+    printf '%s' "$s"
+  fi
 }
 
 json_unescape() {
@@ -360,7 +360,7 @@ checkpoint_render() {
     [ -z "$line" ] && continue
     key=${line%%=*}
     value=${line#*=}
-    out="${out},"$'\n'"  \"$(json_escape "$key")\": "
+        out="${out},"$'\n'"  \"${key}\": "
     if [ "$value" = "null" ]; then
       out="${out}null"
     elif [[ $value =~ ^-?[0-9]+(\.[0-9]+)?$ ]]; then
