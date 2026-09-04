@@ -124,7 +124,26 @@ BP_DEFAULTS=("" "" "" "" "" "" "" "" "" "" "" "" "" "" "ARS" "$" "UTC" "30")
 # shellcheck disable=SC2034  # usado por render_setup_business en PR2b
 BP_TYPES=(s s s s n n s s s s s s s l s s s i)
 
-# STAFF_*/SERVICE_*/DAY_* registries: deferred to PR2b (tasks 2.7-2.13).
+# Day mapping for business hours (monday..sunday) and staff schedule
+# day-of-week integer (0=Sunday..6=Saturday, canonical schedules capability).
+DAY_NAMES=(monday tuesday wednesday thursday friday saturday sunday)
+DAY_LABELS=(Lunes Martes Miércoles Jueves Viernes Sábado Domingo)
+
+STAFF_DAY_ORDER=(1 2 3 4 5 6 0)
+STAFF_DAY_LABELS=(Lunes Martes Miércoles Jueves Viernes Sábado Domingo)
+
+# Staff subfield registry (name is handled separately because it doubles as
+# the loop terminator once at least one professional is captured).
+STAFF_FIELD_KEYS=(role_specialty phone email)
+STAFF_FIELD_PROMPTS=("Especialidad / rol" "Teléfono" "Correo electrónico")
+STAFF_FIELD_REQUIRED=(0 0 0)
+STAFF_FIELD_VALIDATORS=("" v_phone v_email)
+
+# Service subfield registry (name handled separately for the same reason).
+SERVICE_FIELD_KEYS=(description duration_minutes price)
+SERVICE_FIELD_PROMPTS=("Descripción" "Duración (minutos)" "Precio")
+SERVICE_FIELD_REQUIRED=(0 1 1)
+SERVICE_FIELD_VALIDATORS=("" v_positive_int v_price)
 
 
 # ---------------------------------------------------------------------------
@@ -291,8 +310,40 @@ json_unescape() {
 }
 
 # ---------------------------------------------------------------------------
-# Flat dotted-key store
+# JSON value helpers
+
+# Render a comma-separated list as a JSON array of trimmed, escaped strings.
+_json_array() {
+  local list="$1" item first=1
+  local IFS=,
+  for item in $list; do
+    item=$(trim_value "$item")
+    [ -z "$item" ] && continue
+    [ "$first" -eq 0 ] && printf ', '
+    first=0
+    printf '"%s"' "$(json_escape "$item")"
+  done
+}
+
+# Render a store value according to its type: s=string, n/i=number, l=list.
+json_value() {
+  local value="$1" type="$2"
+  if [ "$value" = "null" ]; then
+    printf 'null'
+  elif [ "$type" = "s" ]; then
+    printf '"%s"' "$(json_escape "$value")"
+  elif [ "$type" = "n" ] || [ "$type" = "i" ]; then
+    printf '%s' "$value"
+  elif [ "$type" = "l" ]; then
+    printf '['
+    _json_array "$value"
+    printf ']'
+  fi
+}
 # ---------------------------------------------------------------------------
+
+# Flat dotted-key store
+
 # STORE contiene líneas "clave=valor" separadas por newline. La clave literal
 # "null" marca un campo opcional respondido en blanco. El registro (arriba)
 # controla los nombres de clave; nunca se usa input del operador como clave.
@@ -423,9 +474,13 @@ validator_for_key() {
     business.currency_code) echo v_currency ;;
     business.currency_symbol) echo v_symbol ;;
     business.timezone) echo v_timezone ;;
-        business.slot_interval_minutes) echo v_positive_int ;;
-        business.accepted_payment_methods) echo v_payment_list ;;
-        # PR2b: hours.*/staff.*/services.* validators (tasks 2.7-2.13).
+    business.slot_interval_minutes) echo v_positive_int ;;
+    business.accepted_payment_methods) echo v_payment_list ;;
+    staff.*.phone) echo v_phone ;;
+    staff.*.email) echo v_email ;;
+    services.*.duration_minutes) echo v_positive_int ;;
+    services.*.price) echo v_price ;;
+    hours.*.open|hours.*.close|staff.*.sched.*.open|staff.*.sched.*.close) echo v_hhmm ;;
   esac
 }
 
@@ -573,7 +628,7 @@ prompt_day_hours() {
     fi
     start=${raw%%-*}
     end=${raw##*-}
-    if v_hhmm "$start" >/dev/null 2>&1 && v_hhmm "$end" >/dev/null 2>&1 && v_time_pair "$start" "$end" >/dev/null 2>&1; then
+    if v_hhmm "$start" && v_hhmm "$end" && v_time_pair "$start" "$end"; then
       store_set "$key_open" "$start"
       store_set "$key_close" "$end"
       checkpoint_save
@@ -583,12 +638,12 @@ prompt_day_hours() {
 }
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Section runners
 # ---------------------------------------------------------------------------
 
 run_business_section() {
   local i=0 n=${#BP_KEYS[@]} field key validator mode default transform prompt
-  n=${#BP_KEYS[@]}
   while [ $i -lt "$n" ]; do
     field=${BP_KEYS[i]}
     key="business.$field"
@@ -605,7 +660,308 @@ run_business_section() {
   done
 }
 
+staff_entry_complete() {
+  local i="$1" idx day
+  store_has "staff.$i.name" || return 1
+  for idx in 0 1 2; do
+    store_has "staff.$i.${STAFF_FIELD_KEYS[idx]}" || return 1
+  done
+  for day in "${STAFF_DAY_ORDER[@]}"; do
+    store_has "staff.$i.sched.$day.open" || return 1
+  done
+  return 0
+}
+
+service_entry_complete() {
+  local i="$1" idx
+  store_has "services.$i.name" || return 1
+  for idx in 0 1 2; do
+    store_has "services.$i.${SERVICE_FIELD_KEYS[idx]}" || return 1
+  done
+  return 0
+}
+
+run_hours_section() {
+  local i=0 name key_open
+  while [ $i -lt 7 ]; do
+    name=${DAY_LABELS[i]}
+    key_open="hours.${DAY_NAMES[i]}.open"
+    store_has "$key_open" && { i=$((i + 1)); continue; }
+    prompt_day_hours "$name" "$key_open"
+    i=$((i + 1))
+  done
+}
+
+run_staff_section() {
+  local i=0 count=0 idx day name_key key key_open raw value finished=0
+  while [ $finished -eq 0 ]; do
+    name_key="staff.$i.name"
+    if store_has "$name_key"; then
+      if staff_entry_complete "$i"; then
+        count=$((count + 1))
+        i=$((i + 1))
+        continue
+      fi
+    else
+      if [ "$count" -gt 0 ] || [ "$i" -gt 0 ]; then
+        printf 'Nombre del profesional (dejar en blanco para terminar): '
+        if ! read -r raw; then
+          echo '' >&2
+          echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+          exit 1
+        fi
+        raw=$(trim_value "$raw")
+        if is_blank "$raw"; then
+          finished=1
+          continue
+        fi
+        if ! v_nonempty "$raw"; then
+          continue
+        fi
+        store_set "$name_key" "$raw"
+        checkpoint_save
+      else
+        while true; do
+          printf 'Nombre del profesional: '
+          if ! read -r raw; then
+            echo '' >&2
+            echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+            exit 1
+          fi
+          raw=$(trim_value "$raw")
+          if is_blank "$raw"; then
+            echo 'Debe ingresar al menos un profesional.' >&2
+            continue
+          fi
+          store_set "$name_key" "$raw"
+          checkpoint_save
+          break
+        done
+      fi
+    fi
+    for idx in 0 1 2; do
+      key="staff.$i.${STAFF_FIELD_KEYS[idx]}"
+      store_has "$key" && continue
+      mode=optional
+      [ "${STAFF_FIELD_REQUIRED[idx]}" -eq 1 ] && mode=required
+      prompt_field "$key" "${STAFF_FIELD_PROMPTS[idx]}" "${STAFF_FIELD_VALIDATORS[idx]}" "$mode"
+    done
+    for idx in 0 1 2 3 4 5 6; do
+      day=${STAFF_DAY_ORDER[idx]}
+      key_open="staff.$i.sched.$day.open"
+      store_has "$key_open" && continue
+      prompt_day_hours "${STAFF_DAY_LABELS[idx]}" "$key_open"
+    done
+    count=$((count + 1))
+    i=$((i + 1))
+  done
+}
+
+run_services_section() {
+  local i=0 count=0 idx name_key key raw value finished=0
+  while [ $finished -eq 0 ]; do
+    name_key="services.$i.name"
+    if store_has "$name_key"; then
+      if service_entry_complete "$i"; then
+        count=$((count + 1))
+        i=$((i + 1))
+        continue
+      fi
+    else
+      if [ "$count" -gt 0 ] || [ "$i" -gt 0 ]; then
+        printf 'Nombre del servicio (dejar en blanco para terminar): '
+        if ! read -r raw; then
+          echo '' >&2
+          echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+          exit 1
+        fi
+        raw=$(trim_value "$raw")
+        if is_blank "$raw"; then
+          finished=1
+          continue
+        fi
+        if ! v_nonempty "$raw"; then
+          continue
+        fi
+        store_set "$name_key" "$raw"
+        checkpoint_save
+      else
+        while true; do
+          printf 'Nombre del servicio: '
+          if ! read -r raw; then
+            echo '' >&2
+            echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+            exit 1
+          fi
+          raw=$(trim_value "$raw")
+          if is_blank "$raw"; then
+            echo 'Debe ingresar al menos un servicio.' >&2
+            continue
+          fi
+          store_set "$name_key" "$raw"
+          checkpoint_save
+          break
+        done
+      fi
+    fi
+    for idx in 0 1 2; do
+      key="services.$i.${SERVICE_FIELD_KEYS[idx]}"
+      store_has "$key" && continue
+      mode=optional
+      [ "${SERVICE_FIELD_REQUIRED[idx]}" -eq 1 ] && mode=required
+      prompt_field "$key" "${SERVICE_FIELD_PROMPTS[idx]}" "${SERVICE_FIELD_VALIDATORS[idx]}" "$mode"
+    done
+    count=$((count + 1))
+    i=$((i + 1))
+  done
+}
 # ---------------------------------------------------------------------------
+# JSON assembly, summary and finalization
+# ---------------------------------------------------------------------------
+
+count_staff() {
+  local i=0
+  while store_has "staff.$i.name"; do
+    i=$((i + 1))
+  done
+  printf '%s' "$i"
+}
+
+count_services() {
+  local i=0
+  while store_has "services.$i.name"; do
+    i=$((i + 1))
+  done
+  printf '%s' "$i"
+}
+
+render_setup_business() {
+  local i=0 field key value
+  printf '{\n'
+  while [ $i -lt ${#BP_KEYS[@]} ]; do
+    field=${BP_KEYS[i]}
+    key="business.$field"
+    value=$(store_get "$key")
+    [ $i -gt 0 ] && printf ',\n'
+    printf '  "%s": %s' "$(json_escape "$field")" "$(json_value "$value" "${BP_TYPES[i]}")"
+    i=$((i + 1))
+  done
+  printf ',\n  "business_hours": {\n'
+  i=0
+  while [ $i -lt 7 ]; do
+    field=${DAY_NAMES[i]}
+    key="hours.$field.open"
+    value=$(store_get "$key")
+    [ $i -gt 0 ] && printf ',\n'
+    if [ "$value" = "null" ] || [ -z "$value" ] || ! store_has "$key"; then
+      printf '    "%s": null' "$(json_escape "$field")"
+    else
+      printf '    "%s": {"open": "%s", "close": "%s"}'         "$(json_escape "$field")"         "$(json_escape "$value")"         "$(json_escape "$(store_get "hours.$field.close")")"
+    fi
+    i=$((i + 1))
+  done
+  printf '\n  }\n}\n'
+}
+
+render_setup_staff() {
+  local i=0 first=1 idx day value open close day_first
+  printf '[\n'
+  while store_has "staff.$i.name"; do
+    [ "$first" -eq 0 ] && printf ',\n'
+    first=0
+    printf '  {\n'
+    printf '    "name": %s,\n' "$(json_value "$(store_get "staff.$i.name")" s)"
+    value=$(store_get "staff.$i.role_specialty")
+    printf '    "role_specialty": %s,\n' "$(json_value "$value" s)"
+    printf '    "status": "active",\n'
+    value=$(store_get "staff.$i.email")
+    printf '    "email": %s,\n' "$(json_value "$value" s)"
+    value=$(store_get "staff.$i.phone")
+    printf '    "phone": %s,\n' "$(json_value "$value" s)"
+    printf '    "specialties": [],\n'
+    printf '    "schedule": ['
+    day_first=1
+    for day in 0 1 2 3 4 5 6; do
+      if store_has "staff.$i.sched.$day.open"; then
+        open=$(store_get "staff.$i.sched.$day.open")
+        if [ "$open" != "null" ]; then
+          close=$(store_get "staff.$i.sched.$day.close")
+          [ "$day_first" -eq 0 ] && printf ','
+          day_first=0
+          printf '\n      {"day_of_week": %s, "start_time": "%s", "end_time": "%s"}'             "$day" "$(json_escape "$open")" "$(json_escape "$close")"
+        fi
+      fi
+    done
+    printf '\n    ]\n'
+    printf '  }'
+    i=$((i + 1))
+  done
+  printf '\n]\n'
+}
+
+render_setup_services() {
+  local i=0 first=1 idx value
+  printf '[\n'
+  while store_has "services.$i.name"; do
+    [ "$first" -eq 0 ] && printf ',\n'
+    first=0
+    printf '  {\n'
+    printf '    "name": %s,\n' "$(json_value "$(store_get "services.$i.name")" s)"
+    value=$(store_get "services.$i.description")
+    printf '    "description": %s,\n' "$(json_value "$value" s)"
+    value=$(store_get "services.$i.duration_minutes")
+    printf '    "duration_minutes": %s,\n' "$(json_value "$value" i)"
+    value=$(store_get "services.$i.price")
+    printf '    "price": %s,\n' "$(json_value "$value" n)"
+    printf '    "is_active": 1\n'
+    printf '  }'
+    i=$((i + 1))
+  done
+  printf '\n]\n'
+}
+
+run_summary_confirm() {
+  local name phone email
+  name=$(store_get "business.name")
+  phone=$(store_get "business.public_phone")
+  email=$(store_get "business.contact_email")
+  [ "$phone" = "null" ] && phone=""
+  [ "$email" = "null" ] && email=""
+  printf '\n'
+  echo "Resumen de la configuración:"
+  printf '  Negocio: %s\n' "$name"
+  [ -n "$phone" ] && printf '  Teléfono: %s\n' "$phone"
+  [ -n "$email" ] && printf '  Correo: %s\n' "$email"
+  printf '  Profesionales: %s\n' "$(count_staff)"
+  printf '  Servicios: %s\n' "$(count_services)"
+  printf '\n'
+  if ! prompt_yes_no "¿Confirmar y guardar? [S]í/[n]o"; then
+    echo 'Configuración descartada. El checkpoint se conserva.' >&2
+    exit 1
+  fi
+}
+
+finalize() {
+  mkdir -p "$SETUP_DIR"
+  render_setup_business | atomic_write "$SETUP_DIR/setup_business.json"
+  render_setup_staff | atomic_write "$SETUP_DIR/setup_staff.json"
+  render_setup_services | atomic_write "$SETUP_DIR/setup_services.json"
+  rm -f "$CHECKPOINT_PATH"
+  if command -v jq >/dev/null 2>&1; then
+    jq empty "$SETUP_DIR/setup_business.json" >/dev/null 2>&1 || true
+    jq empty "$SETUP_DIR/setup_staff.json" >/dev/null 2>&1 || true
+    jq empty "$SETUP_DIR/setup_services.json" >/dev/null 2>&1 || true
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -m json.tool "$SETUP_DIR/setup_business.json" >/dev/null 2>&1 || true
+    python3 -m json.tool "$SETUP_DIR/setup_staff.json" >/dev/null 2>&1 || true
+    python3 -m json.tool "$SETUP_DIR/setup_services.json" >/dev/null 2>&1 || true
+  fi
+  echo "Configuración guardada en:"
+  echo "  $SETUP_DIR/setup_business.json"
+  echo "  $SETUP_DIR/setup_staff.json"
+  echo "  $SETUP_DIR/setup_services.json"
+}
+
 # Entry points
 # ---------------------------------------------------------------------------
 
@@ -677,9 +1033,11 @@ run_setup() {
     fi
   fi
   run_business_section
-  # PR2b: hours/staff/services, resumen y finalize (tasks 2.7-2.13).
-  echo 'Secciones hours/staff/services: disponible en PR2b.'
-  exit 0
+  run_hours_section
+  run_staff_section
+  run_services_section
+  run_summary_confirm
+  finalize
 }
 
 usage() {
