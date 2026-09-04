@@ -6,8 +6,8 @@ Runs natively on Linux, macOS, and Windows — no containers, no external servic
 
 ## Status
 
-🚧 **Pre-alpha** — under active development. Phases 1, 1b, 2 and 3 are complete;
-next up: Fase 4 (install.sh prompts). See the
+🚧 **Pre-alpha** — under active development. Phases 1, 1b, 2, 3 and 4 are complete;
+next up: Fase 5 (install-and-service). See the
 [implementation roadmap](./docs/PRD.md#8-roadmap-por-fases) in the PRD.
 
 The MCP server currently exposes 11 tools: `check_availability`, `create_booking`,
@@ -22,7 +22,7 @@ The MCP server currently exposes 11 tools: `check_availability`, `create_booking
 | 2 | mcp-server-core (Streamable HTTP + booking/profile tools) | ✅ Done (archived 2026-08-19, PRs #46/#47) |
 | 2.5 | repository auth hardening (clients + BHE) | ✅ Done (PR #50, 2026-08-23 — 10/10 repos with `auth.Caller`) |
 | 3 | mcp-server-advanced (alerts, loyalty, professional schedule) | ✅ Done (archived 2026-09-02, PRs #51-#54, 11 tools) |
-| 4 | install.sh con prompts interactivos (Fase 4) | ⏳ Planned |
+| 4 | install.sh con prompts interactivos (Fase 4) | ✅ Done (archived 2026-09-04, PRs #55/#57/#58) |
 | 5 | install-and-service (user-level, cross-platform) | ⏳ Planned |
 
 ## Quickstart

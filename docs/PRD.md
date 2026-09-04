@@ -1006,9 +1006,9 @@ Override con otro caller_id (debug):
 - **Descripción**: El sistema debe capturar los datos de `business_profile`, `professionals` iniciales y `services` iniciales a través de prompts interactivos en `install.sh` (bash + `read -p` + regex), con validación por campo antes de permitir avanzar. La salida son archivos JSON en `~/.config/mcp-appointments-crm/setup/` (Linux) o su equivalente platform-native según §3.5. Si el usuario cancela (`Ctrl+C`) a mitad del ingreso, el script guarda un checkpoint `setup.json.tmp` que permite resumir al re-correr `install.sh`.
 - **Prioridad**: Must
 - **Criterios de Aceptación** (formato Gherkin):
-  - [ ] Dado que el usuario ejecuta `install.sh` por primera vez, cuando completa todos los prompts, entonces el sistema genera `setup_business.json`, `setup_staff.json` y `setup_services.json` válidos en `~/.config/mcp-appointments-crm/setup/`, y elimina `setup.json.tmp`.
-  - [ ] Dado que el usuario ingresa un email con formato inválido en `contact_email`, cuando intenta avanzar, entonces `install.sh` muestra un error de validación y vuelve a pedir el campo (loop de reintentos) sin avanzar.
-  - [ ] Dado que el usuario cancela (`Ctrl+C`) el setup a mitad del ingreso, cuando re-ejecuta `install.sh`, el sistema detecta `setup.json.tmp` y le ofrece: (R)esumir desde el último checkpoint, (S)tart over, o (Q)uit. Si elige R, los campos ya completados no se vuelven a preguntar.
+  - [x] Dado que el usuario ejecuta `install.sh` por primera vez, cuando completa todos los prompts, entonces el sistema genera `setup_business.json`, `setup_staff.json` y `setup_services.json` válidos en `~/.config/mcp-appointments-crm/setup/`, y elimina `setup.json.tmp`.
+  - [x] Dado que el usuario ingresa un email con formato inválido en `contact_email`, cuando intenta avanzar, entonces `install.sh` muestra un error de validación y vuelve a pedir el campo (loop de reintentos) sin avanzar.
+  - [x] Dado que el usuario cancela (`Ctrl+C`) el setup a mitad del ingreso, cuando re-ejecuta `install.sh`, el sistema detecta `setup.json.tmp` y le ofrece: (R)esumir desde el último checkpoint, (S)tart over, o (Q)uit. Si elige R, los campos ya completados no se vuelven a preguntar.
 
 **RF2: Exposición de identidad del negocio vía MCP**
 - **Descripción**: El sistema debe exponer los tools `get_business_profile()` y `update_business_profile(fields...)` que leen y modifican la tabla `business_profile` a través del protocolo MCP.
@@ -1176,7 +1176,7 @@ Override con otro caller_id (debug):
 - PRs mergeados: PR #7 (foundation + 4 repos simples), PR #9 (5 repos complejos); Fase 1b completada en PRs #37–#45
 - Fase 1 cerrada y archivada en `openspec/changes/archive/2026-07-29-feat-db-layer/`; Fase 1b archivada en `openspec/changes/archive/2026-08-05-refactor-clean-architecture/`
 
-**Siguiente**: Fase 1b (clean-architecture-refactor) — **ARCHIVADA** el 2026-08-09 (commit `988baeb`). 4 sub-fases completadas (~2000 LOC), `internal/model/` eliminado, ADR-0013 registra la arquitectura en capas. Ver `openspec/changes/refactor/clean-architecture/`. **Fase 2 (mcp-server-core / feat-mcp-transport) — CERRADA** el 2026-08-19 (PRs #46/#47, archive `openspec/changes/archive/2026-08-19-feat-mcp-transport/`). **Siguiente: Fase 3 (mcp-server-advanced)**.
+**Siguiente**: Fase 1b (clean-architecture-refactor) — **ARCHIVADA** el 2026-08-09 (commit `988baeb`). 4 sub-fases completadas (~2000 LOC), `internal/model/` eliminado, ADR-0013 registra la arquitectura en capas. Ver `openspec/changes/refactor/clean-architecture/`. **Fase 2 (mcp-server-core / feat-mcp-transport) — CERRADA** el 2026-08-19 (PRs #46/#47, archive `openspec/changes/archive/2026-08-19-feat-mcp-transport/`). **Fase 3 (mcp-server-advanced) — CERRADA** el 2026-09-02 (PRs #51–#54, 11 tools). **Fase 4 (install.sh prompts) — CERRADA** el 2026-09-04 (PRs #55/#57/#58, archive `openspec/changes/archive/2026-09-04-feat-install-prompts/`). **Siguiente: Fase 5 (install-and-service)**.
 
 ### Fase 1b: clean-architecture-refactor (Estimación: M)
 
@@ -1265,11 +1265,13 @@ Override con otro caller_id (debug):
 - Cobertura de tests para `install.sh` (bats, shunit2, o equivalente)
 
 **Definition of Done**:
-- [ ] `install.sh` guía al usuario paso a paso con prompts y validación
-- [ ] Cada campo valida antes de permitir avanzar (regex para email, formato `HH:MM` para horarios, coordenadas geográficas, IANA timezone, etc.)
-- [ ] Si el usuario cancela (`Ctrl+C`) a mitad, el último checkpoint queda en `setup.json.tmp`; re-ejecutar `install.sh` detecta el checkpoint y ofrece [R]esume / [S]tart over / [Q]uit
-- [ ] Al finalizar, los 3 JSON están en `~/.config/mcp-appointments-crm/setup/` con schema válido, y `setup.json.tmp` se borra
-- [ ] Tests de los 3 escenarios: fresh install, cancel + resume, cancel + start-over pasan
+- [x] `install.sh` guía al usuario paso a paso con prompts y validación
+- [x] Cada campo valida antes de permitir avanzar (regex para email, formato `HH:MM` para horarios, coordenadas geográficas, IANA timezone, etc.)
+- [x] Si el usuario cancela (`Ctrl+C`) a mitad, el último checkpoint queda en `setup.json.tmp`; re-ejecutar `install.sh` detecta el checkpoint y ofrece [R]esume / [S]tart over / [Q]uit
+- [x] Al finalizar, los 3 JSON están en `~/.config/mcp-appointments-crm/setup/` con schema válido, y `setup.json.tmp` se borra
+- [x] Tests de los 3 escenarios: fresh install, cancel + resume, cancel + start-over pasan
+
+**Fase 4 CERRADA** el 2026-09-04 — `feat-install-prompts` ejecutado y archivado (PR #55 PR1 skeleton+validators, PR #57 PR2a store+checkpoint+business, PR #58 PR2b hours/staff/services+finalize+resume, `openspec/changes/archive/2026-09-04-feat-install-prompts/`): 18 campos business + hours/staff/services con validación por campo, checkpoint tras cada respuesta válida, R/S/Q con revalidación D6, finalización ordenada (3 JSONs → validación → borrado checkpoint), 36 tests (23 E2E + 13 unit), receipts RDD quemados (`review-9b0da603ae3811e9`, `review-530fca658173ac13`).
 
 ### Fase 5: install-and-service (Estimación: S)
 
@@ -1381,3 +1383,4 @@ Override con otro caller_id (debug):
 | 2026-08-20 | 1.8 | Kike | **Fase 2 (mcp-server-core) CERRADA** — `feat-mcp-transport` ejecutado y archivado (PRs #46/#47, `openspec/changes/archive/2026-08-19-feat-mcp-transport/`): transporte Streamable HTTP con go-sdk, 6 tools MCP (`check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`), auth middleware integrada (X-Caller-Id + RBAC + `caller_role` en logs), DI con 6 use cases en `main.go`. Verify final 24/24 REQ, 34/34 escenarios, 276 tests, cobertura 89.7%. Follow-ups S-1..S-4 cerrados (PR #48, 2026-08-20): 403 con rol real, `Flush` y `ResolveSlotContext` al 100% de cobertura. §3.5: `internal/mcp/` marcado implementado. §3.8.7: estado actualizado (handlers MCP ✅, TUI ⏳, deuda de auth `clients.go`/`business_hours_exception.go` verificada pendiente). §5.1: estados de RF2/RF6. §7: Fase 2 cerrada, pendientes (TUI admin, service templates, docs Hermes, `update_business_profile`); siguiente Fase 3. |
 | 2026-08-23 | 1.9 | Kike | **Deuda auth CERRADA + Go 1.26.7** — `feat-repository-auth-integration` mergeado (PR #50, `5aca28d`, 7 REQ, 22 escenarios, JD 2/2 PASS): `clients.go` (8 métodos) y `business_hours_exception.go` (4 métodos) cableados con `auth.Caller` (helper `AND id = ?`, `RequireRole`/`RequireCaller`, fix `GetOrCreate` phone==caller.ID, FTS operator hardening). `go.mod` bumpeado 1.26.6→1.26.7 (PR #49, `4e059ca`). PRD §3.8.7-6 y §7 actualizados: Fase 3 desbloqueada, sin prerequisitos pendientes. |
 | 2026-09-02 | 1.10 | Kike | Fase 3 mcp-server-advanced cerrada (PRs #51-#54, 11 tools, 16/16, verify 1/1 43/43, archive 2026-09-02) |
+| 2026-09-04 | 1.11 | Kike | **Fase 4 (install.sh prompts) CERRADA** — PRs #55/#57/#58 (12 REQ, 41 escenarios, 36 tests), receipts RDD quemados, archive `openspec/changes/archive/2026-09-04-feat-install-prompts/`. RF1 y DoD Fase 4 marcados completos; siguiente Fase 5. |
