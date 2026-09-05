@@ -204,6 +204,7 @@ type toolResponse struct {
 		Content           []struct {
 			Text string `json:"text"`
 		} `json:"content"`
+		IsError bool `json:"isError"`
 	} `json:"result"`
 	Error *struct {
 		Code    int64  `json:"code"`
@@ -230,6 +231,28 @@ func wantErrorCode(t *testing.T, resp *toolResponse, code int64) {
 	}
 	if resp.Error.Code != code {
 		t.Errorf("error.code = %d; want %d (msg=%q)", resp.Error.Code, code, resp.Error.Message)
+	}
+}
+
+func wantToolError(t *testing.T, resp *toolResponse, wantSubstr string) {
+	t.Helper()
+	if resp.Error != nil {
+		t.Fatalf("expected tool isError, got JSON-RPC error %d: %q", resp.Error.Code, resp.Error.Message)
+	}
+	if resp.Result == nil || !resp.Result.IsError {
+		t.Fatalf("expected tool result with isError=true, got: %s", mustJSON(t, resp.Result))
+	}
+	if wantSubstr != "" {
+		found := false
+		for _, c := range resp.Result.Content {
+			if strings.Contains(c.Text, wantSubstr) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("tool error text does not contain %q; got: %s", wantSubstr, mustJSON(t, resp.Result.Content))
+		}
 	}
 }
 
@@ -518,13 +541,15 @@ func f64Ptr(f float64) *float64 { return &f }
 // ── get_business_profile input contract (GGA W-1 closure) ──
 
 // The SDK infers {"type":"object","additionalProperties":false} from the
-// empty input struct, so any non-empty argument object is rejected with
-// -32602 before the handler runs (REQ-MT-015 input contract is exactly {}).
+// empty input struct, so any non-empty argument object is rejected before
+// the handler runs (REQ-MT-015 input contract is exactly {}). Since
+// go-sdk v1.7.0 (SEP-2106) this surfaces as a tool result with isError=true,
+// not a JSON-RPC -32602 (see toolForErr applySchema -> CallToolResult).
 func TestToolGetBusinessProfileRejectsArguments(t *testing.T) {
 	srv, _ := newToolServer(t)
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_business_profile", `{"foo":1}`))
-	wantErrorCode(t, resp, -32602)
+	wantToolError(t, resp, "unexpected additional properties")
 }
 
 // A port returning (nil, nil) must fail closed with a business not-found
@@ -551,14 +576,14 @@ func TestToolUnknownToolMethodNotFound(t *testing.T) {
 	wantErrorCode(t, resp, -32601)
 }
 
-// ── argument validation is delegated to the SDK (-32602) ──
+// ── argument validation is delegated to the SDK (tool isError since v1.7.0) ──
 
 func TestToolMissingRequiredArgInvalidParams(t *testing.T) {
 	srv, _ := newToolServer(t)
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "create_booking",
 		`{"service_id":"s1","professional_id":"p1","start_datetime":"2026-08-03T10:00:00Z"}`))
-	wantErrorCode(t, resp, -32602)
+	wantToolError(t, resp, "missing properties")
 }
 
 func TestToolInvalidDatetimeInvalidParams(t *testing.T) {
@@ -566,7 +591,7 @@ func TestToolInvalidDatetimeInvalidParams(t *testing.T) {
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "create_booking",
 		`{"client_id":"c1","service_id":"s1","professional_id":"p1","start_datetime":"not-a-date"}`))
-	wantErrorCode(t, resp, -32602)
+	wantToolError(t, resp, "cannot unmarshal")
 }
 
 // ── transport-level bounds (GGA W-1) ──
