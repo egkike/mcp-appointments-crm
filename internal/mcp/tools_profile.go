@@ -12,7 +12,8 @@ import (
 // getBusinessProfileIn is the input of get_business_profile: the profile is a
 // singleton, so the tool takes no arguments. The SDK infers
 // {"type":"object","additionalProperties":false} from an empty struct, so any
-// non-empty argument object is rejected with -32602 before the handler runs
+// non-empty argument object is rejected before the handler runs (since
+// go-sdk v1.7.0 as tool isError, previously -32602)
 // (REQ-MT-015 input contract is exactly {}; behavior pinned by
 // TestToolGetBusinessProfileRejectsArguments).
 type getBusinessProfileIn struct{}
