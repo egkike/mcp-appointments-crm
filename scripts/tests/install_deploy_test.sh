@@ -446,4 +446,65 @@ test_post_install_backup_cmd_prefers_persistent() {
   assertEquals 'prefers persistent path' "$persistent" "$out"
 }
 
+# ---------------------------------------------------------------------------
+# RDD correction_required (review-214a49fd9beea8c5) — regression tests
+# ---------------------------------------------------------------------------
+
+test_ensure_dirs_failure_propagates() {
+  # R3-ENSUREDIRS-PARTIAL / R4-ENSURE-DIRS-MASK: an early mkdir failure
+  # must fail the function even when later dirs succeed.
+  mkdir() {
+    case "$*" in
+      *"$DATA_DIR"*) return 1 ;;
+    esac
+    command mkdir "$@"
+  }
+  local rc=0
+  ensure_dirs >/dev/null 2>&1 || rc=$?
+  unset -f mkdir
+  assertTrue 'ensure_dirs fails when DATA_DIR cannot be created' "[ \${rc:-0} -ne 0 ]"
+}
+
+test_install_service_write_failure() {
+  # R3-ATOMICWRITE-UNCHECKED: a failed unit write must stop the deploy
+  # before daemon-reload. Fake systemctl exits 0, so only the write
+  # failure can fail this call.
+  atomic_write() { return 1; }
+  local rc=0
+  install_service_linux >/dev/null 2>&1 || rc=$?
+  unset -f atomic_write
+  assertTrue 'install_service_linux fails when unit write fails' "[ \${rc:-0} -ne 0 ]"
+}
+
+test_install_binary_backs_up_prev() {
+  # R4-BINARY-NO-ROLLBACK: the previous binary must survive the replace.
+  local extract_dir bin_dir
+  extract_dir=$(mktemp -d)
+  bin_dir=$(mktemp -d)
+  printf 'new-binary' > "$extract_dir/mcp-server"
+  printf 'old-binary' > "$bin_dir/mcp-server"
+  EXTRACT_DIR="$extract_dir"
+  BIN_DIR="$bin_dir"
+  install_binary >/dev/null 2>&1
+  assertEquals 'dest has new content' 'new-binary' "$(cat "$bin_dir/mcp-server")"
+  assertEquals 'prev keeps old content' 'old-binary' "$(cat "$bin_dir/mcp-server.prev")"
+  rm -rf "$extract_dir" "$bin_dir"
+}
+
+test_verify_install_hints_rollback() {
+  # R4-BINARY-NO-ROLLBACK: on verify failure the operator is told
+  # where the preserved previous binary lives.
+  local bin_dir out rc=0
+  bin_dir=$(mktemp -d)
+  printf '#!/bin/bash\necho wrong-version\n' > "$bin_dir/mcp-server"
+  chmod +x "$bin_dir/mcp-server"
+  printf 'old-binary' > "$bin_dir/mcp-server.prev"
+  BIN_DIR="$bin_dir"
+  INSTALL_TAG="v9.9.9"
+  out=$(verify_installation 2>&1) || rc=$?
+  assertTrue 'verify fails on version mismatch' "[ \${rc:-0} -ne 0 ]"
+  assertTrue 'error points at the preserved binary' "printf '%s' \"$out\" | grep -q 'mcp-server.prev'"
+  rm -rf "$bin_dir"
+}
+
 . "$(dirname "$0")/lib/shunit2" || exit 1

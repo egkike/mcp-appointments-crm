@@ -1173,10 +1173,13 @@ extract_archive() {
   tar -xzf "$ASSET_FILE" -C "$EXTRACT_DIR"
 }
 
+# R3-ENSUREDIRS-PARTIAL / R4-ENSURE-DIRS-MASK: every step must propagate
+# its failure — returning only the last line status masked early mkdir
+# failures and let run_deploy continue with an incomplete tree.
 ensure_dirs() {
-  mkdir -p "$DATA_DIR" && chmod 0700 "$DATA_DIR"
-  mkdir -p "$BIN_DIR" && chmod 0700 "$BIN_DIR"
-  mkdir -p "$LOG_DIR" && chmod 0700 "$LOG_DIR"
+  mkdir -p "$DATA_DIR" && chmod 0700 "$DATA_DIR" || { echo "Error: no se pudo preparar $DATA_DIR" >&2; return 1; }
+  mkdir -p "$BIN_DIR" && chmod 0700 "$BIN_DIR" || { echo "Error: no se pudo preparar $BIN_DIR" >&2; return 1; }
+  mkdir -p "$LOG_DIR" && chmod 0700 "$LOG_DIR" || { echo "Error: no se pudo preparar $LOG_DIR" >&2; return 1; }
 }
 
 ensure_env_file() {
@@ -1204,6 +1207,15 @@ install_binary() {
     return 1
   fi
   dest="$BIN_DIR/mcp-server"
+  # R4-BINARY-NO-ROLLBACK: preserve the previous binary before replacing
+  # it, so a failed deploy never destroys the last working server.
+  # The backup path is surfaced on verify failure (see verify_installation).
+  if [ -f "$dest" ]; then
+    if ! cp -p "$dest" "$dest.prev"; then
+      echo "Error: no se pudo respaldar el binario previo ($dest)." >&2
+      return 1
+    fi
+  fi
   tmp="$BIN_DIR/.mcp-server.new.$$"
   cp "$src" "$tmp" && chmod 0755 "$tmp" && mv -f "$tmp" "$dest"
 }
@@ -1296,8 +1308,13 @@ install_service_linux() {
   rendered=$(render_systemd_unit "$template") || return 1
   unit_dir="$HOME/.config/systemd/user"
   unit_path="$unit_dir/mcp-appointments-crm.service"
-  mkdir -p "$unit_dir"
-  printf '%s' "$rendered" | atomic_write "$unit_path"
+  mkdir -p "$unit_dir" || { echo "Error: no se pudo crear $unit_dir" >&2; return 1; }
+  # R3-ATOMICWRITE-UNCHECKED: a failed unit write must stop the deploy
+  # before daemon-reload acts on a stale/missing unit.
+  if ! printf '%s' "$rendered" | atomic_write "$unit_path"; then
+    echo "Error: no se pudo escribir $unit_path" >&2
+    return 1
+  fi
   if ! systemctl --user daemon-reload; then
     echo "Error: systemctl --user daemon-reload falló." >&2
     return 1
@@ -1322,8 +1339,12 @@ install_service_macos() {
   rendered=$(render_launchd_plist "$template") || return 1
   plist_dir="$HOME/Library/LaunchAgents"
   plist_path="$plist_dir/com.mcp.appointments.server.plist"
-  mkdir -p "$plist_dir"
-  printf '%s' "$rendered" | atomic_write "$plist_path"
+  mkdir -p "$plist_dir" || { echo "Error: no se pudo crear $plist_dir" >&2; return 1; }
+  # R3-ATOMICWRITE-UNCHECKED: idem Linux — no bootstrap sobre un plist rancio.
+  if ! printf '%s' "$rendered" | atomic_write "$plist_path"; then
+    echo "Error: no se pudo escribir $plist_path" >&2
+    return 1
+  fi
   launchctl bootout "gui/$UID/com.mcp.appointments.server" 2>/dev/null || true
   if ! launchctl bootstrap "gui/$UID" "$plist_path"; then
     echo "Error: launchctl bootstrap falló." >&2
@@ -1352,16 +1373,27 @@ enable_linger() {
   loginctl enable-linger "$USER"
 }
 
+# R4-BINARY-NO-ROLLBACK: on verify failure, point at the preserved
+# previous binary so the operator can restore it manually.
+_print_binary_rollback_hint() {
+  if [ -f "$BIN_DIR/mcp-server.prev" ]; then
+    echo "  El binario previo se conserva en $BIN_DIR/mcp-server.prev" >&2
+    echo "  Para volver atrás: systemctl --user stop mcp-appointments-crm; mv -f $BIN_DIR/mcp-server.prev $BIN_DIR/mcp-server; systemctl --user start mcp-appointments-crm" >&2
+  fi
+}
+
 verify_installation() {
   local version_out
   if ! version_out=$("$BIN_DIR/mcp-server" --version 2>&1); then
     echo "Error: no se pudo ejecutar mcp-server --version." >&2
+    _print_binary_rollback_hint
     return 1
   fi
   case "$version_out" in
     *"$INSTALL_TAG"*) : ;;
     *)
       echo "Error: la versión instalada ($version_out) no coincide con $INSTALL_TAG." >&2
+      _print_binary_rollback_hint
       return 1
       ;;
   esac
@@ -1375,6 +1407,7 @@ verify_installation() {
       i=$((i + 1))
     done
     echo "Error: el servicio no reporta estado active." >&2
+    _print_binary_rollback_hint
     return 1
   fi
   return 0
