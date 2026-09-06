@@ -16,6 +16,8 @@ setUp() {
   TEST_HOME=$(mktemp -d)
   export HOME="$TEST_HOME"
   unset XDG_CONFIG_HOME XDG_DATA_HOME XDG_BIN_HOME XDG_STATE_HOME
+  _SAVED_SCRIPT_DIR="$SCRIPT_DIR"
+  _SAVED_EXTRACT_DIR="${EXTRACT_DIR:-}"
 
   # Provide minimal fake systemctl/loginctl so verify_installation and
   # enable_linger do not fail on hosts without a user service manager.
@@ -31,6 +33,8 @@ setUp() {
 
 tearDown() {
   rm -rf "$TEST_HOME"
+  SCRIPT_DIR="$_SAVED_SCRIPT_DIR"
+  EXTRACT_DIR="$_SAVED_EXTRACT_DIR"
   rc=0
 }
 
@@ -373,6 +377,73 @@ test_run_setup_guard_tty_no_tty() {
   out=$(bash -c ". $INSTALL_SH_PATH; run_setup_guard_tty" bash </dev/null 2>&1) || rc=$?
   assertTrue 'no tty fails' "[ \${rc:-0} -ne 0 ]"
   assertTrue 'mentions terminal' "printf '%s' \"$out\" | grep -qi 'terminal'"
+}
+
+# ---------------------------------------------------------------------------
+# Backup script installation (CRITICAL-1 fix)
+# ---------------------------------------------------------------------------
+
+test_install_backup_script_from_extract() {
+  local fixture_dir expected
+  fixture_dir=$(mktemp -d)
+  mkdir -p "$fixture_dir/scripts"
+  printf '#!/bin/bash\necho "backup from archive"\n' > "$fixture_dir/scripts/backup.sh"
+  chmod 0644 "$fixture_dir/scripts/backup.sh"
+  expected=$(cat "$fixture_dir/scripts/backup.sh")
+
+  EXTRACT_DIR="$fixture_dir"
+  SCRIPT_DIR=$(mktemp -d)
+  install_backup_script >/dev/null 2>&1
+  assertEquals 'persistent backup exists' 0 $?
+  assertTrue 'backup file installed' "[ -f \"$DATA_DIR/scripts/backup.sh\" ]"
+  assertTrue 'backup is executable' "[ -x \"$DATA_DIR/scripts/backup.sh\" ]"
+  assertEquals 'backup perms' '755' "$(stat -c %a "$DATA_DIR/scripts/backup.sh")"
+  assertEquals 'backup dir perms' '700' "$(stat -c %a "$DATA_DIR/scripts")"
+  assertEquals 'content matches archive' "$expected" "$(cat "$DATA_DIR/scripts/backup.sh")"
+
+  rm -rf "$fixture_dir" "$SCRIPT_DIR"
+}
+
+test_install_backup_script_fallback_script_dir() {
+  local fake_script_dir expected
+  fake_script_dir=$(mktemp -d)
+  mkdir -p "$fake_script_dir/scripts"
+  printf '#!/bin/bash\necho "backup from script dir"\n' > "$fake_script_dir/scripts/backup.sh"
+  expected=$(cat "$fake_script_dir/scripts/backup.sh")
+
+  EXTRACT_DIR=""
+  SCRIPT_DIR="$fake_script_dir/scripts"
+  install_backup_script >/dev/null 2>&1
+  assertEquals 'fallback install ok' 0 $?
+  assertTrue 'backup file installed from fallback' "[ -f \"$DATA_DIR/scripts/backup.sh\" ]"
+  assertTrue 'backup is executable' "[ -x \"$DATA_DIR/scripts/backup.sh\" ]"
+  assertEquals 'fallback content matches' "$expected" "$(cat "$DATA_DIR/scripts/backup.sh")"
+
+  rm -rf "$fake_script_dir"
+}
+
+test_install_backup_script_no_source_fails() {
+  local out rc=0
+  SCRIPT_DIR=$(mktemp -d)
+  EXTRACT_DIR=""
+
+  out=$(install_backup_script 2>&1) || rc=$?
+  assertTrue 'no source fails' "[ \${rc:-0} -ne 0 ]"
+  assertTrue 'error mentions backup.sh' "printf '%s' \"$out\" | grep -q 'backup.sh'"
+
+  rm -rf "$SCRIPT_DIR"
+}
+
+test_post_install_backup_cmd_prefers_persistent() {
+  local persistent out
+  persistent="$DATA_DIR/scripts/backup.sh"
+  mkdir -p "$DATA_DIR/scripts"
+  printf '#!/bin/bash\necho persistent\n' > "$persistent"
+  chmod 0755 "$persistent"
+
+  EXTRACT_DIR=""
+  out=$(_post_install_backup_cmd)
+  assertEquals 'prefers persistent path' "$persistent" "$out"
 }
 
 . "$(dirname "$0")/lib/shunit2" || exit 1

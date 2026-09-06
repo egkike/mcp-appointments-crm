@@ -1,8 +1,8 @@
-# Apply Progress — feat-install-and-service / PR3
+# Apply Progress — feat-install-and-service / PR3 — CRITICAL-1 fix
 
 **Change:** feat-install-and-service
 **PR:** PR3 de 4 — `feat/install-deploy-pipeline` (size:exception aprobado)
-**Status:** implementation complete, ready for verify
+**Status:** CRITICAL-1 fix applied, ready for re-verify
 **Executor:** sdd-apply
 **Date:** 2026-09-06
 
@@ -47,7 +47,7 @@ taskProgress:
     - T7.2 — Shell test suites
     - T7.3 — File inventory check
     - T7.4 — Manual VM checklist
-applyState: ready
+applyState: all_done
 dependencies:
   apply: all_done
   verify: ready
@@ -59,13 +59,71 @@ actionContext:
   allowedEditRoots:
     - /home/kike/Documentos/Kike/Desarrollos_Software/Proyectos/Mcps/mcp-appointments-crm/scripts/install.sh
     - /home/kike/Documentos/Kike/Desarrollos_Software/Proyectos/Mcps/mcp-appointments-crm/scripts/tests/install_deploy_test.sh
-    - /home/kike/Documentos/Kike/Desarrollos_Software/Proyectos/Mcps/mcp-appointments-crm/scripts/tests/run_tests.sh
-    - /home/kike/Documentos/Kike/Desarrollos_Software/Proyectos/Mcps/mcp-appointments-crm/openspec/changes/feat-install-and-service/tasks.md
     - /home/kike/Documentos/Kike/Desarrollos_Software/Proyectos/Mcps/mcp-appointments-crm/openspec/changes/feat-install-and-service/apply-progress.md
   warnings: []
 nextRecommended: sdd-verify
 isNonAuthoritative: false
 ```
+
+---
+
+## CRITICAL-1 fix — persistent backup.sh + summary path
+
+### Diagnóstico (verify-report)
+
+- `run_deploy()` nunca copiaba `backup.sh` a `$DATA_DIR/scripts/`.
+- `_post_install_backup_cmd()` prefería `$EXTRACT_DIR/scripts/backup.sh` (borrado por el trap) y luego `$SCRIPT_DIR/backup.sh` (inexistente en VPS piped).
+- Resultado: el comando copy-pasteable del summary no era ejecutable post-deploy (DoD 12/13).
+
+### Cambios aplicados
+
+1. **`install_backup_script()`** en `scripts/install.sh` (sección Deploy pipeline, después de `install_binary`):
+   - Fuente por orden: `$EXTRACT_DIR/scripts/backup.sh` → fallback `$SCRIPT_DIR/backup.sh`.
+   - Destino: `$DATA_DIR/scripts/backup.sh`.
+   - `mkdir -p` 0700 + copia atómica tmp + `mv` + `chmod 0755`.
+   - Error claro en español si ninguna fuente existe.
+2. **Wire en `run_deploy()`**: `install_backup_script` se ejecuta después de `install_binary` y antes de `install_service`.
+3. **`_post_install_backup_cmd()`** ahora prefiere `$DATA_DIR/scripts/backup.sh` cuando existe, manteniendo los fallbacks anteriores.
+
+### Tests agregados
+
+- `test_install_backup_script_from_extract`
+- `test_install_backup_script_fallback_script_dir`
+- `test_install_backup_script_no_source_fails`
+- `test_post_install_backup_cmd_prefers_persistent`
+
+Se actualizaron `setUp()`/`tearDown()` para salvar/restaurar `SCRIPT_DIR` y `EXTRACT_DIR` entre tests y evitar contaminación cruzada.
+
+### Files changed in this fix
+
+| File | Action | Lines (diff stat) |
+|---|---|---|
+| `scripts/install.sh` | add `install_backup_script`, wire in `run_deploy`, fix `_post_install_backup_cmd` | +39 / -1 |
+| `scripts/tests/install_deploy_test.sh` | add 4 backup-install tests + setUp/tearDown save/restore | +71 |
+| `openspec/changes/feat-install-and-service/apply-progress.md` | cumulative progress | updated |
+
+### Verificación
+
+```bash
+bash scripts/tests/install_deploy_test.sh
+# => OK (27 tests)
+
+bash scripts/tests/run_tests.sh
+# => OK: 4/4 suites pasaron
+
+go fmt ./... && go vet ./... && go build -o /dev/null ./... && go test -v -race ./...
+# => all green
+
+git diff --stat
+#  scripts/install.sh                   | 39 +++++++++++++++++++-
+#  scripts/tests/install_deploy_test.sh | 71 ++++++++++++++++++++++++++++++++++++
+#  2 files changed, 109 insertions(+), 1 deletion(-)
+```
+
+### Notas
+
+- No se tocó `tasks.md` porque el fix es una corrección post-verify de T4/T5, no una tarea nueva.
+- No se tocó `verify-report.md` (pertenece a la rama docs/PR4 y está untracked acá).
 
 ---
 
@@ -149,12 +207,13 @@ go fmt ./... && go vet ./... && go build -o /dev/null ./... && go test -v -race 
 | T5.1 | `scripts/tests/install_deploy_test.sh` | Unit (shunit2) | ✅ T4 green | ✅ Extended failing tests | n/a | ✅ service render, verify, summary, TTY guard | n/a (test only) |
 | T5.2 | `scripts/tests/install_deploy_test.sh` | Unit (shunit2) | ✅ T4 green | ✅ Service/verify/summary missing | ✅ Passed | ✅ Linux systemd + macOS launchd paths; archive/repo fallback | ✅ `$0` aware TTY guard preserves piped-test setup |
 | T5.3 | `scripts/tests/run_tests.sh` | Regression | ✅ 4/4 suites | n/a | ✅ 4/4 suites | n/a | ➖ None needed |
+| CRITICAL-1 fix | `scripts/tests/install_deploy_test.sh` | Unit (shunit2) | ✅ 27/27 tests | ✅ New failing tests written | ✅ All pass | ✅ extract fallback, no-source error, persistent-path preference | ✅ Bash 3.2-safe; setUp/tearDown isolation |
 
 ### Test Summary
 
-- **Total tests written**: 23 (in `install_deploy_test.sh`)
-- **Total tests passing**: 23 / 23
-- **Layers used**: Unit (23)
+- **Total tests written**: 27 (in `install_deploy_test.sh`)
+- **Total tests passing**: 27 / 27
+- **Layers used**: Unit (27)
 - **Approval tests**: None
 - **Pure functions created**: `compose_asset_name`, `validate_tag`, `sha256_file`, `render_systemd_unit`, `render_launchd_plist`
 
@@ -194,8 +253,8 @@ Unchecked task lines from `tasks.md`:
 ## PR Boundary
 
 **PR3 branch suggestion:** `feat/install-deploy-pipeline`
-**Scope:** T4 + T5 only — deploy pipeline core + service registration + verification + summary + tests.
+**Scope:** T4 + T5 only — deploy pipeline core + service registration + verification + summary + tests + CRITICAL-1 fix.
 **Stacked-to-main:** Branch apunta a `main` (PR1 y PR2 ya mergeados en base).
-**Size:** ~840 changed lines (450 additions in `install.sh`, 378 new test lines, plus tasks/progress updates). Exceeds the 400-line budget; `size:exception` was approved by the user because the deploy pipeline and its test matrix form a single cohesive deliverable — an honest split would leave an intermediate PR without SHA256-to-service wiring.
+**Size:** ~840 changed lines originales + 109 líneas del fix en `install.sh`/`install_deploy_test.sh`. Exceeds the 400-line budget; `size:exception` fue aprobado porque el deploy pipeline y su matriz de tests forman una unidad cohesiva — un split honesto dejaría un PR intermedio sin el cableado SHA256-a-servicio.
 
 ---

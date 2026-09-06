@@ -1208,6 +1208,40 @@ install_binary() {
   cp "$src" "$tmp" && chmod 0755 "$tmp" && mv -f "$tmp" "$dest"
 }
 
+install_backup_script() {
+  local src tmp dest dir
+  dest="$DATA_DIR/scripts/backup.sh"
+  dir="$DATA_DIR/scripts"
+
+  if [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/scripts/backup.sh" ]; then
+    src="$EXTRACT_DIR/scripts/backup.sh"
+  elif [ -f "$SCRIPT_DIR/backup.sh" ]; then
+    src="$SCRIPT_DIR/backup.sh"
+  else
+    echo "Error: no se encontró scripts/backup.sh para instalar." >&2
+    return 1
+  fi
+
+  if ! mkdir -p "$dir"; then
+    echo "Error: no se pudo crear $dir" >&2
+    return 1
+  fi
+  chmod 0700 "$dir"
+
+  tmp="$dir/.backup.sh.new.$$"
+  if ! cp "$src" "$tmp"; then
+    echo "Error: no se pudo copiar $src a $tmp" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 0755 "$tmp"
+  if ! mv -f "$tmp" "$dest"; then
+    echo "Error: no se pudo instalar $dest" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
 resolve_service_template() {
   local name="$1"
   if [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/setup/service/$name" ]; then
@@ -1347,7 +1381,9 @@ verify_installation() {
 }
 
 _post_install_backup_cmd() {
-  if [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/scripts/backup.sh" ]; then
+  if [ -n "${DATA_DIR:-}" ] && [ -f "$DATA_DIR/scripts/backup.sh" ]; then
+    printf '%s' "$DATA_DIR/scripts/backup.sh"
+  elif [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/scripts/backup.sh" ]; then
     printf '%s' "$EXTRACT_DIR/scripts/backup.sh"
   elif [ -f "$SCRIPT_DIR/backup.sh" ]; then
     printf '%s' "$SCRIPT_DIR/backup.sh"
@@ -1390,6 +1426,7 @@ run_deploy() {
   ensure_dirs || return 1
   ensure_env_file || return 1
   install_binary || return 1
+  install_backup_script || return 1
   install_service || return 1
   verify_installation || return 1
   print_post_install_summary
