@@ -71,6 +71,11 @@ goreleaser build --snapshot --clean
 - Pre-releases use `vX.Y.Z-rc.N` / `vX.Y.Z-beta.N` and are published as
   GitHub pre-releases (not `latest`).
 
+> **Two `--version` interfaces exist:**
+> - `install.sh --version vX.Y.Z` selects the release to deploy (installer flag).
+> - `mcp-server --version` reports the installed binary version (bare version string).
+> Do not confuse them; see the verification sections below.
+
 ## Artifacts
 
 Each `vX.Y.Z` release publishes 6 files:
@@ -90,8 +95,10 @@ Version is embedded via `ldflags`; verify with:
 
 ```bash
 mcp-server --version
-# mcp-server v0.3.0 (commit abc1234, built 2026-08-27T…)
+# v0.3.0
 ```
+
+The binary prints the bare version tag so the installer can match it against the requested release tag.
 
 ## Install — Linux
 
@@ -387,9 +394,9 @@ hermes doctor  # or equivalent — should report MCP endpoint reachable at 127.0
   `MCP_BIND=127.0.0.1` by default.
 - **No root / no Docker**: the service runs as the invoking user (ADR-0002) with
   no `sudo` at any point. No container runtime (ADR-0001).
-- **Version provenance**: `mcp-server --version` prints the ldflags-injected tag,
-  commit SHA, and build date. Compare against `git rev-parse HEAD` and the GitHub
-  Release tag.
+- **Version provenance**: `mcp-server --version` prints the ldflags-injected tag
+  as a bare version string (e.g. `v0.3.0`). Compare it against the requested
+  GitHub Release tag during install/upgrade verification.
 
 ## Troubleshooting
 
