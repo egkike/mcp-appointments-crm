@@ -1370,7 +1370,9 @@ enable_linger() {
     echo "Advertencia: loginctl no disponible; linger no se habilitó." >&2
     return 0
   fi
-  loginctl enable-linger "$USER"
+  # R3-001: $USER may be unset while set -u is active (cron, minimal
+  # envs); fall back to id -un instead of aborting on unbound variable.
+  loginctl enable-linger "${USER:-$(id -un)}"
 }
 
 # R4-BINARY-NO-ROLLBACK: on verify failure, point at the preserved

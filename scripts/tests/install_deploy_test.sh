@@ -337,6 +337,30 @@ EOF
   rm -rf "$tmp"
 }
 
+test_enable_linger_unset_user() {
+  # R3-001: with USER unset under set -u, linger must fall back to
+  # id -un instead of aborting on unbound variable.
+  if [ "$(uname -s)" != "Linux" ]; then
+    echo 'SKIP: enable_linger solo aplica en Linux'
+    return
+  fi
+  local tmp out rc=0 expected
+  tmp=$(mktemp -d)
+  cat > "$tmp/loginctl" <<EOF
+#!/bin/bash
+printf '%s\\n' "\$*" >> "$tmp/called"
+EOF
+  chmod +x "$tmp/loginctl"
+  expected=$(id -un)
+  # NOTE: path goes in $1, not $0 — otherwise the BASH_SOURCE guard
+  # at the bottom of install.sh would run main() on source.
+  out=$(env -u USER PATH="$tmp:/usr/bin:/bin" bash -c '. "$1"; enable_linger' _ "$INSTALL_SH_PATH" 2>&1) || rc=$?
+  assertEquals 'enable_linger returns 0 without USER' 0 ${rc:-0}
+  assertTrue 'loginctl invoked without USER' "[ -f \"$tmp/called\" ]"
+  assertTrue 'falls back to id -un' "grep -q \"enable-linger $expected\" \"$tmp/called\""
+  rm -rf "$tmp"
+}
+
 test_verify_install_version_match() {
   INSTALL_TAG="v0.3.0"
   mkdir -p "$BIN_DIR"
