@@ -67,7 +67,7 @@ irm https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/i
 
 ## Architecture
 
-- **Language**: Go 1.26.7 with `modernc.org/sqlite` (pure Go, no CGo)
+- **Language**: Go 1.26.8 with `modernc.org/sqlite` (pure Go, no CGo)
 - **Database**: SQLite with WAL mode, FTS5 full-text search, `busy_timeout=5000`
 - **TUI**: [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea) ecosystem
 - **Transport**: MCP over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3000` (loopback only) — go-sdk v1.2.0, implemented (`feat-mcp-transport`, archived 2026-08-19)
@@ -85,7 +85,7 @@ irm https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/i
 
 ## Development
 
-Requires Go 1.26.7+.
+Requires Go 1.26.8+.
 
 ```bash
 go build -o /dev/null ./...        # compile
