@@ -45,6 +45,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -61,12 +62,31 @@ import (
 )
 
 func main() {
+	// REQ-BVER-001: --version prints buildinfo.Version and exits 0 before
+	// any database or network setup.
+	if wantsVersion(os.Args) {
+		printVersion(os.Stdout)
+		return
+	}
+
 	// os.Exit only here, where no defers are pending: run() owns the
 	// database handle and always closes it before returning an error.
 	if err := run(); err != nil {
 		slog.Default().Error("mcp server failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+// wantsVersion reports whether the CLI was invoked with --version as the
+// first positional argument. It is a pure helper so it can be unit-tested
+// without touching os.Args or building a binary.
+func wantsVersion(args []string) bool {
+	return len(args) > 1 && args[1] == "--version"
+}
+
+// printVersion writes the current binary version to w.
+func printVersion(w io.Writer) {
+	_, _ = fmt.Fprintln(w, buildinfo.Version) //nolint:errcheck // best-effort write to stdout; caller exits immediately
 }
 
 func run() error {
