@@ -205,7 +205,7 @@ Chain strategy: stacked-to-main
 **Dependencies:** T1 (binary must support `--version`), T2 (templates must exist for render tests)
 **Type:** 🟢 Bash + 🧪 Test
 
-### T4.1 — RED: write `install_deploy_test.sh` (core functions)
+### - [x] T4.1 — RED: write `install_deploy_test.sh` (core functions)
 
 - **REQ:** REQ-INS-002, REQ-INS-004, REQ-INS-006, REQ-INS-007, REQ-INS-012
 - **Files:** `scripts/tests/install_deploy_test.sh` (new)
@@ -225,7 +225,7 @@ Chain strategy: stacked-to-main
   - Uses `MCP_RELEASE_BASE` pointing to local fixture dir; `HOME`/`CONFIG_DIR` fixture via `mktemp -d`
 - **Done:** test file exists, `bash scripts/tests/install_deploy_test.sh` FAILS (RED — functions don't exist yet)
 
-### T4.2 — GREEN: implement core deploy functions in `install.sh`
+### - [x] T4.2 — GREEN: implement core deploy functions in `install.sh`
 
 - **REQ:** REQ-INS-001, REQ-INS-002, REQ-INS-003, REQ-INS-004, REQ-INS-005, REQ-INS-006, REQ-INS-007, REQ-INS-012
 - **Files:** `scripts/install.sh` (extend-only — new section "Deploy pipeline")
@@ -248,7 +248,7 @@ Chain strategy: stacked-to-main
   - **CONSTRAINTS:** Bash 3.2 floor (no arrays for setup file names, no `mapfile`, no `declare -n`, no `${var,,}`); `set -u`, `umask 077`; existing trap/cleanup unchanged; `RELEASE_BASE_URL` overridable via `MCP_RELEASE_BASE` (D10)
 - **Done:** `bash scripts/tests/install_deploy_test.sh` PASSES for core function tests (GREEN); existing `install_validators_test.sh` + `install_e2e_test.sh` pass unmodified
 
-### T4.3 — VERIFY: core deploy tests + no regression
+### - [x] T4.3 — VERIFY: core deploy tests + no regression
 
 - **REQ:** REQ-INS-012
 - **Command:** `bash scripts/tests/run_tests.sh`
@@ -263,7 +263,7 @@ Chain strategy: stacked-to-main
 **Dependencies:** T4 (core functions must exist)
 **Type:** 🟢 Bash + 🧪 Test
 
-### T5.1 — RED: extend `install_deploy_test.sh` (service + verify + summary)
+### - [x] T5.1 — RED: extend `install_deploy_test.sh` (service + verify + summary)
 
 - **REQ:** REQ-INS-008, REQ-INS-009, REQ-INS-010, REQ-INS-011
 - **Files:** `scripts/tests/install_deploy_test.sh` (extend)
@@ -278,7 +278,7 @@ Chain strategy: stacked-to-main
   - `test_run_setup_guard_tty_no_tty`: stdin `</dev/null` → non-zero + message, no hang (timeout wrapper) (REQ-INS-005)
 - **Done:** new tests FAIL (RED — functions not yet implemented)
 
-### T5.2 — GREEN: implement service registration, verification, summary
+### - [x] T5.2 — GREEN: implement service registration, verification, summary
 
 - **REQ:** REQ-INS-008, REQ-INS-009, REQ-INS-010, REQ-INS-011, REQ-INS-013
 - **Files:** `scripts/install.sh` (extend)
@@ -301,7 +301,7 @@ Chain strategy: stacked-to-main
   6. **Wire `main()` dispatch**: `--version` → `validate_tag` + `run_deploy`; `--setup-only`/`""` → `run_setup_guard_tty`; unknown → error
 - **Done:** `bash scripts/tests/install_deploy_test.sh` ALL tests PASS (GREEN); `run_deploy()` is complete end-to-end
 
-### T5.3 — VERIFY: all suites green, no regression
+### - [x] T5.3 — VERIFY: all suites green, no regression
 
 - **REQ:** REQ-INS-012, REQ-INS-013
 - **Command:** `bash scripts/tests/run_tests.sh`

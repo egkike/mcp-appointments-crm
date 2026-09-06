@@ -16,7 +16,20 @@ set -u
 # CONFIG_DIR, SETUP_DIR, CHECKPOINT_PATH are populated by resolve_paths
 # and are intentionally global so the installer flow can reuse them.
 CURRENT_TMP=""
-cleanup_tmp() { [ -n "$CURRENT_TMP" ] && rm -f "$CURRENT_TMP"; }
+DEPLOY_TMP=""
+INSTALL_TAG=""
+RELEASE_BASE_URL=""
+ASSET_NAME=""
+ASSET_FILE=""
+CHECKSUMS_FILE=""
+EXTRACT_DIR=""
+SHA256_CMD=""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+cleanup_tmp() {
+  [ -n "$CURRENT_TMP" ] && rm -f "$CURRENT_TMP"
+  [ -n "$DEPLOY_TMP" ] && rm -rf "$DEPLOY_TMP"
+}
 # EXIT for normal exit; INT/TERM/HUP for shell signals (best-effort cleanup).
 # Single-threaded: no race between concurrent atomic_write calls.
 trap cleanup_tmp EXIT INT TERM HUP
@@ -533,11 +546,30 @@ resolve_paths() {
   os=$(uname -s)
   if [ "$os" = "Darwin" ]; then
     CONFIG_DIR="$HOME/Library/Application Support/MCP Appointments CRM"
+    DATA_DIR="$HOME/Library/Application Support/MCP Appointments CRM"
+    LOG_DIR="$HOME/Library/Logs/MCP Appointments CRM"
+    BIN_DIR="$HOME/.local/bin"
   else
     CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/mcp-appointments-crm"
+    DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/mcp-appointments-crm"
+    LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/mcp-appointments-crm"
+    BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
   fi
+  ENV_FILE="$HOME/.config/mcp-appointments-crm/.env"
   if [ -L "$CONFIG_DIR" ]; then
     echo "Error: el directorio de configuración es un enlace simbólico: $CONFIG_DIR" >&2
+    return 1
+  fi
+  if [ -L "$DATA_DIR" ]; then
+    echo "Error: DATA_DIR es un enlace simbólico: $DATA_DIR" >&2
+    return 1
+  fi
+  if [ -L "$BIN_DIR" ]; then
+    echo "Error: BIN_DIR es un enlace simbólico: $BIN_DIR" >&2
+    return 1
+  fi
+  if [ -L "$LOG_DIR" ]; then
+    echo "Error: LOG_DIR es un enlace simbólico: $LOG_DIR" >&2
     return 1
   fi
   # shellcheck disable=SC2034
@@ -982,6 +1014,480 @@ finalize() {
   echo "  $SETUP_DIR/setup_services.json"
 }
 
+# ---------------------------------------------------------------------------
+# Deploy pipeline (Fase 5 PR3)
+# ---------------------------------------------------------------------------
+
+validate_tag() {
+  local tag="$1"
+  if [ -z "$tag" ]; then
+    echo "Error: el tag de release no puede estar vacío." >&2
+    return 1
+  fi
+  case "$tag" in
+    latest)
+      echo "Error: 'latest' no está permitido; usá un tag pinned (ej. v0.3.0)." >&2
+      return 1
+      ;;
+  esac
+  if expr "$tag" : 'v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' >/dev/null; then
+    return 0
+  fi
+  echo "Error: tag inválido '$tag'. El formato requerido es vMAJOR.MINOR.PATCH (ej. v0.3.0)." >&2
+  return 1
+}
+
+refuse_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "Error: la instalación es user-level; ejecutá como usuario normal (ADR-0002)." >&2
+    return 1
+  fi
+  return 0
+}
+
+require_deploy_prereqs() {
+  local missing=""
+  for tool in curl tar; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      missing="$missing $tool"
+    fi
+  done
+  if command -v sha256sum >/dev/null 2>&1; then
+    SHA256_CMD="sha256sum"
+  elif command -v shasum >/dev/null 2>&1 && shasum -a 256 /dev/null >/dev/null 2>&1; then
+    SHA256_CMD="shasum -a 256"
+  else
+    missing="$missing sha256"
+  fi
+  if [ -n "$missing" ]; then
+    echo "Error: faltan herramientas necesarias:$missing" >&2
+    return 1
+  fi
+  return 0
+}
+
+require_setup_files() {
+  local missing="" f
+  for f in setup_business.json setup_staff.json setup_services.json; do
+    if [ ! -f "$CONFIG_DIR/$f" ]; then
+      missing="$missing $f"
+    fi
+  done
+  if [ -n "$missing" ]; then
+    echo "Error: faltan archivos de setup:$missing" >&2
+    return 1
+  fi
+  return 0
+}
+
+compose_asset_name() {
+  local os="$1" arch="$2" asset_arch
+  case "$arch" in
+    x86_64) asset_arch="x86_64" ;;
+    aarch64|arm64) asset_arch="arm64" ;;
+    *)
+      echo "Error: combinación no soportada: $os/$arch" >&2
+      return 1
+      ;;
+  esac
+  case "$os" in
+    Linux|Darwin)
+      printf 'mcp-appointments-crm_%s_%s.tar.gz' "$os" "$asset_arch"
+      return 0
+      ;;
+    *)
+      echo "Error: combinación no soportada: $os/$arch" >&2
+      return 1
+      ;;
+  esac
+}
+
+detect_platform() {
+  local os arch
+  os=$(uname -s)
+  arch=$(uname -m)
+  ASSET_NAME=$(compose_asset_name "$os" "$arch") || return 1
+  return 0
+}
+
+sha256_file() {
+  local file="$1"
+  if [ -n "${SHA256_CMD:-}" ]; then
+    case "$SHA256_CMD" in
+      sha256sum) sha256sum "$file" | awk '{print $1}' ;;
+      *) $SHA256_CMD "$file" | awk '{print $1}' ;;
+    esac
+    return 0
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+    return 0
+  fi
+  echo "Error: no hay herramienta SHA256 disponible." >&2
+  return 1
+}
+
+download_and_verify() {
+  local base asset_url checksums_url expected actual
+  base="${MCP_RELEASE_BASE:-https://github.com/egkike/mcp-appointments-crm/releases/download}"
+  RELEASE_BASE_URL="$base"
+  DEPLOY_TMP=$(mktemp -d)
+  asset_url="${RELEASE_BASE_URL}/${INSTALL_TAG}/${ASSET_NAME}"
+  checksums_url="${RELEASE_BASE_URL}/${INSTALL_TAG}/checksums.txt"
+  ASSET_FILE="$DEPLOY_TMP/$ASSET_NAME"
+  CHECKSUMS_FILE="$DEPLOY_TMP/checksums.txt"
+
+  if ! curl -fsSL "$asset_url" -o "$ASSET_FILE"; then
+    echo "Error: no se pudo descargar el release: $asset_url" >&2
+    return 1
+  fi
+  if ! curl -fsSL "$checksums_url" -o "$CHECKSUMS_FILE"; then
+    echo "Error: no se pudo descargar checksums.txt: $checksums_url" >&2
+    return 1
+  fi
+
+  expected=$(grep -E "^[a-f0-9]+  ${ASSET_NAME}$" "$CHECKSUMS_FILE" | head -n 1 | awk '{print $1}') || true
+  if [ -z "$expected" ]; then
+    echo "Error: $ASSET_NAME no aparece en checksums.txt ($checksums_url)" >&2
+    return 1
+  fi
+
+  actual=$(sha256_file "$ASSET_FILE") || return 1
+  if [ "$expected" != "$actual" ]; then
+    echo "Error: verificación SHA256 fallida para $ASSET_NAME." >&2
+    echo "  Esperado: $expected" >&2
+    echo "  Obtenido: $actual" >&2
+    echo "  URL manual: $asset_url" >&2
+    return 1
+  fi
+  return 0
+}
+
+extract_archive() {
+  EXTRACT_DIR="$DEPLOY_TMP/extract"
+  mkdir -p "$EXTRACT_DIR"
+  tar -xzf "$ASSET_FILE" -C "$EXTRACT_DIR"
+}
+
+# R3-ENSUREDIRS-PARTIAL / R4-ENSURE-DIRS-MASK: every step must propagate
+# its failure — returning only the last line status masked early mkdir
+# failures and let run_deploy continue with an incomplete tree.
+ensure_dirs() {
+  mkdir -p "$DATA_DIR" && chmod 0700 "$DATA_DIR" || { echo "Error: no se pudo preparar $DATA_DIR" >&2; return 1; }
+  mkdir -p "$BIN_DIR" && chmod 0700 "$BIN_DIR" || { echo "Error: no se pudo preparar $BIN_DIR" >&2; return 1; }
+  mkdir -p "$LOG_DIR" && chmod 0700 "$LOG_DIR" || { echo "Error: no se pudo preparar $LOG_DIR" >&2; return 1; }
+}
+
+ensure_env_file() {
+  local env_dir
+  env_dir=$(dirname "$ENV_FILE")
+  if ! mkdir -p "$env_dir"; then
+    echo "Error: no se pudo crear $env_dir" >&2
+    return 1
+  fi
+  if [ -f "$ENV_FILE" ]; then
+    return 0
+  fi
+  {
+    printf 'MCP_BIND=127.0.0.1\n'
+    printf 'MCP_PORT=3000\n'
+  } | atomic_write "$ENV_FILE"
+  chmod 0600 "$ENV_FILE"
+}
+
+install_binary() {
+  local src tmp dest
+  src="$EXTRACT_DIR/mcp-server"
+  if [ ! -f "$src" ]; then
+    echo "Error: no se encontró el binario en el archive extraído." >&2
+    return 1
+  fi
+  dest="$BIN_DIR/mcp-server"
+  # R4-BINARY-NO-ROLLBACK: preserve the previous binary before replacing
+  # it, so a failed deploy never destroys the last working server.
+  # The backup path is surfaced on verify failure (see verify_installation).
+  if [ -f "$dest" ]; then
+    if ! cp -p "$dest" "$dest.prev"; then
+      echo "Error: no se pudo respaldar el binario previo ($dest)." >&2
+      return 1
+    fi
+  fi
+  tmp="$BIN_DIR/.mcp-server.new.$$"
+  cp "$src" "$tmp" && chmod 0755 "$tmp" && mv -f "$tmp" "$dest"
+}
+
+install_backup_script() {
+  local src tmp dest dir
+  dest="$DATA_DIR/scripts/backup.sh"
+  dir="$DATA_DIR/scripts"
+
+  if [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/scripts/backup.sh" ]; then
+    src="$EXTRACT_DIR/scripts/backup.sh"
+  elif [ -f "$SCRIPT_DIR/backup.sh" ]; then
+    src="$SCRIPT_DIR/backup.sh"
+  else
+    echo "Error: no se encontró scripts/backup.sh para instalar." >&2
+    return 1
+  fi
+
+  if ! mkdir -p "$dir"; then
+    echo "Error: no se pudo crear $dir" >&2
+    return 1
+  fi
+  chmod 0700 "$dir"
+
+  tmp="$dir/.backup.sh.new.$$"
+  if ! cp "$src" "$tmp"; then
+    echo "Error: no se pudo copiar $src a $tmp" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+  chmod 0755 "$tmp"
+  if ! mv -f "$tmp" "$dest"; then
+    echo "Error: no se pudo instalar $dest" >&2
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+resolve_service_template() {
+  local name="$1"
+  if [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/setup/service/$name" ]; then
+    printf '%s' "$EXTRACT_DIR/setup/service/$name"
+    return 0
+  fi
+  local repo_path="${SCRIPT_DIR%/scripts}/setup/service/$name"
+  if [ -f "$repo_path" ]; then
+    printf '%s' "$repo_path"
+    return 0
+  fi
+  echo "Error: no se encontró el template de servicio: $name" >&2
+  return 1
+}
+
+render_systemd_unit() {
+  local template_path="$1" default_data_dir line out
+  # Canonical default from D4/D9, ignoring XDG_DATA_HOME overrides.
+  default_data_dir="$HOME/.local/share/mcp-appointments-crm"
+  out=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      *"@@BIN_DIR@@"*)
+        line=${line//@@BIN_DIR@@/$BIN_DIR}
+        ;;
+      *"Environment=MCP_DB_PATH="*)
+        if [ "$DATA_DIR" != "$default_data_dir" ]; then
+          line="Environment=MCP_DB_PATH=${DATA_DIR}/reservas.db"
+        fi
+        ;;
+    esac
+    out="${out}${line}"$'\n'
+  done < "$template_path"
+  printf '%s' "$out"
+}
+
+render_launchd_plist() {
+  local template_path="$1" line out
+  out=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line//@@BIN_DIR@@/$BIN_DIR}
+    line=${line//@@DATA_DIR@@/$DATA_DIR}
+    line=${line//@@LOG_DIR@@/$LOG_DIR}
+    out="${out}${line}"$'\n'
+  done < "$template_path"
+  printf '%s' "$out"
+}
+
+install_service_linux() {
+  local template rendered unit_dir unit_path
+  template=$(resolve_service_template mcp-appointments-crm.service) || return 1
+  rendered=$(render_systemd_unit "$template") || return 1
+  unit_dir="$HOME/.config/systemd/user"
+  unit_path="$unit_dir/mcp-appointments-crm.service"
+  mkdir -p "$unit_dir" || { echo "Error: no se pudo crear $unit_dir" >&2; return 1; }
+  # R3-ATOMICWRITE-UNCHECKED: a failed unit write must stop the deploy
+  # before daemon-reload acts on a stale/missing unit.
+  if ! printf '%s' "$rendered" | atomic_write "$unit_path"; then
+    echo "Error: no se pudo escribir $unit_path" >&2
+    return 1
+  fi
+  if ! systemctl --user daemon-reload; then
+    echo "Error: systemctl --user daemon-reload falló." >&2
+    return 1
+  fi
+  if systemctl --user is-enabled mcp-appointments-crm >/dev/null 2>&1; then
+    if ! systemctl --user restart mcp-appointments-crm; then
+      echo "Error: systemctl --user restart falló." >&2
+      return 1
+    fi
+  else
+    if ! systemctl --user enable --now mcp-appointments-crm; then
+      echo "Error: systemctl --user enable --now falló." >&2
+      return 1
+    fi
+  fi
+  enable_linger || return 1
+}
+
+install_service_macos() {
+  local template rendered plist_dir plist_path
+  template=$(resolve_service_template com.mcp.appointments.server.plist) || return 1
+  rendered=$(render_launchd_plist "$template") || return 1
+  plist_dir="$HOME/Library/LaunchAgents"
+  plist_path="$plist_dir/com.mcp.appointments.server.plist"
+  mkdir -p "$plist_dir" || { echo "Error: no se pudo crear $plist_dir" >&2; return 1; }
+  # R3-ATOMICWRITE-UNCHECKED: idem Linux — no bootstrap sobre un plist rancio.
+  if ! printf '%s' "$rendered" | atomic_write "$plist_path"; then
+    echo "Error: no se pudo escribir $plist_path" >&2
+    return 1
+  fi
+  launchctl bootout "gui/$UID/com.mcp.appointments.server" 2>/dev/null || true
+  if ! launchctl bootstrap "gui/$UID" "$plist_path"; then
+    echo "Error: launchctl bootstrap falló." >&2
+    return 1
+  fi
+}
+
+install_service() {
+  local os
+  os=$(uname -s)
+  if [ "$os" = "Darwin" ]; then
+    install_service_macos
+  else
+    install_service_linux
+  fi
+}
+
+enable_linger() {
+  if [ "$(uname -s)" != "Linux" ]; then
+    return 0
+  fi
+  if ! command -v loginctl >/dev/null 2>&1; then
+    echo "Advertencia: loginctl no disponible; linger no se habilitó." >&2
+    return 0
+  fi
+  # R3-001: $USER may be unset while set -u is active (cron, minimal
+  # envs); fall back to id -un instead of aborting on unbound variable.
+  loginctl enable-linger "${USER:-$(id -un)}"
+}
+
+# R4-BINARY-NO-ROLLBACK: on verify failure, point at the preserved
+# previous binary so the operator can restore it manually.
+_print_binary_rollback_hint() {
+  if [ -f "$BIN_DIR/mcp-server.prev" ]; then
+    echo "  El binario previo se conserva en $BIN_DIR/mcp-server.prev" >&2
+    echo "  Para volver atrás: systemctl --user stop mcp-appointments-crm; mv -f $BIN_DIR/mcp-server.prev $BIN_DIR/mcp-server; systemctl --user start mcp-appointments-crm" >&2
+  fi
+}
+
+verify_installation() {
+  local version_out
+  if ! version_out=$("$BIN_DIR/mcp-server" --version 2>&1); then
+    echo "Error: no se pudo ejecutar mcp-server --version." >&2
+    _print_binary_rollback_hint
+    return 1
+  fi
+  case "$version_out" in
+    *"$INSTALL_TAG"*) : ;;
+    *)
+      echo "Error: la versión instalada ($version_out) no coincide con $INSTALL_TAG." >&2
+      _print_binary_rollback_hint
+      return 1
+      ;;
+  esac
+  if [ "$(uname -s)" != "Darwin" ] && command -v systemctl >/dev/null 2>&1; then
+    local i=0
+    while [ $i -lt 10 ]; do
+      if systemctl --user is-active mcp-appointments-crm >/dev/null 2>&1; then
+        return 0
+      fi
+      sleep 1
+      i=$((i + 1))
+    done
+    echo "Error: el servicio no reporta estado active." >&2
+    _print_binary_rollback_hint
+    return 1
+  fi
+  return 0
+}
+
+_post_install_backup_cmd() {
+  if [ -n "${DATA_DIR:-}" ] && [ -f "$DATA_DIR/scripts/backup.sh" ]; then
+    printf '%s' "$DATA_DIR/scripts/backup.sh"
+  elif [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/scripts/backup.sh" ]; then
+    printf '%s' "$EXTRACT_DIR/scripts/backup.sh"
+  elif [ -f "$SCRIPT_DIR/backup.sh" ]; then
+    printf '%s' "$SCRIPT_DIR/backup.sh"
+  else
+    printf 'scripts/backup.sh'
+  fi
+}
+
+print_post_install_summary() {
+  local bind port backup_cmd
+  bind="${MCP_BIND:-127.0.0.1}"
+  port="${MCP_PORT:-3000}"
+  backup_cmd=$(_post_install_backup_cmd)
+  printf '\n'
+  echo "Despliegue completado: $INSTALL_TAG"
+  echo "  Endpoint MCP: http://${bind}:${port}/mcp"
+  echo "  MCP_DB_PATH: $DATA_DIR/reservas.db"
+  printf '\n'
+  echo "Comando de backup:"
+  echo "  bash $backup_cmd \"$DATA_DIR/reservas.db\""
+  printf '\n'
+  echo "Herramientas recomendadas:"
+  echo "  - jq: inspeccionar los archivos JSON de setup"
+  echo "  - sqlite3: consultar la base de reservas"
+  echo "  - ufw / firewall: verificar que solo el loopback escucha el puerto"
+  echo "  - hermes doctor: verificar la salud del servidor MCP"
+  printf '\n'
+  echo "Nota: no ejecutes ./mcp-server manualmente mientras corre el servicio;"
+  echo "      usaría una DB distinta (./data/appointments.db) y bifurcaría el estado."
+}
+
+run_deploy() {
+  resolve_paths || return 1
+  refuse_root || return 1
+  require_deploy_prereqs || return 1
+  require_setup_files || return 1
+  detect_platform || return 1
+  download_and_verify || return 1
+  extract_archive || return 1
+  ensure_dirs || return 1
+  ensure_env_file || return 1
+  install_binary || return 1
+  install_backup_script || return 1
+  install_service || return 1
+  verify_installation || return 1
+  print_post_install_summary
+}
+
+run_setup_guard_tty() {
+  # REQ-INS-005 / D6: a piped invocation via `curl ... | bash -s` has $0 == bash
+  # and no TTY; that path must not prompt. Running the script from a file
+  # (e.g. tests piping answers, or `bash install.sh`) is safe even without TTY.
+  case "$0" in
+    bash|-bash)
+      if [ -t 0 ]; then
+        run_setup "$@"
+      else
+        echo "Error: el modo interactivo requiere una terminal." >&2
+        echo "  Ejecutá 'bash install.sh' en una terminal para completar el setup," >&2
+        echo "  o 'bash install.sh --version vX.Y.Z' si los JSONs de setup ya están presentes." >&2
+        return 1
+      fi
+      ;;
+    *)
+      run_setup "$@"
+      ;;
+  esac
+}
+
 # Entry points
 # ---------------------------------------------------------------------------
 
@@ -1062,9 +1568,10 @@ run_setup() {
 
 usage() {
   cat <<'EOF'
-Uso: ./scripts/install.sh [--setup-only|--help]
+Uso: ./scripts/install.sh [--setup-only|--version vX.Y.Z|--help]
 
   --setup-only   Ejecuta solo el flujo de configuración inicial (default).
+  --version      Despliega la versión indicada del binario y registra el servicio.
   --help         Muestra esta ayuda.
 EOF
 }
@@ -1072,7 +1579,16 @@ EOF
 main() {
   case "${1:-}" in
     --help) usage; exit 0 ;;
-    --setup-only|"") run_setup "$@" ;;
+    --version)
+      if [ -z "${2:-}" ]; then
+        echo "Error: --version requiere un tag (ej. v0.3.0)" >&2
+        exit 1
+      fi
+      validate_tag "$2" || exit 1
+      INSTALL_TAG="$2"
+      run_deploy
+      ;;
+    --setup-only|"") run_setup_guard_tty "$@" ;;
     *) echo "Error: argumento desconocido: $1" >&2; exit 1 ;;
   esac
 }
