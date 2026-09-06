@@ -1,0 +1,15 @@
+[Unit]
+Description=MCP Appointments CRM server (user-level, loopback-only, ADR-0002/0007)
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/mcp-appointments-crm/.env
+Environment=MCP_DB_PATH=%h/.local/share/mcp-appointments-crm/reservas.db
+ExecStart=@@BIN_DIR@@/mcp-server
+Restart=on-failure
+RestartSec=5
+# Sin User=, sin rutas /etc ni /usr: user-level siempre (REQ-SU-002)
+
+[Install]
+WantedBy=default.target
