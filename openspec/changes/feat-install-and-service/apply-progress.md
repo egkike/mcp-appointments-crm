@@ -225,9 +225,49 @@ Unchecked task lines from `tasks.md`:
 
 ---
 
+## CRITICAL-1 fix — persistent backup.sh + summary path (cherry-picked)
+
+### Diagnóstico (verify-report)
+
+- `run_deploy()` nunca copiaba `backup.sh` a `$DATA_DIR/scripts/`.
+- `_post_install_backup_cmd()` prefería `$EXTRACT_DIR/scripts/backup.sh` (borrado por el trap) y luego `$SCRIPT_DIR/backup.sh` (inexistente en VPS piped).
+- Resultado: el comando copy-pasteable del summary no era ejecutable post-deploy (DoD 12/13).
+
+### Cambios aplicados
+
+1. **`install_backup_script()`** en `scripts/install.sh` (sección Deploy pipeline, después de `install_binary`):
+   - Fuente por orden: `$EXTRACT_DIR/scripts/backup.sh` → fallback `$SCRIPT_DIR/backup.sh`.
+   - Destino: `$DATA_DIR/scripts/backup.sh`.
+   - `mkdir -p` 0700 + copia atómica tmp + `mv` + `chmod 0755`.
+   - Error claro en español si ninguna fuente existe.
+2. **Wire en `run_deploy()`**: `install_backup_script` se ejecuta después de `install_binary` y antes de `install_service`.
+3. **`_post_install_backup_cmd()`** ahora prefiere `$DATA_DIR/scripts/backup.sh` cuando existe, manteniendo los fallbacks anteriores.
+
+### Tests agregados
+
+- `test_install_backup_script_from_extract`
+- `test_install_backup_script_fallback_script_dir`
+- `test_install_backup_script_no_source_fails`
+- `test_post_install_backup_cmd_prefers_persistent`
+
+### Verificación
+
+```bash
+bash scripts/tests/install_deploy_test.sh
+# => OK (27 tests)
+
+bash scripts/tests/run_tests.sh
+# => OK: 5/5 suites pasaron (incl. service_templates_test.sh)
+
+go fmt ./... && go vet ./... && go build -o /dev/null ./... && go test -v -race ./...
+# => all green
+```
+
+---
+
 ## PR Boundary
 
 - **PR1:** T1 only — merged (`a52d1cf`), RDD receipt burned (`review-5cb3536d01cf8d90`).
 - **PR2:** T2 + T3 (+ R3 fix) — merged (`1562ad5`), RDD receipt burned (`review-6e2718fcf31c0a15`).
-- **PR3 (this branch):** T4 + T5 only (size:exception, ~918 LOC). Cherry-picked onto post-PR2 main; conflict on this file resolved by combination.
+- **PR3 (this branch):** T4 + T5 + CRITICAL-1 fix (size:exception, ~918 + 109 LOC). Rebuilt on post-PR2 main via cherry-picks (5dae828 + fix).
 - **Chain continuation:** PR4 (docs) after PR3 merges.
