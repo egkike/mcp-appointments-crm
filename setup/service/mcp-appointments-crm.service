@@ -4,7 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-EnvironmentFile=%h/.config/mcp-appointments-crm/.env
+# '-' prefix: .env is optional (R3-ENVFILE-BRITTLE). If absent, systemd warns
+# and the unit still starts with Environment= defaults + binary defaults.
+EnvironmentFile=-%h/.config/mcp-appointments-crm/.env
 Environment=MCP_DB_PATH=%h/.local/share/mcp-appointments-crm/reservas.db
 ExecStart=@@BIN_DIR@@/mcp-server
 Restart=on-failure
