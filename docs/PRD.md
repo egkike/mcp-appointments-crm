@@ -2,8 +2,8 @@
 
 > **Estado**: Aprobado
 > **Owner**: Kike
-> **Versión**: 1.10
-> **Última actualización**: 2026-09-02
+> **Versión**: 1.12
+> **Última actualización**: 2026-09-06
 
 ---
 
@@ -1176,7 +1176,7 @@ Override con otro caller_id (debug):
 - PRs mergeados: PR #7 (foundation + 4 repos simples), PR #9 (5 repos complejos); Fase 1b completada en PRs #37–#45
 - Fase 1 cerrada y archivada en `openspec/changes/archive/2026-07-29-feat-db-layer/`; Fase 1b archivada en `openspec/changes/archive/2026-08-05-refactor-clean-architecture/`
 
-**Siguiente**: Fase 1b (clean-architecture-refactor) — **ARCHIVADA** el 2026-08-09 (commit `988baeb`). 4 sub-fases completadas (~2000 LOC), `internal/model/` eliminado, ADR-0013 registra la arquitectura en capas. Ver `openspec/changes/refactor/clean-architecture/`. **Fase 2 (mcp-server-core / feat-mcp-transport) — CERRADA** el 2026-08-19 (PRs #46/#47, archive `openspec/changes/archive/2026-08-19-feat-mcp-transport/`). **Fase 3 (mcp-server-advanced) — CERRADA** el 2026-09-02 (PRs #51–#54, 11 tools). **Fase 4 (install.sh prompts) — CERRADA** el 2026-09-04 (PRs #55/#57/#58, archive `openspec/changes/archive/2026-09-04-feat-install-prompts/`). **Siguiente: Fase 5 (install-and-service)**.
+**Siguiente**: Fase 1b (clean-architecture-refactor) — **ARCHIVADA** el 2026-08-09 (commit `988baeb`). 4 sub-fases completadas (~2000 LOC), `internal/model/` eliminado, ADR-0013 registra la arquitectura en capas. Ver `openspec/changes/refactor/clean-architecture/`. **Fase 2 (mcp-server-core / feat-mcp-transport) — CERRADA** el 2026-08-19 (PRs #46/#47, archive `openspec/changes/archive/2026-08-19-feat-mcp-transport/`). **Fase 3 (mcp-server-advanced) — CERRADA** el 2026-09-02 (PRs #51–#54, 11 tools). **Fase 4 (install.sh prompts) — CERRADA** el 2026-09-04 (PRs #55/#57/#58, archive `openspec/changes/archive/2026-09-04-feat-install-prompts/`). **Fase 5 (install-and-service) — CERRADA** el 2026-09-06 (PRs #62/#66/#67/#68, 29 REQs, archive `openspec/changes/archive/2026-09-06-feat-install-and-service/`). **Siguiente: Fase N (soporte y mejoras, ongoing)**.
 
 ### Fase 1b: clean-architecture-refactor (Estimación: M)
 
@@ -1291,10 +1291,17 @@ Override con otro caller_id (debug):
 - `docs/maintenance.md` con el manual de soporte anual
 
 **Definition of Done**:
-- [ ] En una máquina con SO soportado (Linux, macOS 13+ o Windows 10+), el comando `curl -fsSL <url> | bash` (o `iwr -useb <url> | iex` en Windows) deja el sistema corriendo en < 5 minutos
-- [ ] El script `backup.sh` está disponible en el repo y en el release, y produce un `.gz` ejecutándose manualmente con `./scripts/backup.sh`
-- [ ] El script falla con mensaje claro si los JSON no existen
-- [ ] Manual de instalación en español, paso a paso
+- [x] En una máquina con SO soportado (Linux, macOS 13+ o Windows 10+), el comando `curl -fsSL <url> | bash` (o `iwr -useb <url> | iex` en Windows) deja el sistema corriendo en < 5 minutos
+- [x] El script `backup.sh` está disponible en el repo y en el release, y produce un `.gz` ejecutándose manualmente con `./scripts/backup.sh`
+- [x] El script falla con mensaje claro si los JSON no existen
+- [x] Manual de instalación en español, paso a paso
+
+**Estado al 2026-09-06 (Fase 5 CERRADA — `feat-install-and-service`):**
+- ✅ PR #62 binary `--version` flag (REQ-BVER, RDD `review-5cb3536d01cf8d90` burned)
+- ✅ PR #66 service templates + `backup.sh` portable (REQ-SU/BKP, RDD `review-6e2718fcf31c0a15` burned tras corrección R3-ENVFILE-BRITTLE)
+- ✅ PR #67 deploy pipeline + tests size:exception (REQ-INS, RDD `review-7bfbec8848afefe4` burned tras correcciones CRITICAL-1 + 4 findings + R3-001)
+- ✅ PR #68 `docs/installation.md` + `docs/maintenance.md` en español (REQ-IDOC, readback estructural)
+- ✅ 29/29 REQs, verify PASS_WITH_BLOCKER → bloqueante resuelto, archivados en `openspec/changes/archive/2026-09-06-feat-install-and-service/`
 
 ### Fase N: soporte y mejoras (ongoing)
 
@@ -1384,3 +1391,4 @@ Override con otro caller_id (debug):
 | 2026-08-23 | 1.9 | Kike | **Deuda auth CERRADA + Go 1.26.7** — `feat-repository-auth-integration` mergeado (PR #50, `5aca28d`, 7 REQ, 22 escenarios, JD 2/2 PASS): `clients.go` (8 métodos) y `business_hours_exception.go` (4 métodos) cableados con `auth.Caller` (helper `AND id = ?`, `RequireRole`/`RequireCaller`, fix `GetOrCreate` phone==caller.ID, FTS operator hardening). `go.mod` bumpeado 1.26.6→1.26.7 (PR #49, `4e059ca`). PRD §3.8.7-6 y §7 actualizados: Fase 3 desbloqueada, sin prerequisitos pendientes. |
 | 2026-09-02 | 1.10 | Kike | Fase 3 mcp-server-advanced cerrada (PRs #51-#54, 11 tools, 16/16, verify 1/1 43/43, archive 2026-09-02) |
 | 2026-09-04 | 1.11 | Kike | **Fase 4 (install.sh prompts) CERRADA** — PRs #55/#57/#58 (12 REQ, 41 escenarios, 36 tests), receipts RDD quemados, archive `openspec/changes/archive/2026-09-04-feat-install-prompts/`. RF1 y DoD Fase 4 marcados completos; siguiente Fase 5. |
+| 2026-09-06 | 1.12 | Kike | **Fase 5 (install-and-service) CERRADA** — PRs #62/#66/#67/#68 (29 REQs, 5 specs nuevas, receipts RDD quemados incl. 2 correcciones acotadas), archive `openspec/changes/archive/2026-09-06-feat-install-and-service/`. DoD Fase 5 marcado completo (código+tests; VM real y matriz macOS quedan post-merge); siguiente Fase N. |
