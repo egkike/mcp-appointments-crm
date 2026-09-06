@@ -114,7 +114,7 @@ Chain strategy: stacked-to-main
 **Dependencies:** none (independent of T1)
 **Type:** 🟡 Templates
 
-### T2.1 — Create systemd user unit template
+### - [x] T2.1 — Create systemd user unit template
 
 - **REQ:** REQ-SU-001, REQ-SU-002, REQ-SU-005
 - **Files:** `setup/service/mcp-appointments-crm.service` (new)
@@ -126,7 +126,7 @@ Chain strategy: stacked-to-main
   - `%h` specifier for home-portability (REQ-SU-005)
 - **Done:** file exists, content matches design §5.3.1 exactly
 
-### T2.2 — Create launchd plist template
+### - [x] T2.2 — Create launchd plist template
 
 - **REQ:** REQ-SU-001, REQ-SU-003, REQ-SU-005
 - **Files:** `setup/service/com.mcp.appointments.server.plist` (new)
@@ -139,7 +139,7 @@ Chain strategy: stacked-to-main
   - Valid XML, paths with spaces handled (macOS `Library/Application Support/...`)
 - **Done:** file exists, valid XML, content matches design §5.3.2
 
-### T2.3 — Create NSSM placeholder document
+### - [x] T2.3 — Create NSSM placeholder document
 
 - **REQ:** REQ-SU-001, REQ-SU-004
 - **Files:** `setup/service/nssm-install.md` (new)
@@ -150,7 +150,7 @@ Chain strategy: stacked-to-main
   - Explicit statement: installer does NOT automate Windows in Fase 5
 - **Done:** file exists, in Spanish, exactly 3 files in `setup/service/` (REQ-SU-001)
 
-### T2.4 — VERIFY: templates exist and match contracts
+### - [x] T2.4 — VERIFY: templates exist and match contracts
 
 - **REQ:** REQ-SU-001..005
 - **Done:** `ls setup/service/` shows exactly 3 files; grep confirms key directives (`EnvironmentFile`, `MCP_DB_PATH`, `@@BIN_DIR@@`, `Label`, `RunAtLoad`)
@@ -164,7 +164,7 @@ Chain strategy: stacked-to-main
 **Dependencies:** none (independent of T1, T2)
 **Type:** 🟢 Bash + 🧪 Test
 
-### T3.1 — RED: write `backup_test.sh` shunit2 suite
+### - [x] T3.1 — RED: write `backup_test.sh` shunit2 suite
 
 - **REQ:** REQ-BKP-001, REQ-BKP-002, REQ-BKP-003, REQ-BKP-004
 - **Files:** `scripts/tests/backup_test.sh` (new)
@@ -177,7 +177,7 @@ Chain strategy: stacked-to-main
   - Uses `mktemp -d` for fixture isolation, cleanup on EXIT
 - **Done:** test file exists, `bash scripts/tests/backup_test.sh` FAILS (RED — script doesn't exist yet)
 
-### T3.2 — GREEN: implement `scripts/backup.sh`
+### - [x] T3.2 — GREEN: implement `scripts/backup.sh`
 
 - **REQ:** REQ-BKP-001, REQ-BKP-002, REQ-BKP-003, REQ-BKP-004
 - **Files:** `scripts/backup.sh` (new, ~60 lines)
@@ -190,7 +190,7 @@ Chain strategy: stacked-to-main
   - `chmod +x`
 - **Done:** `bash scripts/tests/backup_test.sh` PASSES (GREEN); all 5 test functions pass
 
-### T3.3 — VERIFY: backup tests + existing suites unmodified
+### - [x] T3.3 — VERIFY: backup tests + existing suites unmodified
 
 - **REQ:** REQ-BKP-001..004, REQ-INS-012
 - **Command:** `bash scripts/tests/run_tests.sh` (runs all `*_test.sh`)
