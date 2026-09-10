@@ -2,20 +2,44 @@ package mcp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+// nextMonday10AM returns the next Monday at 10:00 in the seeded business
+// timezone (America/Argentina/Buenos_Aires), strictly after today so the
+// slot is always in the future no matter when the test runs.
+func nextMonday10AM(t *testing.T) time.Time {
+	t.Helper()
+	loc, err := time.LoadLocation("America/Argentina/Buenos_Aires")
+	if err != nil {
+		t.Fatalf("LoadLocation: %v", err)
+	}
+	now := time.Now().In(loc)
+	// Days until the next Monday strictly after today (1..7).
+	days := (8 - int(now.Weekday())) % 7
+	if days == 0 {
+		days = 7
+	}
+	y, m, d := now.Date()
+	return time.Date(y, m, d+days, 10, 0, 0, 0, loc)
+}
 
 // TestIntegrationAlertLifecycle proves that create_booking inserts a
 // confirmation alert and cancel_booking cancels it.
 func TestIntegrationAlertLifecycle(t *testing.T) {
 	mux := newIntegrationMux(t)
 
-	// Owner creates a booking. The start time is in the future so the slot
-	// validates, but we will query get_pending_alerts with a fixed clock set
-	// after the scheduled alert time.
-	rec := postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_booking","arguments":{"client_id":"c1","service_id":"s1","professional_id":"p1","start_datetime":"2026-09-07T10:00:00-03:00"}}}`)
+	// Owner creates a booking. The start time must be a future Monday at
+	// 10:00 (business timezone): p1 only works Mondays 09:00-17:00 per the
+	// seed, and the slot validator rejects past dates. A hardcoded date
+	// rots (it did on 2026-09-07), so compute the next Monday dynamically.
+	start := nextMonday10AM(t)
+	body := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"create_booking","arguments":{"client_id":"c1","service_id":"s1","professional_id":"p1","start_datetime":%q}}}`, start.Format("2006-01-02T15:04:05-07:00"))
+	rec := postMCPCaller(t, mux, "owner-1", body)
 	result, code, msg := decodeRPCEnvelope(t, rec)
 	if code != 0 {
 		t.Fatalf("create_booking failed: %d %q", code, msg)

@@ -403,6 +403,27 @@ test_run_setup_guard_tty_no_tty() {
   assertTrue 'mentions terminal' "printf '%s' \"$out\" | grep -qi 'terminal'"
 }
 
+test_stdin_pipe_help() {
+  # Regression: `curl ... | bash -s -- --help` reads the script from
+  # stdin, where BASH_SOURCE is unset. Under `set -u` the bare
+  # ${BASH_SOURCE[0]} aborted before main(); the :-$0 fallback must
+  # let the piped invocation reach main().
+  local out rc=0
+  out=$(bash -s -- --help < "$INSTALL_SH_PATH" 2>&1) || rc=$?
+  assertEquals 'piped --help exits 0' 0 ${rc:-0}
+  assertTrue 'piped --help prints usage' "printf '%s' \"$out\" | grep -q 'Uso:'"
+  assertTrue 'no unbound variable' "! printf '%s' \"$out\" | grep -qi 'unbound variable\\|sin asignar'"
+}
+
+test_stdin_pipe_invalid_version_tag() {
+  # Same pipe mode, but exercising main() --version validation.
+  local out rc=0
+  out=$(bash -s -- --version latest < "$INSTALL_SH_PATH" 2>&1) || rc=$?
+  assertTrue 'piped bad tag fails' "[ \${rc:-0} -ne 0 ]"
+  assertTrue 'piped bad tag names the tag' "printf '%s' \"$out\" | grep -q 'latest'"
+  assertTrue 'no unbound variable' "! printf '%s' \"$out\" | grep -qi 'unbound variable\\|sin asignar'"
+}
+
 # ---------------------------------------------------------------------------
 # Backup script installation (CRITICAL-1 fix)
 # ---------------------------------------------------------------------------
