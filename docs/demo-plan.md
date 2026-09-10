@@ -54,16 +54,33 @@ En la laptop, desde `main` limpio:
 
 ```bash
 export TAG=v0.3.0
+REPO=$(pwd)                      # checkout del repo en main limpio
+STAGE=/tmp/demo-release
+rm -rf "$STAGE" && mkdir -p "$STAGE/scripts" "$STAGE/setup/service"
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
   -ldflags "-X github.com/egkike/mcp-appointments-crm/internal/buildinfo.Version=$TAG" \
-  -o /tmp/demo-release/mcp-server ./cmd/mcp-server
-./tmp/demo-release/mcp-server --version   # debe imprimir v0.3.0 (REQ-BVER)
-/tmp/demo-release/mcp-server --version || true
-cd /tmp/demo-release
-tar -czf mcp-appointments-crm_Linux_x86_64.tar.gz mcp-server
+  -o "$STAGE/mcp-server" ./cmd/mcp-server
+"$STAGE/mcp-server" --version    # debe imprimir v0.3.0 (REQ-BVER)
+# El contrato del instalador exige el asset COMPLETO, no solo el binario:
+# binario + backup.sh + templates systemd (*.service) + templates launchd (*.plist).
+cp "$REPO/scripts/backup.sh" "$STAGE/scripts/"
+cp "$REPO/setup/service/"*.service "$STAGE/setup/service/"
+cp "$REPO/setup/service/"*.plist "$STAGE/setup/service/"
+cd "$STAGE"
+tar -czf mcp-appointments-crm_Linux_x86_64.tar.gz \
+  mcp-server \
+  scripts/backup.sh \
+  setup/service/*.service \
+  setup/service/*.plist
+tar -tzf mcp-appointments-crm_Linux_x86_64.tar.gz   # verificar: los 4 paths presentes
 sha256sum mcp-appointments-crm_Linux_x86_64.tar.gz > checksums.txt
 cat checksums.txt
 ```
+
+> Corrección 2026-09-10: la primera corrida publicó un asset incompleto (solo
+> binario, sha256 `f921c5d2…`) que rompía el deploy; se reemplazó con
+> `gh release upload --clobber`. El asset final completo queda con sha256
+> `18f5353e…` (ver bitácora).
 
 Publicar (el contrato que `install.sh` espera es
 `.../releases/download/{tag}/{asset}` + `checksums.txt`):
@@ -107,11 +124,11 @@ Criterio: exit 0 y tiempo total < 5 minutos (DoD 1).
 |-----|--------------------|----------|
 | 5 | `systemctl --user is-active mcp-appointments-crm` | `active` |
 | 6 | `loginctl show-user kike -p Linger` | `Linger=yes` |
-| 1 | `curl --fail http://127.0.0.1:3000/mcp` | HTTP 200 / respuesta JSON-RPC |
+| 1 | `curl --fail http://127.0.0.1:3000/healthz` | HTTP 200 + `{"status":"ok"}` (liveness). Nota: un GET pelado a `/mcp` responde **405 por diseño** (REQ-MT-002) — prueba que el server vive y rutea, pero el check de liveness es `/healthz` |
 | 9 | `~/.local/bin/mcp-server --version` | `v0.3.0` |
 | 5b | `sudo reboot` → esperar → `systemctl --user is-active mcp-appointments-crm` | `active` (sobrevive reboot) |
 | 7 | `bash ~/.local/share/mcp-appointments-crm/scripts/backup.sh ~/.local/share/mcp-appointments-crm/reservas.db` → `gunzip -c backups/reservas-*.db.gz > /tmp/r.db` → `sqlite3 /tmp/r.db "PRAGMA integrity_check;"` | `ok` |
-| 4 | `bash install.sh` sin JSONs (mover `setup/` temporalmente) | exit ≠ 0 nombrando los faltantes |
+| 4 | `bash install.sh --version v0.3.0` sin JSONs (mover `setup/` temporalmente) | exit ≠ 0 nombrando los faltantes (el `bash install.sh` pelado abriría el wizard, no aborta) |
 
 Registrar cada output en la bitácora (§ Bitácora).
 
@@ -146,6 +163,13 @@ Secuencia mínima sugerida, con negocio demo:
 Criterio: las 7 familias de tools responden con mensajes semánticos en
 español y sin stack traces. Anotar desvíos en la bitácora.
 
+> Nota 2026-09-10: el smoke puede correrse también directo por HTTP
+> **stateless** (POST JSON-RPC a `/mcp` sin `Mcp-Session-Id`) con header
+> `X-Caller-Id: owner-demo`, sin pasar por Hermes. Además,
+> `get_loyalty_report` solo agrega reservas **no canceladas con `start < now`**:
+> las reservas futuras no aparecen en el reporte; para el demo, sembrar una
+> booking histórica en el Paso 5.
+
 ## Paso 7 — Schedular el backup (valida `maintenance.md`)
 
 La doc deja el scheduling como decisión del operador: acá el operador decide
@@ -158,6 +182,12 @@ Verificar al día siguiente que apareció `backups/reservas-YYYYMMDD.db.gz`.
 |-------|---------|---------|-----------|-------|
 | 2026-09-06 | — | P1–P6 | ✅ precondiciones verificadas vía SSH | Base para la primera corrida demo |
 | 2026-09-06 | — | decisión release | v0.3.0 estable directo, sin rc (ver nota Paso 1) | Habilita Paso 1 |
+| 2026-09-10 | v0.3.0 | Paso 1 | ✅ release publicada a mano (`gh release create`), binario linux/amd64 con ldflags `v0.3.0` (`--version` → v0.3.0) | Asset completo con sha256 `18f5353e…`; un primer asset incompleto (`f921c5d2…`) se reemplazó con `gh release upload --clobber` |
+| 2026-09-10 | v0.3.0 | Paso 2 | ✅ wizard OK con datos demo (Peluquería Demo, 1 profesional Maximiliano Lun–Sáb, 2 servicios) | 3 JSONs en `~/.config/mcp-appointments-crm/setup/`, perms 0600, sin checkpoint residual |
+| 2026-09-10 | v0.3.0 | Paso 3 | ✅ deploy en 2.44s (< 5 min, DoD 1) → `Despliegue completado: v0.3.0` | Pipe OK tras fix PR #69 |
+| 2026-09-10 | v0.3.0 | Paso 4 | ✅ DoD completa salvo 5b | 5b (reboot) pendiente — disruptivo, a decisión del operador. Durante la corrida se mergeó PR #69 (pipe-mode `BASH_SOURCE` unbound + test de regresión + fix `TestIntegrationAlertLifecycle` con fecha hardcodeada 2026-09-07) y PR #70 (deploy gate miraba `$CONFIG_DIR` en vez de `$SETUP_DIR`) |
+| 2026-09-10 | v0.3.0 | Pasos 5–6 | ✅ seed SQL manual (owner-demo + business_profile + p1 + 6 schedules + s1/s2 + c1 + 1 booking histórica) + smoke OK | Smoke directo por HTTP stateless (sin `Mcp-Session-Id`): 11 tools; availability `true`; booking→get→alert→sent→reschedule→cancel; FTS5 en ambas búsquedas; loyalty agrega la histórica. Todo en español, sin stack traces |
+| 2026-09-10 | v0.3.0 | Paso 7 | ✅ timer systemd user de backup activo | Corre diario 00:00 -03 |
 | | | | | |
 
 ## Riesgos y notas
@@ -166,3 +196,7 @@ Verificar al día siguiente que apareció `backups/reservas-YYYYMMDD.db.gz`.
 - `fail2ban` + UFW no ven nada anómalo: todo es loopback y usuario local.
 - Si una corrida deja la demo en estado raro: snapshot intermedio (`demo-v1-funcionando`) antes de seguir experimentando; `pre-demo-fase5` siempre intacto como punto cero.
 - Cuando exista GoReleaser (Fase N), repetir el Paso 3 contra el release generado por CI para validar ese camino también.
+- **Gaps Fase N descubiertos en la corrida 2026-09-10**:
+  - No existe flujo wizard→DB: el binario no tiene `--seed`/`--setup` y los 3 JSONs de setup no tienen consumidor en el deploy; el seed quedó como SQL manual (Paso 5). Definir el consumidor de los JSONs (Fase N).
+  - `website_url` y `general_description` recolectados por el wizard no tienen columna en `business_profile`: se descartan silenciosamente. Agregar columnas o quitarlos del wizard.
+  - Operativa SSH: el pegado de heredocs/líneas largas por SSH con ble.sh rompe líneas (caso real: `business_hours` quedó con `\n` literal y todos los días daban "cerrado"). No es bug del producto. Workaround: líneas < 80 columnas, `printf` por partes y `curl -K` para configs.

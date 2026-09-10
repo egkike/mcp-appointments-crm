@@ -130,10 +130,32 @@ Linger=yes
 ### 3.3 Endpoint MCP respondiendo
 
 ```bash
-curl --fail http://127.0.0.1:3000/mcp
+curl --fail http://127.0.0.1:3000/healthz
 ```
 
-Resultado esperado: HTTP 200 (el body depende del cliente MCP; con `--fail` basta que no falle).
+Resultado esperado: HTTP 200 con:
+
+```json
+{"status":"ok","version":"v0.3.0"}
+```
+
+> **Nota:** un GET pelado a `http://127.0.0.1:3000/mcp` responde **405 por
+> diseño** (REQ-MT-002): el endpoint MCP solo acepta POST JSON-RPC. Ese 405 es
+> buena señal — prueba que el server vive y rutea — pero la verificación de
+> liveness es `/healthz`.
+
+Verificación opcional del wire MCP (handshake POST `initialize`, sin sesión —
+el server es stateless y no exige `Mcp-Session-Id`):
+
+```bash
+curl --fail -sS http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'X-Caller-Id: owner-demo' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl-smoke","version":"0.0.1"}}}'
+```
+
+Debe devolver una respuesta JSON-RPC `initialize` con las capacidades del
+server. Si el server espera otra `protocolVersion`, la respuesta lo indica.
 
 ### 3.4 Versión del binario instalado
 
@@ -201,6 +223,10 @@ bash install.sh
 
 # 2. Luego volvé a correr el deploy por pipe
 ```
+
+El **deploy** (`bash install.sh --version vX.Y.Z`) sí funciona por pipe: está
+corregido desde PR #69 (antes fallaba con `BASH_SOURCE: unbound variable`).
+Solo el paso interactivo requiere terminal real.
 
 ### `systemctl --user` falla con "Failed to connect to bus"
 

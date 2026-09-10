@@ -90,7 +90,10 @@ Each `vX.Y.Z` release publishes 6 files:
 | `checksums.txt` | — | — | SHA256 for the 5 archives |
 
 All archives contain the binary `mcp-server` (or `mcp-server.exe` on Windows),
-service templates, and `scripts/backup.sh` / `scripts/install.sh` helpers.
+the service templates (`setup/service/*.service` / `*.plist`), and the
+`scripts/backup.sh` / `scripts/install.sh` helpers. This content set is the
+contract `install.sh` relies on: a manually built asset that ships only the
+binary breaks the install (exposed by the v0.3.0 demo run, 2026-09-10).
 Version is embedded via `ldflags`; verify with:
 
 ```bash
@@ -174,10 +177,13 @@ systemctl --user is-active mcp-appointments-crm
 systemctl --user status mcp-appointments-crm --no-pager
 journalctl --user -u mcp-appointments-crm -n 50 --no-pager
 
-# health — loopback only
-curl --fail http://127.0.0.1:3000/mcp
+# health — loopback only (liveness endpoint)
+curl --fail http://127.0.0.1:3000/healthz   # 200 {"status":"ok",...}
 # with custom port
-curl --fail http://127.0.0.1:${MCP_PORT:-3000}/mcp
+curl --fail http://127.0.0.1:${MCP_PORT:-3000}/healthz
+# Note: a bare GET on /mcp answers 405 by design (REQ-MT-002) — the MCP
+# endpoint accepts POST JSON-RPC only. It proves the server is up and
+# routing, but /healthz is the liveness check.
 
 # database
 sqlite3 ~/.local/share/mcp-appointments-crm/reservas.db \
