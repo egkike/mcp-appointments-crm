@@ -24,7 +24,9 @@ ASSET_FILE=""
 CHECKSUMS_FILE=""
 EXTRACT_DIR=""
 SHA256_CMD=""
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# BASH_SOURCE is unset when the script is read from stdin (`curl | bash -s`);
+# the :-$0 fallback keeps `set -u` from aborting before main() in pipe mode.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 cleanup_tmp() {
   [ -n "$CURRENT_TMP" ] && rm -f "$CURRENT_TMP"
@@ -1593,6 +1595,6 @@ main() {
   esac
 }
 
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+if [ "${BASH_SOURCE[0]:-$0}" = "$0" ]; then
   main "$@"
 fi
