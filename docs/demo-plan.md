@@ -148,6 +148,25 @@ Luego configurar Hermes (en la VM) con el endpoint MCP
 documentación de MCP clients. Criterio: una llamada de prueba responde sin
 403 (403 = revisar `accounts` + header).
 
+> Nota 2026-09-10 (wire Hermes verificado): `hermes mcp add --auth header`
+solo sabe mandar `Authorization: Bearer` y el server lo rechaza (`no se
+proporcionó X-Caller-Id`). La forma soportada es header custom en
+`~/.hermes/config.yaml` (Hermes lo puede escribir desde su propio chat):
+>
+> ```yaml
+> mcp_servers:
+>   mcp-appointments:
+>     url: http://127.0.0.1:3000/mcp
+>     headers:
+>       X-Caller-Id: owner-demo
+> ```
+>
+> Verificación: `hermes mcp test mcp-appointments` conecta y descubre las
+11 tools; en sesión abierta, `/reload-mcp`. Smoke por chat OK el mismo
+día: perfil de Peluquería Demo, disponibilidad de Maximiliano (viernes
+11/09 10:00, Corte de Pelo) y `create_booking` a nombre de Cliente Demo
+(reserva en `pending`).
+
 ## Paso 6 — Smoke tests por chat (vía Hermes)
 
 Secuencia mínima sugerida, con negocio demo:
