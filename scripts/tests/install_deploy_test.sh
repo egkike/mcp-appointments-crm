@@ -102,7 +102,11 @@ test_validate_tag() {
 }
 
 test_require_setup_files_missing() {
-  mkdir -p "$CONFIG_DIR"
+  # resolve_paths (setUp) defines SETUP_DIR=$CONFIG_DIR/setup — the same
+  # directory finalize() writes to. Files directly under $CONFIG_DIR must
+  # NOT satisfy the gate (regression: the deploy looked there and rejected
+  # a completed wizard).
+  mkdir -p "$SETUP_DIR"
 
   local out rc=0
   out=$(require_setup_files 2>&1) || rc=$?
@@ -111,14 +115,19 @@ test_require_setup_files_missing() {
   assertTrue 'names staff' "printf '%s' \"$out\" | grep -q 'setup_staff.json'"
   assertTrue 'names services' "printf '%s' \"$out\" | grep -q 'setup_services.json'"
 
-  touch "$CONFIG_DIR/setup_business.json"
+  touch "$CONFIG_DIR/setup_business.json" "$CONFIG_DIR/setup_staff.json" "$CONFIG_DIR/setup_services.json"
+  out=$(require_setup_files 2>&1) || rc=$?
+  assertTrue 'wrong dir still fails' "[ \${rc:-0} -ne 0 ]"
+  assertTrue 'still names business' "printf '%s' \"$out\" | grep -q 'setup_business.json'"
+
+  touch "$SETUP_DIR/setup_business.json"
   out=$(require_setup_files 2>&1) || rc=$?
   assertTrue '1 file fails' "[ \${rc:-0} -ne 0 ]"
   assertFalse 'business no longer missing' "printf '%s' \"$out\" | grep -q 'setup_business.json'"
   assertTrue 'staff still missing' "printf '%s' \"$out\" | grep -q 'setup_staff.json'"
   assertTrue 'services still missing' "printf '%s' \"$out\" | grep -q 'setup_services.json'"
 
-  touch "$CONFIG_DIR/setup_staff.json" "$CONFIG_DIR/setup_services.json"
+  touch "$SETUP_DIR/setup_staff.json" "$SETUP_DIR/setup_services.json"
   require_setup_files >/dev/null 2>&1
   assertEquals 'all present ok' 0 $?
 }
