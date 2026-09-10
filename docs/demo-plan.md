@@ -217,5 +217,5 @@ Verificar al día siguiente que apareció `backups/reservas-YYYYMMDD.db.gz`.
 - Cuando exista GoReleaser (Fase N), repetir el Paso 3 contra el release generado por CI para validar ese camino también.
 - **Gaps Fase N descubiertos en la corrida 2026-09-10**:
   - No existe flujo wizard→DB: el binario no tiene `--seed`/`--setup` y los 3 JSONs de setup no tienen consumidor en el deploy; el seed quedó como SQL manual (Paso 5). Definir el consumidor de los JSONs (Fase N).
-  - `website_url` y `general_description` recolectados por el wizard no tienen columna en `business_profile`: se descartan silenciosamente. Agregar columnas o quitarlos del wizard.
+  - Corrección: `website_url` y `general_description` **sí** tienen columna en `business_profile` (`schema.go`; el repository las lee/escribe). El seed manual del Paso 5 las había omitido por error y se completaron después por SQL. No hay gap acá.
   - Operativa SSH: el pegado de heredocs/líneas largas por SSH con ble.sh rompe líneas (caso real: `business_hours` quedó con `\n` literal y todos los días daban "cerrado"). No es bug del producto. Workaround: líneas < 80 columnas, `printf` por partes y `curl -K` para configs.
