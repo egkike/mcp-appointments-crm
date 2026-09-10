@@ -81,9 +81,11 @@ Criterio: `gh release view v0.3.0` lista los 2 archivos.
 En la VM, terminal real (el flujo Fase 4 exige TTY):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh -o /tmp/install.sh
-bash /tmp/install.sh
+# Descargá y ejecutá el wizard en una terminal (requiere TTY)
+curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh && bash install.sh
 ```
+
+> Nota: no hace falta `chmod +x` porque el script se invoca con `bash install.sh`. Evitá `curl ... | bash` en este paso: el instalador rechaza a propósito la ejecución por pipe sin TTY.
 
 Datos demo sugeridos (ficticios, nunca reales): negocio `Peluquería Demo`,
 `AR`, `ARS`, `America/Argentina/Buenos_Aires`, 1 profesional + 1 servicio

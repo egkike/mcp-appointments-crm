@@ -2,7 +2,7 @@
 
 > Esta guía lleva un VPS limpio (Ubuntu 22.04+ o macOS) hasta tener el servicio `mcp-appointments-crm` activo y respondiendo en `http://127.0.0.1:3000/mcp`.
 >
-> El flujo tiene dos partes: (1) configuración inicial interactiva con `bash install.sh` y (2) despliegue pinned del binario con `install.sh --version vX.Y.Z`. Si ya generaste los JSONs de setup en otra máquina, podés saltar directo al despliegue copiando los archivos al directorio de configuración del host destino.
+> El flujo tiene dos partes: (1) configuración inicial interactiva con el wizard (`curl -fsSLO ... && bash install.sh`, requiere TTY) y (2) despliegue pinned del binario con `install.sh --version vX.Y.Z`. Si ya generaste los JSONs de setup en otra máquina, podés saltar directo al despliegue copiando los archivos al directorio de configuración del host destino.
 
 ---
 
@@ -25,13 +25,11 @@ Verificá estos ítems antes de empezar:
 El instalador genera tres archivos JSON con los datos del negocio, staff y servicios. Esta parte **solo funciona en una terminal real** (`[ -t 0 ]`); no la corras por pipe.
 
 ```bash
-# Descargá el script (o usá el del repo si ya lo tenés)
-curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh
-
-# Dale permiso de ejecución y correlo en una terminal
-chmod +x install.sh
-bash install.sh
+# Descargá y ejecutá el wizard en una terminal (requiere TTY)
+curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh && bash install.sh
 ```
+
+> Nota: no hace falta `chmod +x` porque el script se invoca con `bash install.sh`. Evitá `curl ... | bash` en este paso: el instalador rechaza a propósito la ejecución por pipe sin TTY (ver [troubleshooting](#el-pipe-curl--bash-se-cuelga-o-muestra-errores-de-read)).
 
 Completá los prompts. Al finalizar se guardarán:
 
