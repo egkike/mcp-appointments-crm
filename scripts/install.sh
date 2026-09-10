@@ -1069,9 +1069,11 @@ require_deploy_prereqs() {
 }
 
 require_setup_files() {
+  # Gate: the wizard (finalize) writes into $SETUP_DIR ($CONFIG_DIR/setup),
+  # so the deploy must look there — not directly under $CONFIG_DIR.
   local missing="" f
   for f in setup_business.json setup_staff.json setup_services.json; do
-    if [ ! -f "$CONFIG_DIR/$f" ]; then
+    if [ ! -f "$SETUP_DIR/$f" ]; then
       missing="$missing $f"
     fi
   done
