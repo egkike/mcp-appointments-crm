@@ -51,19 +51,21 @@ The repository method `GetBusinessProfile(ctx)` MUST be idempotent and self-heal
 
 ### Requirement: Weekly schedule stored as JSON
 
-The `business_hours` column MUST be a `TEXT` column that stores a JSON object with one entry per weekday. Days when the business is closed MUST be represented by the literal `null`. Open days MUST be objects with `open` and `close` keys holding values in `HH:MM` 24-hour format, expressed in the business timezone.
+The `business_hours` column MUST be a `TEXT` column that stores a JSON object keyed by numeric-string day numbers `"1"` through `"7"` (`"1"`=Monday, `"2"`=Tuesday, `"3"`=Wednesday, `"4"`=Thursday, `"5"`=Friday, `"6"`=Saturday, `"7"`=Sunday). Days when the business is closed MUST be absent from the object (missing key means closed). Open days MUST be objects with `open` and `close` keys holding values in `HH:MM` 24-hour format, expressed in the business timezone.
+
+> **Amended by `feat-setup-import` (2026-09-11) — supersedes previous day-name/`null` contract.** The shipped entity `BusinessProfile.parseBusinessHours` / `IsOpenOn` / `GetOpenClose` uses numeric-string keys with missing = closed; `internal/config` seeder writes this format via `setup-loader` day-name → numeric-string mapping. The previous requirement pinning `monday`..`sunday` keys with literal `null` for closed days is deprecated and MUST NOT be used for new writes. Readers SHOULD accept legacy day-name payloads on read for backward compatibility where feasible, but canonical writes MUST use the numeric-string contract.
 
 #### Scenario: Valid weekly schedule parses without error
 
-- GIVEN a JSON object with entries for `monday` through `sunday`, where `sunday` is `null` and the other days are objects with `open`/`close` in `HH:MM`
+- GIVEN a JSON object with entries for `"1"` through `"6"`, where `"7"` is absent and the other days are objects with `open`/`close` in `HH:MM`
 - WHEN the repository writes that value into the `business_hours` column
 - THEN the write MUST succeed and a subsequent `SELECT` MUST return the exact same JSON string
 
-#### Scenario: Closed day represented as null
+#### Scenario: Closed day is absent (not null)
 
 - GIVEN a business that does not operate on Sundays
 - WHEN the owner saves the weekly schedule
-- THEN the value for `sunday` in the stored JSON MUST be the literal `null`, not an empty string and not an object with `null` open/close
+- THEN the stored JSON MUST NOT contain the key `"7"`, and MUST NOT contain a `null` value for it (closed = missing key)
 
 ### Requirement: Accepted payment methods as JSON array
 
