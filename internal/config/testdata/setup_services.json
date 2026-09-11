@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Corte de cabello",
+    "description": "Corte y peinado",
+    "duration_minutes": 60,
+    "price": 15000.00,
+    "is_active": 1
+  },
+  {
+    "name": "Consulta gratuita",
+    "description": "Primera evaluación sin cargo",
+    "duration_minutes": 30,
+    "price": 0,
+    "is_active": 1
+  }
+]
