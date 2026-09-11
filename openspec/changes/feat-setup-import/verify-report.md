@@ -1,3 +1,19 @@
+```yaml
+schema: gentle-ai.verify-result/v1
+evidence_revision: sha256:5d4d9603d513ad0cff4c8fa8d13ec88290afea3aa58919703dcf622d68437bfc
+verdict: pass
+blockers: 0
+critical_findings: 0
+requirements: 12/12
+scenarios: 29/29
+test_command: go test -race -count=1 ./...
+test_exit_code: 0
+test_output_hash: sha256:c5fdb3540c831fb3f6cfc115c609711428931ffa7f33a2faa52282d32ef8258d
+build_command: go build -o /dev/null ./...
+build_exit_code: 0
+build_output_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+```
+
 # Verify Report — feat-setup-import (FINAL consolidation, 3-phase chain)
 
 > **Change:** feat-setup-import
