@@ -55,6 +55,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/buildinfo"
+	"github.com/egkike/mcp-appointments-crm/internal/config"
 	"github.com/egkike/mcp-appointments-crm/internal/db"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 	"github.com/egkike/mcp-appointments-crm/internal/mcp"
@@ -134,6 +135,14 @@ func run() error {
 			logger.Error("failed to close database", "error", cerr)
 		}
 	}()
+
+	// Setup import (feat-setup-import): seed the DB from the wizard JSONs on
+	// first boot. Runs in the single-threaded window before repo construction
+	// and HTTP serving. No-op when the profile is already seeded; fatal when
+	// the DB is fresh and the wizard output is missing or malformed.
+	if err := config.SeedOnBoot(ctx, database.Conn, logger); err != nil {
+		return fmt.Errorf("importar configuración inicial: %w", err)
+	}
 
 	// ── Construct repositories (only those the wired use cases consume) ──
 
