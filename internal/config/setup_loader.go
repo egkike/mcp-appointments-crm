@@ -205,7 +205,6 @@ func validateForSeed(data *SetupData) error {
 			return fmt.Errorf("profesional %q: %w", m.Name, err)
 		}
 
-		seenDays := make(map[int]struct{}, len(m.Schedule))
 		for _, s := range m.Schedule {
 			if s.DayOfWeek < 0 || s.DayOfWeek > 6 {
 				return fmt.Errorf("el horario del profesional %q para el día %d: el día debe estar entre 0 y 6", m.Name, s.DayOfWeek)
@@ -219,10 +218,6 @@ func validateForSeed(data *SetupData) error {
 			if s.StartTime >= s.EndTime {
 				return fmt.Errorf("el horario del profesional %q para el día %d: la hora de inicio debe ser anterior a la hora de fin", m.Name, s.DayOfWeek)
 			}
-			if _, exists := seenDays[s.DayOfWeek]; exists {
-				return fmt.Errorf("el profesional %q tiene más de un horario para el día %d", m.Name, s.DayOfWeek)
-			}
-			seenDays[s.DayOfWeek] = struct{}{}
 		}
 	}
 
