@@ -25,6 +25,12 @@ The MCP server currently exposes 11 tools: `check_availability`, `create_booking
 | 4 | install.sh con prompts interactivos (Fase 4) | ✅ Done (archived 2026-09-04, PRs #55/#57/#58) |
 | 5 | install-and-service (user-level, cross-platform) | ✅ Done (archived 2026-09-06, PRs #62/#66/#67/#68, install+service+backup+docs) |
 
+> **Scope note:** completed phases mean their packs are merged and demo-validated — not that the product has no pending work. Known pending scope (Fase 2+ / Fase N):
+>
+> - **Admin TUI + owner seed** (`mcp-appointments-crm admin tui`, PRD §3.8.8 / RF9 / ADR-0010) — designed, not implemented. Account setup today is manual SQL (demo-plan Paso 5).
+> - **Setup import wizard → DB** ([issue #71](https://github.com/egkike/mcp-appointments-crm/issues/71)) — the 3 setup JSONs have no consumer yet; fresh deploys show an empty profile until seeded.
+> - **GoReleaser CI releases** — releases are currently built and published by hand (demo-plan Paso 1); automation is pending.
+
 ## Quickstart
 
 ### Development

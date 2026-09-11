@@ -1307,6 +1307,11 @@ Override con otro caller_id (debug):
 
 **Objetivo**: mantener el sistema actualizado, agregar features reportadas por los primeros clientes, optimizar performance.
 
+**Backlog pendiente declarado (verificado en demo 2026-09-10)**:
+- TUI menú operacional + seed del owner (Fase 2+, §3.8.8 / RF9 / ADR-0010) — diseñado, sin implementar; el alta de cuentas hoy es SQL manual.
+- Setup import wizard → DB ([issue #71](https://github.com/egkike/mcp-appointments-crm/issues/71)) — los 3 JSONs de setup no tienen consumidor; el deploy fresco muestra el perfil vacío hasta el seed.
+- GoReleaser + releases por CI — hoy el empaquetado y la publicación son manuales (demo-plan Paso 1); el asset debe traer binario + `scripts/backup.sh` + templates (contrato que rompió el asset manual de v0.3.0).
+
 **Entregables**:
 - Releases regulares con changelog
 - Respuesta a issues de GitHub en < 48 hs hábiles
