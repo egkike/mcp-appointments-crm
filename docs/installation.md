@@ -41,6 +41,8 @@ Completá los prompts. Al finalizar se guardarán:
 
 Si cancelás a mitad de camino, el script deja un checkpoint `setup.json.tmp` para reanudar la próxima vez que corras `bash install.sh`.
 
+> **Nota sobre el primer arranque:** el servidor siembra la base de datos automáticamente en el primer arranque si el perfil del negocio está vacío, leyendo los tres archivos JSON generados arriba. En los arranques siguientes la importación se omite gracias al guarda que detecta que el perfil ya existe, por lo que las modificaciones que hagas en tiempo de ejecución (desde las herramientas MCP o directamente en la base de datos) no se sobrescriben. Conservá los JSON como respaldo o para reprovisionar el sistema; ya no son solo artefactos finales sin consumidor.
+
 ---
 
 ## Paso 2 — Despliegue pinned del binario
