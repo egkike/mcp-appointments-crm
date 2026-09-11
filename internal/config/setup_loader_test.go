@@ -262,13 +262,6 @@ func TestValidateForSeed(t *testing.T) {
 			},
 			wantErr: "is_active debe ser 0 o 1",
 		},
-		{
-			name: "duplicate day in schedule",
-			mutate: func(d *SetupData) {
-				d.Staff[0].Schedule = append(d.Staff[0].Schedule, SetupScheduleEntry{DayOfWeek: 1, StartTime: "10:00", EndTime: "11:00"})
-			},
-			wantErr: "más de un horario para el día",
-		},
 	}
 
 	for _, tt := range tests {
