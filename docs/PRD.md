@@ -1009,6 +1009,7 @@ Override con otro caller_id (debug):
   - [x] Dado que el usuario ejecuta `install.sh` por primera vez, cuando completa todos los prompts, entonces el sistema genera `setup_business.json`, `setup_staff.json` y `setup_services.json` válidos en `~/.config/mcp-appointments-crm/setup/`, y elimina `setup.json.tmp`.
   - [x] Dado que el usuario ingresa un email con formato inválido en `contact_email`, cuando intenta avanzar, entonces `install.sh` muestra un error de validación y vuelve a pedir el campo (loop de reintentos) sin avanzar.
   - [x] Dado que el usuario cancela (`Ctrl+C`) el setup a mitad del ingreso, cuando re-ejecuta `install.sh`, el sistema detecta `setup.json.tmp` y le ofrece: (R)esumir desde el último checkpoint, (S)tart over, o (Q)uit. Si elige R, los campos ya completados no se vuelven a preguntar.
+  - [x] Dado que los 3 JSONs de setup existen y la base está fresca (`business_profile.name == ''`), cuando el servidor arranca por primera vez, entonces siembra perfil + profesionales + agendas + servicios en una única transacción (mapeo `business_hours` día-nombre → claves `"1".."7"`); en arranques siguientes la importación se omite (issue #71, PRs #72/#73/#74, 2026-09-11).
 
 **RF2: Exposición de identidad del negocio vía MCP**
 - **Descripción**: El sistema debe exponer los tools `get_business_profile()` y `update_business_profile(fields...)` que leen y modifican la tabla `business_profile` a través del protocolo MCP.
@@ -1309,7 +1310,7 @@ Override con otro caller_id (debug):
 
 **Backlog pendiente declarado (verificado en demo 2026-09-10)**:
 - TUI menú operacional + seed del owner (Fase 2+, §3.8.8 / RF9 / ADR-0010) — diseñado, sin implementar; el alta de cuentas hoy es SQL manual.
-- Setup import wizard → DB ([issue #71](https://github.com/egkike/mcp-appointments-crm/issues/71)) — los 3 JSONs de setup no tienen consumidor; el deploy fresco muestra el perfil vacío hasta el seed.
+- ✅ **Setup import wizard → DB RESUELTO (2026-09-11)** — `feat-setup-import` (PRs #72/#73/#74, issue #71 cerrado): el servidor siembra `reservas.db` desde los 3 JSONs en el primer arranque (transacción única, guard `name==''`); arranques siguientes son no-op. Archive `openspec/changes/archive/2026-09-11-feat-setup-import/`.
 - GoReleaser + releases por CI — hoy el empaquetado y la publicación son manuales (demo-plan Paso 1); el asset debe traer binario + `scripts/backup.sh` + templates (contrato que rompió el asset manual de v0.3.0).
 
 **Entregables**:
@@ -1397,3 +1398,4 @@ Override con otro caller_id (debug):
 | 2026-09-02 | 1.10 | Kike | Fase 3 mcp-server-advanced cerrada (PRs #51-#54, 11 tools, 16/16, verify 1/1 43/43, archive 2026-09-02) |
 | 2026-09-04 | 1.11 | Kike | **Fase 4 (install.sh prompts) CERRADA** — PRs #55/#57/#58 (12 REQ, 41 escenarios, 36 tests), receipts RDD quemados, archive `openspec/changes/archive/2026-09-04-feat-install-prompts/`. RF1 y DoD Fase 4 marcados completos; siguiente Fase 5. |
 | 2026-09-06 | 1.12 | Kike | **Fase 5 (install-and-service) CERRADA** — PRs #62/#66/#67/#68 (29 REQs, 5 specs nuevas, receipts RDD quemados incl. 2 correcciones acotadas), archive `openspec/changes/archive/2026-09-06-feat-install-and-service/`. DoD Fase 5 marcado completo (código+tests; VM real y matriz macOS quedan post-merge); siguiente Fase N. |
+    | 2026-09-11 | 1.13 | Kike + Gentleman | **Setup import CERRADO (issue #71)** — `feat-setup-import` en 3 PRs chained (#72 loader 1033 LOC, #73 seeder 736 LOC, #74 wiring 11 LOC; sin exception): `internal/config` loader + seeder transaccional + hook en `cmd/mcp-server/main.go`; verify 12/12 REQ 29/29 escenarios, receipts RDD quemados, GGA passed, CI verde. Specs canónicos `setup-loader`/`setup-seeder` nuevos + `business-profile` enmendado; archive `openspec/changes/archive/2026-09-11-feat-setup-import/`. RF1 suma criterio de siembra en primer arranque; backlog Fase N actualizado (quedan TUI+owner seed y GoReleaser). |

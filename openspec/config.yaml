@@ -6,6 +6,7 @@ schema: spec-driven
 #   - Fase 1 P1a: 1145 LOC (chained en 2 PRs)
 #   - Fase 2 P2b2a: 1551 LOC (chained en 2 PRs)
 #   - Fase 1b P3.1: 1954 LOC (size:exception, single PR)
+#   - feat-setup-import: 1033/736/11 LOC (chained en 3 PRs #72/#73/#74, sin exception)
 # Cuando un PR excede 400, estrategia default = chained PRs.
 # size:exception requiere justificación explícita en la PR description.
 # Revisado y alineado 2026-08-24 (sesión Fase 3, preflight 400).
@@ -14,7 +15,7 @@ review_budget_lines: 400
 context: |
   Project: mcp-appointments-crm
   Module: github.com/egkike/mcp-appointments-crm
-  Language: Go 1.26.7
+  Language: Go 1.26.8
   Database: SQLite via modernc.org/sqlite (pure Go, no CGo) with WAL mode and busy_timeout=5000
   Search: SQLite FTS5 (clients_fts, services_fts)
   TUI: Charm Bubble Tea ecosystem (bubbletea, bubbles, lipgloss) for native setup
@@ -31,13 +32,13 @@ context: |
     - No `any` types - specific interfaces always
     - Conventional commits (feat/fix/docs/chore/refactor/test)
     - Feature branches for code; main for direct doc pushes only
-  Testing state: 0 tests, harness to be created on first feature (strict TDD enabled)
+  Testing state: full suite green on main (`go test -race ./...`, 12 test packages; strict TDD enforced per change)
   Tooling in place: .golangci.yml (8 linters: sqlclosecheck, rowserrcheck, gosec, errorlint,
                   gocritic, prealloc, bodyclose, noctx); GGA pre-commit hook installed
                   (provider=opencode, Go file patterns).
   Tooling intentionally absent (architectural decisions): no Docker / Dockerfile /
                   docker-compose.yml (see ADR-0001); no Makefile (Tier 2 pending).
-  Tooling gaps: no .github/workflows/ (planned Fase 5+ for CI).
+  CI: `.github/workflows/` active (`ci`: Detect Go changes, Lint, Build, Test -race, vuln scan) — observed green 2026-09-11; required by branch policy for PR merges.
 
 rules:
   proposal:
