@@ -1309,9 +1309,18 @@ Override con otro caller_id (debug):
 **Objetivo**: mantener el sistema actualizado, agregar features reportadas por los primeros clientes, optimizar performance.
 
 **Backlog pendiente declarado (verificado en demo 2026-09-10)**:
-- TUI menú operacional + seed del owner (Fase 2+, §3.8.8 / RF9 / ADR-0010) — diseñado, sin implementar; el alta de cuentas hoy es SQL manual.
+- **TUI identidad + seed del owner** (Fase 2+, §3.8.8 / RF9 / ADR-0010; alcance en [ADR-0016](../architecture/0016-admin-tui-scope.md)) — es el desbloqueante del sistema: sin una fila activa en `accounts` todo request MCP termina en 401; el alta de cuentas hoy es SQL manual. Alcance: cuentas, auditoría y cliente-owner; non-goal explícito: no edita perfil, servicios ni horarios/agendas (eso es mantenimiento por Hermes, [ADR-0015](../architecture/0015-hermes-operational-maintenance.md)). Estado real: no existe `admin_tui.go` ni sub-comando `admin`; Bubble Tea no está cableado.
 - ✅ **Setup import wizard → DB RESUELTO (2026-09-11)** — `feat-setup-import` (PRs #72/#73/#74, issue #71 cerrado): el servidor siembra `reservas.db` desde los 3 JSONs en el primer arranque (transacción única, guard `name==''`); arranques siguientes son no-op. Archive `openspec/changes/archive/2026-09-11-feat-setup-import/`.
 - GoReleaser + releases por CI — hoy el empaquetado y la publicación son manuales (demo-plan Paso 1); el asset debe traer binario + `scripts/backup.sh` + templates (contrato que rompió el asset manual de v0.3.0).
+- Asimetría de day-keys `business_hours` (`"1"`..`"7"`, lunes=1) vs `schedules.day_of_week` (`0`..`6`, domingo=0) — normalizar en un único punto de traducción, con tests (restricción de diseño, ver [ADR-0016](../architecture/0016-admin-tui-scope.md)).
+- **Tools Hermes de mantenimiento de datos operativos** (perfil, servicios, profesionales, horarios/agendas; ver [ADR-0015](../architecture/0015-hermes-operational-maintenance.md)) — el install siembra esos datos en el primer arranque y hoy Hermes no puede modificarlos: los 11 tools MCP son read-only salvo el ciclo de reservas y `mark_alert_as_sent`, y `update_business_profile` no existe en ningún lado. La capa de repositorios ya tiene las mutaciones (`BusinessProfileRepo.Update`, `ServicesRepo.Save/Update/Delete`, etc.), así que el trabajo es wiring + RBAC, no DB. RBAC owner para el MVP, con admin parcial a evaluar durante el SDD. Alcance negativo explícito: no gestiona cuentas (eso es la TUI).
+- Picker de profesional en `Add Staff` — el operador no conoce los UUID que genera el seeder — + prefill del teléfono desde `professionals.phone`.
+- `purge-inactive` de cuentas desactivadas (Fase 2+, con confirmación extra en la TUI).
+- Resolver el bootstrap del auth-context de la TUI (restricción de diseño, no feature): cada mutación de `AccountsRepo` exige `auth.RequireRole` desde el `ctx` y la TUI no pasa por el middleware HTTP, así que el primer owner es un huevo-y-gallina que el design del SDD debe cerrar.
+- Fijar el nombre del entry-point del sub-comando TUI: el binario instalado se llama `mcp-server` mientras que la documentación dice `mcp-appointments-crm admin tui`.
+- Cerrar el gap de edición post-install: hoy no hay segundo wizard ni tools de update, así que cualquier cambio de perfil/servicios/horarios es SQL manual.
+
+**Orden de ejecución sugerido** (por dependencia): 1º TUI identidad + owner seed — desbloquea el sistema, sin ella cualquier tool MCP responde 401; 2º tools Hermes de mantenimiento de datos operativos; 3º GoReleaser + releases por CI.
 
 **Entregables**:
 - Releases regulares con changelog
