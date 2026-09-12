@@ -2,8 +2,8 @@
 
 > **Estado**: Aprobado
 > **Owner**: Kike
-> **Versión**: 1.12
-> **Última actualización**: 2026-09-06
+> **Versión**: 1.13
+> **Última actualización**: 2026-09-11
 
 ---
 
