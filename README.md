@@ -27,7 +27,8 @@ The MCP server currently exposes 11 tools: `check_availability`, `create_booking
 
 > **Scope note:** completed phases mean their packs are merged and demo-validated — not that the product has no pending work. Known pending scope (Fase 2+ / Fase N):
 >
-> - **Admin TUI + owner seed** (`mcp-appointments-crm admin tui`, PRD §3.8.8 / RF9 / ADR-0010) — designed, not implemented. Account setup today is manual SQL (demo-plan Paso 5).
+> - **Admin TUI + owner seed** (`mcp-appointments-crm admin tui`, PRD §3.8.8 / RF9 / ADR-0010, scope in ADR-0016) — designed, not implemented. Account setup today is manual SQL (demo-plan Paso 5).
+> - **Hermes maintenance tools** (profile/services/professionals/schedules, ADR-0015) — Hermes cannot modify install-seeded data today; only manual SQL. Wiring + RBAC work, no DB work.
 > - ✅ **Setup import wizard → DB done (2026-09-11)** — PRs [#72](https://github.com/egkike/mcp-appointments-crm/pull/72) / [#73](https://github.com/egkike/mcp-appointments-crm/pull/73) / [#74](https://github.com/egkike/mcp-appointments-crm/pull/74) (issue #71 closed): the server seeds `reservas.db` from the 3 setup JSONs on first boot; later boots are no-ops via guard.
 > - **GoReleaser CI releases** — releases are currently built and published by hand (demo-plan Paso 1); automation is pending.
 
