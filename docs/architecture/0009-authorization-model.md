@@ -69,7 +69,7 @@ CREATE TABLE accounts (
 - Más complejidad: 3 capas de enforcement (middleware + repo + SQL) que deben mantenerse consistentes.
 - El `caller` debe propagarse vía `context.Context` consistentemente. Si un repo no chequea el ctx, se saltea el enforcement.
 - Requiere que el cliente MCP (Hermes) inyecte `X-Caller-Id` correctamente. Si el cliente no lo hace, todos los requests fallan con `ErrUnauthenticated`.
-- Tabla `accounts` adicional a mantener: inserción inicial del owner via TUI menú operacional (`mcp-appointments-crm admin tui`, Fase 2 — no via `install.sh`), gestión via repo, desactivación (`is_active = 0`) cuando un staff deja el negocio.
+- Tabla `accounts` adicional a mantener: inserción inicial del owner via TUI menú operacional (`mcp-server admin tui`, Fase 2 — no via `install.sh`), gestión via repo, desactivación (`is_active = 0`) cuando un staff deja el negocio.
 - Latencia adicional: 1-2 queries (accounts + clients) por cada tool call. Mitigable con cache en memoria.
 
 **Rejected alternatives**:

@@ -17,27 +17,27 @@ El sistema MCP recibe tool calls de un LLM (Hermes) que actúa como intermediari
 
 ## Decision
 
-**El Chat nativo de Hermes es un sub-comando del binario principal** (`mcp-appointments-crm hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000` (loopback), e inyecta el `X-Caller-Id` en cada tool call.
+**El Chat nativo de Hermes es un sub-comando del binario principal** (`mcp-server hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000` (loopback), e inyecta el `X-Caller-Id` en cada tool call.
 
 **Default:** el `X-Caller-Id` del owner se guarda durante el TUI menú en `~/.config/mcp-appointments-crm/caller-id`. El Chat lo lee al iniciar.
 
-**Override:** el owner puede exportar `MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat` para simular ser un cliente (debug, testing, o simular la perspectiva de un cliente).
+**Override:** el owner puede exportar `MCP_CALLER_ID=+5491100001111 mcp-server hermes chat` para simular ser un cliente (debug, testing, o simular la perspectiva de un cliente).
 
-**Multi-user via override:** el staff puede hacer SSH a la VPS y correr `MCP_CALLER_ID=+5491100002222 mcp-appointments-crm hermes chat` con su propio caller_id.
+**Multi-user via override:** el staff puede hacer SSH a la VPS y correr `MCP_CALLER_ID=+5491100002222 mcp-server hermes chat` con su propio caller_id.
 
 ## Componentes
 
 1. **TUI menú operacional (extensión de RF9, Fase 2)**: captura el `X-Caller-Id` del owner y lo guarda en `~/.config/mcp-appointments-crm/caller-id` (la fila del owner en `accounts` también se crea vía TUI menú en Fase 2). Output adicional:
    ```
-   [mcp-appointments-crm] Setup completado.
+   [mcp-server] Setup completado.
    Tu caller_id (admin del sistema): +5491100000000
    Para usar el Chat de Hermes, ejecuta:
-     mcp-appointments-crm hermes chat
+     mcp-server hermes chat
    Override con otro caller_id (debug):
-     MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat
+     MCP_CALLER_ID=+5491100001111 mcp-server hermes chat
    ```
 
-2. **`mcp-appointments-crm hermes chat`** (sub-comando del binario, Fase 2+):
+2. **`mcp-server hermes chat`** (sub-comando del binario, Fase 2+):
    - Lee `$MCP_CALLER_ID` env var; si está vacía, lee `~/.config/mcp-appointments-crm/caller-id`.
    - Si no hay caller_id en ningún lado: error "Configura MCP_CALLER_ID antes de usar el chat" y exit 1.
    - Se conecta al MCP server en `127.0.0.1:3000` (loopback, sin exponer el MCP al exterior).
@@ -54,12 +54,12 @@ El sistema MCP recibe tool calls de un LLM (Hermes) que actúa como intermediari
   - El LLM NO puede falsificar el `MCP_CALLER_ID` — la env var se lee del shell del owner, no del LLM.
   - El admin del OS (SSH a la VPS) sigue siendo el gatekeeper. El Chat corre en la VPS, no expone nada al exterior.
   - Loopback enforcement: el MCP server sigue en `127.0.0.1:3000`. El Chat también es loopback.
-- **Override para debug/testing**: el owner puede ejecutar `MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat` para simular ser un cliente (e.g., para verificar que el filtrado de `client_id` funciona).
+- **Override para debug/testing**: el owner puede ejecutar `MCP_CALLER_ID=+5491100001111 mcp-server hermes chat` para simular ser un cliente (e.g., para verificar que el filtrado de `client_id` funciona).
 - **Consistente con el TUI menú (ADR-0010)**: ambos son sub-comandos del binario, corren en la VPS, gatekeeper SSH.
 
 **Negative**:
 - **Asume single-user en la VPS** por default: el Chat de Hermes corre como el owner. Si múltiples personas (owner + staff) quieren usar el Chat simultáneamente, cada una tiene su propia sesión SSH y puede usar `MCP_CALLER_ID` para impersonar.
-- **Dependencia del path `caller-id`**: si el archivo `~/.config/mcp-appointments-crm/caller-id` se borra, el Chat no funciona hasta que se restaure. **Mitigación**: re-ejecutar `mcp-appointments-crm admin tui` regenera el caller-id (o restaurarlo manualmente).
+- **Dependencia del path `caller-id`**: si el archivo `~/.config/mcp-appointments-crm/caller-id` se borra, el Chat no funciona hasta que se restaure. **Mitigación**: re-ejecutar `mcp-server admin tui` regenera el caller-id (o restaurarlo manualmente).
 - **El Chat local no es un caso operacional primario** (el owner opera vía WhatsApp/Telegram como cualquier cliente, y el LLM identifica que es el owner por el X-Caller-Id). El Chat local es más para debug y para setups donde el owner quiere hablarle a Hermes sin el bot.
 
 **Rejected alternatives**:
@@ -77,7 +77,7 @@ El sistema MCP recibe tool calls de un LLM (Hermes) que actúa como intermediari
 
 1. **`feat-authorization` PR 2** (auth primitives, en curso): ya incluye el `Caller` struct. No cambios para este ADR.
 2. **`feat-authorization` PR 2** (auth primitives, en curso): el `CallerResolver` se implementa con la lógica de 2 queries cuando la cuenta existe en `accounts`. No cambios para este ADR.
-3. **Fase 2+**: implementar `mcp-appointments-crm hermes chat` como sub-comando. El TUI menú operacional (`mcp-appointments-crm admin tui`) guarda el `caller-id` del owner en `~/.config/mcp-appointments-crm/caller-id` durante el seed del owner (Fase 2, no via `install.sh`).
+3. **Fase 2+**: implementar `mcp-server hermes chat` como sub-comando. El TUI menú operacional (`mcp-server admin tui`) guarda el `caller-id` del owner en `~/.config/mcp-appointments-crm/caller-id` durante el seed del owner (Fase 2, no via `install.sh`).
 
 ## References
 

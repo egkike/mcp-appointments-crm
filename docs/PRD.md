@@ -860,7 +860,7 @@ La capa de autorización se implementa como un **change SDD separado** (`feat-au
 
 > Decisión arquitectónica: ver [ADR-0010](../architecture/0010-admin-tui.md).
 
-La gestión operacional de cuentas (admin/staff/owner) se realiza vía un **sub-comando TUI menú** del binario principal: `mcp-appointments-crm admin tui`. El TUI es **otro proceso** (corre en la VPS como sub-comando del binario), no un MCP tool. No usa el middleware HTTP de §3.8.3 — opera directamente contra `AccountsRepo`.
+La gestión operacional de cuentas (admin/staff/owner) se realiza vía un **sub-comando TUI menú** del binario principal: `mcp-server admin tui`. El TUI es **otro proceso** (corre en la VPS como sub-comando del binario), no un MCP tool. No usa el middleware HTTP de §3.8.3 — opera directamente contra `AccountsRepo`.
 
 **Capacidades del TUI:**
 
@@ -946,20 +946,20 @@ Además del bot de WhatsApp/Telegram (que recibe mensajes de **todos** los usuar
 
 **Mecanismo del Chat de Hermes:**
 
-- **El TUI menú configura el caller_id del owner** durante la primera configuración (RF9, Fase 2). El `X-Caller-Id` del owner se guarda en `~/.config/mcp-appointments-crm/caller-id` cuando el operador ejecuta `mcp-appointments-crm admin tui` y confirma el phone del dueño. La fila del owner en `accounts` se crea en el mismo paso vía TUI menú.
-- **El Chat de Hermes es un sub-comando del binario** (`mcp-appointments-crm hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000`, e inyecta el `X-Caller-Id` en cada tool call.
-- **Override con env var**: el owner puede exportar `MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat` para simular ser un cliente (debug, testing, o simular la perspectiva de un cliente).
-- **Multi-user via override**: el staff puede hacer SSH a la VPS y correr `MCP_CALLER_ID=+5491100002222 mcp-appointments-crm hermes chat` con su propio caller_id.
+- **El TUI menú configura el caller_id del owner** durante la primera configuración (RF9, Fase 2). El `X-Caller-Id` del owner se guarda en `~/.config/mcp-appointments-crm/caller-id` cuando el operador ejecuta `mcp-server admin tui` y confirma el phone del dueño. La fila del owner en `accounts` se crea en el mismo paso vía TUI menú.
+- **El Chat de Hermes es un sub-comando del binario** (`mcp-server hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000`, e inyecta el `X-Caller-Id` en cada tool call.
+- **Override con env var**: el owner puede exportar `MCP_CALLER_ID=+5491100001111 mcp-server hermes chat` para simular ser un cliente (debug, testing, o simular la perspectiva de un cliente).
+- **Multi-user via override**: el staff puede hacer SSH a la VPS y correr `MCP_CALLER_ID=+5491100002222 mcp-server hermes chat` con su propio caller_id.
 
 **Salida del TUI menú operacional (extensión de RF9):**
 
 ```bash
-[mcp-appointments-crm] Setup completado.
+[mcp-server] Setup completado.
 Tu caller_id (admin del sistema): +5491100000000
 Para usar el Chat de Hermes, ejecuta:
-  mcp-appointments-crm hermes chat
+  mcp-server hermes chat
 Override con otro caller_id (debug):
-  MCP_CALLER_ID=+5491100001111 mcp-appointments-crm hermes chat
+  MCP_CALLER_ID=+5491100001111 mcp-server hermes chat
 ```
 
 **Defense-in-depth intacta:**
@@ -1082,7 +1082,7 @@ Override con otro caller_id (debug):
   - [ ] Dado que el script se ejecuta sin los archivos JSON de `setup/`, cuando el sistema valida los prerrequisitos, entonces imprime `Error: ejecute primero install.sh (que captura los datos del negocio) y vuelva a correrlo` y termina con exit code 1 sin instalar el binario ni registrar el servicio.
   - [ ] Dado que el script terminó exitosamente, cuando el operador revisa la salida, entonces encuentra al final un snippet sugerido para `crontab` con la frecuencia por defecto (1 vez al día, 03:00 hora local) que puede agregar manualmente.
   - [ ] Dado que `sqlite3` CLI no está instalado en el sistema, cuando el script `install.sh` termina exitosamente, entonces el log final incluye un bloque "Recommended additional tools" con el comando de instalación específico para el OS detectado, **sin ejecutar la instalación** (ver [ADR-0005](../architecture/0005-optional-external-tools.md)).
-  - [ ] **Nuevo**: Dado que el operador ejecuta `mcp-appointments-crm admin tui` en una VPS con la tabla `accounts` vacía, cuando confirma el phone del dueño, entonces se crea el owner vía `AccountsRepo.Create` con `role='owner'`, `is_active=1`, `display_name` capturado del prompt, y el `X-Caller-Id` se guarda en `~/.config/mcp-appointments-crm/caller-id` para uso del chat local (ADR-0012). Si el owner ya existe (segunda corrida), se verifica que sigue activo y se omite el INSERT con un mensaje `Owner ya existe: <phone>`.
+  - [ ] **Nuevo**: Dado que el operador ejecuta `mcp-server admin tui` en una VPS con la tabla `accounts` vacía, cuando confirma el phone del dueño, entonces se crea el owner vía `AccountsRepo.Create` con `role='owner'`, `is_active=1`, `display_name` capturado del prompt, y el `X-Caller-Id` se guarda en `~/.config/mcp-appointments-crm/caller-id` para uso del chat local (ADR-0012). Si el owner ya existe (segunda corrida), se verifica que sigue activo y se omite el INSERT con un mensaje `Owner ya existe: <phone>`.
   - [ ] **Nuevo**: Dado que el owner fue creado vía TUI menú, cuando el admin opera el sistema, el LLM (Hermes) recibe el `X-Caller-Id` del owner desde el contexto del chat y el middleware lo resuelve correctamente a `Caller{Role: "owner"}` con `ErrUnauthenticated = nil`.
 
 > **Nota**: los criterios Gherkin de §5.1 se traducen a `scenarios` en el delta spec
@@ -1202,7 +1202,7 @@ Override con otro caller_id (debug):
 
 ### Fase 2: mcp-server-core (Estimación: L)
 
-**Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía Streamable HTTP en `127.0.0.1:3000`. **Además, integrar la capa de `auth` (incluye el middleware HTTP con el header `X-Caller-Id`)** y el **TUI menú operacional** (sub-comando `mcp-appointments-crm admin tui` para gestión de cuentas admin/staff/owner — ver §3.8.8). Los use cases de `internal/application/` se inyectan directamente en los handlers MCP.
+**Objetivo**: levantar el servidor MCP, registrar el primer set de tools, exponerlos vía Streamable HTTP en `127.0.0.1:3000`. **Además, integrar la capa de `auth` (incluye el middleware HTTP con el header `X-Caller-Id`)** y el **TUI menú operacional** (sub-comando `mcp-server admin tui` para gestión de cuentas admin/staff/owner — ver §3.8.8). Los use cases de `internal/application/` se inyectan directamente en los handlers MCP.
 
 **Entregables**:
 - `cmd/mcp-server/main.go` con DI: construye repos concretos, los inyecta en use cases, los use cases se inyectan en handlers MCP
@@ -1231,7 +1231,7 @@ Override con otro caller_id (debug):
 - ✅ **DI en `cmd/mcp-server/main.go`**: 6 use cases inyectados; `jsonrpcAuthTranslator` traduce error JSON-RPC → HTTP (401/403/500 semánticos en español).
 - ✅ **Verify final**: 24/24 REQ, 34/34 escenarios COMPLIANT; 276 tests / 915 subtests, 0 race; cobertura 89.7% (2026-08-19).
 - ✅ **Follow-ups S-1..S-4 cerrados** (PR #48, 2026-08-20): 403 loguea `caller_role` real; `statusRecorder.Flush()` y `ResolveSlotContext` al 100% de cobertura; fixture de overlap alineado con el template real del dominio.
-- ⏳ **Pendientes de Fase 2** (no bloquean el cierre): TUI menú operacional `mcp-appointments-crm admin tui` (opcional en Fase 2, ver §3.8.8), templates de user-level service unit (`setup/service/`, Fase 5), documentación de conexión de Hermes (`docs/installation.md`, Fase 5), tool `update_business_profile` (RF2 parcial).
+- ⏳ **Pendientes de Fase 2** (no bloquean el cierre): TUI menú operacional `mcp-server admin tui` (opcional en Fase 2, ver §3.8.8), templates de user-level service unit (`setup/service/`, Fase 5), documentación de conexión de Hermes (`docs/installation.md`, Fase 5), tool `update_business_profile` (RF2 parcial).
 
 ### Fase 3: mcp-server-advanced (Estimación: M)
 
@@ -1317,7 +1317,7 @@ Override con otro caller_id (debug):
 - Picker de profesional en `Add Staff` — el operador no conoce los UUID que genera el seeder — + prefill del teléfono desde `professionals.phone`.
 - `purge-inactive` de cuentas desactivadas (Fase 2+, con confirmación extra en la TUI).
 - Resolver el bootstrap del auth-context de la TUI (restricción de diseño, no feature): cada mutación de `AccountsRepo` exige `auth.RequireRole` desde el `ctx` y la TUI no pasa por el middleware HTTP, así que el primer owner es un huevo-y-gallina que el design del SDD debe cerrar.
-- Fijar el nombre del entry-point del sub-comando TUI: el binario instalado se llama `mcp-server` mientras que la documentación dice `mcp-appointments-crm admin tui`.
+- ✅ Entry-point fijado (2026-09-13): binario `mcp-server`, invocación `mcp-server admin tui` (y futuro `mcp-server hermes chat`). Docs vivos alineados; ADR-0010/ADR-0016 actualizados.
 - Cerrar el gap de edición post-install: hoy no hay segundo wizard ni tools de update, así que cualquier cambio de perfil/servicios/horarios es SQL manual.
 
 **Orden de ejecución sugerido** (por dependencia): 1º TUI identidad + owner seed — desbloquea el sistema, sin ella cualquier tool MCP responde 401; 2º tools Hermes de mantenimiento de datos operativos; 3º GoReleaser + releases por CI.

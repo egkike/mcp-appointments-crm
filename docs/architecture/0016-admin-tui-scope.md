@@ -32,8 +32,7 @@ verificadas contra código el 2026-09-12:
    con lunes = 1, mientras `schedules.day_of_week` usa `0`..`6` con domingo = 0. Cruza el
    borde de la TUI y de los tools de mantenimiento.
 
-5. **Nombre del entry-point sin fijar.** El binario instalado se llama `mcp-server`, mientras
-   que la documentación dice `mcp-appointments-crm admin tui`. El SDD debe fijar uno solo.
+5. **Nombre del entry-point fijado (2026-09-13).** Binario `mcp-server`, invocación `mcp-server admin tui` (y futuro `mcp-server hermes chat`). Docs vivos alineados; el SDD parte de este nombre congelado.
 
 6. **Presupuesto de review.** El change toca identidad, cuentas y auditoría: es sensible. El
    presupuesto canónico es 400 líneas de diff.

@@ -20,7 +20,7 @@ La pregunta es: **¿quién hace estas operaciones y con qué herramienta?**
 
 1. **LLM (Hermes) hace admin CRUD via MCP tools**: el LLM es responsable de declarar su rol en cada request. **Descartado** porque un LLM comprometido puede escalar privilegios (defense-in-depth débil). El PRD §3.8.5 ya documenta que el LLM no puede falsificar `X-Caller-Id`, pero puede actuar como admin si conoce un phone whitelisted.
 
-2. **CLI de bash con sub-comandos** (`mcp-appointments-crm admin create <phone>`, etc.): simple, sin dependencias externas, consistente con ADR-0005 (no external runtime tools). **Considerado** pero rechazado: bash es menos type-safe; el admin tiene que recordar los sub-comandos correctos; el feedback es menos amigable que un TUI.
+2. **CLI de bash con sub-comandos** (`mcp-server admin create <phone>`, etc.): simple, sin dependencias externas, consistente con ADR-0005 (no external runtime tools). **Considerado** pero rechazado: bash es menos type-safe; el admin tiene que recordar los sub-comandos correctos; el feedback es menos amigable que un TUI.
 
 3. **Dashboard web local** (servidor HTTP en otro puerto, ej. `127.0.0.1:3001` con HTML form): amigable, separado del MCP server. **Descartado** porque es un proyecto grande (Fase 6+). El TUI es suficiente para Fase 2.
 
@@ -28,7 +28,7 @@ La pregunta es: **¿quién hace estas operaciones y con qué herramienta?**
 
 ## Decision
 
-**Introducir un sub-comando TUI menú en el binario principal**: `mcp-appointments-crm admin tui`. Es el mismo binario (no un binario separado), corre en la VPS como sub-comando, no es invocable por el LLM.
+**Introducir un sub-comando TUI menú en el binario principal**: `mcp-server admin tui`. Es el mismo binario (no un binario separado), corre en la VPS como sub-comando, no es invocable por el LLM.
 
 ### Capacidades del TUI
 
@@ -42,7 +42,7 @@ La pregunta es: **¿quién hace estas operaciones y con qué herramienta?**
 
 - **Lenguaje**: Go (mismo binario que el MCP server, sin external runtime tools per ADR-0005).
 - **Librería TUI**: [Bubble Tea](https://github.com/charmbracelet/bubbletea) (Go puro, sin CGo, ~1.5MB al binario). **No es external runtime tool** — es una librería Go que compila dentro del binario.
-- **Entry point**: `cmd/mcp-server/admin_tui.go` (sub-comando del binario principal `mcp-appointments-crm`). El sub-comando se activa con `mcp-appointments-crm admin tui`. **No es un binario separado** — el TUI vive en el mismo proceso que el MCP server; comparte el `*slog.Logger`, el `*sql.DB`, y el `*slog.Logger` para audit log.
+- **Entry point**: `cmd/mcp-server/admin_tui.go` (sub-comando del binario instalado `mcp-server`). El sub-comando se activa con `mcp-server admin tui`. **No es un binario separado** — el TUI vive en el mismo proceso que el MCP server; comparte el `*slog.Logger`, el `*sql.DB`, y el `*slog.Logger` para audit log.
 
 ### Enforcement en el TUI
 
