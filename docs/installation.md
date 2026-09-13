@@ -153,9 +153,15 @@ Resultado esperado: HTTP 200 con:
 Una instalación limpia **no tiene ninguna cuenta owner**. El seeder de arranque
 (`config.SeedOnBoot`) crea `business_profile`, `professionals`, `schedules` y
 `services`, pero **nunca** inserta una fila en `accounts`. Con `accounts` y `clients`
-vacías, todo caller resuelve a `ErrUnauthenticated` y el middleware lo traduce a HTTP
-**401**: mientras no exista una cuenta, **toda** petición a `/mcp` es rechazada con
-401, aunque `/healthz` siga respondiendo 200.
+vacías, todo caller resuelve a `ErrUnauthenticated`: mientras no exista una cuenta,
+**toda** petición a `/mcp` es rechazada, aunque `/healthz` siga respondiendo 200.
+
+Ojo con **cómo** se rechaza, porque cambia lo que hay que mirar: el middleware de
+auth responde **401**, pero en `/mcp` el traductor JSON-RPC lo convierte en un
+envelope de error **con HTTP 200** (`code -32000`, mensaje `no te reconozco. Por
+favor regístrate primero.`) para que el cliente MCP lo vea como error de protocolo
+y no de transporte (`internal/mcp/auth_translator.go`). Consecuencia práctica: un
+`curl --fail` contra `/mcp` **no** falla por status; hay que leer el cuerpo.
 
 Hoy la única forma de crear el owner es SQL manual (mismo workaround que
 [`demo-plan.md` Paso 5](./demo-plan.md)):
@@ -188,8 +194,9 @@ curl --fail -sS http://127.0.0.1:3000/mcp \
 
 Debe devolver una respuesta JSON-RPC `initialize` con las capacidades del
 server. Si el server espera otra `protocolVersion`, la respuesta lo indica. Si la fila
-`owner-demo` no existe en `accounts`, este comando responde **401** en lugar del
-envelope JSON-RPC.
+`owner-demo` no existe en `accounts`, el comando **no** devuelve el envelope
+`initialize`: devuelve un envelope de error JSON-RPC (`code -32000`) con HTTP 200 —
+por eso `curl --fail` igual termina en exit 0 y hay que inspeccionar el cuerpo.
 
 ### 3.6 Versión del binario instalado
 
