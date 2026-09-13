@@ -5,7 +5,7 @@
 ## Layout recomendado
 
 - Configuración y JSONs de setup: `%APPDATA%\MCP Appointments CRM\`
-- Archivo `.env`: `%APPDATA%\MCP Appointments CRM\.env`
+- Archivo `.env` que lee el binario: `%USERPROFILE%\.config\mcp-appointments-crm\.env` (ruta fija en `internal/mcp/config.go`, independiente de `%APPDATA%`; los JSONs de setup y la DB sí usan el layout `%APPDATA%`)
 - Base de datos: `%APPDATA%\MCP Appointments CRM\reservas.db`
 - Binario: `%LOCALAPPDATA%\Programs\mcp-server.exe`
 - Logs (opcional): `%LOCALAPPDATA%\MCP Appointments CRM\Logs\`

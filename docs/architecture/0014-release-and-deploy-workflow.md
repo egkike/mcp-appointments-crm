@@ -43,7 +43,8 @@ several constraints accumulated across previous ADRs and the PRD:
    - [ADR-0007](./0007-server-config.md) — loopback-only bind (`127.0.0.1:3000` by default,
      validated at startup, no automatic port fallback) and env-file precedence.
    - [ADR-0005](./0005-optional-external-tools.md) — scripts never silently install
-     system tools; they check and print OS-specific install commands.
+     system tools; a dependent script checks and prints an OS-specific install
+     command, while informational lists only inform.
 
 5. **Inspiration from `gentle-ai` release pattern.** The `gentle-ai` CLI ships two
    complementary paths: `curl | bash` for Linux/macOS and `go install` for Windows.
@@ -110,8 +111,8 @@ all 5 platforms and both Unix and Windows install paths.
   metadata endpoint — it answers **405 by design**, POST JSON-RPC is the only method).
 - **CGO disabled**: `CGO_ENABLED=0` for all targets (pure Go via `modernc.org/sqlite`).
   No cross-toolchain required on the builder.
-- **Provenance**: every release publishes `checksums.txt` (SHA256). Install scripts
-  verify the downloaded archive against this file before extraction. Artifacts are
+- **Provenance**: every release publishes `checksums.txt` (SHA256). The install script
+  verifies the downloaded archive against this file before extraction. Artifacts are
   fetched exclusively over HTTPS from `github.com`.
 
 ### Decision 2: Linux and macOS — `curl | bash` via `scripts/install.sh`
@@ -242,7 +243,8 @@ irm https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/i
   recommended way to avoid the dialog entirely.
 
 Both Windows paths validate `MCP_BIND` as loopback at startup (ADR-0007) and read
-`%APPDATA%\MCP Appointments CRM\.env` when present.
+the binary's fixed `.env` path, `%USERPROFILE%\.config\mcp-appointments-crm\.env`, when present
+(same path on every OS; not `%APPDATA%`).
 
 ### Decision 4: Verification, rollback, and security
 
@@ -258,8 +260,8 @@ Both Windows paths validate `MCP_BIND` as loopback at startup (ADR-0007) and rea
   against the requested tag plus `systemctl --user is-active` on Linux. `install.ps1`
   does not exist (see the Decision 3 status note).
 
-- **Rollback**: re-run the install script pinned to the previous tag, or
-  `go install …@v<previous>` on Windows. Data (SQLite + backups) lives outside
+- **Rollback**: re-run the install script pinned to the previous tag.
+  `go install …@v<previous>` is **not implemented** on Windows (target design only). Data (SQLite + backups) lives outside
   the binary path (`~/.local/share/mcp-appointments-crm/` per ADR-0002) so a
   binary rollback never touches data. For data rollback, restore the latest
   `reservas-YYYYMMDD.db.gz` produced by `scripts/backup.sh` (see PRD §3.6).
@@ -333,7 +335,7 @@ Both Windows paths validate `MCP_BIND` as loopback at startup (ADR-0007) and rea
 - [ADR-0007](./0007-server-config.md) — server bind and port configuration (loopback validation, env precedence, no port fallback).
 - [ADR-0008](./0008-install-prompts.md) — inline prompts in `install.sh` (no separate TUI).
 - Repository: <https://github.com/egkike/mcp-appointments-crm>
-- Raw install scripts:
+- Raw install script:
   - `https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh`
   - `scripts/install.ps1` — **not implemented** (see the Decision 3 status note).
 - GoReleaser: <https://goreleaser.com/>

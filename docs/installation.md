@@ -224,10 +224,10 @@ Deberías ver las tablas del sistema (`business_profile`, `bookings`, etc.).
 | Base de datos de producción | `~/.local/share/mcp-appointments-crm/reservas.db` |
 | Backups | `~/.local/share/mcp-appointments-crm/backups/reservas-YYYYMMDD.db.gz` |
 | Config (JSON + `.env`) | `~/.config/mcp-appointments-crm/` |
-| Logs | `~/.local/state/mcp-appointments-crm/` |
+| Logs | Journal del usuario: `journalctl --user -u mcp-appointments-crm` (el unit no escribe archivo de log) |
 | Service unit | `~/.config/systemd/user/mcp-appointments-crm.service` |
 
-En macOS los paths de datos/logs/config usan `~/Library/Application Support/...` y `~/Library/Logs/...` según la tabla del PRD §3.5.
+En macOS los paths de datos/logs/config usan `~/Library/Application Support/...` y `~/Library/Logs/...` según la tabla del PRD §3.5; la única excepción es el `.env` que lee el binario, que en todas las plataformas vive en `~/.config/mcp-appointments-crm/.env` (`internal/mcp/config.go`).
 
 ---
 
@@ -272,7 +272,7 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id - u)}"
 
 O usá `machinectl shell "$USER"@` si está disponible.
 
-### `install.sh --version` reporta "Faltan: setup_business.json, setup_staff.json, setup_services.json"
+### `install.sh --version` reporta "Error: faltan archivos de setup: setup_business.json setup_staff.json setup_services.json"
 
 Significa que no completaste el Paso 1. Corré `bash install.sh` en una terminal, o copiá los tres JSONs desde otra máquina al `SETUP_DIR` correspondiente.
 

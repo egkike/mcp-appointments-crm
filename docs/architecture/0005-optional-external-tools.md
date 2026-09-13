@@ -26,16 +26,17 @@ Three alternatives were considered:
    needed).
 2. **Auto-install in `backup.sh`**: `backup.sh` checks and installs on
    every run.
-3. **Check and message only** (this ADR): scripts detect the tool's
-   presence, and if missing, print a clear OS-specific install command
-   for the operator to run manually.
+3. **Check and message only** (this ADR): the script that depends on the
+   tool detects its presence, and if missing, prints a clear OS-specific
+   install command for the operator to run manually.
 
 ## Decision
 
 Project scripts **never** install external system tools that the OS
-package manager manages. They do check if the tool is present, and if
-missing, they print a clear OS-specific install command for the operator
-to run.
+package manager manages. A script that depends on such a tool checks whether
+it is present and fails with a clear, actionable message when it is missing
+(see `backup.sh`); scripts that merely mention optional tools list them
+informationally and never install anything (see `install.sh`).
 
 This applies to all current and future optional features that depend on
 external tools. Core dependencies (the Go binary, SQLite via
@@ -43,9 +44,10 @@ external tools. Core dependencies (the Go binary, SQLite via
 package installation.
 
 The principle is enforced by:
-- **`install.sh`**: at the end, prints a "Recommended additional tools"
-  block listing each optional tool's status (✓ found / ⚠ not found) and
-  the install command for the current OS.
+- **`install.sh`**: at the end, prints a static informational list titled
+  `Herramientas recomendadas:` naming the optional tools (e.g. `jq`,
+  `sqlite3`, `ufw`, `hermes doctor`). It performs no presence detection and
+  prints no install commands.
 - **`backup.sh`**: at startup, checks for `sqlite3` and fails with a clear
   error message (including install commands) if missing.
 

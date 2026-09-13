@@ -79,7 +79,7 @@ El pipeline de despliegue es idempotente: re-ejecutalo con el tag nuevo.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh \
-  | bash -s -- --version v0.3.1
+  | bash -s -- --version vX.Y.Z   # sustituí vX.Y.Z por el tag más nuevo publicado
 ```
 
 Lo que se preserva automáticamente:
@@ -96,9 +96,9 @@ Lo que se reemplaza:
 Verificación post-upgrade:
 
 ```bash
-~/.local/bin/mcp-server --version   # v0.3.1
+~/.local/bin/mcp-server --version   # vX.Y.Z (la versión instalada)
 systemctl --user is-active mcp-appointments-crm
-curl --fail http://127.0.0.1:3000/mcp
+curl --fail http://127.0.0.1:3000/healthz
 ```
 
 ### 2.2 Downgrade
@@ -147,7 +147,7 @@ tail -f ~/Library/Logs/MCP\ Appointments\ CRM/mcp-server.err.log
 Si existe, también podés consultar:
 
 ```bash
-tail -f ~/.local/state/mcp-appointments-crm/mcp-server.log
+journalctl --user -u mcp-appointments-crm -f
 ```
 
 ---
@@ -217,7 +217,7 @@ MCP_DB_PATH="$HOME/.local/share/mcp-appointments-crm/reservas.db" \
 
 ## 6. Scheduling automático de backups (opcional del cliente)
 
-`backup.sh` no registra ningún scheduler por sí mismo (ADR-0005). Si querés backups automáticos, configurá una tarea periódica a tu criterio.
+`backup.sh` no registra ningún scheduler por sí mismo (ADR-0003). Si querés backups automáticos, configurá una tarea periódica a tu criterio.
 
 ### Opción A — cron diario
 
@@ -312,7 +312,7 @@ Cambiale el puerto en `~/.config/mcp-appointments-crm/.env` y reiniciá:
 ```bash
 echo "MCP_PORT=3001" >> ~/.config/mcp-appointments-crm/.env
 systemctl --user restart mcp-appointments-crm
-curl --fail http://127.0.0.1:3001/mcp
+curl --fail http://127.0.0.1:3001/healthz
 ```
 
 ### SHA256 mismatch persistente en upgrade
@@ -320,8 +320,8 @@ curl --fail http://127.0.0.1:3001/mcp
 No bypasses la verificación. Si un upgrade específico falla con SHA256:
 
 ```bash
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.1/checksums.txt
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.1/mcp-appointments-crm_Linux_x86_64.tar.gz
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/checksums.txt
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/mcp-appointments-crm_Linux_x86_64.tar.gz
 sha256sum -c checksums.txt --ignore-missing
 ```
 

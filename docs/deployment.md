@@ -10,14 +10,14 @@
 no CGo, no Docker) for 5 targets. The target design produces 5 archives + a
 SHA256 `checksums.txt` on GitHub Releases per tag; today the only published release
 (`v0.3.0`) ships a single Linux x86_64 archive plus `checksums.txt`, assembled and
-uploaded manually (there is no CI release pipeline yet). Install scripts download the
-correct archive over HTTPS, verify its checksum, install to user-level paths, register a
-user-level service, and verify the installed binary plus the service state. The
+uploaded manually (there is no CI release pipeline yet). The install script downloads the
+correct archive over HTTPS, verifies its checksum, installs to user-level paths, registers a
+user-level service, and verifies the installed binary plus the service state. The
 installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3000/healthz`
 (a bare `GET /mcp` answers **405 by design** — the MCP endpoint accepts POST JSON-RPC only).
 
 - Repo: `https://github.com/egkike/mcp-appointments-crm`
-- Install scripts (raw):
+- Install script (raw):
   - Unix: `https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh`
   - Windows: **not implemented** — there is no `scripts/install.ps1`. See the Windows
     section below and [ADR-0014](./architecture/0014-release-and-deploy-workflow.md).
@@ -187,7 +187,7 @@ bash install.sh --version v0.3.0
 | Binary | `~/.local/bin/mcp-server` (respects `$XDG_DATA_HOME` if set) |
 | Data (SQLite + backups) | `~/.local/share/mcp-appointments-crm/` (`reservas.db`, `reservas.db-wal`, `reservas.db-shm`, `backups/`) |
 | Config (JSON + `.env`) | `~/.config/mcp-appointments-crm/` (`.env`, `setup/`) |
-| Logs | `~/.local/state/mcp-appointments-crm/mcp-server.log` |
+| Logs | User journal: `journalctl --user -u mcp-appointments-crm` (the systemd unit writes no log file) |
 | Service unit | `~/.config/systemd/user/mcp-appointments-crm.service` |
 
 The `.env` file (created if absent, never overwritten) holds loopback config:
@@ -258,7 +258,7 @@ Service registration uses `launchd`:
 |---|---|
 | Binary | `~/.local/bin/mcp-server` |
 | Data | `~/Library/Application Support/MCP Appointments CRM/` |
-| Config | `~/Library/Application Support/MCP Appointments CRM/setup/` + `.env` |
+| Config | setup JSONs: `~/Library/Application Support/MCP Appointments CRM/setup/`; the `.env` the binary reads: `~/.config/mcp-appointments-crm/.env` |
 | Logs | `~/Library/Logs/MCP Appointments CRM/mcp-server.out.log` + `mcp-server.err.log` (launchd `StandardOutPath` / `StandardErrorPath`) |
 | Agent plist | `~/Library/LaunchAgents/com.mcp.appointments.server.plist` |
 
@@ -344,7 +344,8 @@ irm https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/i
 What it does: downloads the Windows archive over HTTPS, verifies SHA256 against
 `checksums.txt`, installs to `%LOCALAPPDATA%\Programs\mcp-server\mcp-server.exe`,
 and registers a user-level Task Scheduler entry (or NSSM service if `nssm` is on
-PATH). Reads `%APPDATA%\MCP Appointments CRM\.env` when present.
+PATH). Reads the binary's fixed `.env` at `%USERPROFILE%\.config\mcp-appointments-crm\.env` when
+present (same path on every OS; not `%APPDATA%`).
 
 > **SmartScreen note (unsigned EXE)**: because the EXE is downloaded from the
 > internet it carries MotW and SmartScreen will show **"Windows protected your
@@ -407,7 +408,7 @@ Restart-ScheduledTask -TaskName "mcp-appointments-crm"
 ### Rollback (data)
 
 If the database must be restored, use the latest backup produced by
-`scripts/backup.sh` (the operator schedules it — ADR-0005):
+`scripts/backup.sh` (the operator schedules it — ADR-0003):
 
 ```bash
 systemctl --user stop mcp-appointments-crm
@@ -549,6 +550,6 @@ open an issue at `https://github.com/egkike/mcp-appointments-crm/issues`.
 curl -v http://127.0.0.1:3000/mcp
 ss -tlnp | grep mcp-server
 journalctl --user -u mcp-appointments-crm -n 100 --no-pager
-cat ~/.local/state/mcp-appointments-crm/mcp-server.log
+journalctl --user -u mcp-appointments-crm -f
 # verify Hermes config points at http://127.0.0.1:3000/mcp (not 0.0.0.0, not a LAN IP)
 ```

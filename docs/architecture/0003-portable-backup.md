@@ -27,8 +27,10 @@ The backup mechanism is split into two parts:
    consistency (respects WAL), gzips the output, and writes to
    `<data_dir>/backups/reservas-YYYYMMDD.db.gz`. The script is the same on
    all platforms.
-2. **`install.sh` prints a suggested crontab line** at the end of execution
-   as guidance. It does NOT install, configure, or enable any scheduler.
+2. **`install.sh` does not configure or suggest any scheduler.** At the end of
+   execution it prints the `backup.sh` invocation as a reminder, but no
+   `crontab` line or scheduler snippet. Scheduling is entirely the operator's
+   decision.
 
 The operator chooses how (or whether) to schedule the script: cron, systemd
 timer, launchd, Task Scheduler, VPS snapshot, Time Machine, Windows Backup,

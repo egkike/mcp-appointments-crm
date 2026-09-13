@@ -37,7 +37,7 @@ platform conventions:
 | Binary | `~/.local/bin/mcp-server` | `~/.local/bin/mcp-server` | `%LOCALAPPDATA%\Programs\mcp-server\mcp-server.exe` |
 | Data (SQLite + backups) | `~/.local/share/mcp-appointments-crm/` | `~/Library/Application Support/MCP Appointments CRM/` | `%APPDATA%\MCP Appointments CRM\` |
 | Config (JSON from wizard) | `~/.config/mcp-appointments-crm/setup/` | `~/Library/Application Support/MCP Appointments CRM/setup/` | `%APPDATA%\MCP Appointments CRM\setup\` |
-| Logs | `~/.local/state/mcp-appointments-crm/mcp-server.log` | `~/Library/Logs/MCP Appointments CRM/mcp-server.log` | `%LOCALAPPDATA%\MCP Appointments CRM\Logs\mcp-server.log` |
+| Logs | User journal: `journalctl --user -u mcp-appointments-crm` (the unit writes no log file) | `~/Library/Logs/MCP Appointments CRM/mcp-server.out.log` + `mcp-server.err.log` | Target design only (`%LOCALAPPDATA%\MCP Appointments CRM\Logs\`) |
 | Service definition | `~/.config/systemd/user/mcp-appointments-crm.service` | `~/Library/LaunchAgents/com.mcp.appointments.server.plist` | Task Scheduler user task |
 
 For 24/7 service on a Linux VPS, `install.sh` runs `loginctl enable-linger
