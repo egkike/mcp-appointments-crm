@@ -26,19 +26,32 @@ this approach during the "TUI for setup" discussion on 2026-06-26:
 ## Decision
 
 **Replace the `config-wizard` TUI with inline prompts in `install.sh`**.
-The single install flow becomes:
+The install flow is **two steps**, and each step has a different execution mode:
+
+**Step 1 — configuration wizard (interactive, requires a real terminal).**
+`bash install.sh` (default, or `--setup-only`) runs the prompts. It cannot run through
+`curl … | bash -s`: a piped invocation has no TTY, so `run_setup_guard_tty` aborts with
+`Error: el modo interactivo requiere una terminal.` and exit 1.
 
 ```bash
-$ curl -fsSL https://.../install.sh | bash
-[install.sh] Bienvenido al setup de MCP Server
-Business name: ...
-Country code (ISO 3166-1): ...
-Currency code (ISO 4217): ...
+$ bash install.sh
+Nombre del negocio: ...
 ...
-[install.sh] Setup JSON escrito en ~/.config/...
-[install.sh] Descargando binario...
-[install.sh] Registrando servicio systemd...
-[install.sh] Listo.
+Configuración guardada en:
+  ~/.config/mcp-appointments-crm/setup/setup_business.json
+  ~/.config/mcp-appointments-crm/setup/setup_staff.json
+  ~/.config/mcp-appointments-crm/setup/setup_services.json
+```
+
+**Step 2 — deploy (the only pipe-safe step).** `install.sh --version vX.Y.Z` downloads,
+verifies and installs that pinned release and registers the user-level service. The tag is
+mandatory: the script resolves no `latest` and rejects pre-releases.
+
+```bash
+$ curl -fsSL https://.../install.sh | bash -s -- --version v0.3.0
+...
+Despliegue completado: v0.3.0
+  Endpoint MCP: http://127.0.0.1:3000/mcp
 ```
 
 A **checkpoint mechanism** (`setup.json.tmp`) handles the case where
@@ -52,7 +65,8 @@ atomically writes the 3 final JSON files and removes `setup.json.tmp`.
 
 **Positive**:
 - Zero new Go code; `install.sh` grows by ~100 LOC of bash
-- Single install flow (`curl | bash install.sh` does everything)
+- One script, two steps: interactive wizard for setup, then a pinned, pipe-safe deploy
+  (`curl | bash -s -- --version vX.Y.Z`) — the wizard itself cannot be piped
 - Cancel-safe (checkpoint + resume) without code complexity
 - No new dependencies (per ADR-0005 philosophy)
 - Same RF1 coverage with much less code

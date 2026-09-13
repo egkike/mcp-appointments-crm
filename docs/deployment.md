@@ -1,14 +1,17 @@
 # Deployment & Release Guide
 
-> **Source of truth for releases**: GitHub Releases + GoReleaser.
+> **Source of truth for releases**: GitHub Releases. Assets are uploaded by hand today;
+> GoReleaser driven by a tag-triggered CI workflow is the pending target (see Release Process).
 > Rationale and trade-offs are in [ADR-0014](./architecture/0014-release-and-deploy-workflow.md).
 
 ## Overview
 
 `mcp-appointments-crm` ships as a single Go binary (pure Go via `modernc.org/sqlite`,
-no CGo, no Docker) for 5 targets. Every tagged version produces 5 archives + a
-SHA256 `checksums.txt` on GitHub Releases. Install scripts download the correct
-archive over HTTPS, verify its checksum, install to user-level paths, register a
+no CGo, no Docker) for 5 targets. The target design produces 5 archives + a
+SHA256 `checksums.txt` on GitHub Releases per tag; today the only published release
+(`v0.3.0`) ships a single Linux x86_64 archive plus `checksums.txt`, assembled and
+uploaded manually (there is no CI release pipeline yet). Install scripts download the
+correct archive over HTTPS, verify its checksum, install to user-level paths, register a
 user-level service, and verify the installed binary plus the service state. The
 installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3000/healthz`
 (a bare `GET /mcp` answers **405 by design** — the MCP endpoint accepts POST JSON-RPC only).
@@ -37,12 +40,16 @@ installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3000/
    git push origin v0.3.0
    ```
 
-5. **GitHub Action runs** `.github/workflows/release.yml`:
-   - `goreleaser build --clean` cross-compiles 5 binaries (`CGO_ENABLED=0`)
-   - injects `ldflags` version (`internal/version.Version/Commit/Date`)
-   - creates archives + `checksums.txt`
-   - publishes GitHub Release `v0.3.0` with all 6 assets.
-6. **Verify the release**:
+5. **Build and publish the release manually** — no CI release pipeline exists today.
+   `.github/workflows/` holds a single workflow (`ci.yml`, no `release.yml`) and there is
+   no `.goreleaser.yml` in the repository. The only published release (`v0.3.0`, release
+   title "v0.3.0 (demo)") was assembled by hand and uploaded through the GitHub web UI:
+   - build the binary locally for the target platform (`CGO_ENABLED=0`, version via `-ldflags`)
+   - assemble the archive with the required content set: `mcp-server`, `scripts/backup.sh`,
+     `setup/service/mcp-appointments-crm.service`, `setup/service/com.mcp.appointments.server.plist`
+   - compute `checksums.txt` (`sha256sum mcp-appointments-crm_Linux_x86_64.tar.gz > checksums.txt`)
+   - upload the archive plus `checksums.txt` as release assets
+6. **Verify the release** — these are operator commands run by hand, not CI output:
 
    ```bash
    gh release view v0.3.0 --repo egkike/mcp-appointments-crm
@@ -51,7 +58,9 @@ installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3000/
    curl --fail http://127.0.0.1:3000/healthz
    ```
 
-No manual asset upload. If the Action fails, delete the remote tag, fix, and re-tag:
+If a release is wrong, either delete the remote tag and re-tag, or replace the assets
+under the same tag (the first manual upload of `v0.3.0` shipped only the binary and was
+replaced by the complete asset about an hour later):
 
 ```bash
 git push --delete origin v0.3.0
@@ -59,12 +68,18 @@ git tag -d v0.3.0
 # fix, then re-tag and push
 ```
 
-Dry-run locally before tagging:
-
-```bash
-goreleaser check
-goreleaser build --snapshot --clean
-```
+> **Pending target — GoReleaser + releases por CI (not implemented).** The intended end
+> state is a tag-triggered `.github/workflows/release.yml` that runs GoReleaser to
+> cross-compile all 5 platforms and publish every asset with no manual upload. It is the
+> `GoReleaser + releases por CI` backlog item in [PRD §7](./PRD.md#7-roadmap-y-fases)
+> (Fase N) and it is specified in
+> [ADR-0014](./architecture/0014-release-and-deploy-workflow.md). Once that pipeline
+> lands, dry-run it locally before tagging:
+>
+> ```bash
+> goreleaser check
+> goreleaser build --snapshot --clean
+> ```
 
 ## Versioning
 
@@ -98,11 +113,20 @@ Each `vX.Y.Z` release publishes 6 files:
 | `checksums.txt` | — | — | SHA256 for the 5 archives |
 
 All archives contain the binary `mcp-server` (or `mcp-server.exe` on Windows),
-the service templates (`setup/service/*.service` / `*.plist`), and the
-`scripts/backup.sh` / `scripts/install.sh` helpers. This content set is the
-contract `install.sh` relies on: a manually built asset that ships only the
-binary breaks the install (exposed by the v0.3.0 demo run, 2026-09-10).
-Version is embedded via `ldflags`; verify with:
+the service templates (`setup/service/mcp-appointments-crm.service` /
+`com.mcp.appointments.server.plist`), and the `scripts/backup.sh` helper — the 4
+entries the published `v0.3.0` asset carries. This content set is the contract
+`install.sh` relies on: it reads `mcp-server`, `scripts/backup.sh` and the matching
+`setup/service/*` template out of the extracted archive. `scripts/install.sh` is
+never inside the archive — it is curled from `raw.githubusercontent.com`. An earlier
+manual upload of the `v0.3.0` tag shipped only the binary and broke the install; that
+asset was replaced about an hour later by the complete one, which is what is published
+today.
+
+Version is embedded via `ldflags` into `internal/buildinfo.Version` — the only
+build-time variable that exists today (there is no `Commit`/`Date`), set with
+`-X github.com/egkike/mcp-appointments-crm/internal/buildinfo.Version={{.Version}}`.
+Verify with:
 
 ```bash
 mcp-server --version

@@ -69,6 +69,14 @@ all 5 platforms and both Unix and Windows install paths.
 
 ### Decision 1: GoReleaser builds 5 artifacts + checksums + version ldflags
 
+> **Status note (implementation): this decision describes the TARGET, not the shipped
+> state.** No CI release pipeline exists yet: `.github/workflows/` ships only `ci.yml`
+> (no `release.yml`) and there is no `.goreleaser.yml`. The only published release
+> (`v0.3.0`) was built and uploaded by hand and carries a single Linux x86_64 archive
+> plus `checksums.txt`. Everything below is the accepted design, to be delivered by the
+> `GoReleaser + releases por CI` backlog item (`docs/PRD.md` §7, Fase N). Today's manual
+> procedure is in `docs/deployment.md` → Release Process.
+
 - **Trigger**: `git tag vX.Y.Z && git push origin vX.Y.Z` triggers
   `.github/workflows/release.yml` (build + publish). No manual asset upload.
 - **Tool**: [GoReleaser](https://goreleaser.com/) (declarative `.goreleaser.yaml`).
@@ -93,12 +101,13 @@ all 5 platforms and both Unix and Windows install paths.
 
   ```yaml
   ldflags:
-    - -s -w -X github.com/egkike/mcp-appointments-crm/internal/version.Version={{.Version}}
-            -X github.com/egkike/mcp-appointments-crm/internal/version.Commit={{.Commit}}
-            -X github.com/egkike/mcp-appointments-crm/internal/version.Date={{.Date}}
+    - -s -w -X github.com/egkike/mcp-appointments-crm/internal/buildinfo.Version={{.Version}}
   ```
 
-  `mcp-server --version` and `GET /mcp` health metadata expose the same values.
+  Only `Version` exists today (`internal/buildinfo/buildinfo.go`); a `Commit`/`Date`
+  variable does not exist and would inject nothing. `mcp-server --version` reports the
+  injected version; liveness is `GET /healthz`, which echoes it (`GET /mcp` is not a
+  metadata endpoint — it answers **405 by design**, POST JSON-RPC is the only method).
 - **CGO disabled**: `CGO_ENABLED=0` for all targets (pure Go via `modernc.org/sqlite`).
   No cross-toolchain required on the builder.
 - **Provenance**: every release publishes `checksums.txt` (SHA256). Install scripts
@@ -110,27 +119,31 @@ all 5 platforms and both Unix and Windows install paths.
 Primary install path for Unix. Keeps the target VM free of a Go toolchain.
 
 ```bash
-# latest
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash
-# pinned version
+# pinned version (the only supported form)
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
 ```
+
+`--version` is mandatory on this path, and the tag must be a plain `vMAJOR.MINOR.PATCH`:
+the script resolves no `latest` (it rejects it explicitly) and rejects pre-releases.
+The interactive wizard is not pipe-safe — without `--version`, a piped invocation aborts
+with `Error: el modo interactivo requiere una terminal.` and exit 1.
 
 What `install.sh` does (in order):
 
 1. **Detect OS/arch** via `uname -s` / `uname -m` and map to GoReleaser asset names
    (`Linux`/`Darwin` × `x86_64`/`arm64`). Fails with a clear message on unsupported
    platforms.
-2. **Resolve version**: `--version vX.Y.Z` uses that tag; otherwise queries the
-   GitHub Releases API for the latest `v*` tag. No `latest` symlink assumption.
+2. **Read version**: the required `--version vX.Y.Z` tag selects the release. The script
+   performs no `latest` resolution — it rejects `latest` and any non-`vMAJOR.MINOR.PATCH`
+   tag (including pre-releases) before downloading anything.
 3. **Download** the matching archive from
    `https://github.com/egkike/mcp-appointments-crm/releases/download/<version>/…`
    over HTTPS to a temp dir. Respects `TMPDIR`.
 4. **Verify SHA256** against `checksums.txt` from the same release
    (`sha256sum -c` / `shasum -a 256 -c` fallback). Abort on mismatch.
-5. **Install binary** to `~/.local/bin/mcp-server` (or `/usr/local/bin/mcp-server`
-   if `--system` is passed and the user has write permission; default is user-level
-   per ADR-0002). Ensures `~/.local/bin` is on `PATH` and prints a hint if not.
+5. **Install binary** to `~/.local/bin/mcp-server` (always user-level per ADR-0002;
+   there is no `--system` flag, no `/usr/local/bin` path, and no `sudo`). Ensures `~/.local/bin`
+   is on `PATH` and prints a hint if not.
 6. **Write config** `~/.config/mcp-appointments-crm/.env` if absent (defaults
    `MCP_BIND=127.0.0.1`, `MCP_PORT=3000`). Never overwrites an existing `.env`.
    Respects `XDG_CONFIG_HOME` / `XDG_DATA_HOME` / `XDG_STATE_HOME` when set.
@@ -138,14 +151,17 @@ What `install.sh` does (in order):
    - Linux: `~/.config/systemd/user/mcp-appointments-crm.service` with
      `EnvironmentFile=%h/.config/mcp-appointments-crm/.env`, then
      `systemctl --user daemon-reload && systemctl --user enable --now mcp-appointments-crm`.
-   - macOS: `~/Library/LaunchAgents/com.mcp.appointments.server.plist` then
-     `launchctl bootstrap gui/$UID … && launchctl kickstart …`.
+   - macOS: `~/Library/LaunchAgents/com.mcp.appointments.server.plist`, then
+     `launchctl bootout gui/$UID/com.mcp.appointments.server` (tolerated if not loaded)
+     followed by `launchctl bootstrap gui/$UID <plist>`. There is no `kickstart` step.
 8. **Enable linger on Linux**: `loginctl enable-linger $USER` (one-time, idempotent;
    required so the user service survives logout on a VPS — ADR-0002).
-9. **Health verification**: `curl --fail --max-time 5 http://127.0.0.1:3000/mcp`
-   (or the configured `MCP_BIND`/`MCP_PORT` from `.env`). Prints next steps on
-   success; prints `journalctl --user -u mcp-appointments-crm -n 50 --no-pager`
-   hint on failure.
+9. **Verify the installed version, not HTTP**: runs `mcp-server --version` and requires
+   the reported version to match the requested tag, then on Linux polls
+   `systemctl --user is-active mcp-appointments-crm`. The script issues **no** HTTP
+   request. Operators check liveness with `curl --fail http://127.0.0.1:3000/healthz`
+   (`GET /mcp` answers 405 by design). On failure it prints a
+   `journalctl --user -u mcp-appointments-crm -n 50 --no-pager` hint.
 10. **Loopback validation** is not in the script — it is enforced by the binary
     itself at startup per ADR-0007 (rejects non-loopback `MCP_BIND` before bind).
 
@@ -230,16 +246,17 @@ Both Windows paths validate `MCP_BIND` as loopback at startup (ADR-0007) and rea
 
 ### Decision 4: Verification, rollback, and security
 
-- **Verification after every install** (script + manual):
+- **Verification after every install** (manual operator checks):
   ```bash
-  curl --fail http://127.0.0.1:3000/mcp
+  curl --fail http://127.0.0.1:3000/healthz           # liveness (GET /mcp answers 405)
   systemctl --user is-active mcp-appointments-crm   # Linux
   launchctl list | grep com.mcp.appointments        # macOS
   journalctl --user -u mcp-appointments-crm -n 50   # Linux logs
   sqlite3 ~/.local/share/mcp-appointments-crm/reservas.db "SELECT count(*) FROM bookings;"
   ```
-  `scripts/install.sh` runs the HTTP health check automatically; `install.ps1`
-  runs an equivalent `Invoke-RestMethod` check.
+  `scripts/install.sh` issues no HTTP request: it checks only `mcp-server --version`
+  against the requested tag plus `systemctl --user is-active` on Linux. `install.ps1`
+  does not exist (see the Decision 3 status note).
 
 - **Rollback**: re-run the install script pinned to the previous tag, or
   `go install …@v<previous>` on Windows. Data (SQLite + backups) lives outside
