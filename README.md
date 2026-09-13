@@ -37,36 +37,6 @@ The MCP server currently exposes 11 tools: `check_availability`, `create_booking
 
 ## Quickstart
 
-### Run the server locally
-
-`go run ./cmd/mcp-server` compiles and starts the MCP server — the same
-composition root that ships as the `mcp-server` binary. It imports the setup
-wizard output on first boot and refuses to start without it, so launch it
-against the repository's fixture JSONs and a scratch database:
-
-```bash
-MCP_SETUP_DIR=internal/config/testdata \
-MCP_DB_PATH=/tmp/dev-reservas.db \
-go run ./cmd/mcp-server
-```
-
-It listens on `http://127.0.0.1:3000` — `/mcp` for MCP (POST-only), `/healthz` for
-liveness — and seeds `business_profile`, `professionals` and `services` from the
-fixtures.
-
-- Without `MCP_SETUP_DIR` it reads the wizard output from
-  `~/.config/mcp-appointments-crm/setup/` (Linux) or
-  `~/Library/Application Support/MCP Appointments CRM/setup/` (macOS). A missing
-  file is fatal: `el archivo de configuración setup_business.json no existe`.
-- Without `MCP_DB_PATH` it uses `./data/appointments.db` relative to the working
-  directory; the installed service uses
-  `~/.local/share/mcp-appointments-crm/reservas.db` instead. Running both gives
-  you two different databases.
-- The seed never creates an `accounts` row, so authenticated calls are rejected
-  with a JSON-RPC error (`-32000`) even while `/healthz` returns 200. See
-  [docs/installation.md](./docs/installation.md) for the owner step; the planned
-  `mcp-server admin tui` sub-command will replace it.
-
 ### Install — Linux / macOS
 
 **Paso 1 — Interactive wizard (requires a TTY):**
@@ -142,6 +112,38 @@ note).
 ## Development
 
 Requires Go 1.26.8+.
+
+### Run the server locally
+
+`go run ./cmd/mcp-server` compiles and starts the MCP server — the same
+composition root that ships as the `mcp-server` binary. It imports the setup
+wizard output on first boot and refuses to start without it, so launch it
+against the repository's fixture JSONs and a scratch database:
+
+```bash
+MCP_SETUP_DIR=internal/config/testdata \
+MCP_DB_PATH=/tmp/dev-reservas.db \
+go run ./cmd/mcp-server
+```
+
+It listens on `http://127.0.0.1:3000` — `/mcp` for MCP (POST-only), `/healthz` for
+liveness — and seeds `business_profile`, `professionals` and `services` from the
+fixtures.
+
+- Without `MCP_SETUP_DIR` it reads the wizard output from
+  `~/.config/mcp-appointments-crm/setup/` (Linux) or
+  `~/Library/Application Support/MCP Appointments CRM/setup/` (macOS). A missing
+  file is fatal: `el archivo de configuración setup_business.json no existe`.
+- Without `MCP_DB_PATH` it uses `./data/appointments.db` relative to the working
+  directory; the installed service uses
+  `~/.local/share/mcp-appointments-crm/reservas.db` instead. Running both gives
+  you two different databases.
+- The seed never creates an `accounts` row, so authenticated calls are rejected
+  with a JSON-RPC error (`-32000`) even while `/healthz` returns 200. See
+  [docs/installation.md](./docs/installation.md) for the owner step; the planned
+  `mcp-server admin tui` sub-command will replace it.
+
+### Pre-commit pipeline
 
 The pre-commit pipeline (see
 [AGENTS.md](./AGENTS.md#pre-commit-checklist) and `openspec/config.yaml`):
