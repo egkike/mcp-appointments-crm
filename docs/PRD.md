@@ -2,8 +2,8 @@
 
 > **Estado**: Aprobado
 > **Owner**: Kike
-> **Versión**: 1.13
-> **Última actualización**: 2026-09-11
+> **Versión**: 1.14
+> **Última actualización**: 2026-09-13
 
 ---
 
@@ -61,7 +61,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 - Soporte FTS5 con triggers `AFTER INSERT/UPDATE/DELETE` para sincronización automática.
 - Script `install.sh` que descarga el binario, lo registra como servicio del SO e imprime al final una línea sugerida para schedular `backup.sh`.
 - Script `scripts/backup.sh` portable (bash, sin scheduler automático) que produce un backup consistente del `.db` con `sqlite3 .backup` + gzip.
-- Templates de service unit para Linux (`mcp-appointments-crm.service`), macOS (`com.mcp.appointments.server.plist`) y Windows (`mcp-appointments-crm.xml` para Task Scheduler).
+- Templates de service unit para Linux (`mcp-appointments-crm.service`) y macOS (`com.mcp.appointments.server.plist`). Para Windows **no hay template ni automatización**: solo la guía manual `setup/service/nssm-install.md` (alcance pendiente, ver §7).
 - Endpoint MCP (Streamable HTTP) expuesto **únicamente** en loopback. Bind default `127.0.0.1` (IPv4); `MCP_BIND` may also be set to `::1` (IPv6) u otra dirección loopback (127.0.0.0/8). Validación acepta loopback (127.0.0.0/8 o ::1). Ver [ADR-0007](../architecture/0007-server-config.md). Puerto default `3000`. Configurable vía env vars `MCP_BIND` y `MCP_PORT`. Precedencia (mayor a menor): env vars del sistema > `~/.config/mcp-appointments-crm/.env` (o equivalente platform-native) > defaults. El binario **no hace fallback automático** de puerto. Si `MCP_BIND` no es loopback (127.0.0.0/8 o ::1), falla con error de seguridad antes de bindear. Ver [ADR-0007](../architecture/0007-server-config.md).
 - Manejo de errores con mensajes semánticos en español, sin stack traces al LLM.
 - Tests unitarios sobre el repository layer con `go-sqlmock`.
@@ -121,15 +121,20 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 
 #### Matriz de cross-compilation
 
-| Plataforma | Binario | Service manager |
-|---|---|---|
-| `linux/amd64` | `mcp-server-linux-amd64` | systemd |
-| `linux/arm64` | `mcp-server-linux-arm64` | systemd |
-| `darwin/amd64` | `mcp-server-darwin-amd64` | launchd |
-| `darwin/arm64` | `mcp-server-darwin-arm64` | launchd |
-| `windows/amd64` | `mcp-server-windows-amd64.exe` | NSSM o Task Scheduler |
+> **Target del producto vs publicado hoy**: la matriz completa es el target de distribución; el único
+> release publicado (v0.3.0, armado a mano) trae **solo** `mcp-appointments-crm_Linux_x86_64.tar.gz`
+> + `checksums.txt`. La publicación multi-plataforma depende del item de GoReleaser en §7.
 
-Distribución: GitHub Releases + `install.sh` que detecta OS/arquitectura (`uname -s` + `uname -m`) y descarga el binario correspondiente.
+| Plataforma | Archive de release (target) | Service manager | Publicado hoy |
+|---|---|---|---|
+| `linux/amd64` | `mcp-appointments-crm_Linux_x86_64.tar.gz` | systemd | ✅ v0.3.0 |
+| `linux/arm64` | `mcp-appointments-crm_Linux_arm64.tar.gz` | systemd | ❌ |
+| `darwin/amd64` | `mcp-appointments-crm_Darwin_x86_64.tar.gz` | launchd | ❌ |
+| `darwin/arm64` | `mcp-appointments-crm_Darwin_arm64.tar.gz` | launchd | ❌ |
+| `windows/amd64` | `mcp-appointments-crm_Windows_x86_64.zip` | NSSM o Task Scheduler | ❌ (tampoco hay path de instalación) |
+
+Todos los archives contienen el binario `mcp-server` (`mcp-server.exe` en Windows).
+Distribución: GitHub Releases + `install.sh` que detecta OS/arquitectura (`uname -s` + `uname -m`) y descarga el archive correspondiente. Los nombres canónicos de archive siguen el templating de GoReleaser (`{ProjectName}_{Os}_{Arch}`) y están fijados en [ADR-0014](../architecture/0014-release-and-deploy-workflow.md).
 
 #### Install Layout (paths por OS)
 
@@ -143,6 +148,8 @@ Install **user-level** (sin root, sin `appuser` dedicado). El servicio corre baj
 | **Logs** | `~/.local/state/mcp-appointments-crm/mcp-server.log` | `~/Library/Logs/MCP Appointments CRM/mcp-server.log` | `%LOCALAPPDATA%\MCP Appointments CRM\Logs\mcp-server.log` |
 | **Service definition** | `~/.config/systemd/user/mcp-appointments-crm.service` | `~/Library/LaunchAgents/com.mcp.appointments.server.plist` | Task Scheduler (carpeta del usuario) |
 
+> **Windows (columna diseñada, no implementada)**: el layout Windows de la tabla es el *diseño* del producto. Hoy **no existe path de instalación que lo materialice**: no hay script de instalación, ni flag de registro de servicio, ni template de Task Scheduler. Ver §7.
+>
 > **Convenciones XDG**: si `XDG_DATA_HOME`, `XDG_CONFIG_HOME` o `XDG_STATE_HOME` están definidas, se respetan como base de los paths de data/config/logs.
 >
 > **24/7 en Linux**: para que el servicio user-level de systemd siga corriendo después de logout, `install.sh` ejecuta automáticamente `loginctl enable-linger <user>` (operación one-time, no afecta el login del usuario). En macOS y Windows, los user-level services/agents/tasks persisten tras logout por defecto.
@@ -1292,7 +1299,8 @@ Override con otro caller_id (debug):
 - `docs/maintenance.md` con el manual de soporte anual
 
 **Definition of Done**:
-- [x] En una máquina con SO soportado (Linux, macOS 13+ o Windows 10+), el comando `curl -fsSL <url> | bash` (o `iwr -useb <url> | iex` en Windows) deja el sistema corriendo en < 5 minutos
+- [x] En una máquina **Linux x86_64**, el comando `curl -fsSL <url> | bash` deja el sistema corriendo en < 5 minutos *(verificado en la VM HomeLab, demo v0.3.0 del 2026-09-10)*
+- [ ] En **macOS 13+** y **Windows 10+** el mismo one-liner deja el sistema corriendo en < 5 minutos — **pendiente**: el release publicado no incluye assets `Darwin` ni `Windows`, y Windows además no tiene path de instalación (§7)
 - [x] El script `backup.sh` está disponible en el repo y en el release, y produce un `.gz` ejecutándose manualmente con `./scripts/backup.sh`
 - [x] El script falla con mensaje claro si los JSON no existen
 - [x] Manual de instalación en español, paso a paso
@@ -1311,7 +1319,8 @@ Override con otro caller_id (debug):
 **Backlog pendiente declarado (verificado en demo 2026-09-10)**:
 - **TUI identidad + seed del owner** (Fase 2+, §3.8.8 / RF9 / ADR-0010; alcance en [ADR-0016](../architecture/0016-admin-tui-scope.md)) — es el desbloqueante del sistema: sin una fila activa en `accounts` todo request MCP termina en 401; el alta de cuentas hoy es SQL manual. Alcance: cuentas, auditoría y cliente-owner; non-goal explícito: no edita perfil, servicios ni horarios/agendas (eso es mantenimiento por Hermes, [ADR-0015](../architecture/0015-hermes-operational-maintenance.md)). Estado real: no existe `admin_tui.go` ni sub-comando `admin`; Bubble Tea no está cableado.
 - ✅ **Setup import wizard → DB RESUELTO (2026-09-11)** — `feat-setup-import` (PRs #72/#73/#74, issue #71 cerrado): el servidor siembra `reservas.db` desde los 3 JSONs en el primer arranque (transacción única, guard `name==''`); arranques siguientes son no-op. Archive `openspec/changes/archive/2026-09-11-feat-setup-import/`.
-- GoReleaser + releases por CI — hoy el empaquetado y la publicación son manuales (demo-plan Paso 1); el asset debe traer binario + `scripts/backup.sh` + templates (contrato que rompió el asset manual de v0.3.0).
+- GoReleaser + releases por CI — hoy el empaquetado y la publicación son manuales (demo-plan Paso 1), y el único release publicado (v0.3.0) trae **un solo binario** (`Linux_x86_64`): macOS y Windows **no son distribuibles** hasta que la matriz multi-plataforma salga por CI. El asset debe traer binario + `scripts/backup.sh` + templates (contrato que rompió el asset manual de v0.3.0).
+- **Instalación y soporte Windows** (Fase 2+; non-goal declarado en Fase 5) — no existe path de instalación: faltan el script de instalación (`scripts/install.ps1` o equivalente), el flag `mcp-server --register-service`, el template de servicio (Task Scheduler XML o NSSM) y la documentación de soporte. Lo único disponible hoy es la guía manual `setup/service/nssm-install.md` (sin validar en CI). Ver [ADR-0014](../architecture/0014-release-and-deploy-workflow.md) Decision 3.
 - Asimetría de day-keys `business_hours` (`"1"`..`"7"`, lunes=1) vs `schedules.day_of_week` (`0`..`6`, domingo=0) — normalizar en un único punto de traducción, con tests (restricción de diseño, ver [ADR-0016](../architecture/0016-admin-tui-scope.md)).
 - **Tools Hermes de mantenimiento de datos operativos** (perfil, servicios, profesionales, horarios/agendas; ver [ADR-0015](../architecture/0015-hermes-operational-maintenance.md)) — el install siembra esos datos en el primer arranque y hoy Hermes no puede modificarlos: los 11 tools MCP son read-only salvo el ciclo de reservas y `mark_alert_as_sent`, y `update_business_profile` no existe en ningún lado. La capa de repositorios ya tiene las mutaciones (`BusinessProfileRepo.Update`, `ServicesRepo.Save/Update/Delete`, etc.), así que el trabajo es wiring + RBAC, no DB. RBAC owner para el MVP, con admin parcial a evaluar durante el SDD. Alcance negativo explícito: no gestiona cuentas (eso es la TUI).
 - Picker de profesional en `Add Staff` — el operador no conoce los UUID que genera el seeder — + prefill del teléfono desde `professionals.phone`.
@@ -1353,7 +1362,7 @@ Override con otro caller_id (debug):
 | # | Dependencia | Tipo | Estado | Owner |
 |---|-------------|------|--------|-------|
 | D1 | Hermes agent con soporte MCP sobre Streamable HTTP | Bloqueante | Externa, se asume disponible | Cliente |
-| D2 | VPS o PC del cliente con SO soportado (Linux, macOS 13+, Windows 10+) | Bloqueante | Aprovisionar por el cliente | Cliente |
+| D2 | VPS o PC del cliente con SO soportado — **hoy solo Linux x86_64**; macOS 13+ y Windows 10+ son target pendiente de release multi-plataforma (§7) | Bloqueante | Aprovisionar por el cliente | Cliente |
 | D3 | Suscripción a un LLM (OpenAI, Anthropic, etc.) | Bloqueante | Aprovisionar por el cliente | Cliente |
 | D4 | Cuenta de WhatsApp Business / Telegram Bot | Paralela | Configurar por el cliente vía Hermes | Cliente |
 | D5 | Librería MCP para Go (oficial o comunitaria) | Bloqueante para Fase 2 | A evaluar al inicio de Fase 2 | Kike |
@@ -1408,3 +1417,4 @@ Override con otro caller_id (debug):
 | 2026-09-04 | 1.11 | Kike | **Fase 4 (install.sh prompts) CERRADA** — PRs #55/#57/#58 (12 REQ, 41 escenarios, 36 tests), receipts RDD quemados, archive `openspec/changes/archive/2026-09-04-feat-install-prompts/`. RF1 y DoD Fase 4 marcados completos; siguiente Fase 5. |
 | 2026-09-06 | 1.12 | Kike | **Fase 5 (install-and-service) CERRADA** — PRs #62/#66/#67/#68 (29 REQs, 5 specs nuevas, receipts RDD quemados incl. 2 correcciones acotadas), archive `openspec/changes/archive/2026-09-06-feat-install-and-service/`. DoD Fase 5 marcado completo (código+tests; VM real y matriz macOS quedan post-merge); siguiente Fase N. |
     | 2026-09-11 | 1.13 | Kike + Gentleman | **Setup import CERRADO (issue #71)** — `feat-setup-import` en 3 PRs chained (#72 loader 1033 LOC, #73 seeder 736 LOC, #74 wiring 11 LOC; sin exception): `internal/config` loader + seeder transaccional + hook en `cmd/mcp-server/main.go`; verify 12/12 REQ 29/29 escenarios, receipts RDD quemados, GGA passed, CI verde. Specs canónicos `setup-loader`/`setup-seeder` nuevos + `business-profile` enmendado; archive `openspec/changes/archive/2026-09-11-feat-setup-import/`. RF1 suma criterio de siembra en primer arranque; backlog Fase N actualizado (quedan TUI+owner seed y GoReleaser). |
+| 2026-09-13 | 1.14 | Kike + Gentleman | **Veracidad de distribución (Windows + release real)** — auditoría del release publicado reveló que v0.3.0 trae **un solo binario** (`mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`), y que los paths Windows documentados (`scripts/install.ps1`, `mcp-server --register-service`, template Task Scheduler) nunca se implementaron: la automatización de Windows fue non-goal declarado de Fase 5 (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004). §3.5: matriz cross-compile con columna "Publicado hoy" y nombres canónicos de archive GoReleaser (antes `mcp-server-linux-amd64`, inexistente); lista de templates sin el XML Windows que no existe; nota de layout Windows como diseñado-no-implementado. §5.1: DoD de Fase 5 separa target de publicado — Linux x86_64 verificado, macOS/Windows marcados pendientes. §6: D2 acota "SO soportado" a Linux x86_64 hoy. §7: nuevo item de backlog "Instalación y soporte Windows" + item GoReleaser precisado con el estado real de distribución. ADR-0014 Decision 3 y `docs/deployment.md` marcados como target no implementado. |

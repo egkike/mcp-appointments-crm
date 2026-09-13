@@ -2,7 +2,8 @@
 
 A high-performance, self-hosted, lightweight **MCP (Model Context Protocol) server**
 for business bookings and CRM. Written in **Go**, backed by **SQLite** with FTS5.
-Runs natively on Linux, macOS, and Windows — no containers, no external services.
+Runs natively on **Linux** and **macOS** — no containers, no external services.
+Windows support is pending (see the scope note below).
 
 ## Status
 
@@ -28,6 +29,8 @@ The MCP server currently exposes 11 tools: `check_availability`, `create_booking
 > **Scope note:** completed phases mean their packs are merged and demo-validated — not that the product has no pending work. Known pending scope (Fase 2+ / Fase N):
 >
 > - **Admin TUI + owner seed** (`mcp-server admin tui`, PRD §3.8.8 / RF9 / ADR-0010, scope in ADR-0016) — designed, not implemented. Account setup today is manual SQL (demo-plan Paso 5).
+> - **Multi-platform release assets** — the published release (v0.3.0) ships a single `Linux_x86_64` binary, so **macOS and Windows are not distributable today**; the 5-platform matrix needs the GoReleaser pipeline (PRD §7).
+> - **Windows install** — no supported path: no `install.ps1`, no `--register-service` flag, no Task Scheduler template, no Windows release asset. Only the manual guide [`setup/service/nssm-install.md`](./setup/service/nssm-install.md) exists (untested in CI). Declared a non-goal of Phase 5 and tracked as pending scope (PRD §7, ADR-0014).
 > - **Hermes maintenance tools** (profile/services/professionals/schedules, ADR-0015) — Hermes cannot modify install-seeded data today; only manual SQL. Wiring + RBAC work, no DB work.
 > - ✅ **Setup import wizard → DB done (2026-09-11)** — PRs [#72](https://github.com/egkike/mcp-appointments-crm/pull/72) / [#73](https://github.com/egkike/mcp-appointments-crm/pull/73) / [#74](https://github.com/egkike/mcp-appointments-crm/pull/74) (issue #71 closed): the server seeds `reservas.db` from the 3 setup JSONs on first boot; later boots are no-ops via guard.
 > - **GoReleaser CI releases** — releases are currently built and published by hand (demo-plan Paso 1); automation is pending.
@@ -65,23 +68,27 @@ Installs the prebuilt binary from GitHub Releases, verifies SHA256, registers a
 user-level service (`systemd --user` on Linux, `launchd` on macOS), enables linger
 on Linux, and checks health at `http://127.0.0.1:3000/mcp`.
 
+> **macOS caveat:** the installer's macOS path is implemented, but the published
+> release (v0.3.0) ships **no `Darwin` asset** — only `Linux_x86_64`. On macOS, build
+> from source until the multi-platform release pipeline lands
+> ([PRD §7](./docs/PRD.md#7-roadmap-por-fases)).
+
 ### Install — Windows
 
-```powershell
-# recommended — builds locally, no SmartScreen "Unknown publisher" dialog, no cert cost
-go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@latest
-# then register as a user-level service
-mcp-server --register-service
+**Not available yet.** There is no supported Windows install path today: no install
+script, no `--register-service` flag, no Task Scheduler template, and no Windows asset
+in the published release. Manual service registration guidance (untested in CI) lives
+in [`setup/service/nssm-install.md`](./setup/service/nssm-install.md).
 
-# alternative — prebuilt EXE (shows SmartScreen warning for unsigned binary)
-irm https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.ps1 | iex
-```
+Tracked as pending scope in [PRD §7](./docs/PRD.md#7-roadmap-por-fases) and
+[ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md) (Decision 3 status
+note).
 
 > See [docs/deployment.md](./docs/deployment.md) for the full runbook (HomeLab VM
 > example, manual download, verification checklist, rollback, troubleshooting) and
 > [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md) for the
-> release rationale (GoReleaser, 5 platforms, checksums, `go install` vs prebuilt
-> EXE trade-offs).
+> release rationale (GoReleaser target of 5 platforms, checksums, `go install` vs
+> prebuilt EXE trade-offs — target design, not yet implemented).
 
 ## Architecture
 
@@ -90,8 +97,8 @@ irm https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/i
 - **TUI**: [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea) ecosystem
 - **Transport**: MCP over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3000` (loopback only) — go-sdk v1.2.0, implemented (`feat-mcp-transport`, archived 2026-08-19)
 - **Install model**: user-level (no root, no `appuser`, no Docker). XDG paths on Linux
-  (`~/.local/share/`, `~/.config/`), platform-native on macOS/Windows. See
-  [docs/PRD.md §3.5](./docs/PRD.md#35-affected-areas) for the full install layout.
+  (`~/.local/share/`, `~/.config/`), platform-native on macOS. The Windows layout is
+  designed in [docs/PRD.md §3.5](./docs/PRD.md#35-affected-areas) but not implemented.
 
 ## Documentation
 

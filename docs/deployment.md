@@ -14,7 +14,8 @@ user-level service, and verify health on `http://127.0.0.1:3000`.
 - Repo: `https://github.com/egkike/mcp-appointments-crm`
 - Install scripts (raw):
   - Unix: `https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh`
-  - Windows: `https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.ps1`
+  - Windows: **not implemented** — there is no `scripts/install.ps1`. See the Windows
+    section below and [ADR-0014](./architecture/0014-release-and-deploy-workflow.md).
 - Default endpoint: `http://127.0.0.1:3000/mcp` (loopback only, see ADR-0007).
 
 ## Release Process
@@ -79,6 +80,11 @@ goreleaser build --snapshot --clean
 ## Artifacts
 
 Each `vX.Y.Z` release publishes 6 files:
+
+> **Published today: only the first two.** The v0.3.0 demo release ships
+> `mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`. The `Darwin` and
+> `Windows` rows are the target contract, produced by the pending GoReleaser pipeline
+> (PRD §7 Fase N).
 
 | File | Platform | Arch | Service manager |
 |---|---|---|---|
@@ -231,8 +237,26 @@ No `loginctl` step on macOS — user LaunchAgents persist after logout by defaul
 
 ## Install — Windows
 
+> **Not available yet.** There is no supported Windows install path today. Everything
+> in this section describes the **target design**, not shipped functionality:
+>
+> - `scripts/install.ps1` does not exist in the repository.
+> - `mcp-server --register-service` is not implemented; the binary only supports
+>   `--version`.
+> - No Windows asset is published — the only release (v0.3.0) ships
+>   `mcp-appointments-crm_Linux_x86_64.tar.gz` and `checksums.txt`.
+> - There is no Task Scheduler template; `setup/service/` ships the systemd unit, the
+>   launchd plist and the manual `nssm-install.md` guide.
+>
+> Windows install automation was declared a non-goal of Fase 5
+> (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004) and is
+> tracked as pending scope in [docs/PRD.md §7](./PRD.md#7-roadmap-por-fases). For manual
+> service registration guidance (untested in CI) see
+> [`setup/service/nssm-install.md`](../setup/service/nssm-install.md).
+
 Two paths. **Primary is `go install`** (no SmartScreen "Unknown publisher" dialog,
-no cert cost). Fallback is `install.ps1` (prebuilt EXE, shows unsigned warning).
+no cert cost). Fallback is `install.ps1` (prebuilt EXE, shows unsigned warning) —
+neither is implemented yet.
 
 ### Primary — `go install` (recommended)
 
@@ -263,7 +287,10 @@ sources over HTTPS and compiles). It never arrives as a downloaded EXE, so it
 never receives a Mark of the Web (MotW) alternate data stream and never triggers
 the SmartScreen publisher-reputation interstitial. No OV/EV certificate required.
 
-### Fallback — `install.ps1` (prebuilt EXE)
+### Fallback — `install.ps1` (prebuilt EXE) — not implemented
+
+> The script below does not exist in the repository. The commands are retained as
+> target-design reference only; see the section note above.
 
 ```powershell
 # latest — downloads mcp-server_windows_amd64.exe from GitHub Releases
@@ -439,11 +466,11 @@ and restart the service. Never use `0.0.0.0`.
 
 ### Windows SmartScreen "Unknown publisher"
 
-Expected for the `install.ps1` (prebuilt unsigned EXE) path. See Windows section
-above. To avoid it entirely, use `go install` which builds locally and never
-carries MotW. If you must use the EXE, click **More info → Run anyway**. The
-install script prints the same guidance. A signed binary would still require
-OV/EV cost plus reputation warm-up and is deferred to a future decision.
+**Not reproducible today**: the path this describes (`install.ps1` downloading an
+unsigned prebuilt EXE) is not implemented and no Windows asset is published. The note
+below is retained as target-design context. To avoid the dialog once Windows ships,
+the `go install` path builds locally and never carries MotW. A signed binary would
+still require OV/EV cost plus reputation warm-up and is deferred to a future decision.
 
 ### Service stops after logout (Linux)
 

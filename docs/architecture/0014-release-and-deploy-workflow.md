@@ -86,8 +86,9 @@ all 5 platforms and both Unix and Windows install paths.
   | `checksums.txt` | — | — | SHA256 for all 5 archives |
 
   Exact archive names follow GoReleaser `{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}` templating.
-  The table above shows the canonical mapping; `install.sh` / `install.ps1` resolve the
-  correct asset at runtime (see Decision 2/3).
+  The table above shows the canonical mapping; `install.sh` resolves the correct asset at
+  runtime (see Decision 2). `install.ps1` is **not implemented** (see the Decision 3
+  status note).
 - **Version injection**: `ldflags` set at build time:
 
   ```yaml
@@ -156,6 +157,25 @@ bash install.sh --version v0.3.0
 ```
 
 ### Decision 3: Windows — `go install` as primary, `irm install.ps1` as fallback
+
+> **Status note (2026-09-13): this decision describes the TARGET, not the implemented
+> state.** None of its two paths is built:
+>
+> - `scripts/install.ps1` does **not** exist in the repository (`scripts/` ships only
+>   `install.sh` and `backup.sh`).
+> - The binary has **no** `--register-service` flag — `cmd/mcp-server/main.go`
+>   implements `--version` only.
+> - There is no Task Scheduler template (`setup/service/` ships the systemd unit, the
+>   launchd plist and the manual `nssm-install.md` guide, nothing else).
+> - The only published release (v0.3.0) contains **no Windows asset**: just
+>   `checksums.txt` and `mcp-appointments-crm_Linux_x86_64.tar.gz`.
+>
+> Windows install automation was declared an explicit **non-goal of Fase 5**
+> (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004:
+> "El instalador MUST NOT automatizar el registro en Windows en esta fase"), and it is
+> now tracked as pending scope in `docs/PRD.md` §7. The only Windows artifact that
+> exists today is the manual guide `setup/service/nssm-install.md`. Re-evaluate this
+> decision when the Windows backlog item is implemented.
 
 Windows has two supported paths. The split directly addresses the SmartScreen/MotW
 cost problem.
@@ -298,6 +318,6 @@ Both Windows paths validate `MCP_BIND` as loopback at startup (ADR-0007) and rea
 - Repository: <https://github.com/egkike/mcp-appointments-crm>
 - Raw install scripts:
   - `https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh`
-  - `https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.ps1`
+  - `scripts/install.ps1` — **not implemented** (see the Decision 3 status note).
 - GoReleaser: <https://goreleaser.com/>
 - gentle-ai release pattern (inspiration, adapted): `curl` for Linux/macOS + `go install` for Windows.

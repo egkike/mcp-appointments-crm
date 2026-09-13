@@ -2,6 +2,8 @@
 
 > Esta guía lleva un VPS limpio (Ubuntu 22.04+ o macOS) hasta tener el servicio `mcp-appointments-crm` activo y respondiendo en `http://127.0.0.1:3000/mcp`.
 >
+> ⚠️ **Assets publicados**: el único release publicado (v0.3.0, armado a mano) trae **solo** `mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`. El camino macOS de `install.sh` está implementado en el script, pero **falla al descargar** porque aún no hay asset `Darwin`; hasta que salga el pipeline multi-plataforma (PRD §7 Fase N), en macOS hay que compilar desde el código. Windows **no tiene path de instalación** todavía ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3).
+>
 > El flujo tiene dos partes: (1) configuración inicial interactiva con el wizard (`curl -fsSLO ... && bash install.sh`, requiere TTY) y (2) despliegue pinned del binario con `install.sh --version vX.Y.Z`. Si ya generaste los JSONs de setup en otra máquina, podés saltar directo al despliegue copiando los archivos al directorio de configuración del host destino.
 
 ---
@@ -71,7 +73,7 @@ Reemplazá `v0.3.0` por el tag exacto que querés instalar. El formato obligator
 2. Rechaza ejecución como root.
 3. Valida que existan `curl`, `tar` y la herramienta SHA256.
 4. Requiere los tres JSONs de setup; si falta alguno, aborta nombrándolo.
-5. Detecta OS y arquitectura (`uname -s` / `uname -m`) y descarga el asset correcto:
+5. Detecta OS y arquitectura (`uname -s` / `uname -m`) y descarga el asset correcto (el mapa soporta `Linux`/`Darwin` × `x86_64`/`arm64`; hoy solo está publicado el de Linux x86_64):
    - `mcp-appointments-crm_Linux_x86_64.tar.gz`
    - `mcp-appointments-crm_Linux_arm64.tar.gz`
    - `mcp-appointments-crm_Darwin_x86_64.tar.gz`
