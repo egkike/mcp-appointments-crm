@@ -9,7 +9,9 @@
 no CGo, no Docker) for 5 targets. Every tagged version produces 5 archives + a
 SHA256 `checksums.txt` on GitHub Releases. Install scripts download the correct
 archive over HTTPS, verify its checksum, install to user-level paths, register a
-user-level service, and verify health on `http://127.0.0.1:3000`.
+user-level service, and verify the installed binary plus the service state. The
+installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3000/healthz`
+(a bare `GET /mcp` answers **405 by design** — the MCP endpoint accepts POST JSON-RPC only).
 
 - Repo: `https://github.com/egkike/mcp-appointments-crm`
 - Install scripts (raw):
@@ -46,7 +48,7 @@ user-level service, and verify health on `http://127.0.0.1:3000`.
    gh release view v0.3.0 --repo egkike/mcp-appointments-crm
    curl -fsSL https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/checksums.txt | cat
    mcp-server --version   # after installing that tag
-   curl --fail http://127.0.0.1:3000/mcp
+   curl --fail http://127.0.0.1:3000/healthz
    ```
 
 No manual asset upload. If the Action fails, delete the remote tag, fix, and re-tag:
@@ -113,12 +115,18 @@ The binary prints the bare version tag so the installer can match it against the
 
 ### One-line (recommended)
 
-```bash
-# latest
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash
+> **Pinning is mandatory.** The installer resolves no `latest` and rejects pre-releases;
+> a piped invocation without `--version` falls through to the interactive wizard, which
+> needs a real terminal, so it aborts with
+> `Error: el modo interactivo requiere una terminal.` and exit 1.
 
-# pinned version
+```bash
+# pinned version (the only supported one-line form)
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
+
+# first-time setup needs the interactive wizard, which cannot be piped —
+# run it in a real terminal instead (see docs/installation.md):
+#   curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh && bash install.sh
 ```
 
 ### HomeLab VM example (Tailscale `100.95.242.72`)
@@ -130,13 +138,14 @@ Tailscale. No Go toolchain is required on the VM.
 # from your workstation, over Tailscale
 ssh kike@100.95.242.72
 
-# on the VM — run the installer
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash
+# on the VM - run the installer, pinned (the wizard step must run earlier in a real
+# terminal; see docs/installation.md)
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
 
 # check
 systemctl --user is-active mcp-appointments-crm
 systemctl --user status mcp-appointments-crm --no-pager
-curl --fail http://127.0.0.1:3000/mcp
+curl --fail http://127.0.0.1:3000/healthz
 ```
 
 ### Manual download (no pipe)
@@ -204,13 +213,18 @@ mcp-server --version
 
 ## Install — macOS
 
-Same `curl | bash` path as Linux (detects `Darwin` via `uname -s`):
+> **Not distributable today.** The published release (v0.3.0) ships **no `Darwin`
+> asset** — only `mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`. The
+> `Darwin` branch of `install.sh` is implemented, but it **fails at download (404)**.
+> On macOS, build from source until the multi-platform release pipeline lands
+> ([PRD §7](./PRD.md#7-roadmap-por-fases), Fase N).
+
+Same `curl | bash` path as Linux, once a `Darwin` asset exists (detects `Darwin` via
+`uname -s`):
 
 ```bash
-# latest
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash
-
-# pinned
+# pinned (required — the installer resolves no `latest` and rejects pre-releases;
+# a piped invocation without --version needs a real terminal and aborts)
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
 ```
 
@@ -221,7 +235,7 @@ Service registration uses `launchd`:
 | Binary | `~/.local/bin/mcp-server` |
 | Data | `~/Library/Application Support/MCP Appointments CRM/` |
 | Config | `~/Library/Application Support/MCP Appointments CRM/setup/` + `.env` |
-| Logs | `~/Library/Logs/MCP Appointments CRM/mcp-server.log` |
+| Logs | `~/Library/Logs/MCP Appointments CRM/mcp-server.out.log` + `mcp-server.err.log` (launchd `StandardOutPath` / `StandardErrorPath`) |
 | Agent plist | `~/Library/LaunchAgents/com.mcp.appointments.server.plist` |
 
 Verification:
@@ -229,7 +243,7 @@ Verification:
 ```bash
 launchctl list | grep com.mcp.appointments
 launchctl print gui/$UID/com.mcp.appointments.server
-curl --fail http://127.0.0.1:3000/mcp
+curl --fail http://127.0.0.1:3000/healthz
 log show --predicate 'process == "mcp-server"' --last 5m
 ```
 
@@ -263,6 +277,8 @@ neither is implemented yet.
 Requires Go once (`winget install Go.Go` or `scoop install go`):
 
 ```powershell
+# NOT IMPLEMENTED — target design only (see the "Not available yet" note above)
+
 # latest
 go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@latest
 
@@ -273,12 +289,13 @@ go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.3.0
 mcp-server --version
 # ensure %USERPROFILE%\go\bin is on PATH
 
-# register as user-level service (Task Scheduler; NSSM if available)
+# register as user-level service (Task Scheduler; NSSM if available) — NOT IMPLEMENTED
 mcp-server --register-service
 # or: mcp-server install-service
 
 # health
 Invoke-RestMethod http://127.0.0.1:3000/mcp
+# NOT IMPLEMENTED — target design only
 Get-ScheduledTask -TaskName "mcp-appointments-crm" | Get-ScheduledTaskInfo
 ```
 
@@ -323,13 +340,15 @@ Get-Content "$env:LOCALAPPDATA\MCP Appointments CRM\Logs\mcp-server.log" -Tail 5
 
 ## Update & Rollback
 
-### Update to latest
+### Update to a newer release
+
+There is no `latest` resolution: pick the newest published tag and pass it explicitly.
 
 ```bash
-# Linux / macOS — re-run installer (idempotent, keeps .env and data)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash
+# Linux / macOS — re-run installer pinned to the target tag (idempotent, keeps .env and data)
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
 
-# Windows primary
+# Windows primary — NOT IMPLEMENTED (target design only; see Install — Windows)
 go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@latest
 ```
 
@@ -339,7 +358,7 @@ go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@latest
 # Linux / macOS
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
 
-# Windows primary
+# Windows primary — NOT IMPLEMENTED (target design only; see Install — Windows)
 go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.3.0
 ```
 
@@ -352,9 +371,9 @@ in `~/.local/share/mcp-appointments-crm/` outside the binary path):
 # example: rollback from v0.4.0 to v0.3.0
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
 systemctl --user restart mcp-appointments-crm
-curl --fail http://127.0.0.1:3000/mcp
+curl --fail http://127.0.0.1:3000/healthz
 
-# Windows
+# Windows — NOT IMPLEMENTED (target design only; see Install — Windows)
 go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.3.0
 Restart-ScheduledTask -TaskName "mcp-appointments-crm"
 ```
@@ -371,12 +390,13 @@ systemctl --user stop mcp-appointments-crm
 gunzip -c ~/.local/share/mcp-appointments-crm/backups/reservas-20260827.db.gz \
   > ~/.local/share/mcp-appointments-crm/reservas.db
 systemctl --user start mcp-appointments-crm
-curl --fail http://127.0.0.1:3000/mcp
+curl --fail http://127.0.0.1:3000/healthz
 ```
 
 ## Verification Checklist
 
-Run after every install or update. All should pass.
+Run after every install or update on Linux/macOS. All should pass. (Windows items are
+not implemented — see the Install — Windows section note.)
 
 ```bash
 # 1. Docker is NOT required (ADR-0001)
@@ -397,11 +417,11 @@ loginctl show-user $USER -p Linger  # expect Linger=yes
 # 5. Service is active
 systemctl --user is-active mcp-appointments-crm  # Linux: active
 # macOS: launchctl list | grep com.mcp.appointments
-# Windows: Get-ScheduledTask -TaskName "mcp-appointments-crm"
+# Windows: NOT IMPLEMENTED — target design only (Get-ScheduledTask -TaskName "mcp-appointments-crm")
 
 # 6. Port and bind
 ss -tlnp | grep 3000  # should show 127.0.0.1:3000, NOT 0.0.0.0:3000
-curl --fail http://127.0.0.1:3000/mcp
+curl --fail http://127.0.0.1:3000/healthz
 # non-loopback must fail at startup (ADR-0007):
 #   MCP_BIND=0.0.0.0 mcp-server  # → Error: MCP_BIND=0.0.0.0 expone el server…
 
@@ -447,7 +467,7 @@ MCP_PORT=3001 mcp-server
 # option B: persist in .env (systemd reads it via EnvironmentFile)
 echo "MCP_PORT=3001" >> ~/.config/mcp-appointments-crm/.env
 systemctl --user restart mcp-appointments-crm
-curl --fail http://127.0.0.1:3001/mcp
+curl --fail http://127.0.0.1:3001/healthz
 # option C: find who holds 3000
 ss -tlnp | grep 3000
 lsof -i :3000

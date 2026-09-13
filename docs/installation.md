@@ -148,6 +148,34 @@ Resultado esperado: HTTP 200 con:
 > buena señal — prueba que el server vive y rutea — pero la verificación de
 > liveness es `/healthz`.
 
+### 3.4 Cuenta owner (obligatoria antes de usar `/mcp`)
+
+Una instalación limpia **no tiene ninguna cuenta owner**. El seeder de arranque
+(`config.SeedOnBoot`) crea `business_profile`, `professionals`, `schedules` y
+`services`, pero **nunca** inserta una fila en `accounts`. Con `accounts` y `clients`
+vacías, todo caller resuelve a `ErrUnauthenticated` y el middleware lo traduce a HTTP
+**401**: mientras no exista una cuenta, **toda** petición a `/mcp` es rechazada con
+401, aunque `/healthz` siga respondiendo 200.
+
+Hoy la única forma de crear el owner es SQL manual (mismo workaround que
+[`demo-plan.md` Paso 5](./demo-plan.md)):
+
+```bash
+DB=~/.local/share/mcp-appointments-crm/reservas.db
+sqlite3 "$DB" "INSERT INTO accounts (id, role, display_name, is_active) VALUES ('owner-demo', 'owner', 'Owner Demo', 1);"
+sqlite3 "$DB" "SELECT id, role, is_active FROM accounts;"
+```
+
+Usá como `X-Caller-Id` el `id` que insertaste (`owner-demo` en el ejemplo); con ese
+valor el handshake del paso siguiente se autentica.
+
+> **Pendiente:** el sub-comando `mcp-server admin tui` reemplazará este seed manual
+> (owner seed gateway, alcance en
+> [ADR-0016](./architecture/0016-admin-tui-scope.md) Decision 1). Todavía no existe:
+> hasta que se implemente, el `INSERT` por `sqlite3` es el camino vigente.
+
+### 3.5 Handshake MCP (requiere la cuenta owner de 3.4)
+
 Verificación opcional del wire MCP (handshake POST `initialize`, sin sesión —
 el server es stateless y no exige `Mcp-Session-Id`):
 
@@ -159,9 +187,11 @@ curl --fail -sS http://127.0.0.1:3000/mcp \
 ```
 
 Debe devolver una respuesta JSON-RPC `initialize` con las capacidades del
-server. Si el server espera otra `protocolVersion`, la respuesta lo indica.
+server. Si el server espera otra `protocolVersion`, la respuesta lo indica. Si la fila
+`owner-demo` no existe en `accounts`, este comando responde **401** en lugar del
+envelope JSON-RPC.
 
-### 3.4 Versión del binario instalado
+### 3.6 Versión del binario instalado
 
 ```bash
 ~/.local/bin/mcp-server --version
@@ -175,7 +205,7 @@ v0.3.0
 
 > **Diferencia clave:** `install.sh --version vX.Y.Z` le dice al instalador qué release descargar; `mcp-server --version` le pregunta al binario instalado qué versión es. Ambos comandos coexisten.
 
-### 3.5 Ubicación de la base de datos de producción
+### 3.7 Ubicación de la base de datos de producción
 
 ```bash
 sqlite3 ~/.local/share/mcp-appointments-crm/reservas.db \
@@ -264,7 +294,7 @@ Editá `~/.config/mcp-appointments-crm/.env` para usar otro puerto, por ejemplo 
 
 ```bash
 systemctl --user restart mcp-appointments-crm
-curl --fail http://127.0.0.1:3001/mcp
+curl --fail http://127.0.0.1:3001/healthz
 ```
 
 ### Error de symlink en `DATA_DIR`, `BIN_DIR` o `LOG_DIR`
