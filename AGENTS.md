@@ -57,7 +57,7 @@ Before staging, committing, or pushing any code to the repository, you **MUST** 
 ### Always Ask Before Commit
 
 After verification passes, ALWAYS ask user:
-- "¿Corremos el gate de verificación (RDD o readback estructural según el routing del Verification & Review Protocol)?"
+- "¿Corremos el gate de verificación (review nativo o readback estructural según el routing del Verification & Review Protocol)?"
 - "¿Hacemos commit?"
 
 Wait for user confirmation before proceeding.
@@ -110,7 +110,7 @@ Wait for user confirmation before proceeding.
    □ Revisar resultado
    □ Correr sdd-verify (conformidad con spec)
    □ Correr el gate según routing (Verification & Review Protocol):
-       default (sensible + funcional medio) → RDD (0/1/4R, 1 corrección acotada)
+       default (sensible + funcional medio) → review nativo
        trivial/docs → readback estructural
        escalada a pedido → JD (2 rondas, solo si owner pide "judgment day")
    □ Si hay issues → Fix → correr el gate de nuevo (sin loop infinito)
@@ -250,21 +250,13 @@ Verification routing is **exclusive**: one path per change, never both by defaul
 
 | Change type | Gate | Notes |
 |-------------|------|-------|
-| **Default** (sensible + funcional medio: auth/RBAC, transport/network HTTP/SSE, DB/schema, new dependencies go.mod, >400 lines, PII, business logic) | RDD (native, receipt-driven) | 0/1/4R lenses auto-scaled to risk, at most 1 scoped correction, immutable receipt authorizes delivery |
+| **Default** (sensible + funcional medio: auth/RBAC, transport/network HTTP/SSE, DB/schema, new dependencies go.mod, >400 lines, PII, business logic) | Native review | mechanics owned by `gentle-ai`; check with `review mode status` / `review status` |
 | **Trivial / docs** | Structural readback | single-file mechanical fixes, documentation |
-| **Escalada a pedido** | JD (2 blind judges) | solo si owner pide explícitamente "judgment day" / "hagamos juicio" o RDD deja dudas — no corre junto a RDD por default |
+| **Escalada a pedido** | JD (2 blind judges) | solo si owner pide explícitamente "judgment day" / "hagamos juicio" — no corre junto al review nativo por default |
 
-- RDD is the default gate; JD is a second-opinion escalation, never run together unless explicitly requested.
-- JD issues no receipt and grants no delivery authority by itself; delivery closes under ordinary repository policy (GGA hooks, CI green, PR review approval). RDD does issue a receipt — delivery requires it when `review mode: on`.
+- Native review is the default gate; JD is a second-opinion escalation, never run together unless explicitly requested.
+- Delivery closes under ordinary repository policy (GGA hooks, CI green, PR review approval).
 - `sdd-verify` always runs before the gate (spec conformance, REQ coverage, tests).
-
-### RDD Gate (native, receipt-driven — simplified v2.5.0)
-
-> **Currently enabled** (`on`, decided by global on `gentle-ai 2.5.0`). The simplified native RDD owns verification applicability, risk, bounded 0/1/4R plan, correction impact and terminal receipt. `gentle-ai review mode disable --scope global` turns it off; `disabled/unmanaged` then follows ordinary policy.
-
-- Runs `gentle-ai review` with lenses scaled to risk (0 / 1 focus / 4R) — orchestrator never selects lenses.
-- Produces an immutable receipt that authorizes delivery (commit/push/PR) for gates `post-apply, pre-commit, pre-push, pre-pr, release`.
-- At most 1 scoped correction per frozen candidate; no loop-until-clean. Post-approval findings are follow-ups for next slice.
 
 ### Judgment Day Process (escalada — solo a pedido)
 
