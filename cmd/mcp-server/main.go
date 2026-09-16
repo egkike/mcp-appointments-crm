@@ -7,6 +7,9 @@
 //   - Wiring the 5 domain use cases with their correct dependency sets
 //   - Serving the MCP streamable-HTTP endpoint (/mcp) and the health probe
 //     (/healthz) on 127.0.0.1:3000, with a graceful 10s drain on SIGTERM/SIGINT
+//   - Dispatching the CLI before serve mode: `admin tui` (identity & accounts,
+//     ADR-0016) and the reserved `hermes chat` run as sub-commands; unknown
+//     arguments fail fast with a semantic error instead of starting the server
 //   - Exiting 0 on a clean shutdown; 1 on any fatal startup or serve failure
 //
 // The transport skeleton (feat-mcp-transport PR 1) served the MCP endpoint
@@ -40,6 +43,15 @@
 //	translator (REQ-AM-WIRED-001/002). mcp.Run owns listen + serve +
 //	graceful shutdown, so the composition root never touches the raw
 //	listener.
+//
+// D6. CLI dispatch (admin-tui T1): main() resolves os.Args[1:] before run().
+//
+//	`--version` keeps its REQ-BVER-001 contract (handled first, untouched);
+//	no argument means serve mode; `admin tui` and `hermes chat` are the only
+//	recognized sub-commands (names frozen by ADR-0016 §5); anything else,
+//	including incomplete sub-commands, is a domain.SemanticError that exits 1.
+//	Sub-commands share loadConfig/openDatabase/newIdentityDeps with serve
+//	mode so the two entry points cannot drift.
 package main
 
 import (
@@ -57,6 +69,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/buildinfo"
 	"github.com/egkike/mcp-appointments-crm/internal/config"
 	"github.com/egkike/mcp-appointments-crm/internal/db"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 	"github.com/egkike/mcp-appointments-crm/internal/mcp"
 	"github.com/egkike/mcp-appointments-crm/internal/repository"
@@ -70,11 +83,120 @@ func main() {
 		return
 	}
 
-	// os.Exit only here, where no defers are pending: run() owns the
+	// os.Exit only here, where no defers are pending: every runner owns its
 	// database handle and always closes it before returning an error.
-	if err := run(); err != nil {
+	if err := executeCLI(os.Args[1:], cliRunners{
+		serve:      run,
+		adminTUI:   runAdminTUI,
+		hermesChat: runHermesChat,
+	}); err != nil {
 		slog.Default().Error("mcp server failed", "error", err)
 		os.Exit(1)
+	}
+}
+
+// ── CLI dispatch (D6) ────────────────────────────────────────────────────
+//
+// The binary is invoked in three ways: bare (serve mode), `admin tui`
+// (operator-facing identity/accounts TUI, ADR-0016) and the reserved
+// `hermes chat`. Dispatch happens before any serve-mode wiring and never falls
+// through from a sub-command into the server.
+
+// commandKind identifies the top-level operation selected on the command line.
+type commandKind int
+
+const (
+	// commandServe is the default: the MCP streamable-HTTP server.
+	commandServe commandKind = iota
+	// commandAdminTUI is `mcp-server admin tui` (ADR-0016 §5).
+	commandAdminTUI
+	// commandHermesChat is `mcp-server hermes chat` (reserved name, ADR-0016 §5).
+	commandHermesChat
+)
+
+// usageHint is the single source of truth for the usage line. Every
+// command-line error carries it (ADR-0016 §5). It stays on one line so it
+// survives slog's structured output without escaped newlines.
+const usageHint = "uso: mcp-server [--version] | mcp-server admin tui | mcp-server hermes chat"
+
+// parseCommand maps the command-line arguments (os.Args[1:]) to the command
+// the binary must run. `--version` never reaches this function: main()
+// short-circuits it first (REQ-BVER-001, wantsVersion).
+//
+// Unknown, incomplete or extra arguments return a *domain.SemanticError
+// instead of silently falling through to serve mode. Fail-fast on unknown
+// arguments is required by ADR-0016 §5.
+func parseCommand(args []string) (commandKind, error) {
+	if len(args) == 0 {
+		return commandServe, nil
+	}
+
+	switch args[0] {
+	case "admin":
+		return parseSubCommand(args, "admin", "tui", commandAdminTUI)
+	case "hermes":
+		return parseSubCommand(args, "hermes", "chat", commandHermesChat)
+	default:
+		return commandServe, invalidArgsError(fmt.Sprintf("argumento desconocido: %q", args[0]))
+	}
+}
+
+// parseSubCommand validates the `<parent> <child>` shape shared by the two
+// sub-command families and reports the semantic error the operator needs
+// (missing child, unknown child, extra arguments).
+func parseSubCommand(args []string, parent, child string, kind commandKind) (commandKind, error) {
+	if len(args) == 1 {
+		return commandServe, invalidArgsError(fmt.Sprintf(
+			"sub-comando faltante para %q: el único sub-comando válido es %q", parent, child))
+	}
+	if args[1] != child {
+		return commandServe, invalidArgsError(fmt.Sprintf(
+			"sub-comando desconocido %q para %q: el único sub-comando válido es %q", args[1], parent, child))
+	}
+	if len(args) > 2 {
+		return commandServe, invalidArgsError(fmt.Sprintf(
+			"argumentos no esperados %q después de %q", args[2:], parent+" "+child))
+	}
+	return kind, nil
+}
+
+// invalidArgsError builds the semantic error for a command-line misuse. It
+// always carries the usage hint.
+func invalidArgsError(detail string) error {
+	return &domain.SemanticError{
+		Code:    domain.ErrCodeInvalidInput,
+		Message: fmt.Sprintf("%s; %s", detail, usageHint),
+	}
+}
+
+// commandRunner is the entry point of one top-level command.
+type commandRunner func() error
+
+// cliRunners binds each command kind to its entry point. main() supplies the
+// real runners; tests inject stubs so dispatch is asserted without a database
+// or a live HTTP server.
+type cliRunners struct {
+	serve      commandRunner
+	adminTUI   commandRunner
+	hermesChat commandRunner
+}
+
+// executeCLI parses args and runs exactly one command. It is the single
+// dispatch point of the binary: a sub-command can never fall through into
+// serve mode, and an invalid invocation runs nothing at all.
+func executeCLI(args []string, runners cliRunners) error {
+	kind, err := parseCommand(args)
+	if err != nil {
+		return err
+	}
+
+	switch kind {
+	case commandAdminTUI:
+		return runners.adminTUI()
+	case commandHermesChat:
+		return runners.hermesChat()
+	default:
+		return runners.serve()
 	}
 }
 
@@ -95,12 +217,10 @@ func run() error {
 	logger := slog.Default()
 
 	// Resolve MCP server configuration: env vars > .env file > defaults.
-	cfg, err := mcp.LoadConfig()
+	cfg, err := loadConfig(logger)
 	if err != nil {
-		return fmt.Errorf("load configuration: %w", err)
+		return err
 	}
-	cfg.Version = buildinfo.Version
-	cfg.Logger = logger
 
 	// Fail fast on a non-loopback bind: the MCP endpoint must never be
 	// reachable beyond this machine.
@@ -108,33 +228,14 @@ func run() error {
 		return fmt.Errorf("bind address is not loopback: %w", err)
 	}
 
-	// D1: Resolve database path — env var overrides default.
-	dbPath := os.Getenv("MCP_DB_PATH")
-	if dbPath == "" {
-		dbPath = "./data/appointments.db"
-	}
-
-	// Open the SQLite database. NewDatabase creates the directory, verifies
-	// pragmas, and runs initSchema — all idempotent.
+	// D1: open the SQLite database (WAL, busy_timeout=5000) through the same
+	// helper the sub-commands use (D6).
 	ctx := context.Background()
-	database, err := db.NewDatabase(ctx, dbPath)
+	database, err := openDatabase(ctx, logger)
 	if err != nil {
-		// GGA W-3: the path stays out of the error string (security
-		// checklist: no internal file paths in error messages) and is
-		// logged as a structured field — operator-facing stderr/journal,
-		// never sent to the MCP client.
-		logger.Error("open database failed", "path", dbPath, "error", err)
-		return fmt.Errorf("open database: %w", err)
+		return err
 	}
-	defer func() {
-		// Intentional: log Close() error but don't change the exit code.
-		// For a server-style binary, a clean shutdown that surfaces a
-		// benign close-time error should NOT flip the systemd unit to
-		// failed. Use os.Exit(1) only for fatal startup errors.
-		if cerr := database.Close(); cerr != nil {
-			logger.Error("failed to close database", "error", cerr)
-		}
-	}()
+	defer closeDatabase(database, logger)
 
 	// Setup import (feat-setup-import): seed the DB from the wizard JSONs on
 	// first boot. Runs in the single-threaded window before repo construction
@@ -152,7 +253,13 @@ func run() error {
 	prosRepo := repository.NewProfessionalsRepo(database.Conn)
 	schedulesRepo := repository.NewSchedulesRepo(database.Conn)
 	servicesRepo := repository.NewServicesRepo(database.Conn)
-	clientsRepo := repository.NewClientsRepo(database.Conn)
+
+	// AccountsRepo + ClientsRepo share one construction site with the
+	// `admin tui` sub-command (T1, ADR-0016 D3.5). Serve mode consumes only the
+	// clients handle: account management deliberately stays outside the MCP
+	// surface (ADR-0010), so the owner seed gateway is the TUI's job alone.
+	identity := newIdentityDeps(database, logger)
+	clientsRepo := identity.clients
 
 	// TASK-FU.3: BookingValidator is stateless — construct once, share between
 	// CreateBookingUseCase and RescheduleBookingUseCase. Both use cases accept
@@ -289,4 +396,125 @@ func run() error {
 		"force_closed", result.ForceClosed,
 	)
 	return nil
+}
+
+// runHermesChat is the entry point of `mcp-server hermes chat`, a name reserved
+// by ADR-0016 §5 for the local Hermes chat (ADR-0012).
+//
+// T1 wires the sub-command only: it validates the shared startup dependencies
+// exactly like serve mode does and then fails fast, so the reserved name never
+// silently degrades into the MCP server.
+func runHermesChat() error {
+	deps, err := openCommandDependencies()
+	if err != nil {
+		return err
+	}
+	defer deps.close()
+
+	return &domain.SemanticError{
+		Code:    domain.ErrCodeInternal,
+		Message: "el chat de Hermes todavía no está implementado (nombre reservado por ADR-0016 §5)",
+	}
+}
+
+// ── Shared startup helpers (D6) ──────────────────────────────────────────
+//
+// Serve mode and the sub-commands must fail for the same reasons, so the
+// startup sequence is factored into the helpers below instead of being
+// duplicated per entry point.
+
+// loadConfig resolves the runtime configuration (env vars > .env file >
+// defaults) and attaches the process logger and build version.
+func loadConfig(logger *slog.Logger) (mcp.Config, error) {
+	cfg, err := mcp.LoadConfig()
+	if err != nil {
+		return mcp.Config{}, fmt.Errorf("load configuration: %w", err)
+	}
+	cfg.Version = buildinfo.Version
+	cfg.Logger = logger
+	return cfg, nil
+}
+
+// commandDependencies bundles the startup dependencies every top-level command
+// shares: the resolved configuration, the process logger and the open SQLite
+// handle. The identity repositories are built from it by newIdentityDeps.
+type commandDependencies struct {
+	config   mcp.Config
+	logger   *slog.Logger
+	database *db.DB
+}
+
+// openCommandDependencies validates and opens the config and database
+// dependencies shared by the sub-commands, in the same order serve mode uses
+// for those two steps (loopback validation stays serve-only: the TUI does not
+// depend on the HTTP transport, ADR-0016 Decision 3.5). The caller MUST call
+// close when done.
+func openCommandDependencies() (*commandDependencies, error) {
+	logger := slog.Default()
+
+	cfg, err := loadConfig(logger)
+	if err != nil {
+		return nil, err
+	}
+
+	database, err := openDatabase(context.Background(), logger)
+	if err != nil {
+		return nil, err
+	}
+
+	return &commandDependencies{config: cfg, logger: logger, database: database}, nil
+}
+
+// close releases the database handle held by the command.
+func (d *commandDependencies) close() {
+	closeDatabase(d.database, d.logger)
+}
+
+// openDatabase resolves the SQLite path (D1: the MCP_DB_PATH env var overrides
+// the ./data/appointments.db default) and opens the database. NewDatabase
+// creates the directory, verifies pragmas, and runs initSchema — all
+// idempotent.
+func openDatabase(ctx context.Context, logger *slog.Logger) (*db.DB, error) {
+	dbPath := os.Getenv("MCP_DB_PATH")
+	if dbPath == "" {
+		dbPath = "./data/appointments.db"
+	}
+
+	database, err := db.NewDatabase(ctx, dbPath)
+	if err != nil {
+		// GGA W-3: the path stays out of the error string (security
+		// checklist: no internal file paths in error messages) and is
+		// logged as a structured field — operator-facing stderr/journal,
+		// never sent to the MCP client.
+		logger.Error("open database failed", "path", dbPath, "error", err)
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	return database, nil
+}
+
+// closeDatabase closes the SQLite handle. Intentional: a close-time error is
+// logged but never returned. For a server-style binary, a clean shutdown that
+// surfaces a benign close-time error should NOT flip the systemd unit to
+// failed; os.Exit(1) is reserved for fatal startup errors (D3).
+func closeDatabase(database *db.DB, logger *slog.Logger) {
+	if cerr := database.Close(); cerr != nil {
+		logger.Error("failed to close database", "error", cerr)
+	}
+}
+
+// identityDeps bundles the account-facing repositories. They are constructed at
+// this single site so serve mode and the `admin tui` sub-command cannot drift
+// in construction style (T1, ADR-0016 D3.5).
+type identityDeps struct {
+	accounts *repository.AccountsRepo
+	clients  *repository.ClientsRepo
+}
+
+// newIdentityDeps constructs the accounts and clients repositories from an
+// already-open database. It does not open connections or run migrations.
+func newIdentityDeps(database *db.DB, logger *slog.Logger) identityDeps {
+	return identityDeps{
+		accounts: repository.NewAccountsRepo(database.Conn, logger),
+		clients:  repository.NewClientsRepo(database.Conn),
+	}
 }
