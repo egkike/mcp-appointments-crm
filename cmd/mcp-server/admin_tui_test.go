@@ -1189,3 +1189,191 @@ func TestRunAdminTUIFlow_DeadendTakenPhoneGivesReactivationGuidance(t *testing.T
 		t.Errorf("owner name = %q, want the stored name (reactivation is not an edit)", owners[0].DisplayName)
 	}
 }
+
+// ── T6: Agregarme como cliente ─────────────────────────────────────────────
+
+// readClient reads one clients row through the production repository, using the
+// same fabricated TUI caller the console flows use. ok is false when the row
+// does not exist.
+func readClient(t *testing.T, dbPath, id string) (*entity.Client, bool) {
+	t.Helper()
+	database, err := db.NewDatabase(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("db.NewDatabase() failed: %v", err)
+	}
+	defer closeDatabase(database, slog.Default())
+
+	clients := repository.NewClientsRepo(database.Conn)
+	client, err := clients.FindByID(admin.TUIContext(context.Background()), id)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return nil, false
+		}
+		t.Fatalf("FindByID(%q) failed: %v", id, err)
+	}
+	return client, true
+}
+
+// countClients counts the clients rows of the installation, so a test can lock
+// the idempotent path without relying on the flow output alone.
+func countClients(t *testing.T, dbPath string) int {
+	t.Helper()
+	database, err := db.NewDatabase(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("db.NewDatabase() failed: %v", err)
+	}
+	defer closeDatabase(database, slog.Default())
+
+	var count int
+	if err := database.Conn.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM clients`).Scan(&count); err != nil {
+		t.Fatalf("count clients rows: %v", err)
+	}
+	return count
+}
+
+// createClientForTest inserts a clients row through the production repository
+// under the fabricated TUI caller, so the conflict paths run against the real
+// UNIQUE(phone) constraint.
+func createClientForTest(t *testing.T, dbPath, id, name, phone string) {
+	t.Helper()
+	database, err := db.NewDatabase(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("db.NewDatabase() failed: %v", err)
+	}
+	defer closeDatabase(database, slog.Default())
+
+	clients := repository.NewClientsRepo(database.Conn)
+	if err := clients.Create(admin.TUIContext(context.Background()), &entity.Client{
+		ID:    id,
+		Name:  name,
+		Phone: phone,
+	}); err != nil {
+		t.Fatalf("create client fixture: %v", err)
+	}
+}
+
+// TestRunAdminTUIFlow_AddSelfAsClientFromMenu covers the whole operator path:
+// menu -> shown account id -> display name -> registered row whose id is the
+// operator phone (what makes the resolver discover the client role).
+func TestRunAdminTUIFlow_AddSelfAsClientFromMenu(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+
+	var out bytes.Buffer
+	stdin := strings.NewReader("6\nDueño Cliente\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"Agregarme como cliente",
+		"Tu teléfono de cuenta es: " + ownerPhone,
+		"Ya podés operar como cliente con este teléfono.",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+
+	client, ok := readClient(t, dbPath, ownerPhone)
+	if !ok {
+		t.Fatalf("no clients row for %q after the flow", ownerPhone)
+	}
+	if client.ID != ownerPhone {
+		t.Errorf("client.ID = %q, want the operator phone %q", client.ID, ownerPhone)
+	}
+	if client.Phone != ownerPhone {
+		t.Errorf("client.Phone = %q, want %q", client.Phone, ownerPhone)
+	}
+	if client.Name != "Dueño Cliente" {
+		t.Errorf("client.Name = %q, want %q", client.Name, "Dueño Cliente")
+	}
+}
+
+// TestRunAdminTUIFlow_AddSelfAsClientIsIdempotent locks the outcome-not-error
+// contract: a second attempt in the same session reports the existing row and
+// returns to the menu without writing again.
+func TestRunAdminTUIFlow_AddSelfAsClientIsIdempotent(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+
+	var out bytes.Buffer
+	stdin := strings.NewReader("6\nDueño Cliente\n6\nDueño Cliente\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if got := strings.Count(out.String(), "Ya podés operar como cliente con este teléfono."); got != 1 {
+		t.Errorf("fresh-registration message count = %d, want 1\noutput: %s", got, out.String())
+	}
+	if !strings.Contains(out.String(), "Ya estabas registrado como cliente con este teléfono.") {
+		t.Errorf("output = %q, want the idempotent outcome message", out.String())
+	}
+	if strings.Contains(out.String(), "Error: ") {
+		t.Errorf("output = %q, want no error for an already-registered operator", out.String())
+	}
+	if got := countClients(t, dbPath); got != 1 {
+		t.Errorf("clients row count = %d, want exactly 1", got)
+	}
+}
+
+// TestRunAdminTUIFlow_AddSelfAsClientConflictReturnsToMenu locks the console
+// contract of a rejected core write: the phone already belongs to another
+// client row, the semantic message is rendered (never driver detail) and the
+// menu reopens instead of aborting the session.
+func TestRunAdminTUIFlow_AddSelfAsClientConflictReturnsToMenu(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	// Same phone, different id: the UUID bootstrap path the add-self flow must
+	// not reuse.
+	createClientForTest(t, dbPath, "uuid-cliente-existente", "Otra Ficha", ownerPhone)
+
+	var out bytes.Buffer
+	stdin := strings.NewReader("6\nDueño Cliente\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v, want the error to return to the menu", err)
+	}
+
+	if !strings.Contains(out.String(), "Error: ") {
+		t.Errorf("output = %q, want the rejected write rendered as an error", out.String())
+	}
+	if !strings.Contains(out.String(), "teléfono ya está registrado como cliente") {
+		t.Errorf("output = %q, want the semantic duplicate-phone message", out.String())
+	}
+	if strings.Contains(out.String(), "constraint") || strings.Contains(out.String(), "UNIQUE") {
+		t.Errorf("output = %q, want no driver detail", out.String())
+	}
+	if !strings.Contains(out.String(), "¿Qué querés hacer?") {
+		t.Errorf("output = %q, want the menu to reopen after the rejected write", out.String())
+	}
+	if got := countClients(t, dbPath); got != 1 {
+		t.Errorf("clients row count = %d, want the pre-existing row only", got)
+	}
+	if _, ok := readClient(t, dbPath, ownerPhone); ok {
+		t.Error("a clients row with the operator id was created despite the phone conflict")
+	}
+}
+
+// TestRunAdminTUIFlow_AddSelfAsClientRepromptsOnBlankName locks the input
+// validation of the flow: a blank display name never reaches the core.
+func TestRunAdminTUIFlow_AddSelfAsClientRepromptsOnBlankName(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+
+	var out bytes.Buffer
+	stdin := strings.NewReader("6\n   \nDueño Cliente\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Error: el nombre para mostrar no puede estar vacío") {
+		t.Errorf("output = %q, want the blank-name rejection", out.String())
+	}
+	if got := countClients(t, dbPath); got != 1 {
+		t.Errorf("clients row count = %d, want exactly 1 after the valid answer", got)
+	}
+}
