@@ -90,9 +90,16 @@ docs/demo-plan.md:142).
       Native review: lineage review-2754520390d5344b (high, 4 lenses + refuter) →
       CRITICAL R4-partial-seed-wedge → 1 bounded correction (EnsureCallerID repair path)
       → targeted validator PASS → **approved**, acknowledged (rev c3e2744b).
-- [ ] **T3 — Professional picker + Add Staff**: list active professionals
-      (`FindActive`), prefill phone, validate against repo; create staff account.
-      Checks: picker data mapping tests, staff creation repo tests (sqlmock).
+- [x] **T3 — Professional picker + Add Staff**: list active professionals
+      (`FindActive` via narrow `ProfessionalsReader` port), prefill phone, validate
+      against the port (FK-less professional_id risk, ADR-0016 D3.2); create staff
+      account. Numbered console menu (dispatch table for T4-T6). **Done 2026-09-16**
+      (delegated worker; +repo fix: isUniqueViolation now classifies 1555 PRIMARY KEY
+      duplicates, with real-SQLite E2E test).
+      Checks OBSERVED: build OK, `go test -race` all green, vet/gofmt clean,
+      golangci-lint 0 issues.
+      Native review: lineage review-b462495fcbd64614 (high, 4 lenses) → **approved**
+      direct, acknowledged (rev 384be134). No refuter, no corrections.
 - [ ] **T4 — Deactivate + List views**: soft delete with confirmation screen;
       read-only list views (all accounts, by role). Checks: repo tests, view-model tests.
 - [ ] **T5 — Transfer Ownership**: 2-step flow (T5a create inactive owner, T5b swap in
@@ -145,7 +152,13 @@ T2 (lineage review-2754520390d5344b, corrected candidate):
   R3-003, R2-unexplained-d1-ref, R2-unexplained-fact-ref, R4-ambiguous-post-commit-failure
   (SUGGESTIONs).
 
+T3 (lineage review-b462495fcbd64614, approved):
+- R1-1 + R4-001 (WARNING) internal/admin/staff.go:137-150 — same region, evaluate with T4.
+- R4-002 (WARNING) cmd/mcp-server/admin_tui.go:183-189.
+- R2-001, R2-002, R2-003, R3-1, R3-2, R3-3 (sqlite_errors.go string-fallback), R4-003
+  (SUGGESTIONs).
+
 ## Next step
 
-T2 delivered: PR #77 (type:feature, Part of #75, CI green, GGA passed on both commits).
-Owner decides merge. Then T3 — professional picker + Add Staff.
+T3 delivered (uncommitted): owner gate decision — commit/PR strategy. Then T4 —
+Deactivate + List views.
