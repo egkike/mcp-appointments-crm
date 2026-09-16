@@ -210,5 +210,7 @@ T6 (lineage review-1f91a6998d859d25, approved):
 
 ## Next step
 
-T6 delivered (uncommitted): owner gate decision — commit/PR strategy. Then T7 — TUI
-assembly (Bubble Tea + go.mod dependency).
+## Next step
+
+T6 delivered: PR #81 (type:feature, Part of #75, CI green). Owner decides merge. Then
+T7 — TUI assembly (Bubble Tea + go.mod dependency).
