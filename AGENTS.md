@@ -68,10 +68,10 @@ Wait for user confirmation before proceeding.
 
 | Type | Examples | Branch | Push Direct to main | PR Required |
 |------|----------|--------|---------------------|------------|
-| **Documentation** | `docs/PRD.md`, `docs/architecture/*.md`, `openspec/changes/*/proposal.md`, `openspec/changes/*/specs/*/spec.md`, `openspec/changes/*/design.md`, `openspec/changes/*/tasks.md`, `openspec/changes/archive/*` | `main` | ✅ Yes | ❌ No |
+| **Documentation** | `docs/**`, `README.md`, and repository tracking docs (`odd/`, `openspec/changes/archive/`) | `main` | ✅ Yes | ❌ No |
 | **Code Changes** | `*.go`, `go.mod`, `go.sum`, `scripts/`, `internal/`, `cmd/` | Feature branch | ❌ No | ✅ Yes |
 
-**Workflow for docs** (including OpenSpec artifacts like `proposal.md`, `specs/*/spec.md`, `design.md`, `tasks.md`):
+**Workflow for docs** (`docs/**`, `README.md`, and tracking docs):
 1. Create a feature branch (e.g., `feat/feat-auth-propose`, `feat/feat-auth-specs`).
 2. Commit the `.md` file(s) on that branch.
 3. Orchestrator shows the changes to the user for review.
@@ -106,9 +106,9 @@ Wait for user confirmation before proceeding.
 1. **Create feature branch:** `git checkout -b feat/<feature-name>`
 2. **For each task:**
    ```
-   □ Delegar implementación (sdd-apply async)
+   □ Delegar implementación (worker async)
    □ Revisar resultado
-   □ Correr sdd-verify (conformidad con spec)
+   □ Verificar el resultado (pipeline + checks funcionales)
    □ Correr el gate según routing (Verification & Review Protocol):
        default (sensible + funcional medio) → review nativo
        trivial/docs → readback estructural
@@ -256,7 +256,7 @@ Verification routing is **exclusive**: one path per change, never both by defaul
 
 - Native review is the default gate; JD is a second-opinion escalation, never run together unless explicitly requested.
 - Delivery closes under ordinary repository policy (GGA hooks, CI green, PR review approval).
-- `sdd-verify` always runs before the gate (spec conformance, REQ coverage, tests).
+- Verification always precedes the gate: full pipeline + applicable functional checks.
 
 ### Judgment Day Process (escalada — solo a pedido)
 
