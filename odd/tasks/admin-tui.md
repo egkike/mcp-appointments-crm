@@ -1,6 +1,6 @@
 # Admin TUI (identity & accounts) — ODD feature
 
-**Status**: in_progress
+**Status**: COMPLETE (2026-09-16)
 **Entry point**: `mcp-server admin tui` (frozen, ADR-0016 §5; binary `mcp-server`, code in `cmd/mcp-server/admin_tui.go`)
 **Scope authority**: ADR-0016 (docs/architecture/0016-admin-tui-scope.md), ADR-0009/0010/0011
 **Workflow**: ODD (chosen over SDD 2026-09-16; ADR-0016 frozen scope serves as the design)
@@ -236,7 +236,10 @@ T7 (lineage review-ed05862ea88d932a, approved):
 
 ## Next step
 
-T8 done → all MVP tasks complete. Feature close-out: owner merge of PR, close issue
-#75, decide console-fallback retirement (separate follow-up), final feature doc wrap +
-Engram session summary. GGA note: `hermes chat` copy in console prints an unimplemented
-sub-command (registered follow-up).
+FEATURE CLOSED 2026-09-16: T1–T8 delivered (PRs #76–#83 merged, squash), issue #75
+closed with the delivery summary. Open follow-ups for future features:
+- Console-fallback retirement (two Spanish copy sources in sync until then)
+- Console copy mentions `hermes chat` (unimplemented sub-command) — future change
+- Real-TTY smoke test on clean install (operator)
+- Non-blocking review follow-ups per task (see each task's section above)
+- Deferred by owner: persisted audit-log view; day-key normalization → ADR-0015
