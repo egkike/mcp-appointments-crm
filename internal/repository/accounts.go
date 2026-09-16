@@ -278,6 +278,144 @@ func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error {
 	return nil
 }
 
+// TransferOwnership atomically moves ownership from the current active owner
+// (fromID) to an existing INACTIVE owner-role account (toID).
+//
+// Both writes run inside ONE transaction, in this order:
+//
+//  1. deactivate fromID;
+//  2. activate toID.
+//
+// The order is load-bearing, not cosmetic: the accounts_single_owner_update
+// trigger (internal/db/schema.go:225-247) fires per statement and aborts when
+// the table would hold two active owners. Activating toID while fromID is still
+// active would therefore abort; with the deactivate first, no statement ever
+// observes two active owners. Because both UPDATEs share the transaction, a
+// failure rolls the pair back and the original owner stays active — the system
+// is never left without an owner.
+//
+// toID's row must already exist with role=owner and is_active=0: preparing it
+// (a fresh owner row, or a promoted staff row) is the caller's responsibility
+// and deliberately stays outside this transaction (ADR-0016 Decision 1).
+//
+// Requires the owner role. Semantic errors carry domain codes: ErrNotFound for
+// a missing fromID/toID, ErrInvalidInput for the wrong role or a self-transfer,
+// ErrConflict for a fromID that is not active or a toID that already is.
+func (r *AccountsRepo) TransferOwnership(ctx context.Context, fromID, toID string) error {
+	if _, err := auth.RequireRole(ctx, auth.RoleOwner); err != nil {
+		return fmt.Errorf("transferir ownership: %w", err)
+	}
+
+	if fromID == "" || toID == "" {
+		return fmt.Errorf("transferir ownership: %w: el owner actual y el sucesor son obligatorios", domain.ErrInvalidInput)
+	}
+	if fromID == toID {
+		return fmt.Errorf("transferir ownership: %w: el owner actual y el sucesor no pueden ser la misma cuenta", domain.ErrInvalidInput)
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("transferir ownership: iniciar la transacción: %w", err)
+	}
+
+	committed := false
+	defer func() {
+		if !committed {
+			// Rollback on every early return: the deferred rollback is what makes
+			// the pair of UPDATEs all-or-nothing.
+			_ = tx.Rollback()
+		}
+	}()
+
+	if err := assertActiveOwnerTx(ctx, tx, fromID); err != nil {
+		return err
+	}
+	if err := assertInactiveOwnerTx(ctx, tx, toID); err != nil {
+		return err
+	}
+
+	if err := updateAccountActiveTx(ctx, tx, fromID, 0); err != nil {
+		return fmt.Errorf("transferir ownership: desactivar al owner actual: %w", err)
+	}
+	if err := updateAccountActiveTx(ctx, tx, toID, 1); err != nil {
+		if isSingleOwnerViolation(err) {
+			return fmt.Errorf("transferir ownership: %w: ya existe un owner activo; la transferencia no se aplicó", domain.ErrConflict)
+		}
+		return fmt.Errorf("transferir ownership: activar al nuevo owner: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("transferir ownership: confirmar la transacción: %w", err)
+	}
+	committed = true
+
+	attrs := auditAttrs(actorFromContext(ctx), toID, string(entity.RoleOwner))
+	attrs = append(attrs, "previous_owner_id", fromID)
+	r.logger.Info("ownership transferred", attrs...)
+	return nil
+}
+
+// assertActiveOwnerTx verifies inside tx that id is an ACTIVE owner-role
+// account, the only valid starting point of a transfer.
+func assertActiveOwnerTx(ctx context.Context, tx *sql.Tx, id string) error {
+	role, active, found, err := accountStateTx(ctx, tx, id)
+	if err != nil {
+		return fmt.Errorf("transferir ownership: leer la cuenta del owner actual: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("transferir ownership: %w: la cuenta del owner actual %q no existe", domain.ErrNotFound, id)
+	}
+	if role != string(entity.RoleOwner) {
+		return fmt.Errorf("transferir ownership: %w: la cuenta %q no tiene rol owner", domain.ErrInvalidInput, id)
+	}
+	if active != 1 {
+		return fmt.Errorf("transferir ownership: %w: la cuenta %q no es un owner activo", domain.ErrConflict, id)
+	}
+	return nil
+}
+
+// assertInactiveOwnerTx verifies inside tx that id already exists as an
+// INACTIVE owner-role account, the only valid transfer target.
+func assertInactiveOwnerTx(ctx context.Context, tx *sql.Tx, id string) error {
+	role, active, found, err := accountStateTx(ctx, tx, id)
+	if err != nil {
+		return fmt.Errorf("transferir ownership: leer la cuenta del sucesor: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("transferir ownership: %w: la cuenta del sucesor %q no existe", domain.ErrNotFound, id)
+	}
+	if role != string(entity.RoleOwner) {
+		return fmt.Errorf("transferir ownership: %w: la cuenta %q no tiene rol owner; preparala antes de transferir", domain.ErrInvalidInput, id)
+	}
+	if active != 0 {
+		return fmt.Errorf("transferir ownership: %w: la cuenta %q ya está activa", domain.ErrConflict, id)
+	}
+	return nil
+}
+
+// accountStateTx reads the (role, is_active) pair of one account inside tx.
+// found is false when the row does not exist.
+func accountStateTx(ctx context.Context, tx *sql.Tx, id string) (role string, active int, found bool, err error) {
+	err = tx.QueryRowContext(ctx, `SELECT role, is_active FROM accounts WHERE id = ?`, id).Scan(&role, &active)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, false, nil
+	}
+	if err != nil {
+		return "", 0, false, err
+	}
+	return role, active, true, nil
+}
+
+// updateAccountActiveTx flips one account's is_active flag inside tx. A single
+// parameterized statement serves both halves of the transfer.
+func updateAccountActiveTx(ctx context.Context, tx *sql.Tx, id string, active int) error {
+	_, err := tx.ExecContext(ctx,
+		`UPDATE accounts SET is_active = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`,
+		active, id,
+	)
+	return err
+}
+
 // IsActive checks if an account is active. Returns (false, nil) for missing rows — NOT domain.ErrNotFound.
 // Requires an authenticated caller.
 func (r *AccountsRepo) IsActive(ctx context.Context, id string) (bool, error) {
