@@ -7,11 +7,18 @@ import (
 	"modernc.org/sqlite"
 )
 
-// sqliteConstraintUnique is the SQLite extended result code for
-// SQLITE_CONSTRAINT_UNIQUE.
-const sqliteConstraintUnique = 2067
+// SQLite extended result codes that mean "duplicate key" for this schema.
+// accounts.id is TEXT PRIMARY KEY and clients.phone is UNIQUE, so a duplicate
+// insert surfaces as SQLITE_CONSTRAINT_PRIMARYKEY (1555) for accounts.id or
+// SQLITE_CONSTRAINT_UNIQUE (2067) for clients.phone. Both codes mean "id/phone
+// already exists" and map to domain.ErrConflict.
+const (
+	sqliteConstraintUnique     = 2067
+	sqliteConstraintPrimaryKey = 1555
+)
 
-// isUniqueViolation checks whether err is a SQLite UNIQUE constraint error.
+// isUniqueViolation checks whether err is a duplicate-key constraint error
+// (UNIQUE or PRIMARY KEY).
 // Primary path: typed check via *sqlite.Error.Code() for reliability.
 // Fallback: string match for drivers that don't expose *sqlite.Error
 // (e.g., go-sqlmock in tests).
@@ -21,9 +28,12 @@ func isUniqueViolation(err error) bool {
 	}
 	var sqliteErr *sqlite.Error
 	if errors.As(err, &sqliteErr) {
-		return sqliteErr.Code() == sqliteConstraintUnique
+		code := sqliteErr.Code()
+		return code == sqliteConstraintUnique || code == sqliteConstraintPrimaryKey
 	}
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE constraint failed") ||
+		strings.Contains(msg, "PRIMARY KEY constraint failed")
 }
 
 // isSingleOwnerViolation checks if the error is the SQLite single-owner trigger.
