@@ -9,9 +9,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
 // runAdminTUI is the entry point of `mcp-server admin tui`, the operator-facing
@@ -38,7 +40,8 @@ func runAdminTUI() error {
 //     invalid input, creates the owner through admin.Seed and writes
 //     <config-dir>/caller-id;
 //  5. once the seed gate is resolved, opens the numbered operator menu where
-//     each capability (Add Staff first) is a self-contained action.
+//     each capability (Add Staff, Deactivate, List views) is a self-contained
+//     action.
 //
 // One scanner is shared by the questionnaire and the menu on purpose: two
 // scanners over the same stream would let the first one buffer the answers the
@@ -144,11 +147,14 @@ type adminMenuOption struct {
 }
 
 // adminMenuOptions is the single dispatch table of the console menu. Landing
-// T4-T6 appends an entry here instead of adding branches to runAdminTUIFlow, so
+// T5-T6 appends an entry here instead of adding branches to runAdminTUIFlow, so
 // the menu stays trivial to grow.
 func adminMenuOptions() []adminMenuOption {
 	return []adminMenuOption{
 		{key: "1", label: "Add Staff", action: runAddStaffFlow},
+		{key: "2", label: "Desactivar cuenta", action: runDeactivateAccountFlow},
+		{key: "3", label: "Listar cuentas", action: runListAllAccountsFlow},
+		{key: "4", label: "Listar por rol", action: runListByRoleFlow},
 	}
 }
 
@@ -253,7 +259,7 @@ func runAddStaffFlow(ctx context.Context, identity identityDeps, scanner *bufio.
 		}
 	}
 
-	selected, err := promptSelection(scanner, stdout, len(candidates))
+	selected, err := promptIndex(scanner, stdout, "Elegí un profesional", len(candidates))
 	if err != nil {
 		return err
 	}
@@ -281,11 +287,200 @@ func runAddStaffFlow(ctx context.Context, identity identityDeps, scanner *bufio.
 		displayName, phone, professional.Name)
 }
 
-// promptSelection reads a 1-based index into the picker list and re-prompts
-// while the answer is not a number inside the range.
-func promptSelection(scanner *bufio.Scanner, stdout io.Writer, count int) (int, error) {
+// runDeactivateAccountFlow drives the Deactivate capability (ADR-0016
+// Decision 1): list the ACTIVE accounts, let the operator pick one by number,
+// require an explicit confirmation and soft-delete it through
+// admin.DeactivateAccount.
+//
+// The picker shows role and phone on purpose: the operator must recognise which
+// row they are about to deactivate before confirming. The single-owner
+// invariant is enforced by the core, so a last-owner attempt returns to the
+// menu as a semantic error without writing anything.
+//
+// The picker snapshot is display-only: admin.DeactivateAccount re-reads the
+// accounts before writing, so the guard always runs against the current state
+// and not against the list the operator saw.
+func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+	views, err := admin.ListAccounts(ctx, identity.accounts, admin.ListFilter{})
+	if err != nil {
+		return err
+	}
+	if len(views) == 0 {
+		return writeConsole(stdout, "No hay cuentas activas para desactivar.\n")
+	}
+
+	if err := writeConsole(stdout, "Cuentas activas:\n"); err != nil {
+		return err
+	}
+	for i, view := range views {
+		if err := writeConsole(stdout, "  [%d] %s\n", i+1, accountLabel(view)); err != nil {
+			return err
+		}
+	}
+
+	index, err := promptIndex(scanner, stdout, "Elegí la cuenta a desactivar", len(views))
+	if err != nil {
+		return err
+	}
+	selected := views[index-1]
+
+	confirmed, err := promptConfirm(scanner, stdout,
+		fmt.Sprintf("Esta acción desactiva la cuenta %s. ¿Confirmar?", accountLabel(selected)))
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return writeConsole(stdout, "Operación cancelada: no se desactivó ninguna cuenta.\n")
+	}
+
+	outcome, err := admin.DeactivateAccount(ctx, identity.accounts, selected.ID)
+	if err != nil {
+		return err
+	}
+	if outcome.AlreadyInactive {
+		return writeConsole(stdout, "La cuenta ya estaba inactiva: %s\n", accountLabel(outcome.Account))
+	}
+	return writeConsole(stdout, "Cuenta desactivada: %s\n", accountLabel(outcome.Account))
+}
+
+// accountLabel renders one account for the operator: the display name the human
+// recognises, plus the role and the phone, the two fields that cannot be
+// guessed from the name.
+func accountLabel(view admin.AccountView) string {
+	return fmt.Sprintf("%s (%s, %s)", view.DisplayName, view.Role, view.ID)
+}
+
+// listableRoles is the role sub-menu of the "Listar por rol" flow. It mirrors
+// the domain enumeration (ADR-0009) in menu order; the core validates the
+// selected role again before any port call.
+var listableRoles = [...]entity.AccountRole{entity.RoleOwner, entity.RoleAdmin, entity.RoleStaff}
+
+// runListAllAccountsFlow renders the "all accounts" view (ADR-0016
+// Decision 1), asking first whether the soft-deleted rows must show up.
+func runListAllAccountsFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+	includeInactive, err := promptConfirm(scanner, stdout, "¿Incluir las cuentas inactivas?")
+	if err != nil {
+		return err
+	}
+	return renderAccountList(ctx, identity, stdout, admin.ListFilter{IncludeInactive: includeInactive})
+}
+
+// runListByRoleFlow renders the role-filtered view: the operator picks a role
+// from the frozen sub-menu and then decides whether inactive rows show up.
+func runListByRoleFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+	if err := writeConsole(stdout, "Roles disponibles:\n"); err != nil {
+		return err
+	}
+	for i, role := range listableRoles {
+		if err := writeConsole(stdout, "  [%d] %s\n", i+1, role); err != nil {
+			return err
+		}
+	}
+
+	index, err := promptIndex(scanner, stdout, "Elegí el rol", len(listableRoles))
+	if err != nil {
+		return err
+	}
+	role := listableRoles[index-1]
+
+	includeInactive, err := promptConfirm(scanner, stdout, "¿Incluir las cuentas inactivas?")
+	if err != nil {
+		return err
+	}
+	return renderAccountList(ctx, identity, stdout, admin.ListFilter{Role: role, IncludeInactive: includeInactive})
+}
+
+// renderAccountList reads the selected view through the core and prints it as a
+// read-only table. An empty result is a normal outcome, not an error: a role
+// with no account is a legitimate answer to the operator's question.
+func renderAccountList(ctx context.Context, identity identityDeps, stdout io.Writer, filter admin.ListFilter) error {
+	views, err := admin.ListAccounts(ctx, identity.accounts, filter)
+	if err != nil {
+		return err
+	}
+	if len(views) == 0 {
+		return writeConsole(stdout, "No hay cuentas para mostrar.\n")
+	}
+	return writeAccountTable(stdout, views)
+}
+
+// writeAccountTable renders the list views as a fixed-width table so the
+// operator can scan roles and state without parsing prose. Column widths are
+// computed from the rows by rune count (display names carry accents) and every
+// cell is written through writeConsole, so the console keeps a single write
+// path.
+func writeAccountTable(stdout io.Writer, views []admin.AccountView) error {
+	headers := [5]string{"TELÉFONO", "ROL", "NOMBRE", "PROFESIONAL", "ESTADO"}
+	var widths [5]int
+	for i, header := range headers {
+		widths[i] = utf8.RuneCountInString(header)
+	}
+
+	rows := make([][5]string, 0, len(views))
+	for _, view := range views {
+		row := [5]string{view.ID, string(view.Role), view.DisplayName, professionalColumn(view), stateColumn(view)}
+		for i, cell := range row {
+			if width := utf8.RuneCountInString(cell); width > widths[i] {
+				widths[i] = width
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	if err := writeConsole(stdout, "%s\n", formatAccountRow(headers, widths)); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := writeConsole(stdout, "%s\n", formatAccountRow(row, widths)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// formatAccountRow pads every column to its width; a cell longer than its
+// column is never truncated, because hiding operator data to keep a table tidy
+// would be a silent lie.
+func formatAccountRow(cells [5]string, widths [5]int) string {
+	padded := make([]string, 0, len(cells))
+	for i, cell := range cells {
+		padded = append(padded, padCell(cell, widths[i]))
+	}
+	return strings.Join(padded, "  ")
+}
+
+// padCell right-pads a cell with spaces up to width, measured in runes.
+func padCell(cell string, width int) string {
+	if shortfall := width - utf8.RuneCountInString(cell); shortfall > 0 {
+		return cell + strings.Repeat(" ", shortfall)
+	}
+	return cell
+}
+
+// professionalColumn renders the account's professional reference, or "-" when
+// the account has none (owner and admin accounts).
+func professionalColumn(view admin.AccountView) string {
+	if view.ProfessionalID == "" {
+		return "-"
+	}
+	return view.ProfessionalID
+}
+
+// stateColumn renders the soft-delete (is_active) state in the operator's
+// language instead of the raw 0/1 of the column.
+func stateColumn(view admin.AccountView) string {
+	if view.Active {
+		return "activa"
+	}
+	return "inactiva"
+}
+
+// promptIndex reads a 1-based index into a numbered list and re-prompts while
+// the answer is not a number inside the range. label names the list, so the
+// same helper serves the professional, account and role pickers.
+func promptIndex(scanner *bufio.Scanner, stdout io.Writer, label string, count int) (int, error) {
 	for {
-		if err := writeConsole(stdout, "Elegí un profesional [1-%d]: ", count); err != nil {
+		if err := writeConsole(stdout, "%s [1-%d]: ", label, count); err != nil {
 			return 0, err
 		}
 		if !scanner.Scan() {
@@ -318,6 +513,39 @@ func writeConsole(stdout io.Writer, format string, args ...any) error {
 		}
 	}
 	return nil
+}
+
+// promptConfirm renders a yes/no question and returns true only for an explicit
+// affirmative answer. Anything that is neither a yes nor a no is re-prompted: a
+// typo must never be read as consent for a destructive action. A "no" is a
+// decision, not an error — the caller decides what the cancellation prints.
+//
+// An interrupted stream aborts the flow with the same semantic error as the
+// other prompts: nothing is written on a half-answered confirmation.
+func promptConfirm(scanner *bufio.Scanner, stdout io.Writer, question string) (bool, error) {
+	for {
+		if err := writeConsole(stdout, "%s (s/n): ", question); err != nil {
+			return false, err
+		}
+
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				return false, fmt.Errorf("leer la entrada del operador: %w", err)
+			}
+			return false, errInputAborted
+		}
+
+		switch strings.ToLower(strings.TrimSpace(scanner.Text())) {
+		case "s", "si", "sí":
+			return true, nil
+		case "n", "no":
+			return false, nil
+		default:
+			if err := writeConsole(stdout, "Error: respondé \"s\" o \"n\"\n"); err != nil {
+				return false, err
+			}
+		}
+	}
 }
 
 // promptSeedInput drives the minimal line-based seed questionnaire. The

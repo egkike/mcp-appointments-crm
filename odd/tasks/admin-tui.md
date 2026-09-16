@@ -100,8 +100,16 @@ docs/demo-plan.md:142).
       golangci-lint 0 issues.
       Native review: lineage review-b462495fcbd64614 (high, 4 lenses) → **approved**
       direct, acknowledged (rev 384be134). No refuter, no corrections.
-- [ ] **T4 — Deactivate + List views**: soft delete with confirmation screen;
-      read-only list views (all accounts, by role). Checks: repo tests, view-model tests.
+- [x] **T4 — Deactivate + List views**: soft delete with confirmation screen (explicit
+      "s" required, anything else = no consent); read-only list views (all accounts,
+      by role) with inactive opt-in; `DeactivateAccount` refuses to soft-delete the LAST
+      active owner (`ErrLastActiveOwner`, primary protection — DB triggers don't cover
+      deactivate; documented). **Done 2026-09-16** (delegated worker; follow-up folds
+      R4-002 and R1-1/R4-001 skipped — finding text unavailable, remain open).
+      Checks OBSERVED: build OK, `go test -race` all green (76 PASS incl. 23 new),
+      vet/gofmt clean, golangci-lint 0 issues.
+      Native review: lineage review-fa6dc6eb86b40017 (medium, 1 lens reliability) →
+      **approved** direct, acknowledged (rev bfdb77f6).
 - [ ] **T5 — Transfer Ownership**: 2-step flow (T5a create inactive owner, T5b swap in
       transaction), single-owner invariant verified, audit via existing slog attrs.
       Checks: invariant tests (attempt two active owners → conflict), transaction tests.
@@ -160,7 +168,15 @@ T3 (lineage review-b462495fcbd64614, approved):
 
 ## Next step
 
+T4 (lineage review-fa6dc6eb86b40017, approved):
+- R3-race-driver-dump (WARNING) internal/admin/accounts.go:198-199 — concurrent state
+  change between snapshot and UPDATE surfaces driver text; bounded single-operator window.
+- R3-confirm-eof-uncovered, R3-deactivate-branches-uncovered, R3-stale-outcome-state
+  (SUGGESTIONs).
+
 ## Next step
 
-T3 delivered: PR #78 (type:feature, Part of #75, CI green, GGA passed). Owner decides
-merge. Then T4 — Deactivate + List views.
+## Next step
+
+T4 delivered: PR #79 (type:feature, Part of #75, CI green, GGA passed). Owner decides
+merge. Then T5 — Transfer Ownership (fold R4-deactivated-owner-seed-deadend).
