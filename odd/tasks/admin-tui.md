@@ -147,5 +147,5 @@ T2 (lineage review-2754520390d5344b, corrected candidate):
 
 ## Next step
 
-T2 delivered (uncommitted): owner gate decision — commit/PR strategy for T2 (~1070 + 197
-diff lines, tests ≈ 60%). Then T3 — professional picker + Add Staff.
+T2 delivered: PR #77 (type:feature, Part of #75, CI green, GGA passed on both commits).
+Owner decides merge. Then T3 — professional picker + Add Staff.
