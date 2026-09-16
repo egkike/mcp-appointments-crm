@@ -176,5 +176,7 @@ T4 (lineage review-fa6dc6eb86b40017, approved):
 
 ## Next step
 
-T4 delivered (uncommitted): owner gate decision — commit/PR strategy. Then T5 —
-Transfer Ownership (fold R4-deactivated-owner-seed-deadend).
+## Next step
+
+T4 delivered: PR #79 (type:feature, Part of #75, CI green, GGA passed). Owner decides
+merge. Then T5 — Transfer Ownership (fold R4-deactivated-owner-seed-deadend).
