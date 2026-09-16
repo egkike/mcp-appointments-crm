@@ -228,6 +228,7 @@ T7 (lineage review-ed05862ea88d932a, approved):
 
 ## Next step
 
-T7 delivered (uncommitted): owner gate decision — commit/PR strategy (~3400 diff lines +
-go.mod). Then T8 — Docs (README + installation §3.4 + demo-plan), then feature close
-(issue #75).
+## Next step
+
+T7 delivered: PR #82 (type:feature, Part of #75, CI green, GGA passed first try). Owner
+merge + real-TTY smoke test. Then T8 — Docs, and feature close (issue #75).
