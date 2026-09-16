@@ -77,12 +77,19 @@ docs/demo-plan.md:142).
       runHermesChat stub lives in main.go (reserved name).
       ⚠ Review budget: candidate is ~557 diff lines (> 400 budget; tests ≈66%) →
       owner accepted explicit `size:exception` for this slice at delivery.
-- [ ] **T2 — Owner seed gateway**: first-boot flow: detect zero active owners → guided
-      creation (phone validated, display_name, professional_id optional via picker) →
-      `AccountsRepo.Create` under fabricated owner Caller → write `caller-id` file
-      (0600, `~/.config/mcp-appointments-crm/caller-id` or `MCP_CONFIG_DIR` override).
-      Re-seed attempt (owner exists) → offer transfer/exit, never duplicate.
-      Checks: unit tests for seed decision + file writer (tmp dir), phone validation.
+- [x] **T2 — Owner seed gateway**: first-boot flow: detect zero active owners → guided
+      console creation (phone validated via entity.Client.HasValidPhone, display_name) →
+      `AccountsRepo.Create` under fabricated owner Caller (`admin.TUICaller`, ADR-0016 D3.1)
+      → write `caller-id` file (0600, `~/.config/mcp-appointments-crm/caller-id`,
+      `MCP_CONFIG_DIR` override). Owner exists → semantic message + exit 0, with
+      `admin.EnsureCallerID` repair of a missing file (R4-partial-seed-wedge fix).
+      **Done 2026-09-16** (delegated worker + 1 authorized assertion fix + lint fixes +
+      1 bounded review correction, 197/200 diff lines).
+      Checks OBSERVED: build OK, `go test -race` all green (internal/admin 19 tests + cmd),
+      vet/gofmt clean, golangci-lint 0 issues.
+      Native review: lineage review-2754520390d5344b (high, 4 lenses + refuter) →
+      CRITICAL R4-partial-seed-wedge → 1 bounded correction (EnsureCallerID repair path)
+      → targeted validator PASS → **approved**, acknowledged (rev c3e2744b).
 - [ ] **T3 — Professional picker + Add Staff**: list active professionals
       (`FindActive`), prefill phone, validate against repo; create staff account.
       Checks: picker data mapping tests, staff creation repo tests (sqlmock).
@@ -122,13 +129,23 @@ docs/demo-plan.md:142).
 
 ## Review follow-ups (non-blocking, informational — fold into later tasks)
 
-- R2-misleading-wiring-proof (WARNING) cmd/mcp-server/admin_tui.go:26-29 — discard comment
-  reads like proof; clarify when T2 consumes newIdentityDeps.
-- R4-1 (WARNING) cmd/mcp-server/admin_tui.go:19-24 — dependency-validation message wording.
+T1 (fold candidates: T7 assembly / T8 docs):
+- R2-misleading-wiring-proof (WARNING) cmd/mcp-server/admin_tui.go — resolved by T2 rewrite.
+- R4-1 (WARNING) cmd/mcp-server/admin_tui.go:19-24 — superseded by T2 rewrite.
 - R2-implicit-serve-on-error main.go:149-163; R3-1 main_test.go:262-266; R3-2 main.go:404-407;
-  R3-3 main.go:472-476; R4-2 main.go:88-92; R4-3 admin_tui.go:31 (SUGGESTIONs).
+  R3-3 main.go:472-476; R4-2 main.go:88-92 (SUGGESTIONs).
+
+T2 (lineage review-2754520390d5344b, corrected candidate):
+- R4-deactivated-owner-seed-deadend (WARNING) internal/admin/seed.go:52-63 — NeedsSeed counts
+  only ACTIVE owners; a deactivated owner blocks seeding but needs-seed says false. Candidate
+  follow-up with T5 transfer flow.
+- R2-conflict-classification (WARNING) internal/admin/seed.go:129-135; R3-001 (WARNING)
+  cmd/mcp-server/admin_tui.go:57-64.
+- R1-symlink-and-mode-window + R4-callerid-loose-mode-window (config.go:99-113); R3-002,
+  R3-003, R2-unexplained-d1-ref, R2-unexplained-fact-ref, R4-ambiguous-post-commit-failure
+  (SUGGESTIONs).
 
 ## Next step
 
-T1 delivered: issue #75 (status:approved) + PR #76 (type:feature, CI green). Owner decides
-merge. Next task: T2 — owner seed gateway.
+T2 delivered: PR #77 (type:feature, Part of #75, CI green, GGA passed on both commits).
+Owner decides merge. Then T3 — professional picker + Add Staff.
