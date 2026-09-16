@@ -197,5 +197,7 @@ T5 (lineage review-bf7eb306e7b15b1b, approved):
 
 ## Next step
 
-T5 delivered (uncommitted): owner gate decision — commit/PR strategy (~2416 diff lines).
-Then T6 — Add Yourself as Client.
+## Next step
+
+T5 delivered: PR #80 (type:feature, Part of #75, CI green). Owner decides merge. Then
+T6 — Add Yourself as Client.
