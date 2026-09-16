@@ -504,17 +504,21 @@ func closeDatabase(database *db.DB, logger *slog.Logger) {
 
 // identityDeps bundles the account-facing repositories. They are constructed at
 // this single site so serve mode and the `admin tui` sub-command cannot drift
-// in construction style (T1, ADR-0016 D3.5).
+// in construction style (T1, ADR-0016 D3.5). The professionals handle backs the
+// Add Staff picker (T3).
 type identityDeps struct {
-	accounts *repository.AccountsRepo
-	clients  *repository.ClientsRepo
+	accounts      *repository.AccountsRepo
+	clients       *repository.ClientsRepo
+	professionals *repository.ProfessionalsRepo
 }
 
-// newIdentityDeps constructs the accounts and clients repositories from an
-// already-open database. It does not open connections or run migrations.
+// newIdentityDeps constructs the accounts, clients and professionals
+// repositories from an already-open database. It does not open connections or
+// run migrations.
 func newIdentityDeps(database *db.DB, logger *slog.Logger) identityDeps {
 	return identityDeps{
-		accounts: repository.NewAccountsRepo(database.Conn, logger),
-		clients:  repository.NewClientsRepo(database.Conn),
+		accounts:      repository.NewAccountsRepo(database.Conn, logger),
+		clients:       repository.NewClientsRepo(database.Conn),
+		professionals: repository.NewProfessionalsRepo(database.Conn),
 	}
 }

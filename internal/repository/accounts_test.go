@@ -294,6 +294,35 @@ func TestAccountsRepo_Create_UniqueViolation_ErrConflict(t *testing.T) {
 	}
 }
 
+// TestAccountsRepo_Create_DuplicateID_PrimaryKey_ErrConflict_RealSQLite covers the
+// operator-facing path end to end: accounts.id is TEXT PRIMARY KEY, so a duplicate
+// insert raises SQLITE_CONSTRAINT_PRIMARYKEY (1555) on a real database, which must
+// surface as domain.ErrConflict with the semantic message — never as raw driver text.
+func TestAccountsRepo_Create_DuplicateID_PrimaryKey_ErrConflict_RealSQLite(t *testing.T) {
+	// Real tmp-file SQLite in WAL mode running the production schema (tmp WAL file,
+	// not :memory:, so the driver reports the same extended result codes as
+	// production). Helper defined in bookings_aggregate_test.go.
+	db, cleanup := newAggregateTestDB(t)
+	defer cleanup()
+
+	logger, _ := newTestLogger()
+	repo := NewAccountsRepo(db, logger)
+
+	first := &entity.Account{ID: "+5491100001111", Role: entity.RoleAdmin, DisplayName: "First", Active: true}
+	if err := repo.Create(adminCtx(), first); err != nil {
+		t.Fatalf("first Create: unexpected error: %v", err)
+	}
+
+	dup := &entity.Account{ID: "+5491100001111", Role: entity.RoleAdmin, DisplayName: "Dup", Active: true}
+	err := repo.Create(adminCtx(), dup)
+	if !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected domain.ErrConflict, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "ya existe una cuenta con id") {
+		t.Errorf("error should carry the semantic conflict message, got %v", err)
+	}
+}
+
 func TestAccountsRepo_Create_DBError_Wrapped(t *testing.T) {
 	repo, mock, _ := newRepoWithMock(t)
 

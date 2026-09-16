@@ -139,6 +139,25 @@ func TestIsUniqueViolation(t *testing.T) {
 		t.Fatal("expected UNIQUE violation error, got nil")
 	}
 
+	// Trigger a real *sqlite.Error with SQLITE_CONSTRAINT_PRIMARYKEY (1555)
+	// via a duplicate TEXT PRIMARY KEY, mirroring accounts.id.
+	if _, err := db.ExecContext(ctx, "CREATE TABLE pk (id TEXT PRIMARY KEY)"); err != nil {
+		t.Fatalf("create pk table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "INSERT INTO pk (id) VALUES ('dup')"); err != nil {
+		t.Fatalf("insert pk: %v", err)
+	}
+	_, primaryKeyErr := db.ExecContext(ctx, "INSERT INTO pk (id) VALUES ('dup')")
+	if primaryKeyErr == nil {
+		t.Fatal("expected PRIMARY KEY violation error, got nil")
+	}
+	// Guard the driver contract: if SQLite stops reporting code 1555 for a TEXT
+	// PRIMARY KEY duplicate, this case must fail loudly instead of silently
+	// re-covering the 2067 path.
+	if !strings.Contains(primaryKeyErr.Error(), "(1555)") {
+		t.Fatalf("expected SQLITE_CONSTRAINT_PRIMARYKEY (1555), got %v", primaryKeyErr)
+	}
+
 	// Build a non-UNIQUE *sqlite.Error by dropping a non-existent table.
 	_, nonUniqueErr := db.ExecContext(ctx, "DROP TABLE nonexistent")
 	if nonUniqueErr == nil {
@@ -157,6 +176,10 @@ func TestIsUniqueViolation(t *testing.T) {
 		{"empty error message", errors.New(""), false},
 		{"typed *sqlite.Error UNIQUE (code 2067)", uniqueErr, true},
 		{"wrapped typed *sqlite.Error UNIQUE", fmt.Errorf("insert: %w", uniqueErr), true},
+		{"typed *sqlite.Error PRIMARYKEY (code 1555)", primaryKeyErr, true},
+		{"wrapped typed *sqlite.Error PRIMARYKEY", fmt.Errorf("insert: %w", primaryKeyErr), true},
+		{"plain PRIMARY KEY string match", errors.New("PRIMARY KEY constraint failed: accounts.id"), true},
+		{"foreign key error is not a unique violation", errors.New("FOREIGN KEY constraint failed"), false},
 		{"typed *sqlite.Error non-UNIQUE", nonUniqueErr, false},
 	}
 

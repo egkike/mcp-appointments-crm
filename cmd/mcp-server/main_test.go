@@ -317,7 +317,7 @@ func TestBinarySubCommandDispatch(t *testing.T) {
 	}
 }
 
-func TestNewIdentityDepsWiresBothRepos(t *testing.T) {
+func TestNewIdentityDepsWiresIdentityRepos(t *testing.T) {
 	database, err := db.NewDatabase(context.Background(), filepath.Join(t.TempDir(), "appointments.db"))
 	if err != nil {
 		t.Fatalf("db.NewDatabase() failed: %v", err)
@@ -331,5 +331,8 @@ func TestNewIdentityDepsWiresBothRepos(t *testing.T) {
 	}
 	if deps.clients == nil {
 		t.Error("newIdentityDeps() clients repo = nil, want a *ClientsRepo")
+	}
+	if deps.professionals == nil {
+		t.Error("newIdentityDeps() professionals repo = nil, want a *ProfessionalsRepo")
 	}
 }
