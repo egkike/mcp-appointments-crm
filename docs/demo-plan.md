@@ -132,21 +132,34 @@ Criterio: exit 0 y tiempo total < 5 minutos (DoD 1).
 
 Registrar cada output en la bitácora (§ Bitácora).
 
-## Paso 5 — Seed del owner + wire de Hermes
+## Paso 5 — Seed del owner (TUI) + wire de Hermes
 
-El TUI admin (Fase 2+) no existe aún: el seed se hace por SQL directo
-(workaround documentado solo para demo):
+El MVP de la TUI admin **ya existe** (`mcp-server admin tui`, PRD §3.8.8 / RF9,
+alcance en [ADR-0016](./architecture/0016-admin-tui-scope.md)): el owner se crea
+por el wizard de seed, no por SQL directo.
 
 ```bash
-DB=~/.local/share/mcp-appointments-crm/reservas.db
-sqlite3 "$DB" "INSERT INTO accounts (id, role, display_name, is_active) VALUES ('owner-demo', 'owner', 'Owner Demo', 1);"
-sqlite3 "$DB" "SELECT id, role, is_active FROM accounts;"
+~/.local/bin/mcp-server admin tui
 ```
 
+En una instalación limpia el comando abre el wizard de seed (teléfono + nombre
+para mostrar), crea la fila del owner y escribe
+`~/.config/mcp-appointments-crm/caller-id` (`0600`, override `MCP_CONFIG_DIR`).
+Después abre el menú de cuentas (Add Staff, Desactivar, Listados, Transferir
+ownership, Agregarme como cliente). Sin TTY (pipe/CI) corre el flujo de consola
+equivalente. Anotá el teléfono elegido: es el `X-Caller-Id` del wire.
+
 Luego configurar Hermes (en la VM) con el endpoint MCP
-`http://127.0.0.1:3000/mcp` y header `X-Caller-Id: owner-demo` según su
+`http://127.0.0.1:3000/mcp` y header `X-Caller-Id: <teléfono-del-owner>` según su
 documentación de MCP clients. Criterio: una llamada de prueba responde sin
 403 (403 = revisar `accounts` + header).
+
+> Los datos demo que no son cuentas siguen fuera de la TUI (ADR-0016 la limita a
+> identidad y cuentas): `config.SeedOnBoot` siembra perfil, profesionales,
+> horarios y servicios desde los JSONs del Paso 2. El cliente demo y la reserva
+> histórica que necesita `get_loyalty_report` se siembran aparte por SQL directo
+> (esta doc no incluye el snippet; los INSERTs usados en la corrida 2026-09-10
+> quedan en la bitácora de abajo).
 
 > Nota 2026-09-10 (wire Hermes verificado): `hermes mcp add --auth header`
 solo sabe mandar `Authorization: Bearer` y el server lo rechaza (`no se
@@ -158,7 +171,7 @@ proporcionó X-Caller-Id`). La forma soportada es header custom en
 >   mcp-appointments:
 >     url: http://127.0.0.1:3000/mcp
 >     headers:
->       X-Caller-Id: owner-demo
+>       X-Caller-Id: <teléfono-del-owner>
 > ```
 >
 > Verificación: `hermes mcp test mcp-appointments` conecta y descubre las
@@ -184,10 +197,11 @@ español y sin stack traces. Anotar desvíos en la bitácora.
 
 > Nota 2026-09-10: el smoke puede correrse también directo por HTTP
 > **stateless** (POST JSON-RPC a `/mcp` sin `Mcp-Session-Id`) con header
-> `X-Caller-Id: owner-demo`, sin pasar por Hermes. Además,
+> `X-Caller-Id: <teléfono-del-owner>`, sin pasar por Hermes. Además,
 > `get_loyalty_report` solo agrega reservas **no canceladas con `start < now`**:
 > las reservas futuras no aparecen en el reporte; para el demo, sembrar una
-> booking histórica en el Paso 5.
+> booking histórica por SQL antes del Paso 6 (el seed por TUI del Paso 5 solo
+> cubre identidad y cuentas).
 
 ## Paso 7 — Schedular el backup (valida `maintenance.md`)
 
@@ -207,6 +221,7 @@ Verificar al día siguiente que apareció `backups/reservas-YYYYMMDD.db.gz`.
 | 2026-09-10 | v0.3.0 | Paso 4 | ✅ DoD completa (5b incluido tras reboot) | Reboot OK: `mcp-appointments-crm` y `hermes-gateway` en `active`, `/healthz` 200 `v0.3.0`. Durante la corrida se mergeó PR #69 (pipe-mode `BASH_SOURCE` unbound + test de regresión + fix `TestIntegrationAlertLifecycle` con fecha hardcodeada 2026-09-07) y PR #70 (deploy gate miraba `$CONFIG_DIR` en vez de `$SETUP_DIR`) |
 | 2026-09-10 | v0.3.0 | Pasos 5–6 | ✅ seed SQL manual (owner-demo + business_profile + p1 + 6 schedules + s1/s2 + c1 + 1 booking histórica) + smoke OK | Smoke directo por HTTP stateless (sin `Mcp-Session-Id`): 11 tools; availability `true`; booking→get→alert→sent→reschedule→cancel; FTS5 en ambas búsquedas; loyalty agrega la histórica. Todo en español, sin stack traces |
 | 2026-09-10 | v0.3.0 | Paso 7 | ✅ timer systemd user de backup activo | Corre diario 00:00 -03 |
+| 2026-09-16 | — | TUI admin (MVP) | ✅ TUI identidad + seed del owner implementada (`mcp-server admin tui`, issue #75; T7 en PR #82) | Wizard de seed del owner + `caller-id` 0600 (TUI Bubble Tea con TTY, fallback de consola sin TTY): Add Staff con picker de profesional, Desactivar (soft delete), Listados, Transferir ownership, Agregarme como cliente. El seed manual del owner quedó retirado del Paso 5. Deferidos: vista de audit log persistido y normalización de day-keys |
 | | | | | |
 
 ## Riesgos y notas

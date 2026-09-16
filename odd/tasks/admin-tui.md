@@ -146,8 +146,14 @@ docs/demo-plan.md:142).
       Native review: lineage review-ed05862ea88d932a (medium, 1 lens reliability) →
       **approved** direct, acknowledged (rev f6f74ae5).
       ⚠ Pending: real-TTY smoke test on a clean install (operator manual step).
-- [ ] **T8 — Docs**: README + docs/installation.md §3.4 (owner creation now via TUI),
-      docs/demo-plan.md manual-SQL step replaced. Docs-only commit.
+- [x] **T8 — Docs**: README scope-note + Development pointers, docs/installation.md §3.4
+      (owner via TUI wizard, caller-id perms/override, TTY/fallback), docs/demo-plan.md
+      (Paso 5 = seed TUI; demo-data boundary honest — no snippet claims; Paso 6 pointer
+      fixed), docs/PRD.md (MVP delivered + deferrals). **Done 2026-09-16** (delegated
+      worker + verifier-led structural readback: 6 claims verified, 1 doc-level MISMATCH
+      found and fixed inline — demo-data note wording).
+      Gate: structural readback (docs-only per AGENTS.md routing), no native review.
+      Native note: T7 real-TTY smoke test still pending on the operator side.
 
 ## Acceptance criteria
 
@@ -230,5 +236,7 @@ T7 (lineage review-ed05862ea88d932a, approved):
 
 ## Next step
 
-T7 delivered: PR #82 (type:feature, Part of #75, CI green, GGA passed first try). Owner
-merge + real-TTY smoke test. Then T8 — Docs, and feature close (issue #75).
+T8 done → all MVP tasks complete. Feature close-out: owner merge of PR, close issue
+#75, decide console-fallback retirement (separate follow-up), final feature doc wrap +
+Engram session summary. GGA note: `hermes chat` copy in console prints an unimplemented
+sub-command (registered follow-up).
