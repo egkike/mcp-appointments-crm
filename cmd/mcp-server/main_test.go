@@ -266,9 +266,9 @@ func TestBinarySubCommandDispatch(t *testing.T) {
 		wantText []string
 	}{
 		{
-			name:     "admin tui reaches the not-implemented stub",
+			name:     "admin tui enters the owner seed gateway",
 			args:     []string{"admin", "tui"},
-			wantText: []string{"TUI de administración todavía no está implementada"},
+			wantText: []string{"No hay ningún owner activo", "El administrador del sistema operativo es el gatekeeper"},
 		},
 		{
 			name:     "hermes chat reaches the not-implemented stub",
