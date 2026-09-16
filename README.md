@@ -28,7 +28,7 @@ The MCP server currently exposes 11 tools: `check_availability`, `create_booking
 
 > **Scope note:** completed phases mean their packs are merged and demo-validated — not that the product has no pending work. Known pending scope (Fase 2+ / Fase N):
 >
-> - **Admin TUI + owner seed** (`mcp-server admin tui`, PRD §3.8.8 / RF9 / ADR-0010, scope in ADR-0016) — designed, not implemented. Account setup today is manual SQL (demo-plan Paso 5).
+> - ✅ **Admin TUI + owner seed** (`mcp-server admin tui`, PRD §3.8.8 / RF9 / ADR-0010, scope in ADR-0016) — **MVP shipped (2026-09-16)**: the first-boot seed wizard creates the owner and writes the `caller-id` file (`0600`, `MCP_CONFIG_DIR` override), alongside Add Staff, Deactivate, list views, Transfer Ownership and Add-yourself-as-client. Bubble Tea on a TTY, equivalent console fallback without one. Deferred: persisted audit-log view, day-key normalization. Account setup no longer needs manual SQL.
 > - **Multi-platform release assets** — the published release (v0.3.0) ships a single `Linux_x86_64` binary, so **macOS and Windows are not distributable today**; the 5-platform matrix needs the GoReleaser pipeline (PRD §7).
 > - **Windows install** — no supported path: no `install.ps1`, no `--register-service` flag, no Task Scheduler template, no Windows release asset. Only the manual guide [`setup/service/nssm-install.md`](./setup/service/nssm-install.md) exists (untested in CI). Declared a non-goal of Phase 5 and tracked as pending scope (PRD §7, ADR-0014).
 > - **Hermes maintenance tools** (profile/services/professionals/schedules, ADR-0015) — Hermes cannot modify install-seeded data today; only manual SQL. Wiring + RBAC work, no DB work.
@@ -139,9 +139,9 @@ fixtures.
   `~/.local/share/mcp-appointments-crm/reservas.db` instead. Running both gives
   you two different databases.
 - The seed never creates an `accounts` row, so authenticated calls are rejected
-  with a JSON-RPC error (`-32000`) even while `/healthz` returns 200. See
-  [docs/installation.md](./docs/installation.md) for the owner step; the planned
-  `mcp-server admin tui` sub-command will replace it.
+  with a JSON-RPC error (`-32000`) even while `/healthz` returns 200. Create the
+  owner with `mcp-server admin tui` (seed wizard + `caller-id` file); see
+  [docs/installation.md](./docs/installation.md) §3.4.
 
 ### Pre-commit pipeline
 

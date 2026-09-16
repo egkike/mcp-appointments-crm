@@ -163,22 +163,47 @@ favor regístrate primero.`) para que el cliente MCP lo vea como error de protoc
 y no de transporte (`internal/mcp/auth_translator.go`). Consecuencia práctica: un
 `curl --fail` contra `/mcp` **no** falla por status; hay que leer el cuerpo.
 
-Hoy la única forma de crear el owner es SQL manual (mismo workaround que
-[`demo-plan.md` Paso 5](./demo-plan.md)):
+La cuenta se crea con el sub-comando de administración del binario (ADR-0010,
+alcance en [ADR-0016](./architecture/0016-admin-tui-scope.md)):
 
 ```bash
-DB=~/.local/share/mcp-appointments-crm/reservas.db
-sqlite3 "$DB" "INSERT INTO accounts (id, role, display_name, is_active) VALUES ('owner-demo', 'owner', 'Owner Demo', 1);"
-sqlite3 "$DB" "SELECT id, role, is_active FROM accounts;"
+~/.local/bin/mcp-server admin tui
 ```
 
-Usá como `X-Caller-Id` el `id` que insertaste (`owner-demo` en el ejemplo); con ese
-valor el handshake del paso siguiente se autentica.
+En una instalación limpia (ningún owner activo) el comando abre el **wizard de
+seed**: pide teléfono y nombre para mostrar, crea la fila del owner
+(`role='owner'`, `is_active=1`) y escribe el archivo `caller-id` con el teléfono
+elegido. No hay ningún `INSERT` manual en el flujo.
 
-> **Pendiente:** el sub-comando `mcp-server admin tui` reemplazará este seed manual
-> (owner seed gateway, alcance en
-> [ADR-0016](./architecture/0016-admin-tui-scope.md) Decision 1). Todavía no existe:
-> hasta que se implemente, el `INSERT` por `sqlite3` es el camino vigente.
+El wizard crea exactamente un owner: el single-owner invariant lo sostienen los
+triggers de `accounts` más las validaciones previas del repositorio. Si el
+comando vuelve a correr con un owner activo, no duplica la cuenta: repara el
+archivo `caller-id` si falta y abre el menú de cuentas (Add Staff con picker de
+profesional, desactivación soft delete, listados read-only, transferencia de
+ownership, alta del owner como cliente). Si existen filas de owner
+**desactivadas**, el arranque ofrece reactivar una primero.
+
+**Terminal interactiva:** con TTY en `stdin` y `stdout` el sub-comando abre la
+TUI Bubble Tea; sin TTY (invocación por pipe, CI o script) cae al flujo de
+consola por líneas, que cubre el mismo wizard de seed y el mismo menú. Ahí la
+corrida no interactiva no queda a medias: es la misma lógica con otra
+presentación.
+
+Usá el teléfono que cargaste en el wizard como `X-Caller-Id`; con ese valor el
+handshake del paso siguiente se autentica.
+
+**Archivo `caller-id`:** el teléfono del owner queda en
+`~/.config/mcp-appointments-crm/caller-id` con permisos `0600` (el directorio se
+crea `0700`), y `MCP_CONFIG_DIR` reemplaza ese directorio cuando la definís. El
+archivo guarda el identificador tal cual — es lo que hay que mandar como
+`X-Caller-Id` y lo que va a leer el chat local de Hermes cuando ese sub-comando
+deje de ser un nombre reservado ([ADR-0012](./architecture/0012-hermes-chat-local.md)).
+
+> La siembra de perfil, profesionales, horarios y servicios sigue siendo
+> trabajo de `config.SeedOnBoot` desde los JSONs del wizard, y el resto de los
+> datos demo del [`demo-plan.md`](./demo-plan.md) (cliente demo, reserva
+> histórica) se carga por SQL: ADR-0016 limita este sub-comando a identidad y
+> cuentas.
 
 ### 3.5 Handshake MCP (requiere la cuenta owner de 3.4)
 
@@ -188,14 +213,14 @@ el server es stateless y no exige `Mcp-Session-Id`):
 ```bash
 curl --fail -sS http://127.0.0.1:3000/mcp \
   -H 'Content-Type: application/json' \
-  -H 'X-Caller-Id: owner-demo' \
+  -H 'X-Caller-Id: <teléfono-del-owner>' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl-smoke","version":"0.0.1"}}}'
 ```
 
 Debe devolver una respuesta JSON-RPC `initialize` con las capacidades del
-server. Si el server espera otra `protocolVersion`, la respuesta lo indica. Si la fila
-`owner-demo` no existe en `accounts`, el comando **no** devuelve el envelope
-`initialize`: devuelve un envelope de error JSON-RPC (`code -32000`) con HTTP 200 —
+server. Si el server espera otra `protocolVersion`, la respuesta lo indica. Si
+el teléfono del owner no existe en `accounts`, el comando **no** devuelve el
+envelope `initialize`: devuelve un envelope de error JSON-RPC (`code -32000`) con HTTP 200 —
 por eso `curl --fail` igual termina en exit 0 y hay que inspeccionar el cuerpo.
 
 ### 3.6 Versión del binario instalado
