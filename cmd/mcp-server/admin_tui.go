@@ -313,6 +313,7 @@ func adminMenuOptions() []adminMenuOption {
 		{key: "3", label: "Listar cuentas", action: runListAllAccountsFlow},
 		{key: "4", label: "Listar por rol", action: runListByRoleFlow},
 		{key: "5", label: "Transferir ownership", action: runTransferOwnershipFlow},
+		{key: "6", label: "Agregarme como cliente", action: runAddSelfAsClientFlow},
 	}
 }
 
@@ -929,4 +930,42 @@ func transferSuccessorOptions(ctx context.Context, identity identityDeps) ([]tra
 		kind:  admin.SuccessorNewPhone,
 		label: "Otro teléfono (crear una cuenta de owner nueva)",
 	}), nil
+}
+
+// runAddSelfAsClientFlow drives the "Agregarme como cliente" capability
+// (ADR-0011, ADR-0016 Decision 1): it registers the operator's own account as a
+// client of the business, so the caller id Hermes sends resolves into a Caller
+// with BOTH the owner/admin/staff role and a ClientID (ADR-0011 double role).
+//
+// The account id is read from the accounts port — the ACTIVE owner of this
+// installation, not a typed value — and shown to the operator before the flow
+// asks for the display name; admin.AddSelfAsClient re-validates it against the
+// same port, so the console cannot invent an id. Registering an
+// already-registered phone is an outcome, not an error: the operator reads the
+// honest state and returns to the menu with the session intact.
+func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+	owner, err := admin.ActiveOwner(ctx, identity.accounts)
+	if err != nil {
+		return err
+	}
+
+	if err := writeConsole(stdout,
+		"Se va a registrar tu cuenta como cliente del negocio.\n"+
+			"Tu teléfono de cuenta es: %s\n", owner.ID); err != nil {
+		return err
+	}
+
+	displayName, err := promptValidated(scanner, stdout, "Nombre para mostrar del cliente", "", admin.ValidateDisplayName)
+	if err != nil {
+		return err
+	}
+
+	outcome, err := admin.AddSelfAsClient(ctx, identity.accounts, identity.clients, owner.ID, displayName)
+	if err != nil {
+		return err
+	}
+	if outcome.AlreadyRegistered {
+		return writeConsole(stdout, "Ya estabas registrado como cliente con este teléfono.\n")
+	}
+	return writeConsole(stdout, "Ya podés operar como cliente con este teléfono.\n")
 }

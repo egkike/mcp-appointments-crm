@@ -124,9 +124,15 @@ docs/demo-plan.md:142).
       clean, golangci-lint 0 issues.
       Native review: lineage review-bf7eb306e7b15b1b (medium, 1 lens reliability) →
       **approved** direct, acknowledged (rev a22ecd5b).
-- [ ] **T6 — Add Yourself as Client**: insert `clients` row with `id = accounts.id`
-      (phone), duplicate-phone → semantic conflict message; resolver round-trip test
-      (resolve → ClientID set). Checks: resolver integration test (tmp SQLite).
+- [x] **T6 — Add Yourself as Client**: insert `clients` row with `id = accounts.id`
+      (the phone), duplicate-phone → semantic conflict (PK 1555 + UNIQUE 2067 mapped),
+      idempotent outcome if already registered; resolver round-trip acceptance proof
+      (real SQLite: Resolve returns Role=owner AND ClientID=caller id; the GetOrCreate
+      UUID trap is tested to fail discovery). **Done 2026-09-16** (delegated worker).
+      Checks OBSERVED: build OK, `go test -race` all green, vet/gofmt clean,
+      golangci-lint 0 issues.
+      Native review: lineage review-1f91a6998d859d25 (medium, 1 lens reliability) →
+      **approved** direct, acknowledged (rev 5279e6e1).
 - [ ] **T7 — TUI assembly**: Bubble Tea screens/state machine wiring all flows, key
       bindings, error rendering (semantic messages), Ctrl+C safety. go.mod deps added.
       Checks: `go build`, teatest-style or model-level unit tests where feasible.
@@ -197,7 +203,14 @@ T5 (lineage review-bf7eb306e7b15b1b, approved):
 
 ## Next step
 
+T6 (lineage review-1f91a6998d859d25, approved):
+- R3-active-flag-unproved (WARNING) internal/admin/clients.go:121-133 — idempotency read
+  not atomic with insert; race covered by conflict mapping.
+- R3-pk-race-message, R3-tui-caller-override (SUGGESTIONs).
+
 ## Next step
 
-T5 delivered: PR #80 (type:feature, Part of #75, CI green). Owner decides merge. Then
-T6 — Add Yourself as Client.
+## Next step
+
+T6 delivered: PR #81 (type:feature, Part of #75, CI green). Owner decides merge. Then
+T7 — TUI assembly (Bubble Tea + go.mod dependency).
