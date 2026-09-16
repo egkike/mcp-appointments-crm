@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
 	"github.com/egkike/mcp-appointments-crm/internal/db"
@@ -585,5 +587,331 @@ func TestRunAdminTUIFlow_SeedThenAddStaffInSameSession(t *testing.T) {
 	}
 	if staff[0].ProfessionalID == nil {
 		t.Error("staff professional_id = nil, want the picked professional")
+	}
+}
+
+// ── T4: Deactivate + List views ────────────────────────────────────────────
+
+// TestWriteAccountTable_AlignsOnRunesAndNeverTruncates locks the rendering
+// contract of the list views: column widths are measured in runes (display
+// names carry accents), a row longer than its column is never truncated, and
+// missing professional references render as "-" instead of an empty cell.
+func TestWriteAccountTable_AlignsOnRunesAndNeverTruncates(t *testing.T) {
+	views := []admin.AccountView{
+		{ID: "+5491100000000", Role: entity.RoleOwner, DisplayName: "Dueño", Active: true},
+		{ID: "+5491100000001", Role: entity.RoleStaff, DisplayName: "Ana Staff", ProfessionalID: "prof-1", Active: false},
+	}
+
+	var out bytes.Buffer
+	if err := writeAccountTable(&out, views); err != nil {
+		t.Fatalf("writeAccountTable() error = %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("line count = %d, want the header plus two rows\noutput: %s", len(lines), out.String())
+	}
+
+	width := utf8.RuneCountInString(lines[0])
+	for i, line := range lines {
+		if got := utf8.RuneCountInString(line); got != width {
+			t.Errorf("line %d width = %d runes, want %d (columns aligned)\noutput: %s", i, got, width, out.String())
+		}
+	}
+
+	if !strings.Contains(out.String(), "Dueño") || !strings.Contains(out.String(), "Ana Staff") {
+		t.Errorf("output = %q, want every display name rendered in full", out.String())
+	}
+	if !strings.Contains(out.String(), "PROFESIONAL") || !strings.Contains(lines[1], "-") {
+		t.Errorf("output = %q, want the missing professional rendered as -\nline: %q", out.String(), lines[1])
+	}
+	if !strings.Contains(lines[1], "activa") || !strings.Contains(lines[2], "inactiva") {
+		t.Errorf("lines = %q/%q, want the soft-delete state rendered per row", lines[1], lines[2])
+	}
+}
+
+func TestWriteAccountTable_EmptyViewRendersTheHeaderOnly(t *testing.T) {
+	var out bytes.Buffer
+	if err := writeAccountTable(&out, nil); err != nil {
+		t.Fatalf("writeAccountTable() error = %v", err)
+	}
+
+	if got := strings.Count(out.String(), "\n"); got != 1 {
+		t.Errorf("line count = %d, want the header only\noutput: %s", got, out.String())
+	}
+	if !strings.Contains(out.String(), "TELÉFONO") {
+		t.Errorf("output = %q, want the header row", out.String())
+	}
+}
+
+const (
+	ownerPhone = "+5491100000000"
+	staffPhone = "+5491100000001"
+)
+
+// activeAccountIndex returns the 1-based position of id in the deactivate
+// picker — every ACTIVE account, in repository order (created_at ASC) — so the
+// flow tests type the right number without depending on insertion timing.
+func activeAccountIndex(t *testing.T, dbPath, id string) int {
+	t.Helper()
+	database, err := db.NewDatabase(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("db.NewDatabase() failed: %v", err)
+	}
+	defer closeDatabase(database, slog.Default())
+
+	accounts := repository.NewAccountsRepo(database.Conn, slog.Default())
+	rows, err := accounts.List(admin.TUIContext(context.Background()))
+	if err != nil {
+		t.Fatalf("List() failed: %v", err)
+	}
+
+	index := 0
+	for _, account := range rows {
+		if !account.Active {
+			continue
+		}
+		index++
+		if account.ID == id {
+			return index
+		}
+	}
+	t.Fatalf("account %q is not among the active accounts", id)
+	return 0
+}
+
+// deactivateAccountForTest soft-deletes an account through the production
+// repository, so the list views have an inactive row to hide or show.
+func deactivateAccountForTest(t *testing.T, dbPath, id string) {
+	t.Helper()
+	database, err := db.NewDatabase(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("db.NewDatabase() failed: %v", err)
+	}
+	defer closeDatabase(database, slog.Default())
+
+	accounts := repository.NewAccountsRepo(database.Conn, slog.Default())
+	if err := accounts.Deactivate(admin.TUIContext(context.Background()), id); err != nil {
+		t.Fatalf("deactivate fixture: %v", err)
+	}
+}
+
+// seedOwnerAndStaffForTest prepares the two-account installation the T4 flows
+// operate on and returns the staff phone index in the deactivate picker.
+func seedOwnerAndStaffForTest(t *testing.T, dbPath string) int {
+	t.Helper()
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	profID := seedProfessionalForTest(t, dbPath, "Ana", staffPhone)
+	createStaffForTest(t, dbPath, staffPhone, "Ana Staff", profID)
+	return activeAccountIndex(t, dbPath, staffPhone)
+}
+
+func TestRunAdminTUIFlow_DeactivateFromMenu(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	staffIndex := seedOwnerAndStaffForTest(t, dbPath)
+
+	var out bytes.Buffer
+	// Menu -> Deactivate -> pick the staff account -> confirm -> quit.
+	stdin := strings.NewReader(fmt.Sprintf("2\n%d\ns\nq\n", staffIndex))
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Cuentas activas:") {
+		t.Errorf("output = %q, want the active-account picker", out.String())
+	}
+	if !strings.Contains(out.String(), "Esta acción desactiva la cuenta Ana Staff") {
+		t.Errorf("output = %q, want the explicit confirmation prompt naming the account", out.String())
+	}
+	if !strings.Contains(out.String(), "Cuenta desactivada: Ana Staff (staff, "+staffPhone+")") {
+		t.Errorf("output = %q, want the deactivation confirmation", out.String())
+	}
+
+	staff := listStaff(t, dbPath)
+	if len(staff) != 1 {
+		t.Fatalf("staff count = %d, want exactly 1", len(staff))
+	}
+	if staff[0].Active {
+		t.Error("staff account is still active after a confirmed deactivation")
+	}
+	owners := listOwners(t, dbPath)
+	if len(owners) != 1 || !owners[0].Active {
+		t.Errorf("owners = %+v, want the owner untouched and active", owners)
+	}
+}
+
+func TestRunAdminTUIFlow_DeactivateCancelledWritesNothing(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	staffIndex := seedOwnerAndStaffForTest(t, dbPath)
+
+	var out bytes.Buffer
+	stdin := strings.NewReader(fmt.Sprintf("2\n%d\nn\nq\n", staffIndex))
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Operación cancelada: no se desactivó ninguna cuenta.") {
+		t.Errorf("output = %q, want the cancellation message", out.String())
+	}
+
+	staff := listStaff(t, dbPath)
+	if len(staff) != 1 {
+		t.Fatalf("staff count = %d, want exactly 1", len(staff))
+	}
+	if !staff[0].Active {
+		t.Error("staff account was deactivated after the operator answered no")
+	}
+}
+
+func TestRunAdminTUIFlow_DeactivateRepromptsOnInvalidConfirmation(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	staffIndex := seedOwnerAndStaffForTest(t, dbPath)
+
+	var out bytes.Buffer
+	// An unrecognised answer must never be read as consent: the flow re-prompts
+	// and only the explicit "s" deactivates.
+	stdin := strings.NewReader(fmt.Sprintf("2\n%d\nquizás\ns\nq\n", staffIndex))
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if got := strings.Count(out.String(), "Error: respondé"); got != 1 {
+		t.Errorf("re-prompt count = %d, want 1\noutput: %s", got, out.String())
+	}
+
+	staff := listStaff(t, dbPath)
+	if len(staff) != 1 {
+		t.Fatalf("staff count = %d, want exactly 1", len(staff))
+	}
+	if staff[0].Active {
+		t.Error("staff account is still active, want the re-prompt followed by the confirmed write")
+	}
+}
+
+func TestRunAdminTUIFlow_RefusesToDeactivateTheLastActiveOwner(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	ownerIndex := activeAccountIndex(t, dbPath, ownerPhone)
+
+	var out bytes.Buffer
+	// Menu -> Deactivate -> the only active owner -> confirm: the core refuses
+	// and the menu reopens instead of aborting the session.
+	stdin := strings.NewReader(fmt.Sprintf("2\n%d\ns\nq\n", ownerIndex))
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v, want the refusal to return to the menu", err)
+	}
+
+	if !strings.Contains(out.String(), "Error: no se puede desactivar al único owner activo") {
+		t.Errorf("output = %q, want the semantic single-owner refusal", out.String())
+	}
+	if got := strings.Count(out.String(), "¿Qué querés hacer?"); got < 2 {
+		t.Errorf("menu render count = %d, want the menu reopened after the refusal\noutput: %s", got, out.String())
+	}
+
+	owners := listOwners(t, dbPath)
+	if len(owners) != 1 {
+		t.Fatalf("owner count = %d, want exactly 1", len(owners))
+	}
+	if !owners[0].Active {
+		t.Error("the last active owner was deactivated, want the invariant preserved")
+	}
+}
+
+func TestRunAdminTUIFlow_ListsAllAccounts(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerAndStaffForTest(t, dbPath)
+
+	var out bytes.Buffer
+	// Menu -> List accounts -> do not include inactive -> quit.
+	stdin := strings.NewReader("3\nn\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	for _, want := range []string{"TELÉFONO", "ROL", "NOMBRE", "PROFESIONAL", "ESTADO", ownerPhone, staffPhone, "owner", "staff"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to render %q", out.String(), want)
+		}
+	}
+	if strings.Contains(out.String(), "inactiva\n") {
+		t.Errorf("output = %q, want no inactive state without opting in", out.String())
+	}
+}
+
+func TestRunAdminTUIFlow_ListHidesInactiveUntilOptedIn(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerAndStaffForTest(t, dbPath)
+	deactivateAccountForTest(t, dbPath, staffPhone)
+
+	var hidden bytes.Buffer
+	if err := runAdminTUIFlow(strings.NewReader("3\nn\nq\n"), &hidden); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+	if strings.Contains(hidden.String(), staffPhone) {
+		t.Errorf("output = %q, want the inactive account hidden by default", hidden.String())
+	}
+	// The state cell is the last column of a row, so a trailing newline
+	// distinguishes it from the opt-in question, which also contains the word.
+	if strings.Contains(hidden.String(), "inactiva\n") {
+		t.Errorf("output = %q, want no inactive row without opting in", hidden.String())
+	}
+
+	var shown bytes.Buffer
+	if err := runAdminTUIFlow(strings.NewReader("3\ns\nq\n"), &shown); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+	if !strings.Contains(shown.String(), staffPhone) {
+		t.Errorf("output = %q, want the inactive account listed after opting in", shown.String())
+	}
+	if !strings.Contains(shown.String(), "inactiva\n") {
+		t.Errorf("output = %q, want the inactive state rendered in a row", shown.String())
+	}
+}
+
+func TestRunAdminTUIFlow_ListsByRole(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerAndStaffForTest(t, dbPath)
+
+	var out bytes.Buffer
+	// Menu -> List by role -> invalid role index -> staff -> no inactive -> quit.
+	stdin := strings.NewReader("4\n9\n3\nn\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Error: opción inválida") {
+		t.Errorf("output = %q, want the invalid role index rejected", out.String())
+	}
+	if !strings.Contains(out.String(), staffPhone) {
+		t.Errorf("output = %q, want the staff account listed", out.String())
+	}
+	if strings.Contains(out.String(), ownerPhone) {
+		t.Errorf("output = %q, want the owner excluded by the staff role filter", out.String())
+	}
+}
+
+func TestRunAdminTUIFlow_EmptyRoleListShowsSemanticMessage(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+
+	var out bytes.Buffer
+	// There is no admin account: the empty view is an answer, not an error.
+	stdin := strings.NewReader("4\n2\nn\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "No hay cuentas para mostrar.") {
+		t.Errorf("output = %q, want the empty-view semantic message", out.String())
+	}
+	if strings.Contains(out.String(), "Error: ") {
+		t.Errorf("output = %q, want no error for an empty list", out.String())
 	}
 }
