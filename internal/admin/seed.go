@@ -109,6 +109,113 @@ func EnsureCallerID(ctx context.Context, accounts AccountsReader) (written bool,
 	}
 }
 
+// AccountsActivator is the slice of repository.AccountsRepo that the deadend
+// recovery needs: the owner snapshot plus the update that flips an inactive
+// owner row back to active. *repository.AccountsRepo satisfies it unchanged.
+type AccountsActivator interface {
+	AccountsReader
+	Update(ctx context.Context, a *entity.Account) error
+}
+
+// ErrOwnerNotReactivatable reports an account that cannot be reactivated by the
+// deadend recovery: it is not an inactive owner row.
+var ErrOwnerNotReactivatable = fmt.Errorf("la cuenta no es un owner inactivo reactivable: %w", domain.ErrConflict)
+
+// InactiveOwners returns the owner-role accounts that are currently INACTIVE,
+// in repository order, projected onto the operator view.
+//
+// This is the accessor of finding R4-deactivated-owner-seed-deadend: NeedsSeed
+// keeps its contract unchanged (it answers "is there an ACTIVE owner?"), while
+// the console asks this second question to tell a clean install apart from an
+// installation whose owner was deactivated. Without it the seed gateway would
+// blindly INSERT the same phone and hit accounts.id PRIMARY KEY.
+func InactiveOwners(ctx context.Context, accounts AccountsReader) ([]AccountView, error) {
+	owners, err := accounts.GetByRole(TUIContext(ctx), entity.RoleOwner)
+	if err != nil {
+		return nil, fmt.Errorf("listar owners inactivos: %w", err)
+	}
+
+	inactive := make([]AccountView, 0, len(owners))
+	for _, owner := range owners {
+		if owner.Active {
+			continue
+		}
+		inactive = append(inactive, viewOfAccount(owner))
+	}
+	return inactive, nil
+}
+
+// ReactivateOwner flips an existing INACTIVE owner-role account back to ACTIVE.
+// It is the sanctioned recovery of the deadend state (R4-deactivated-owner-seed-deadend):
+// the installation has no active owner but its owner row still exists, so the
+// operator reactivates that row instead of creating a second one that the
+// PRIMARY KEY would reject anyway.
+//
+// The guards, in order:
+//
+//  1. a blank id is rejected before any port call;
+//  2. the id must match an owner-role row of the snapshot;
+//  3. that row must be INACTIVE — an already-active account has nothing to
+//     reactivate, and the operator reads a business message;
+//  4. no OTHER active owner may exist: changing owners of a healthy
+//     installation is TransferOwnership, never a blind activation. This mirrors
+//     the accounts_single_owner_update trigger, as a semantic message.
+//
+// The display name is preserved as-is: reactivating is not an edit.
+func ReactivateOwner(ctx context.Context, accounts AccountsActivator, id string) (AccountView, error) {
+	accountID := strings.TrimSpace(id)
+	if accountID == "" {
+		return AccountView{}, &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "el teléfono de la cuenta no puede estar vacío",
+		}
+	}
+
+	owners, err := accounts.GetByRole(TUIContext(ctx), entity.RoleOwner)
+	if err != nil {
+		return AccountView{}, fmt.Errorf("listar owners: %w", err)
+	}
+
+	var target *entity.Account
+	for _, owner := range owners {
+		if owner.Active {
+			return AccountView{}, &domain.SemanticError{
+				Code:    domain.ErrCodeConflict,
+				Message: "ya existe un owner activo: para cambiar de owner usá la transferencia de propiedad",
+				Cause:   ErrOwnerAlreadyExists,
+			}
+		}
+		if owner.ID == accountID {
+			target = owner
+		}
+	}
+
+	if target == nil {
+		return AccountView{}, &domain.SemanticError{
+			Code:    domain.ErrCodeNotFound,
+			Message: "no existe una cuenta de owner inactiva con ese teléfono",
+		}
+	}
+
+	reactivated := &entity.Account{
+		ID:          target.ID,
+		Role:        entity.RoleOwner,
+		DisplayName: target.DisplayName,
+		Active:      true,
+	}
+	if err := accounts.Update(TUIContext(ctx), reactivated); err != nil {
+		if errors.Is(err, domain.ErrConflict) {
+			return AccountView{}, &domain.SemanticError{
+				Code:    domain.ErrCodeConflict,
+				Message: "ya existe un owner activo: no se reactivó ninguna cuenta",
+				Cause:   ErrOwnerAlreadyExists,
+			}
+		}
+		return AccountView{}, fmt.Errorf("reactivar la cuenta de owner: %w", err)
+	}
+	return viewOfAccount(reactivated), nil
+}
+
 // SeedInput holds the operator-provided fields of the first owner. The
 // professional picker is T3: an owner has no professional_id, so there is no
 // field for it here.

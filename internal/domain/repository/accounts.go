@@ -29,6 +29,12 @@ type AccountsRepo interface {
 	// Deactivate sets the account to inactive by ID.
 	Deactivate(ctx context.Context, id string) error
 
+	// TransferOwnership atomically deactivates the current active owner
+	// (fromID) and activates the successor (toID) inside a single transaction,
+	// preserving the single-owner invariant (ADR-0009). toID's row must
+	// already exist with role=owner and is_active=0.
+	TransferOwnership(ctx context.Context, fromID, toID string) error
+
 	// IsActive reports whether the account exists and is active.
 	IsActive(ctx context.Context, id string) (bool, error)
 

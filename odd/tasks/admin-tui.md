@@ -110,9 +110,20 @@ docs/demo-plan.md:142).
       vet/gofmt clean, golangci-lint 0 issues.
       Native review: lineage review-fa6dc6eb86b40017 (medium, 1 lens reliability) →
       **approved** direct, acknowledged (rev bfdb77f6).
-- [ ] **T5 — Transfer Ownership**: 2-step flow (T5a create inactive owner, T5b swap in
-      transaction), single-owner invariant verified, audit via existing slog attrs.
-      Checks: invariant tests (attempt two active owners → conflict), transaction tests.
+- [x] **T5 — Transfer Ownership**: 2-step flow implemented: PrepareSuccessor (existing
+      inactive owner row | staff promotion to owner/is_active=0 with warning about the
+      dropped professional_id | fresh phone) + transactional swap via NEW repo method
+      `TransferOwnership(ctx, fromID, toID)` (ONE tx: deactivate old first, activate new
+      second — order is load-bearing against the per-statement trigger; in-tx state
+      re-validation; real-SQLite E2E + rollback tests). Console [5] Transferir ownership
+      with Paso 1/2, explicit confirmation, caller-id rewrite to the new owner (resolver
+      rejects inactive accounts). Seed deadend resolved: zero ACTIVE owners with inactive
+      owner rows now offers reactivation first (NeedsSeed contract untouched).
+      **Done 2026-09-16** (delegated worker).
+      Checks OBSERVED: build OK, `go test -race` all green (40+ new tests), vet/gofmt
+      clean, golangci-lint 0 issues.
+      Native review: lineage review-bf7eb306e7b15b1b (medium, 1 lens reliability) →
+      **approved** direct, acknowledged (rev a22ecd5b).
 - [ ] **T6 — Add Yourself as Client**: insert `clients` row with `id = accounts.id`
       (phone), duplicate-phone → semantic conflict message; resolver round-trip test
       (resolve → ClientID set). Checks: resolver integration test (tmp SQLite).
@@ -176,7 +187,17 @@ T4 (lineage review-fa6dc6eb86b40017, approved):
 
 ## Next step
 
+T5 (lineage review-bf7eb306e7b15b1b, approved):
+- R3-callerid-stale-after-committed-swap (WARNING) cmd/mcp-server/admin_tui.go:877-880 —
+  rewrite may fail silently post-commit; repair exists via EnsureCallerID path (T2).
+- R3-staff-promotion-not-restored-on-swap-failure (WARNING) internal/admin/transfer.go:309-318
+  — promoted account keeps role=owner/is_active=0 residue; valid retry candidate.
+- R3-dead-sentinel-ErrOwnerNotReactivatable, R3-transfer-conflict-exits-operator-session,
+  R3-transfer-inactive-owner-branch-untested-at-tui (SUGGESTIONs).
+
 ## Next step
 
-T4 delivered: PR #79 (type:feature, Part of #75, CI green, GGA passed). Owner decides
-merge. Then T5 — Transfer Ownership (fold R4-deactivated-owner-seed-deadend).
+## Next step
+
+T5 delivered: PR #80 (type:feature, Part of #75, CI green). Owner decides merge. Then
+T6 — Add Yourself as Client.

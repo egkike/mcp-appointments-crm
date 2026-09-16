@@ -915,3 +915,277 @@ func TestRunAdminTUIFlow_EmptyRoleListShowsSemanticMessage(t *testing.T) {
 		t.Errorf("output = %q, want no error for an empty list", out.String())
 	}
 }
+
+// ── T5: Transfer Ownership ─────────────────────────────────────────────────
+
+const (
+	successorPhone = "+5491100000022"
+)
+
+// activeOwnerAccounts returns the ACTIVE owner rows of dbPath, so a test can
+// assert the single-owner invariant without counting inactive history rows.
+func activeOwnerAccounts(t *testing.T, dbPath string) []*entity.Account {
+	t.Helper()
+	active := []*entity.Account{}
+	for _, owner := range listOwners(t, dbPath) {
+		if owner.Active {
+			active = append(active, owner)
+		}
+	}
+	return active
+}
+
+// readCallerID reads the caller-id file written by the console flows.
+func readCallerID(t *testing.T, configDir string) string {
+	t.Helper()
+	// #nosec G304 -- configDir is a throwaway directory under t.TempDir();
+	// the filename is a package constant.
+	data, err := os.ReadFile(filepath.Join(configDir, admin.CallerIDFileName))
+	if err != nil {
+		t.Fatalf("read caller-id file: %v", err)
+	}
+	return string(data)
+}
+
+// TestRunAdminTUIFlow_TransferOwnershipPromotesStaffFromMenu covers the whole
+// T5 flow end to end on a real database: menu -> promote the staff account ->
+// confirm -> swap -> caller-id rewritten to the new owner.
+func TestRunAdminTUIFlow_TransferOwnershipPromotesStaffFromMenu(t *testing.T) {
+	dbPath, configDir := prepareAdminTUI(t)
+	seedOwnerAndStaffForTest(t, dbPath)
+
+	var out bytes.Buffer
+	// Menu -> Transfer -> option 1 (the only staff account) -> confirm -> quit.
+	stdin := strings.NewReader("5\n1\ns\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"Paso 1 de 2: elegir el sucesor.",
+		"Owner actual:",
+		"Ana Staff (staff, " + staffPhone + ")",
+		"Paso 2 de 2: confirmar la transferencia.",
+		"El owner actual quedará desactivado. ¿Confirmar?",
+		"Ownership transferido:",
+		"caller-id actualizado en",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+
+	active := activeOwnerAccounts(t, dbPath)
+	if len(active) != 1 {
+		t.Fatalf("active owner count = %d, want exactly 1\nowners: %+v", len(active), listOwners(t, dbPath))
+	}
+	if active[0].ID != staffPhone {
+		t.Errorf("active owner = %q, want the promoted staff account %q", active[0].ID, staffPhone)
+	}
+	if active[0].Role != entity.RoleOwner {
+		t.Errorf("active owner role = %q, want %q", active[0].Role, entity.RoleOwner)
+	}
+
+	owners := listOwners(t, dbPath)
+	if len(owners) != 2 {
+		t.Fatalf("owner row count = %d, want the previous owner soft-deleted plus the new one", len(owners))
+	}
+	for _, owner := range owners {
+		if owner.ID == ownerPhone && owner.Active {
+			t.Error("the previous owner is still active after the transfer")
+		}
+	}
+	if staff := listStaff(t, dbPath); len(staff) != 0 {
+		t.Errorf("staff rows = %d, want 0: the account was promoted to owner", len(staff))
+	}
+	if got := readCallerID(t, configDir); got != staffPhone {
+		t.Errorf("caller-id = %q, want the new owner %q", got, staffPhone)
+	}
+}
+
+// TestRunAdminTUIFlow_TransferCancelledWritesNothing locks the consent gate:
+// anything but "s" leaves the installation untouched, caller-id file included.
+func TestRunAdminTUIFlow_TransferCancelledWritesNothing(t *testing.T) {
+	dbPath, configDir := prepareAdminTUI(t)
+	seedOwnerAndStaffForTest(t, dbPath)
+
+	var out bytes.Buffer
+	stdin := strings.NewReader("5\n1\nn\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Operación cancelada: no se transfirió la propiedad.") {
+		t.Errorf("output = %q, want the cancellation message", out.String())
+	}
+
+	active := activeOwnerAccounts(t, dbPath)
+	if len(active) != 1 || active[0].ID != ownerPhone {
+		t.Fatalf("active owners = %+v, want the untouched original owner", active)
+	}
+	if staff := listStaff(t, dbPath); len(staff) != 1 || !staff[0].Active {
+		t.Errorf("staff = %+v, want the untouched active staff account", staff)
+	}
+	// A cancelled transfer must not repoint the caller-id file at another owner.
+	// The file may already exist: the flow's EnsureCallerID repair path writes it
+	// for the current owner before opening the menu.
+	if got := readCallerID(t, configDir); got != ownerPhone {
+		t.Errorf("caller-id = %q, want it still pointing at the current owner %q", got, ownerPhone)
+	}
+}
+
+// TestRunAdminTUIFlow_TransferToNewPhoneCreatesInactiveOwnerThenSwaps covers
+// the "brand-new phone" successor: step 1 creates a role=owner, is_active=0 row
+// (allowed while the current owner is active because the triggers count only
+// ACTIVE owners), step 2 swaps it in.
+func TestRunAdminTUIFlow_TransferToNewPhoneCreatesInactiveOwnerThenSwaps(t *testing.T) {
+	dbPath, configDir := prepareAdminTUI(t)
+	seedOwnerAndStaffForTest(t, dbPath)
+
+	var out bytes.Buffer
+	// Menu -> Transfer -> option 2 (new phone) -> phone -> name -> confirm -> quit.
+	stdin := strings.NewReader("5\n2\n" + successorPhone + "\nDueño Nuevo\ns\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Otro teléfono (crear una cuenta de owner nueva)") {
+		t.Errorf("output = %q, want the new-phone successor option", out.String())
+	}
+
+	active := activeOwnerAccounts(t, dbPath)
+	if len(active) != 1 {
+		t.Fatalf("active owner count = %d, want exactly 1\nowners: %+v", len(active), listOwners(t, dbPath))
+	}
+	if active[0].ID != successorPhone {
+		t.Errorf("active owner = %q, want the new phone %q", active[0].ID, successorPhone)
+	}
+	if active[0].DisplayName != "Dueño Nuevo" {
+		t.Errorf("active owner name = %q, want the operator-provided name", active[0].DisplayName)
+	}
+	if staff := listStaff(t, dbPath); len(staff) != 1 || !staff[0].Active {
+		t.Errorf("staff = %+v, want the staff account untouched", staff)
+	}
+	if got := readCallerID(t, configDir); got != successorPhone {
+		t.Errorf("caller-id = %q, want the new owner %q", got, successorPhone)
+	}
+}
+
+// TestRunAdminTUIFlow_DeadendOffersReactivation closes
+// R4-deactivated-owner-seed-deadend: with zero ACTIVE owners and a deactivated
+// owner row, the console must reactivate that row instead of walking into the
+// accounts.id PRIMARY KEY.
+func TestRunAdminTUIFlow_DeadendOffersReactivation(t *testing.T) {
+	dbPath, configDir := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	deactivateAccountForTest(t, dbPath, ownerPhone)
+
+	var out bytes.Buffer
+	// Recovery menu -> reactivate option 1 -> confirm -> quit the operator menu.
+	stdin := strings.NewReader("1\ns\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"No hay ningún owner activo, pero hay 1 cuenta(s) de owner desactivada(s).",
+		"Reactivar Dueño (owner, " + ownerPhone + ")",
+		"Se reactivará",
+		"Owner reactivado: Dueño (" + ownerPhone + ")",
+		"caller-id escrito en",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+
+	owners := listOwners(t, dbPath)
+	if len(owners) != 1 {
+		t.Fatalf("owner row count = %d, want the reactivated row only", len(owners))
+	}
+	if !owners[0].Active {
+		t.Error("the owner row is still inactive after the reactivation")
+	}
+	if got := readCallerID(t, configDir); got != ownerPhone {
+		t.Errorf("caller-id = %q, want the reactivated owner %q", got, ownerPhone)
+	}
+}
+
+// TestRunAdminTUIFlow_DeadendReactivationCancelledKeepsTheSystemOwnerless locks
+// the consent gate of the recovery: a "no" writes nothing and re-renders the
+// choice, so the operator can still create a fresh owner in the same session.
+func TestRunAdminTUIFlow_DeadendReactivationCancelledKeepsTheSystemOwnerless(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	deactivateAccountForTest(t, dbPath, ownerPhone)
+
+	var out bytes.Buffer
+	// Recovery -> reactivate -> decline -> create a new owner with a fresh phone -> quit.
+	stdin := strings.NewReader("1\nn\n2\n" + successorPhone + "\nDueño Nuevo\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "Operación cancelada: no se reactivó ninguna cuenta.") {
+		t.Errorf("output = %q, want the cancellation message", out.String())
+	}
+	if !strings.Contains(out.String(), "Owner creado: Dueño Nuevo ("+successorPhone+")") {
+		t.Errorf("output = %q, want the fresh owner creation", out.String())
+	}
+
+	active := activeOwnerAccounts(t, dbPath)
+	if len(active) != 1 || active[0].ID != successorPhone {
+		t.Fatalf("active owners = %+v, want exactly the new owner %q", active, successorPhone)
+	}
+	if owners := listOwners(t, dbPath); len(owners) != 2 {
+		t.Errorf("owner row count = %d, want the deactivated row plus the new one", len(owners))
+	}
+}
+
+// TestRunAdminTUIFlow_DeadendTakenPhoneGivesReactivationGuidance locks the
+// conflict path of the deadend: insisting on the deactivated owner's phone
+// fails semantically (accounts.id PRIMARY KEY) and the message points at the
+// reactivation option instead of dumping driver text.
+func TestRunAdminTUIFlow_DeadendTakenPhoneGivesReactivationGuidance(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	deactivateAccountForTest(t, dbPath, ownerPhone)
+
+	var out bytes.Buffer
+	// Recovery -> create new -> reuse the deactivated phone -> guidance and
+	// re-render -> reactivate option 1 -> confirm -> quit.
+	stdin := strings.NewReader("2\n" + ownerPhone + "\nOtro Nombre\n1\ns\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if !strings.Contains(out.String(), "No se creó ninguna cuenta") {
+		t.Errorf("output = %q, want the semantic conflict of the reused phone", out.String())
+	}
+	if !strings.Contains(out.String(), "Sugerencia: el teléfono "+ownerPhone+" pertenece a la cuenta de owner desactivada") {
+		t.Errorf("output = %q, want the reactivation guidance", out.String())
+	}
+	if strings.Contains(out.String(), "PRIMARY KEY") || strings.Contains(out.String(), "constraint") {
+		t.Errorf("output = %q, want no driver detail", out.String())
+	}
+	if !strings.Contains(out.String(), "Owner reactivado") {
+		t.Errorf("output = %q, want the reactivation that followed the guidance", out.String())
+	}
+
+	owners := listOwners(t, dbPath)
+	if len(owners) != 1 {
+		t.Fatalf("owner row count = %d, want a single reactivated row", len(owners))
+	}
+	if !owners[0].Active {
+		t.Error("the owner row is inactive, want the reactivation applied")
+	}
+	if owners[0].DisplayName != "Dueño" {
+		t.Errorf("owner name = %q, want the stored name (reactivation is not an edit)", owners[0].DisplayName)
+	}
+}

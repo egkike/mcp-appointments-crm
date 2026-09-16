@@ -87,6 +87,21 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 		return runAdminMenu(ctx, identity, scanner, stdout)
 	}
 
+	// R4-deactivated-owner-seed-deadend: "no ACTIVE owner" does not mean "no
+	// owner row". When deactivated owner rows exist, the seed questionnaire
+	// stalls on the accounts.id PRIMARY KEY the moment the operator retypes that
+	// phone, so the reactivation path is offered first.
+	inactiveOwners, err := admin.InactiveOwners(ctx, identity.accounts)
+	if err != nil {
+		return err
+	}
+	if len(inactiveOwners) > 0 {
+		if err := runSeedDeadendRecovery(ctx, identity, scanner, stdout, inactiveOwners); err != nil {
+			return err
+		}
+		return runAdminMenu(ctx, identity, scanner, stdout)
+	}
+
 	if err := writeConsole(stdout,
 		"No hay ningún owner activo: vamos a crear el primero.\n"+
 			"El administrador del sistema operativo es el gatekeeper de este paso (ADR-0010).\n"); err != nil {
@@ -129,6 +144,148 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 	return runAdminMenu(ctx, identity, scanner, stdout)
 }
 
+// runSeedDeadendRecovery closes finding R4-deactivated-owner-seed-deadend: the
+// installation has zero ACTIVE owners but its deactivated owner row(s) still
+// exist. Blindly re-running the seed questionnaire would stall on the
+// accounts.id PRIMARY KEY as soon as the operator retypes that phone, so the
+// operator chooses explicitly between reactivating an existing row and creating
+// a new owner with a different phone.
+//
+// The loop is the consent gate: a declined confirmation, or a phone that turns
+// out to be taken, re-renders the choice instead of exiting with the system
+// still unusable. Only a successful reactivation or creation leaves the loop,
+// so the operator menu always opens with an ACTIVE owner in place.
+func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, inactiveOwners []admin.AccountView) error {
+	createKey := len(inactiveOwners) + 1
+
+	for {
+		if err := writeConsole(stdout,
+			"No hay ningún owner activo, pero hay %d cuenta(s) de owner desactivada(s).\n"+
+				"Podés reactivar una de ellas o crear un owner nuevo con otro teléfono.\n",
+			len(inactiveOwners)); err != nil {
+			return err
+		}
+		for i, view := range inactiveOwners {
+			if err := writeConsole(stdout, "  [%d] Reactivar %s\n", i+1, accountLabel(view)); err != nil {
+				return err
+			}
+		}
+		if err := writeConsole(stdout, "  [%d] Crear un owner nuevo con otro teléfono\n", createKey); err != nil {
+			return err
+		}
+
+		index, err := promptIndex(scanner, stdout, "Elegí una opción", createKey)
+		if err != nil {
+			return err
+		}
+
+		if index != createKey {
+			done, err := runReactivateOwnerChoice(ctx, identity, scanner, stdout, inactiveOwners[index-1])
+			if err != nil {
+				return err
+			}
+			if done {
+				return nil
+			}
+			continue
+		}
+
+		done, err := runNewOwnerSeed(ctx, identity, scanner, stdout, inactiveOwners)
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+	}
+}
+
+// runReactivateOwnerChoice reactivates one deactivated owner row after an
+// explicit confirmation and rewrites the caller-id file, because the id Hermes
+// must send is the account id of the newly active owner (ADR-0012). done is
+// false when the operator declined: nothing was written and the recovery menu
+// re-renders.
+func runReactivateOwnerChoice(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, candidate admin.AccountView) (done bool, err error) {
+	confirmed, err := promptConfirm(scanner, stdout,
+		fmt.Sprintf("Se reactivará %s como owner activo. ¿Confirmar?", accountLabel(candidate)))
+	if err != nil {
+		return false, err
+	}
+	if !confirmed {
+		return false, writeConsole(stdout, "Operación cancelada: no se reactivó ninguna cuenta.\n")
+	}
+
+	reactivated, err := admin.ReactivateOwner(ctx, identity.accounts, candidate.ID)
+	if err != nil {
+		return false, err
+	}
+
+	path, err := admin.WriteCallerID(reactivated.ID)
+	if err != nil {
+		return false, err
+	}
+	if err := writeConsole(stdout, "Owner reactivado: %s (%s)\n", reactivated.DisplayName, reactivated.ID); err != nil {
+		return false, err
+	}
+	if err := writeConsole(stdout, "caller-id escrito en %s\n", path); err != nil {
+		return false, err
+	}
+	return true, writeConsole(stdout, "Ya podés usar `mcp-server hermes chat` con ese caller id.\n")
+}
+
+// runNewOwnerSeed runs the seed questionnaire inside the deadend recovery. done
+// is false when the phone the operator typed already belongs to an account
+// (almost always the deactivated owner row): the semantic conflict plus the
+// reactivation guidance re-render the choice, so the operator can reactivate
+// that account in one step instead of hunting for a different phone.
+func runNewOwnerSeed(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, inactiveOwners []admin.AccountView) (done bool, err error) {
+	input, err := promptSeedInput(scanner, stdout)
+	if err != nil {
+		return false, err
+	}
+
+	if err := admin.Seed(ctx, identity.accounts, input); err != nil {
+		if errors.Is(err, admin.ErrOwnerAlreadyExists) {
+			if err := writeConsole(stdout, "No se creó ninguna cuenta: %v\n", err); err != nil {
+				return false, err
+			}
+			if hint := reactivationHint(inactiveOwners, input.Phone); hint != "" {
+				if err := writeConsole(stdout, "%s\n", hint); err != nil {
+					return false, err
+				}
+			}
+			return false, nil
+		}
+		return false, err
+	}
+
+	path, err := admin.WriteCallerID(input.Phone)
+	if err != nil {
+		return false, err
+	}
+	if err := writeConsole(stdout, "Owner creado: %s (%s)\n", input.DisplayName, input.Phone); err != nil {
+		return false, err
+	}
+	if err := writeConsole(stdout, "caller-id escrito en %s\n", path); err != nil {
+		return false, err
+	}
+	return true, writeConsole(stdout, "Ya podés usar `mcp-server hermes chat` con ese caller id.\n")
+}
+
+// reactivationHint names the deactivated owner whose phone the operator just
+// tried to reuse, so the semantic conflict carries the exact next step. It
+// returns an empty string when the phone belongs to something else.
+func reactivationHint(inactiveOwners []admin.AccountView, phone string) string {
+	for _, view := range inactiveOwners {
+		if view.ID == phone {
+			return fmt.Sprintf(
+				"Sugerencia: el teléfono %s pertenece a la cuenta de owner desactivada %q; reactivala con la opción de reactivación en lugar de crear una cuenta nueva.",
+				phone, view.DisplayName)
+		}
+	}
+	return ""
+}
+
 // menuExitKey leaves the operator menu (ADR-0016 §5 keeps `q` as the quit
 // binding of the console flow).
 const menuExitKey = "q"
@@ -155,6 +312,7 @@ func adminMenuOptions() []adminMenuOption {
 		{key: "2", label: "Desactivar cuenta", action: runDeactivateAccountFlow},
 		{key: "3", label: "Listar cuentas", action: runListAllAccountsFlow},
 		{key: "4", label: "Listar por rol", action: runListByRoleFlow},
+		{key: "5", label: "Transferir ownership", action: runTransferOwnershipFlow},
 	}
 }
 
@@ -610,4 +768,165 @@ func promptValidated(scanner *bufio.Scanner, stdout io.Writer, label, defaultVal
 var errInputAborted = &domain.SemanticError{
 	Code:    domain.ErrCodeInvalidInput,
 	Message: "se canceló la operación: no se recibió la entrada necesaria",
+}
+
+// transferSuccessorOption is one numbered successor candidate of the transfer
+// picker: an existing account row or the "new phone" escape hatch. The extra
+// fields only carry operator input for the new-phone case.
+type transferSuccessorOption struct {
+	kind        admin.SuccessorKind
+	id          string
+	phone       string
+	displayName string
+	label       string
+}
+
+// runTransferOwnershipFlow drives the Transfer Ownership capability (ADR-0016
+// Decision 1) as the explicit two-step flow that respects the single-owner
+// invariant of ADR-0009:
+//
+//	Step 1 of 2 — pick the successor: an existing INACTIVE owner row, an active
+//	staff account (promoted to owner), or a brand-new phone (a fresh owner row
+//	is created inactive).
+//	Step 2 of 2 — confirm and swap: admin.PrepareSuccessor leaves a role=owner,
+//	is_active=0 row behind and admin.TransferOwnership deactivates the current
+//	owner plus activates the successor inside one transaction.
+//
+// The caller-id file is rewritten to the new owner before returning: the old
+// owner's account is now inactive and the resolver rejects inactive accounts
+// ("tu cuenta está deshabilitada"), so keeping the stale id would break every
+// authenticated MCP call (ADR-0012). This closes the ADR-0016 chicken-and-egg
+// note: the TUI is the only legitimate owner-management path.
+func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+	owner, err := admin.ActiveOwner(ctx, identity.accounts)
+	if err != nil {
+		return err
+	}
+
+	if err := writeConsole(stdout, "Paso 1 de 2: elegir el sucesor.\n"); err != nil {
+		return err
+	}
+	if err := writeConsole(stdout, "Owner actual: %s\n", accountLabel(owner)); err != nil {
+		return err
+	}
+
+	options, err := transferSuccessorOptions(ctx, identity)
+	if err != nil {
+		return err
+	}
+	for i, option := range options {
+		if err := writeConsole(stdout, "  [%d] %s\n", i+1, option.label); err != nil {
+			return err
+		}
+	}
+
+	index, err := promptIndex(scanner, stdout, "Elegí el sucesor", len(options))
+	if err != nil {
+		return err
+	}
+	chosen := options[index-1]
+
+	if chosen.kind == admin.SuccessorNewPhone {
+		phone, err := promptValidated(scanner, stdout, "Teléfono del nuevo owner", "", admin.ValidatePhone)
+		if err != nil {
+			return err
+		}
+		displayName, err := promptValidated(scanner, stdout, "Nombre para mostrar", "", admin.ValidateDisplayName)
+		if err != nil {
+			return err
+		}
+		chosen.phone = phone
+		chosen.displayName = displayName
+		chosen.label = fmt.Sprintf("%s (%s)", displayName, phone)
+	}
+
+	if chosen.kind == admin.SuccessorStaff {
+		// Promote is a role switch, not a copy: the operator must know the
+		// account stops being a staff account before confirming.
+		if err := writeConsole(stdout,
+			"Al promover una cuenta de staff, la cuenta pierde su vínculo con el profesional.\n"); err != nil {
+			return err
+		}
+	}
+
+	if err := writeConsole(stdout, "Paso 2 de 2: confirmar la transferencia.\n"); err != nil {
+		return err
+	}
+	confirmed, err := promptConfirm(scanner, stdout, "El owner actual quedará desactivado. ¿Confirmar?")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return writeConsole(stdout, "Operación cancelada: no se transfirió la propiedad.\n")
+	}
+
+	successor, err := admin.PrepareSuccessor(ctx, identity.accounts, admin.TransferSuccessor{
+		Kind:        chosen.kind,
+		ID:          chosen.id,
+		Phone:       chosen.phone,
+		DisplayName: chosen.displayName,
+	})
+	if err != nil {
+		return err
+	}
+
+	outcome, err := admin.TransferOwnership(ctx, identity.accounts, owner.ID, successor.ID)
+	if err != nil {
+		return err
+	}
+
+	path, err := admin.WriteCallerID(outcome.To.ID)
+	if err != nil {
+		return err
+	}
+
+	if err := writeConsole(stdout, "Ownership transferido: %s → %s\n",
+		accountLabel(outcome.From), accountLabel(outcome.To)); err != nil {
+		return err
+	}
+	return writeConsole(stdout, "caller-id actualizado en %s\n", path)
+}
+
+// transferSuccessorOptions builds the numbered successor list: every inactive
+// owner row, then every active staff account, then the "new phone" escape
+// hatch. The active owner is never offered — the transfer deactivates it.
+// Labels carry name, role and phone so the operator recognises the row they are
+// about to promote.
+func transferSuccessorOptions(ctx context.Context, identity identityDeps) ([]transferSuccessorOption, error) {
+	owners, err := admin.ListAccounts(ctx, identity.accounts, admin.ListFilter{
+		Role:            entity.RoleOwner,
+		IncludeInactive: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	options := make([]transferSuccessorOption, 0, len(owners)+1)
+	for _, view := range owners {
+		if view.Active {
+			continue
+		}
+		options = append(options, transferSuccessorOption{
+			kind:  admin.SuccessorInactiveOwner,
+			id:    view.ID,
+			label: accountLabel(view),
+		})
+	}
+
+	staff, err := admin.ListAccounts(ctx, identity.accounts, admin.ListFilter{Role: entity.RoleStaff})
+	if err != nil {
+		return nil, err
+	}
+	for _, view := range staff {
+		options = append(options, transferSuccessorOption{
+			kind:  admin.SuccessorStaff,
+			id:    view.ID,
+			label: accountLabel(view) + " — promover a owner",
+		})
+	}
+
+	return append(options, transferSuccessorOption{
+		kind:  admin.SuccessorNewPhone,
+		label: "Otro teléfono (crear una cuenta de owner nueva)",
+	}), nil
 }
