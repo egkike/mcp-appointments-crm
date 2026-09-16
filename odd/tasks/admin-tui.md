@@ -76,7 +76,7 @@ docs/demo-plan.md:142).
       TUI path skips ValidateLoopback (no HTTP transport dependency, ADR-0016 D3.5);
       runHermesChat stub lives in main.go (reserved name).
       ⚠ Review budget: candidate is ~557 diff lines (> 400 budget; tests ≈66%) →
-      chained-PR split or owner size:exception decision pending at delivery.
+      owner accepted explicit `size:exception` for this slice at delivery.
 - [ ] **T2 — Owner seed gateway**: first-boot flow: detect zero active owners → guided
       creation (phone validated, display_name, professional_id optional via picker) →
       `AccountsRepo.Create` under fabricated owner Caller → write `caller-id` file
@@ -130,4 +130,5 @@ docs/demo-plan.md:142).
 
 ## Next step
 
-Commit/PR strategy for T1 (owner decision), then T2 — owner seed gateway.
+T1 delivered: issue #75 (status:approved) + PR #76 (type:feature, CI green). Owner decides
+merge. Next task: T2 — owner seed gateway.
