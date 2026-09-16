@@ -160,5 +160,7 @@ T3 (lineage review-b462495fcbd64614, approved):
 
 ## Next step
 
-T3 delivered (uncommitted): owner gate decision — commit/PR strategy. Then T4 —
-Deactivate + List views.
+## Next step
+
+T3 delivered: PR #78 (type:feature, Part of #75, CI green, GGA passed). Owner decides
+merge. Then T4 — Deactivate + List views.
