@@ -133,9 +133,19 @@ docs/demo-plan.md:142).
       golangci-lint 0 issues.
       Native review: lineage review-1f91a6998d859d25 (medium, 1 lens reliability) →
       **approved** direct, acknowledged (rev 5279e6e1).
-- [ ] **T7 — TUI assembly**: Bubble Tea screens/state machine wiring all flows, key
-      bindings, error rendering (semantic messages), Ctrl+C safety. go.mod deps added.
-      Checks: `go build`, teatest-style or model-level unit tests where feasible.
+- [x] **T7 — TUI assembly**: Bubble Tea v1.3.10 + bubbles v1.0.0 + lipgloss v1.1.0 added
+      to go.mod (govulncheck clean). New `internal/tui/` package: strict MVU AppModel over
+      the reviewed admin core (no business logic in TUI), seed wizard as first screen,
+      menu + pickers + forms + scrollable account tables, async core calls via tea.Cmd with
+      spinner, Enter blocked on invalid input, destructive confirmations (s/y explicit),
+      Esc=back (never mid-write), q/Ctrl+C refused while busy. Console flow kept as the
+      non-TTY fallback (binary dispatch test asserts it; not dead code). **Done 2026-09-16**
+      (delegated worker).
+      Checks OBSERVED: build OK, `go test -race` all green (61 TUI cases), vet/gofmt clean,
+      golangci-lint 0 issues, govulncheck clean.
+      Native review: lineage review-ed05862ea88d932a (medium, 1 lens reliability) →
+      **approved** direct, acknowledged (rev f6f74ae5).
+      ⚠ Pending: real-TTY smoke test on a clean install (operator manual step).
 - [ ] **T8 — Docs**: README + docs/installation.md §3.4 (owner creation now via TUI),
       docs/demo-plan.md manual-SQL step replaced. Docs-only commit.
 
@@ -210,7 +220,15 @@ T6 (lineage review-1f91a6998d859d25, approved):
 
 ## Next step
 
+T7 (lineage review-ed05862ea88d932a, approved):
+- R3-1 (WARNING) internal/tui/model.go:380-404; R3-2 (WARNING) model.go:672-677.
+- R3-3 model.go:294-298, R3-4 table.go:95-97 (SUGGESTIONs).
+- Follow-up decision pending: retire the console fallback once the binary-dispatch test
+  migrates (two Spanish copy sources must stay in sync until then).
+
 ## Next step
 
-T6 delivered: PR #81 (type:feature, Part of #75, CI green). Owner decides merge. Then
-T7 — TUI assembly (Bubble Tea + go.mod dependency).
+## Next step
+
+T7 delivered: PR #82 (type:feature, Part of #75, CI green, GGA passed first try). Owner
+merge + real-TTY smoke test. Then T8 — Docs, and feature close (issue #75).

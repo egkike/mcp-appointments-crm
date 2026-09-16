@@ -14,17 +14,72 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	"github.com/egkike/mcp-appointments-crm/internal/tui"
+	"github.com/mattn/go-isatty"
 )
 
 // runAdminTUI is the entry point of `mcp-server admin tui`, the operator-facing
-// identity and accounts TUI (ADR-0016 §5, ADR-0010). It binds the process
-// streams to the testable flow.
+// identity and accounts interface (ADR-0016 §5, ADR-0010).
+//
+// Two presentations share the same reviewed core (internal/admin), and the
+// process streams decide which one runs:
+//
+//   - an interactive terminal gets the Bubble Tea TUI (T7). It owns the whole
+//     operator flow, including the first-owner seed gateway as its first screen,
+//     and it reads the keys the program needs to render and navigate with.
+//   - a non-interactive invocation (piped stdin or stdout, CI, scripted runs)
+//     keeps the line-based flow below, which is the only presentation that works
+//     without a terminal. It is not dead code: it is the fallback path, and the
+//     binary-level dispatch test locks its seed-gateway output.
+//
+// Both paths validate the configuration and SQLite in the same order and build
+// the identity repositories through the shared construction site
+// (newIdentityDeps), so the two entry points cannot drift.
 func runAdminTUI() error {
+	if interactiveTerminal() {
+		return runAdminTUIProgram()
+	}
 	return runAdminTUIFlow(os.Stdin, os.Stdout)
 }
 
-// runAdminTUIFlow implements the T2 owner seed gateway plus the T3 operator
-// menu (ADR-0016 Decision 1).
+// runAdminTUIProgram opens the interactive Bubble Tea program over the identity
+// repositories. The HTTP transport is deliberately not validated: ADR-0016
+// Decision 3.5 keeps the TUI independent from it (shared *sql.DB, logger and
+// repos only).
+func runAdminTUIProgram() error {
+	deps, err := openCommandDependencies()
+	if err != nil {
+		return err
+	}
+	defer deps.close()
+
+	identity := newIdentityDeps(deps.database, deps.logger)
+	return tui.Run(context.Background(), tui.Deps{
+		Accounts:      identity.accounts,
+		Professionals: identity.professionals,
+		Clients:       identity.clients,
+	})
+}
+
+// interactiveTerminal reports whether both process streams are attached to a
+// terminal, which is what the Bubble Tea program needs to render a frame and
+// read keys. Mintty/ConEmu pseudo-terminals on Windows are recognized through
+// IsCygwinTerminal, so the TUI does not silently degrade there.
+func interactiveTerminal() bool {
+	return isTerminalFile(os.Stdin) && isTerminalFile(os.Stdout)
+}
+
+// isTerminalFile reports whether one stream is a terminal.
+func isTerminalFile(file *os.File) bool {
+	fd := file.Fd()
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
+}
+
+// runAdminTUIFlow implements the non-interactive (line-based) presentation: the
+// T2 owner seed gateway plus the T3-T6 operator menu (ADR-0016 Decision 1). The
+// interactive presentation is the Bubble Tea program in internal/tui, which
+// drives the same core; this flow stays because a piped invocation has no
+// terminal to render a TUI on.
 //
 // It:
 //
@@ -48,8 +103,10 @@ func runAdminTUI() error {
 // second one needs.
 //
 // The HTTP transport is deliberately not validated: ADR-0016 Decision 3.5
-// keeps the TUI independent from it (shared *sql.DB, logger and repos only).
-// No UI framework is used here: T7 assembles the Bubble Tea screens on top.
+// keeps this flow independent from it (shared *sql.DB, logger and repos only).
+// The interactive presentation (internal/tui, T7) drives the same core with the
+// same startup validation; this one exists for the invocations that have no
+// terminal to render on.
 func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 	deps, err := openCommandDependencies()
 	if err != nil {
