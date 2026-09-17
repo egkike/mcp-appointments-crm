@@ -1,6 +1,6 @@
 # Hermes Maintenance Tools (operational data) — ODD feature
 
-**Status**: IN PROGRESS (started 2026-09-17)
+**Status**: COMPLETE (2026-09-17)
 **Scope authority**: ADR-0015 (docs/architecture/0015-hermes-operational-maintenance.md), ADR-0009
 **Workflow**: ODD (per owner decision; repo policy is workflow-agnostic per e38d760)
 **TDD**: OFF (not configured in this project); every task ships focused tests following existing patterns
@@ -120,17 +120,29 @@ MCP wiring + RBAC owner gates (ADR-0015 Context ¶4).
       **Follow-ups:** e2e_test.go + server_loyalty_integration_test.go still assert 11 tools (fixed in T4);
       main.go "mcp server starting" log counts stale (11 use cases / "usecases", 8); integration
       mux harness wiring owned by T4.
-- [ ] **T4 — Integration tests (real SQLite)**: happy path per tool family; RBAC 403 for
-      staff/client (owner 200); semantic error mapping (-32002); day-key contract
-      end-to-end (profile hours vs schedule day_of_week vs availability).
-- [ ] **T5 — Docs**: README tool list + count, any "11 tools" mentions, PRD changelog row;
-      demo-plan smoke wording (the combined VM smoke will use these tools).
+- [x] **T4 — Integration tests (real SQLite)** ✅ commit `901e101` (native review review-a2e2315a56fcc8db
+      approved medium/1-lens, 3 non-blocking suggestions; GGA passed): 9 integration tests end-to-end
+      through the real mux + auth middleware + repos + use cases. Registration (19 tools), RBAC 403
+      staff/client on all 8 tools, unauth -32000, profile partial-merge read-back, service/professional/
+      schedule lifecycles (FTS read-back, upsert id-stability), FK semantics through the real driver
+      (RESTRICT 1811 → "reservas"), day-key contract (Sunday closed without key "7" / available after;
+      create_booking agrees with availability). Follow-ups: admin-denial coverage, invalid-input
+      integration cases, tool-count duplication (e2e vs suite).
+- [x] **T5 — Docs** ✅ commits `d7b65f7` (log counts fix, part of T3 follow-up) + `f03a422`
+      (structural readback gate PASS, 1 material WARN fixed inline: REQ-MT-015 registry rows):
+      README/PRD 1.15/installation/demo-plan updated to 19 tools, ADR-0015 marked shipped,
+      combined VM smoke includes the maintenance step; openspec REQ-MT-005 + REQ-MT-015 canonical
+      spec updated to 19 with the ADR-0015 role-semantics note. Historical dated mentions preserved.
 
 ## Commits
 
 (recorded per task on feature branch)
 - T1: `0f64724` on `feat/hermes-maintenance-t1` — fix(domain): normalize day-key encoding and harden booking-time validation
 - T2: `108a5d9` — feat(application): maintenance use cases for Hermes tools (T2) [size:exception]
+- T3: `3ce2a05` — feat(mcp): register eight maintenance tools with owner-only RBAC (+ `3a71332` docs(odd) evidence)
+- T4: `901e101` — test(mcp): real-SQLite integration coverage for maintenance tools
+- T3-followup: `d7b65f7` — fix(mcp): correct startup log repo and use-case counts
+- T5: `f03a422` — docs: document the eight Hermes maintenance tools
 
 ## Notes / deferred
 
