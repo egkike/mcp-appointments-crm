@@ -156,7 +156,9 @@ documentación de MCP clients. Criterio: una llamada de prueba responde sin
 
 > Los datos demo que no son cuentas siguen fuera de la TUI (ADR-0016 la limita a
 > identidad y cuentas): `config.SeedOnBoot` siembra perfil, profesionales,
-> horarios y servicios desde los JSONs del Paso 2. El cliente demo y la reserva
+> horarios y servicios desde los JSONs del Paso 2, y a partir de ahí el
+> mantenimiento de datos operativos se hace vía Hermes chat con los tools
+> owner-only del Paso 6 (paso 8), no por SQL. El cliente demo y la reserva
 > histórica que necesita `get_loyalty_report` se siembran aparte por SQL directo
 > (esta doc no incluye el snippet; los INSERTs usados en la corrida 2026-09-10
 > quedan en la bitácora de abajo).
@@ -191,8 +193,13 @@ Secuencia mínima sugerida, con negocio demo:
 5. `reschedule_booking` → mueve la reserva; `cancel_booking` → la cancela.
 6. `search_clients_advanced` + `search_services_advanced` → FTS5 responde.
 7. `get_loyalty_report` → reporte con datos agregados.
+8. Mantenimiento de datos vía Hermes chat (owner-only): `update_business_profile`
+   (p. ej. cambiar el teléfono), `create_service`/`update_service`/`delete_service`,
+   `create_professional`/`update_professional` y `upsert_schedule`/`delete_schedule`
+   → cada mutación persiste y se refleja en las lecturas siguientes (perfil,
+   agenda cargada, `check_availability`).
 
-Criterio: las 7 familias de tools responden con mensajes semánticos en
+Criterio: las 8 familias de tools responden con mensajes semánticos en
 español y sin stack traces. Anotar desvíos en la bitácora.
 
 > Nota 2026-09-10: el smoke puede correrse también directo por HTTP
