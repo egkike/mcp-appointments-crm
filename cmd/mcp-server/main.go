@@ -416,8 +416,8 @@ func run() error {
 	logger.Info("mcp server starting",
 		"addr", httpSrv.Addr,
 		"version", cfg.Version,
-		"repos", 6,
-		"usecases", 8,
+		"repos", 11,
+		"usecases", 19,
 		"booking_validator_shared", true,
 	)
 
