@@ -227,10 +227,13 @@ func (m *mockBookingValidator) Validate(ctx context.Context, input service.Valid
 	return m.OnValidate(ctx, input)
 }
 
-// --- mockProfessionalsRepo (PR #B entity resolution) ---
+// --- mockProfessionalsRepo (PR #B entity resolution + T2 maintenance) ---
 
 type mockProfessionalsRepo struct {
-	FindByIDFn func(ctx context.Context, id string) (*entity.Professional, error)
+	FindByIDFn   func(ctx context.Context, id string) (*entity.Professional, error)
+	FindActiveFn func(ctx context.Context) ([]*entity.Professional, error)
+	SaveFn       func(ctx context.Context, p *entity.Professional) error
+	UpdateFn     func(ctx context.Context, p *entity.Professional) error
 }
 
 func (m *mockProfessionalsRepo) FindByID(ctx context.Context, id string) (*entity.Professional, error) {
@@ -240,23 +243,32 @@ func (m *mockProfessionalsRepo) FindByID(ctx context.Context, id string) (*entit
 	return m.FindByIDFn(ctx, id)
 }
 
-// FindActive, Save, Update are not exercised by the PR #B use case path but
-// must be implemented to satisfy repository.ProfessionalsRepo. They panic if
-// called to surface unexpected dependencies in tests.
 func (m *mockProfessionalsRepo) FindActive(ctx context.Context) ([]*entity.Professional, error) {
-	panic("mockProfessionalsRepo.FindActive: not expected in PR #B tests")
-}
-func (m *mockProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) error {
-	panic("mockProfessionalsRepo.Save: not expected in PR #B tests")
-}
-func (m *mockProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) error {
-	panic("mockProfessionalsRepo.Update: not expected in PR #B tests")
+	if m.FindActiveFn == nil {
+		panic("mockProfessionalsRepo.FindActiveFn not set")
+	}
+	return m.FindActiveFn(ctx)
 }
 
-// --- mockBusinessProfileRepo (PR #B entity resolution) ---
+func (m *mockProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) error {
+	if m.SaveFn == nil {
+		panic("mockProfessionalsRepo.SaveFn not set")
+	}
+	return m.SaveFn(ctx, p)
+}
+
+func (m *mockProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) error {
+	if m.UpdateFn == nil {
+		panic("mockProfessionalsRepo.UpdateFn not set")
+	}
+	return m.UpdateFn(ctx, p)
+}
+
+// --- mockBusinessProfileRepo (PR #B entity resolution + T2 maintenance) ---
 
 type mockBusinessProfileRepo struct {
-	GetFn func(ctx context.Context) (*entity.BusinessProfile, error)
+	GetFn    func(ctx context.Context) (*entity.BusinessProfile, error)
+	UpdateFn func(ctx context.Context, p *entity.BusinessProfile) error
 }
 
 func (m *mockBusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile, error) {
@@ -266,10 +278,11 @@ func (m *mockBusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProf
 	return m.GetFn(ctx)
 }
 
-// Update is not exercised by the PR #B use case path but must be implemented
-// to satisfy repository.BusinessProfileRepo. It panics if called.
 func (m *mockBusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) error {
-	panic("mockBusinessProfileRepo.Update: not expected in PR #B tests")
+	if m.UpdateFn == nil {
+		panic("mockBusinessProfileRepo.UpdateFn not set")
+	}
+	return m.UpdateFn(ctx, p)
 }
 
 // --- mockBusinessHoursExceptionRepo (PR #B entity resolution) ---
@@ -298,10 +311,12 @@ func (m *mockBusinessHoursExceptionRepo) Delete(ctx context.Context, id int) err
 	panic("mockBusinessHoursExceptionRepo.Delete: not expected in PR #B tests")
 }
 
-// --- mockSchedulesRepo (PR #B entity resolution) ---
+// --- mockSchedulesRepo (PR #B entity resolution + T2 maintenance) ---
 
 type mockSchedulesRepo struct {
 	FindByProfessionalAndDayFn func(ctx context.Context, professionalID string, day int) (*entity.Schedule, error)
+	UpsertFn                   func(ctx context.Context, s *entity.Schedule) error
+	DeleteFn                   func(ctx context.Context, professionalID string, day int) error
 }
 
 func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, professionalID string, day int) (*entity.Schedule, error) {
@@ -311,21 +326,32 @@ func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, profes
 	return m.FindByProfessionalAndDayFn(ctx, professionalID, day)
 }
 
-// Upsert, Delete are not exercised by the PR #B use case path but must be
-// implemented to satisfy repository.SchedulesRepo. They panic if called.
 func (m *mockSchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) error {
-	panic("mockSchedulesRepo.Upsert: not expected in PR #B tests")
+	if m.UpsertFn == nil {
+		panic("mockSchedulesRepo.UpsertFn not set")
+	}
+	return m.UpsertFn(ctx, s)
 }
+
 func (m *mockSchedulesRepo) Delete(ctx context.Context, professionalID string, day int) error {
-	panic("mockSchedulesRepo.Delete: not expected in PR #B tests")
+	if m.DeleteFn == nil {
+		panic("mockSchedulesRepo.DeleteFn not set")
+	}
+	return m.DeleteFn(ctx, professionalID, day)
 }
 
 // --- Test helpers ---
 
 func ptr(s string) *string { return &s }
 
+func ptrBool(b bool) *bool { return &b }
+
 func emptyCaller() auth.Caller {
 	return auth.Caller{}
+}
+
+func ownerCaller() auth.Caller {
+	return auth.Caller{ID: "owner1", Role: auth.RoleOwner}
 }
 
 func adminCaller() auth.Caller {

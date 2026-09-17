@@ -26,7 +26,7 @@ func (t *callerHeaderTransport) RoundTrip(r *http.Request) (*http.Response, erro
 
 // TestE2EMockClient drives the production /mcp endpoint with the real go-sdk
 // client over Streamable HTTP (REQ-MT-014): initialize handshake happens
-// inside Connect; ListTools proves the six tools are discoverable; CallTool
+// inside Connect; ListTools proves the nineteen tools are discoverable; CallTool
 // proves check_availability resolves a valid slot end-to-end against the
 // seeded SQLite file. DisableStandaloneSSE matches the stateless JSON server
 // (GET /mcp answers 405).
@@ -56,8 +56,8 @@ func TestE2EMockClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 11 {
-		t.Errorf("tools = %d; want 11", len(tools.Tools))
+	if len(tools.Tools) != 19 {
+		t.Errorf("tools = %d; want 19", len(tools.Tools))
 	}
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{

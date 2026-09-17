@@ -1,6 +1,59 @@
 package entity
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
+)
+
+func TestProfileDayKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		weekday time.Weekday
+		want    int
+	}{
+		{"sunday maps to 7", time.Sunday, 7},
+		{"monday maps to 1", time.Monday, 1},
+		{"tuesday maps to 2", time.Tuesday, 2},
+		{"wednesday maps to 3", time.Wednesday, 3},
+		{"thursday maps to 4", time.Thursday, 4},
+		{"friday maps to 5", time.Friday, 5},
+		{"saturday maps to 6", time.Saturday, 6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ProfileDayKey(tt.weekday); got != tt.want {
+				t.Errorf("ProfileDayKey(%v) = %d; want %d", tt.weekday, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestProfileDayKeyMatchesBusinessHoursEncoding pins the translation against
+// the real business_hours JSON encoding ("1"=Monday .. "7"=Sunday), so the two
+// encodings can never silently drift apart.
+func TestProfileDayKeyMatchesBusinessHoursEncoding(t *testing.T) {
+	bp := &BusinessProfile{BusinessHours: `{"1":{"open":"09:00","close":"18:00"},` +
+		`"2":{"open":"09:00","close":"18:00"},"3":{"open":"09:00","close":"18:00"},` +
+		`"4":{"open":"09:00","close":"18:00"},"5":{"open":"09:00","close":"18:00"},` +
+		`"6":{"open":"10:00","close":"14:00"},"7":{"open":"10:00","close":"14:00"}}`}
+
+	weekdays := []time.Weekday{time.Sunday, time.Monday, time.Tuesday, time.Wednesday,
+		time.Thursday, time.Friday, time.Saturday}
+	for _, wd := range weekdays {
+		key := ProfileDayKey(wd)
+		if key < 1 || key > 7 {
+			t.Errorf("ProfileDayKey(%v) = %d; want a key inside 1..7", wd, key)
+			continue
+		}
+		if !bp.IsOpenOn(key) {
+			t.Errorf("IsOpenOn(ProfileDayKey(%v)=%d) = false; want true", wd, key)
+		}
+	}
+}
 
 func TestBusinessProfile_IsOpenOn(t *testing.T) {
 	tests := []struct {
@@ -94,6 +147,150 @@ func TestBusinessProfile_GetOpenClose(t *testing.T) {
 			t.Error("GetOpenClose with invalid JSON returned ok=true, want false")
 		}
 	})
+}
+
+func TestBusinessProfile_parseBusinessHoursInvalidKey(t *testing.T) {
+	tests := []struct {
+		name          string
+		businessHours string
+		wantKey       string
+	}{
+		{
+			name:          "alphabetic key",
+			businessHours: `{"a":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"a"`,
+		},
+		{
+			name:          "day-name key",
+			businessHours: `{"mon":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"mon"`,
+		},
+		{
+			name:          "key out of range",
+			businessHours: `{"8":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"8"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bp := &BusinessProfile{BusinessHours: tt.businessHours}
+			hours, err := bp.parseBusinessHours()
+			if err == nil {
+				t.Fatalf("parseBusinessHours() error = nil, want error mentioning %s", tt.wantKey)
+			}
+			if !errors.Is(err, domain.ErrInvalidInput) {
+				t.Errorf("parseBusinessHours() error = %v, want wrapping domain.ErrInvalidInput", err)
+			}
+			if !strings.Contains(err.Error(), tt.wantKey) {
+				t.Errorf("parseBusinessHours() error = %q, want it to mention key %s", err, tt.wantKey)
+			}
+			if hours != nil {
+				t.Errorf("parseBusinessHours() hours = %v, want nil", hours)
+			}
+		})
+	}
+}
+
+func TestBusinessProfile_validateBusinessHoursJSON(t *testing.T) {
+	tests := []struct {
+		name          string
+		businessHours string
+		wantSub       string
+	}{
+		{
+			name:          "empty string is allowed",
+			businessHours: "",
+		},
+		{
+			name:          "valid single day",
+			businessHours: `{"1":{"open":"09:00","close":"18:00"}}`,
+		},
+		{
+			name:          "valid full range day",
+			businessHours: `{"1":{"open":"00:00","close":"23:59"},"7":{"open":"10:00","close":"14:00"}}`,
+		},
+		{
+			name:          "non-object JSON array",
+			businessHours: `[1,2,3]`,
+			wantSub:       "objeto JSON",
+		},
+		{
+			name:          "non-object JSON string",
+			businessHours: `"just a string"`,
+			wantSub:       "objeto JSON",
+		},
+		{
+			name:          "malformed JSON",
+			businessHours: `{invalid`,
+			wantSub:       "JSON válido",
+		},
+		{
+			name:          "unpadded opening hour",
+			businessHours: `{"1":{"open":"9:00","close":"18:00"}}`,
+			wantSub:       "HH:MM",
+		},
+		{
+			name:          "non-numeric hour",
+			businessHours: `{"1":{"open":"xx:00","close":"18:00"}}`,
+			wantSub:       "HH:MM",
+		},
+		{
+			name:          "out-of-range hour",
+			businessHours: `{"1":{"open":"25:00","close":"18:00"}}`,
+			wantSub:       "HH:MM",
+		},
+		{
+			name:          "open equals close",
+			businessHours: `{"1":{"open":"09:00","close":"09:00"}}`,
+			wantSub:       "anterior al cierre",
+		},
+		{
+			name:          "open after close",
+			businessHours: `{"1":{"open":"18:00","close":"09:00"}}`,
+			wantSub:       "anterior al cierre",
+		},
+		{
+			name:          "day key zero",
+			businessHours: `{"0":{"open":"09:00","close":"18:00"}}`,
+			wantSub:       "clave de día",
+		},
+		{
+			name:          "day key eight",
+			businessHours: `{"8":{"open":"09:00","close":"18:00"}}`,
+			wantSub:       "clave de día",
+		},
+		{
+			name:          "day key ninety-nine",
+			businessHours: `{"99":{"open":"09:00","close":"18:00"}}`,
+			wantSub:       "clave de día",
+		},
+		{
+			name:          "non-numeric day key",
+			businessHours: `{"mon":{"open":"09:00","close":"18:00"}}`,
+			wantSub:       "clave de día",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bp := &BusinessProfile{BusinessHours: tt.businessHours}
+			err := bp.validateBusinessHoursJSON()
+			if tt.wantSub == "" {
+				if err != nil {
+					t.Fatalf("validateBusinessHoursJSON() error = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validateBusinessHoursJSON() error = nil, want error containing %q", tt.wantSub)
+			}
+			if !errors.Is(err, domain.ErrInvalidInput) {
+				t.Errorf("validateBusinessHoursJSON() error = %v, want wrapping domain.ErrInvalidInput", err)
+			}
+			if !strings.Contains(err.Error(), tt.wantSub) {
+				t.Errorf("validateBusinessHoursJSON() error = %q, want it to contain %q", err, tt.wantSub)
+			}
+		})
+	}
 }
 
 func TestBusinessProfile_Validate(t *testing.T) {

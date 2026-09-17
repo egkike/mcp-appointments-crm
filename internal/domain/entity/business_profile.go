@@ -3,11 +3,16 @@ package entity
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
+
+// businessHoursHHMMRegex matches a zero-padded 24-hour HH:MM time (00:00..23:59).
+var businessHoursHHMMRegex = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 
 // BusinessProfile is the singleton configuration row for the business.
 // There is exactly one row with ID="singleton" (enforced by CHECK constraint).
@@ -42,8 +47,25 @@ type businessHoursDay struct {
 	Close string `json:"close"`
 }
 
+// ProfileDayKey translates a time.Weekday into the day key used by
+// BusinessProfile.BusinessHours and by the profile day lookups (IsOpenOn,
+// GetOpenClose). It is the single translation point between the two day
+// encodings used in this project, which must never be mixed up:
+//
+//   - time.Weekday (Go) and schedules.day_of_week: 0..6, Sunday=0, Monday=1,
+//     ..., Saturday=6.
+//   - business_hours JSON keys: "1".."7", Monday=1, ..., Saturday=6, Sunday=7.
+func ProfileDayKey(w time.Weekday) int {
+	if w == time.Sunday {
+		return 7
+	}
+	return int(w)
+}
+
 // IsOpenOn reports whether the business is open on the given day of week
 // (1=Monday, 7=Sunday). Returns false if BusinessHours is empty or invalid JSON.
+// The day must come from ProfileDayKey (or an equivalent "1".."7" literal),
+// never from a raw int(time.Weekday()).
 func (bp *BusinessProfile) IsOpenOn(dayOfWeek int) bool {
 	hours, err := bp.parseBusinessHours()
 	if err != nil {
@@ -53,8 +75,10 @@ func (bp *BusinessProfile) IsOpenOn(dayOfWeek int) bool {
 	return exists
 }
 
-// GetOpenClose returns the open and close times (HH:MM) for the given day of week.
-// Returns ok=false if the business is closed that day or BusinessHours is invalid.
+// GetOpenClose returns the open and close times (HH:MM) for the given day of week
+// (1=Monday, 7=Sunday). Returns ok=false if the business is closed that day or
+// BusinessHours is invalid. The day must come from ProfileDayKey (or an
+// equivalent "1".."7" literal), never from a raw int(time.Weekday()).
 func (bp *BusinessProfile) GetOpenClose(dayOfWeek int) (open, close string, ok bool) {
 	hours, err := bp.parseBusinessHours()
 	if err != nil {
@@ -67,7 +91,21 @@ func (bp *BusinessProfile) GetOpenClose(dayOfWeek int) (open, close string, ok b
 	return day.Open, day.Close, true
 }
 
-// parseBusinessHours parses the BusinessHours JSON string.
+// parseBusinessHoursDayKey validates a business_hours JSON key and converts it
+// to its integer day number. The only accepted keys are "1".."7" (1=Monday,
+// 7=Sunday). It is the single key-validation rule shared by parseBusinessHours
+// and validateBusinessHoursJSON, so the read and write paths can never drift.
+func parseBusinessHoursDayKey(key string) (int, error) {
+	day, err := strconv.Atoi(key)
+	if err != nil || day < 1 || day > 7 {
+		return 0, fmt.Errorf("clave de día %q inválida (1..7): %w", key, domain.ErrInvalidInput)
+	}
+	return day, nil
+}
+
+// parseBusinessHours parses the BusinessHours JSON string. Every key must be a
+// day number in 1..7; any other key is rejected with domain.ErrInvalidInput
+// instead of being silently mapped to a garbage day number.
 func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error) {
 	if bp.BusinessHours == "" {
 		return nil, nil
@@ -78,9 +116,9 @@ func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error
 	}
 	result := make(map[int]businessHoursDay, len(raw))
 	for k, v := range raw {
-		var day int
-		for _, c := range k {
-			day = day*10 + int(c-'0')
+		day, err := parseBusinessHoursDayKey(k)
+		if err != nil {
+			return nil, err
 		}
 		result[day] = v
 	}
@@ -121,7 +159,11 @@ func (bp *BusinessProfile) Validate() error {
 }
 
 // validateBusinessHoursJSON checks that BusinessHours is a valid JSON object
-// (not null, array, or primitive). Empty string is allowed.
+// (not null, array, or primitive) whose shape is usable by the scheduling
+// code: every key is a day number in 1..7, every open/close is a zero-padded
+// 24-hour HH:MM time, and open is strictly before close. Empty string is
+// allowed (the field is optional). It performs a single unmarshal, so it is
+// cheap enough to run on the profile read and write paths.
 func (bp *BusinessProfile) validateBusinessHoursJSON() error {
 	s := bp.BusinessHours
 	if s == "" {
@@ -133,6 +175,27 @@ func (bp *BusinessProfile) validateBusinessHoursJSON() error {
 	trimmed := strings.TrimSpace(s)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return fmt.Errorf("el campo business_hours debe ser un objeto JSON: %w", domain.ErrInvalidInput)
+	}
+	var hours map[string]businessHoursDay
+	if err := json.Unmarshal([]byte(s), &hours); err != nil {
+		return fmt.Errorf("el campo business_hours debe ser un objeto JSON: %w", domain.ErrInvalidInput)
+	}
+	for key, day := range hours {
+		if _, err := parseBusinessHoursDayKey(key); err != nil {
+			return err
+		}
+		if !businessHoursHHMMRegex.MatchString(day.Open) {
+			return fmt.Errorf("el horario del día %s: la hora de apertura debe tener formato HH:MM (24h): %w",
+				key, domain.ErrInvalidInput)
+		}
+		if !businessHoursHHMMRegex.MatchString(day.Close) {
+			return fmt.Errorf("el horario del día %s: la hora de cierre debe tener formato HH:MM (24h): %w",
+				key, domain.ErrInvalidInput)
+		}
+		if day.Open >= day.Close {
+			return fmt.Errorf("el horario del día %s: la hora de apertura debe ser anterior al cierre: %w",
+				key, domain.ErrInvalidInput)
+		}
 	}
 	return nil
 }

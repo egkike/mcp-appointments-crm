@@ -2,12 +2,29 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
+
+// internalValidationMessage is the opaque, fail-closed message returned when the
+// chain cannot reason about its inputs (a missing resolved entity or a malformed
+// stored/extracted HH:MM value). It carries no paths, field dumps, or raw values.
+const internalValidationMessage = "Error interno al validar el horario."
+
+// internalValidationError wraps a non-business failure into the chain's internal
+// SemanticError. The cause stays server-side for logging and never reaches the
+// upstream LLM through Message.
+func internalValidationError(cause error) *domain.SemanticError {
+	return &domain.SemanticError{
+		Code:    domain.ErrCodeInternal,
+		Message: internalValidationMessage,
+		Cause:   cause,
+	}
+}
 
 // BookingOverlapReader is the narrow read interface the validation chain needs.
 // It is a subset of internal/domain/repository.BookingsRepo exposing only the
@@ -23,9 +40,10 @@ type BookingOverlapReader interface {
 // messages. Every entity is assumed already resolved by the caller; the helper
 // performs no lookups itself.
 //
-// Contract: Professional MUST be non-nil (used for the professional-schedule
-// and overlap messages); Service MUST be non-nil with positive duration for
-// step 4 (nil or non-positive panics, see ValidateBookingTimeSlot).
+// Contract: Professional, BusinessProfile, and Service MUST be non-nil, and
+// Service MUST have a positive duration. A violation is a programmer error and
+// makes the chain fail closed with an internal error (it never panics, see
+// ValidateBookingTimeSlot).
 type SlotInput struct {
 	ProfessionalID  string
 	Service         *entity.Service
@@ -55,17 +73,35 @@ type BookingTimeValidatorDeps struct {
 //
 // The Service duration is a required input for step 4. Passing a nil Service or
 // a Service with non-positive Duration is a programmer error (contract
-// violation) and panics — deliberately not a *domain.SemanticError.
+// violation) that returns an internal *domain.SemanticError instead of
+// panicking.
 func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTimeValidatorDeps) *domain.SemanticError {
+	// Defense in depth (zero trust): the steps below dereference these resolved
+	// entities (BusinessProfile for the weekly schedule, Professional for the
+	// localized messages). A nil one is a caller contract violation, so the
+	// chain fails closed before comparing anything.
+	if slot.BusinessProfile == nil || slot.Professional == nil {
+		return internalValidationError(errors.New("slot.BusinessProfile y slot.Professional deben ser no nulos"))
+	}
+
 	// ─── Step 1 — Past time check ────────────────────────────────────────
-	if slot.Start.Before(time.Now()) {
+	// "Now" is expressed in the business location so the comparison is
+	// independent of the server's local zone (both operands are the same
+	// instant; the zone only makes the intent explicit).
+	now := time.Now().In(slot.Start.Location())
+	if slot.Start.Before(now) {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeSlotInPast,
 			Message: "No se puede reservar en el pasado.",
 		}
 	}
 
+	// dayOfWeek keeps Go's time.Weekday encoding (0..6, Sunday=0): the one used
+	// by schedules.day_of_week and by spanishDayNames.
 	dayOfWeek := int(slot.Start.Weekday())
+	// profileDayKey is the business_hours JSON encoding ("1".."7", Monday=1);
+	// entity.ProfileDayKey is the single translation point between both.
+	profileDayKey := entity.ProfileDayKey(slot.Start.Weekday())
 	dateStr := slot.Start.Format("2006-01-02")
 
 	// ─── Step 2 — Business hours (exception-aware, then weekly JSON) ─────
@@ -88,7 +124,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	}
 
 	if businessOpenHHMM == "" || businessCloseHHMM == "" {
-		open, close, ok := slot.BusinessProfile.GetOpenClose(dayOfWeek)
+		open, close, ok := slot.BusinessProfile.GetOpenClose(profileDayKey)
 		if !ok || open == "" || close == "" {
 			return &domain.SemanticError{
 				Code:    domain.ErrCodeBusinessClosed,
@@ -110,28 +146,53 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	proEndHHMM := slot.Schedule.EndTime
 
 	// ─── Step 4 — Slot within combined business + professional hours ─────
+	// A nil Service or a non-positive duration is a caller contract violation:
+	// step 4 cannot compute the slot end, so it fails closed instead of panicking.
 	if slot.Service == nil || slot.Service.Duration() <= 0 {
-		panic("ValidateBookingTimeSlot: slot.Service no puede ser nil y debe tener una duración positiva")
+		return internalValidationError(errors.New("slot.Service debe ser no nulo y con duración positiva"))
 	}
 	slotStartHHMM := slot.Start.Format("15:04")
 	slotEndHHMM := slot.Start.Add(slot.Service.Duration()).Format("15:04")
 
+	// Every HH:MM bound is converted to minutes-since-midnight before being
+	// compared. Comparing the raw strings only happens to work for well-formed
+	// zero-padded values and would silently misjudge a malformed stored value;
+	// any parse failure is a fail-closed internal error.
+	businessOpenMin, err := hhmmToMinutes(businessOpenHHMM)
+	if err != nil {
+		return internalValidationError(err)
+	}
+	businessCloseMin, err := hhmmToMinutes(businessCloseHHMM)
+	if err != nil {
+		return internalValidationError(err)
+	}
+	proStartMin, err := hhmmToMinutes(proStartHHMM)
+	if err != nil {
+		return internalValidationError(err)
+	}
+	proEndMin, err := hhmmToMinutes(proEndHHMM)
+	if err != nil {
+		return internalValidationError(err)
+	}
+	slotStartMin, err := hhmmToMinutes(slotStartHHMM)
+	if err != nil {
+		return internalValidationError(err)
+	}
+	slotEndMin, err := hhmmToMinutes(slotEndHHMM)
+	if err != nil {
+		return internalValidationError(err)
+	}
+
+	effectiveCloseMin := businessCloseMin
 	effectiveCloseHHMM := businessCloseHHMM
-	if proEndHHMM < effectiveCloseHHMM {
+	if proEndMin < effectiveCloseMin {
+		effectiveCloseMin = proEndMin
 		effectiveCloseHHMM = proEndHHMM
 	}
 
 	// 4.1 — Slot ends after the effective close?
-	if slotEndHHMM > effectiveCloseHHMM {
-		slotMin, err := hhmmToMinutes(slotStartHHMM)
-		if err != nil {
-			return &domain.SemanticError{Code: domain.ErrCodeInternal, Message: "Error interno al validar el horario.", Cause: err}
-		}
-		closeMin, err := hhmmToMinutes(effectiveCloseHHMM)
-		if err != nil {
-			return &domain.SemanticError{Code: domain.ErrCodeInternal, Message: "Error interno al validar el horario.", Cause: err}
-		}
-		remaining := closeMin - slotMin
+	if slotEndMin > effectiveCloseMin {
+		remaining := effectiveCloseMin - slotStartMin
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -142,7 +203,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	}
 
 	// 4.2 — Slot starts before the business opening?
-	if slotStartHHMM < businessOpenHHMM {
+	if slotStartMin < businessOpenMin {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeSlotOutOfHours,
 			Message: fmt.Sprintf("Horario de atención comienza a las %s.", businessOpenHHMM),
@@ -150,7 +211,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	}
 
 	// 4.3 — Slot starts before the professional's start?
-	if slotStartHHMM < proStartHHMM {
+	if slotStartMin < proStartMin {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeSlotOutOfHours,
 			Message: fmt.Sprintf("Profesional %s empieza a las %s.", slot.Professional.Name, proStartHHMM),

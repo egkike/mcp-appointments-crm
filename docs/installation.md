@@ -200,10 +200,13 @@ archivo guarda el identificador tal cual — es lo que hay que mandar como
 deje de ser un nombre reservado ([ADR-0012](./architecture/0012-hermes-chat-local.md)).
 
 > La siembra de perfil, profesionales, horarios y servicios sigue siendo
-> trabajo de `config.SeedOnBoot` desde los JSONs del wizard, y el resto de los
-> datos demo del [`demo-plan.md`](./demo-plan.md) (cliente demo, reserva
-> histórica) se carga por SQL: ADR-0016 limita este sub-comando a identidad y
-> cuentas.
+> trabajo de `config.SeedOnBoot` desde los JSONs del wizard; después del primer
+> arranque, esos datos operativos se editan con los tools Hermes de
+> mantenimiento owner-only (`update_business_profile`,
+> `create/update/delete_service`, `create/update_professional`,
+> `upsert/delete_schedule`), sin SQL manual. El resto de los datos demo del
+> [`demo-plan.md`](./demo-plan.md) (cliente demo, reserva histórica) se carga
+> por SQL: ADR-0016 limita este sub-comando a identidad y cuentas.
 
 ### 3.5 Handshake MCP (requiere la cuenta owner de 3.4)
 

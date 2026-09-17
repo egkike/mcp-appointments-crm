@@ -43,7 +43,7 @@ func NewServer(cfg Config) *Server {
 	return srv
 }
 
-// registerTools wires the eight MCP tools onto the SDK server (T-09). Tools
+// registerTools wires the MCP tools onto the SDK server (T-09, ADR-0015). Tools
 // whose port is nil are skipped, keeping the skeleton behavior (zero tools)
 // for transport-level tests. Each registered tool also enters toolNames, the
 // registry consulted by unknownToolGuard (REQ-MT-006).
@@ -53,6 +53,7 @@ func (s *Server) registerTools() {
 	s.registerSearchTools()
 	s.registerAlertTools()
 	s.registerLoyaltyTools()
+	s.registerMaintenanceTools()
 }
 
 // Handler returns the /mcp HTTP handler: the SDK Streamable HTTP handler

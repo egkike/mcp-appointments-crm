@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -503,6 +504,29 @@ func TestServicesRepo_Delete(t *testing.T) {
 		err := repo.Delete(adminCtx(), "svc-1")
 		if err == nil {
 			t.Fatal("expected error, got nil")
+		}
+		if errors.Is(err, domain.ErrConflict) {
+			t.Errorf("a non-constraint failure must not be classified as a conflict: %v", err)
+		}
+	})
+
+	t.Run("foreign key violation returns domain.ErrConflict", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewServicesRepo(db)
+
+		// bookings.service_id is ON DELETE RESTRICT (schema.go), so SQLite rejects
+		// the parent delete. sqlmock cannot build a *sqlite.Error, so this pins the
+		// message fallback of the classifier.
+		mock.ExpectExec(`DELETE FROM services WHERE id = \?`).
+			WithArgs("svc-with-bookings").
+			WillReturnError(errors.New("FOREIGN KEY constraint failed"))
+
+		err := repo.Delete(adminCtx(), "svc-with-bookings")
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Errorf("expected domain.ErrConflict, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "eliminar servicio:") {
+			t.Errorf("error %q must keep the call-site context prefix", err)
 		}
 	})
 

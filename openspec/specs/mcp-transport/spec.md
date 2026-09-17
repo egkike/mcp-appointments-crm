@@ -57,17 +57,19 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 - WHEN `initialize` is called
 - THEN response includes `protocolVersion`, `serverInfo.name`, `serverInfo.version`, and `capabilities.tools`
 
-### REQ-MT-005 — tools/list returns 11 tools
+### REQ-MT-005 — tools/list returns 19 tools
 
-`tools/list` MUST return exactly 11 tool descriptors (see REQ-MT-015 for names and schemas).
+`tools/list` MUST return exactly 19 tool descriptors (see REQ-MT-015 for names and schemas).
 
 (Previously: 6 tools — this change adds `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`.)
+
+(Previously: 11 tools — ADR-0015 adds the 8 owner-only maintenance tools `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`.)
 
 #### Scenario: List returns all tools
 
 - GIVEN a connected client
 - WHEN `tools/list` is called
-- THEN the response MUST contain 11 tools: `check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`
+- THEN the response MUST contain 19 tools: `check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`
 ### REQ-MT-006 — tools/call dispatch
 
 `tools/call` MUST dispatch to the registered handler and return a JSON-RPC 2.0 result or error.
@@ -190,10 +192,20 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 | `get_pending_alerts` | owner, admin | `{}` | `[]PendingAlertView` — `{alert_id, type, message, scheduled_datetime, related_booking_id?}`: due pending only, oldest first |
 | `mark_alert_as_sent` | owner, admin | `{alert_id}` | `{alert_id, status: "sent"}` |
 | `get_loyalty_report` | owner, admin | `{period?, top_n?}` (defaults `last_month`, 10; see loyalty-report spec) | `[]LoyaltyReportEntry` — `{client_id, name, phone, booking_count}` ordered by `booking_count` DESC |
+| `update_business_profile` | owner (ADR-0015) | partial merge: any subset of the 19 updatable profile fields as pointers (name, industry, country, address, latitude?, longitude?, cover_photo_url?, public_phone, messenger_platform?, messenger_id?, contact_email?, website_url?, general_description?, currency_code?, currency_symbol?, accepted_payment_methods?, timezone?, slot_interval_minutes?, business_hours?) — empty update rejected | `BusinessProfile` (same shape as `get_business_profile`, read-back) |
+| `create_service` | owner (ADR-0015) | `{name, description?, duration_minutes, price, is_active? (default true)}` | `ServiceSearchEntry` with generated id |
+| `update_service` | owner (ADR-0015) | `{service_id}` + pointer fields (name?, description?, duration_minutes?, price?, is_active?) | `ServiceSearchEntry` (merged) |
+| `delete_service` | owner (ADR-0015) | `{service_id}` | `{service_id, status: "deleted"}`; FK from bookings ⇒ `-32002` "...reservas asociadas" |
+| `create_professional` | owner (ADR-0015) | `{name, phone, specialities?, status?}` (status default `active`; specialities = service ids) | Professional with generated uuid id |
+| `update_professional` | owner (ADR-0015) | `{professional_id}` + pointer fields (name?, phone?, specialities?, status?, role?, email?) | Professional (merged) |
+| `upsert_schedule` | owner (ADR-0015) | `{professional_id, day_of_week (0=domingo..6=sábado), start_time, end_time}` HH:MM | Schedule as stored (id stable across re-upsert) |
+| `delete_schedule` | owner (ADR-0015) | `{professional_id, day_of_week}` | `{professional_id, day_of_week, status: "deleted"}` |
 
 > **get_booking role semantics** (RDD R3-001): clients MAY retrieve their own bookings — the RBAC entry admits all four roles and `auth.AuthorizeBookingAccess` inside the use case enforces cross-tenant isolation (client → own bookings only; staff → linked professional's calendar; admin/owner → any).
 
 > **New-tools role semantics** (Fase 3): the search tools carry no RBAC entry (any authenticated at the transport; role enforcement lives in the use case — `search_clients_advanced` per clients REQ-CL-AUTH-004, `search_services_advanced` owner/admin). The alert and loyalty tools carry explicit owner/admin RBAC entries (PII: alert payloads and loyalty rows expose client phones).
+
+> **Maintenance-tools role semantics** (ADR-0015): the 8 maintenance tools are owner-only at BOTH layers (ToolRBAC row + `RequireRole(owner)` in the use case); no admin grant in the MVP. Semantic errors are LLM-facing Spanish (`-32002`); FK conflicts surface as business errors (delete_service ⇒ conflict "reservas asociadas"; upsert_schedule for a missing professional ⇒ not found "el profesional indicado no existe").
 
 #### Scenario: Tool input validated
 

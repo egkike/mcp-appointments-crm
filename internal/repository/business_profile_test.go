@@ -348,7 +348,7 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		profile := &entity.BusinessProfile{
 			ID:            "singleton",
 			Name:          "Test",
-			BusinessHours: `{"mon":{"open":"09:00","close":"18:00"}}`,
+			BusinessHours: `{"1":{"open":"09:00","close":"18:00"}}`,
 		}
 		err := repo.Update(adminCtx(), profile)
 		if err != nil {

@@ -11,10 +11,12 @@ Windows support is pending (see the scope note below).
 next up: Fase N (support & improvements, ongoing). See the
 [implementation roadmap](./docs/PRD.md#8-roadmap-por-fases) in the PRD.
 
-The MCP server currently exposes 11 tools: `check_availability`, `create_booking`,
+The MCP server currently exposes 19 tools: `check_availability`, `create_booking`,
 `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`,
 `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`,
-`mark_alert_as_sent` and `get_loyalty_report`
+`mark_alert_as_sent`, `get_loyalty_report`, plus the owner-only maintenance tools
+`update_business_profile`, `create_service`, `update_service`, `delete_service`,
+`create_professional`, `update_professional`, `upsert_schedule` and `delete_schedule`
 (auth via `X-Caller-Id` header + RBAC, repository layer 10/10 repos with `auth.Caller` wiring — see PR #50).
 
 | Phase | Description | Status |
@@ -31,7 +33,7 @@ The MCP server currently exposes 11 tools: `check_availability`, `create_booking
 > - ✅ **Admin TUI + owner seed** (`mcp-server admin tui`, PRD §3.8.8 / RF9 / ADR-0010, scope in ADR-0016) — **MVP shipped (2026-09-16)**: the first-boot seed wizard creates the owner and writes the `caller-id` file (`0600`, `MCP_CONFIG_DIR` override), alongside Add Staff, Deactivate, list views, Transfer Ownership and Add-yourself-as-client. Bubble Tea on a TTY, equivalent console fallback without one. Deferred: persisted audit-log view, day-key normalization. Account setup no longer needs manual SQL.
 > - **Multi-platform release assets** — the published release (v0.3.0) ships a single `Linux_x86_64` binary, so **macOS and Windows are not distributable today**; the 5-platform matrix needs the GoReleaser pipeline (PRD §7).
 > - **Windows install** — no supported path: no `install.ps1`, no `--register-service` flag, no Task Scheduler template, no Windows release asset. Only the manual guide [`setup/service/nssm-install.md`](./setup/service/nssm-install.md) exists (untested in CI). Declared a non-goal of Phase 5 and tracked as pending scope (PRD §7, ADR-0014).
-> - **Hermes maintenance tools** (profile/services/professionals/schedules, ADR-0015) — Hermes cannot modify install-seeded data today; only manual SQL. Wiring + RBAC work, no DB work.
+> - ✅ **Hermes maintenance tools** (profile/services/professionals/schedules, ADR-0015) — **shipped**: 8 owner-only tools (`update_business_profile`, `create/update/delete_service`, `create/update_professional`, `upsert/delete_schedule`) let Hermes edit install-seeded operation data; manual SQL is no longer required.
 > - ✅ **Setup import wizard → DB done (2026-09-11)** — PRs [#72](https://github.com/egkike/mcp-appointments-crm/pull/72) / [#73](https://github.com/egkike/mcp-appointments-crm/pull/73) / [#74](https://github.com/egkike/mcp-appointments-crm/pull/74) (issue #71 closed): the server seeds `reservas.db` from the 3 setup JSONs on first boot; later boots are no-ops via guard.
 > - **GoReleaser CI releases** — releases are currently built and published by hand (demo-plan Paso 1); automation is pending.
 

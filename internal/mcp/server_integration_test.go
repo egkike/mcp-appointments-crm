@@ -79,6 +79,18 @@ func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
 	markAlertAsSentUC := usecase.NewMarkAlertAsSentUseCase(pendingAlertsRepo)
 	getLoyaltyReportUC := usecase.NewGetLoyaltyReportUseCase(bookingsRepo)
 
+	// Maintenance WRITE use cases (ADR-0015), composed exactly like the
+	// composition root: shared real repositories + a discard logger (the use
+	// cases emit one structured audit record per mutation).
+	updateBusinessProfileUC := usecase.NewUpdateBusinessProfileUseCase(bizProfRepo, discardLogger())
+	createServiceUC := usecase.NewCreateServiceUseCase(servicesRepo, discardLogger())
+	updateServiceUC := usecase.NewUpdateServiceUseCase(servicesRepo, discardLogger())
+	deleteServiceUC := usecase.NewDeleteServiceUseCase(servicesRepo, discardLogger())
+	createProfessionalUC := usecase.NewCreateProfessionalUseCase(prosRepo, discardLogger())
+	updateProfessionalUC := usecase.NewUpdateProfessionalUseCase(prosRepo, discardLogger())
+	upsertScheduleUC := usecase.NewUpsertScheduleUseCase(schedulesRepo, discardLogger())
+	deleteScheduleUC := usecase.NewDeleteScheduleUseCase(schedulesRepo, discardLogger())
+
 	srv := NewServer(Config{
 		Version:                "test",
 		Logger:                 discardLogger(),
@@ -93,6 +105,15 @@ func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
 		GetPendingAlerts:       getPendingAlertsUC,
 		MarkAlertAsSent:        markAlertAsSentUC,
 		GetLoyaltyReport:       getLoyaltyReportUC,
+
+		UpdateBusinessProfile: updateBusinessProfileUC,
+		CreateService:         createServiceUC,
+		UpdateService:         updateServiceUC,
+		DeleteService:         deleteServiceUC,
+		CreateProfessional:    createProfessionalUC,
+		UpdateProfessional:    updateProfessionalUC,
+		UpsertSchedule:        upsertScheduleUC,
+		DeleteSchedule:        deleteScheduleUC,
 	})
 	resolver := auth.NewCallerResolver(database.Conn)
 	rbac := auth.ToolRBAC{
@@ -104,6 +125,18 @@ func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
 		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
 		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
 		"get_loyalty_report":   {auth.RoleOwner, auth.RoleAdmin},
+
+		// Maintenance WRITE tools (ADR-0015): owner-only MVP, mirroring the
+		// composition root's ToolRBAC rows. Every use case re-asserts the same
+		// gate (defense in depth).
+		"update_business_profile": {auth.RoleOwner},
+		"create_service":          {auth.RoleOwner},
+		"update_service":          {auth.RoleOwner},
+		"delete_service":          {auth.RoleOwner},
+		"create_professional":     {auth.RoleOwner},
+		"update_professional":     {auth.RoleOwner},
+		"upsert_schedule":         {auth.RoleOwner},
+		"delete_schedule":         {auth.RoleOwner},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, discardLogger())
 
@@ -194,7 +227,8 @@ func TestIntegrationHappyPath(t *testing.T) {
 		t.Errorf("protocolVersion = %q; want 2025-11-25", init.ProtocolVersion)
 	}
 
-	// tools/list exposes the eleven registered tools (8 original + 2 alerts + 1 loyalty).
+	// tools/list exposes the nineteen registered tools (8 original + 2 alerts +
+	// 1 loyalty + 8 maintenance writes).
 	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	result, code, msg = decodeRPCEnvelope(t, rec)
 	if code != 0 {
@@ -208,8 +242,8 @@ func TestIntegrationHappyPath(t *testing.T) {
 	if err := json.Unmarshal(result, &list); err != nil {
 		t.Fatalf("tools/list result: %v", err)
 	}
-	if len(list.Tools) != 11 {
-		t.Errorf("tools = %d; want 11: %s", len(list.Tools), string(result))
+	if len(list.Tools) != 19 {
+		t.Errorf("tools = %d; want 19: %s", len(list.Tools), string(result))
 	}
 
 	// search_clients_advanced by owner returns both seeded clients (no RBAC entry).

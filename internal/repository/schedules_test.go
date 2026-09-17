@@ -195,6 +195,51 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		}
 	})
 
+	t.Run("foreign key violation returns domain.ErrConflict", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		// schedules.professional_id references professionals(id) (schema.go), so a
+		// slot for a professional that does not exist fails on INSERT. sqlmock
+		// cannot build a *sqlite.Error, so this pins the message fallback of the
+		// classifier.
+		mock.ExpectExec(`INSERT INTO schedules`).
+			WithArgs("ghost", 1, "09:00", "13:00").
+			WillReturnError(errors.New("FOREIGN KEY constraint failed"))
+
+		err := repo.Upsert(adminCtx(), &entity.Schedule{
+			ProfessionalID: "ghost",
+			DayOfWeek:      1,
+			StartTime:      "09:00",
+			EndTime:        "13:00",
+		})
+		if !errors.Is(err, domain.ErrConflict) {
+			t.Errorf("expected domain.ErrConflict, got %v", err)
+		}
+	})
+
+	t.Run("non-constraint DB error propagates unclassified", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		mock.ExpectExec(`INSERT INTO schedules`).
+			WithArgs("pro-1", 1, "09:00", "18:00").
+			WillReturnError(errors.New("connection lost"))
+
+		err := repo.Upsert(adminCtx(), &entity.Schedule{
+			ProfessionalID: "pro-1",
+			DayOfWeek:      1,
+			StartTime:      "09:00",
+			EndTime:        "18:00",
+		})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if errors.Is(err, domain.ErrConflict) {
+			t.Errorf("an unclassified failure must not become a conflict: %v", err)
+		}
+	})
+
 	t.Run("invalid day_of_week returns domain.ErrInvalidInput", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
