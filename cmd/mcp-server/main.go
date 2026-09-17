@@ -320,12 +320,28 @@ func run() error {
 	// PR 3 (Phase 3): loyalty report use case.
 	getLoyaltyReportUC := usecase.NewGetLoyaltyReportUseCase(bookingsRepo)
 
+	// Maintenance WRITE use cases (ADR-0015): the eight owner-only use cases
+	// behind the Hermes operational maintenance tools. They share the repos and
+	// the process logger (structured audit log per mutation lives in the use
+	// case layer). The role gate is enforced twice: the owner-only ToolRBAC
+	// entry below and auth.RequireRole(RoleOwner) inside every use case.
+	updateBusinessProfileUC := usecase.NewUpdateBusinessProfileUseCase(bizProfRepo, logger)
+	createServiceUC := usecase.NewCreateServiceUseCase(servicesRepo, logger)
+	updateServiceUC := usecase.NewUpdateServiceUseCase(servicesRepo, logger)
+	deleteServiceUC := usecase.NewDeleteServiceUseCase(servicesRepo, logger)
+	createProfessionalUC := usecase.NewCreateProfessionalUseCase(prosRepo, logger)
+	updateProfessionalUC := usecase.NewUpdateProfessionalUseCase(prosRepo, logger)
+	upsertScheduleUC := usecase.NewUpsertScheduleUseCase(schedulesRepo, logger)
+	deleteScheduleUC := usecase.NewDeleteScheduleUseCase(schedulesRepo, logger)
+
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
 	// Every /mcp request must carry X-Caller-Id; check_availability has no
-	// RBAC entry (any authenticated caller — open set), the other five tools
+	// RBAC entry (any authenticated caller — open set), the other tools
 	// restrict by role. RBAC keys on r.URL.Path, so the JSON-RPC auth
 	// translator rewrites the path to the tool name for tools/call requests.
+	// The eight maintenance tools are owner-only (ADR-0015 Decision 2): the
+	// partial admin scope stays deferred, so no admin role is granted here.
 	resolver := auth.NewCallerResolver(database.Conn)
 	rbac := auth.ToolRBAC{
 		"create_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
@@ -336,14 +352,24 @@ func run() error {
 		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
 		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
 		"get_loyalty_report":   {auth.RoleOwner, auth.RoleAdmin},
+
+		// Maintenance WRITE tools (ADR-0015): owner-only MVP.
+		"update_business_profile": {auth.RoleOwner},
+		"create_service":          {auth.RoleOwner},
+		"update_service":          {auth.RoleOwner},
+		"delete_service":          {auth.RoleOwner},
+		"create_professional":     {auth.RoleOwner},
+		"update_professional":     {auth.RoleOwner},
+		"upsert_schedule":         {auth.RoleOwner},
+		"delete_schedule":         {auth.RoleOwner},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
 
 	// ── D5: Authenticated transport (T-09: tools wired) ──
 	//
-	// The six use cases back the MCP tools through the consumer ports
+	// The use cases back the MCP tools through the consumer ports
 	// (internal/mcp/ports.go). A nil port would leave its tool unregistered;
-	// the production composition injects all six.
+	// the production composition injects all of them.
 	srv := mcp.NewServer(mcp.Config{
 		Version:                cfg.Version,
 		Logger:                 logger,
@@ -358,6 +384,15 @@ func run() error {
 		GetPendingAlerts:       getPendingAlertsUC,
 		MarkAlertAsSent:        markAlertAsSentUC,
 		GetLoyaltyReport:       getLoyaltyReportUC,
+
+		UpdateBusinessProfile: updateBusinessProfileUC,
+		CreateService:         createServiceUC,
+		UpdateService:         updateServiceUC,
+		DeleteService:         deleteServiceUC,
+		CreateProfessional:    createProfessionalUC,
+		UpdateProfessional:    updateProfessionalUC,
+		UpsertSchedule:        upsertScheduleUC,
+		DeleteSchedule:        deleteScheduleUC,
 	})
 
 	mux := http.NewServeMux()

@@ -18,8 +18,8 @@ const (
 
 // Config holds the MCP server configuration. Bind and Port are resolved by
 // LoadConfig (env > .env > default); Version and Logger are injected by the
-// composition root. The six port fields carry the application use cases that
-// back the MCP tools (T-09): a nil port keeps the skeleton behavior (the
+// composition root. The port fields carry the application use cases that back
+// the MCP tools (T-09, ADR-0015): a nil port keeps the skeleton behavior (the
 // corresponding tool is not registered), which keeps transport-level tests
 // green. internal/mcp only consumes the ports through the interfaces declared
 // in ports.go; the composition root injects concrete *usecase values.
@@ -40,6 +40,16 @@ type Config struct {
 	GetPendingAlerts       GetPendingAlertsPort
 	MarkAlertAsSent        MarkAlertAsSentPort
 	GetLoyaltyReport       GetLoyaltyReportPort
+
+	// Maintenance WRITE ports (ADR-0015): owner-only in the composition root.
+	UpdateBusinessProfile UpdateBusinessProfilePort
+	CreateService         CreateServicePort
+	UpdateService         UpdateServicePort
+	DeleteService         DeleteServicePort
+	CreateProfessional    CreateProfessionalPort
+	UpdateProfessional    UpdateProfessionalPort
+	UpsertSchedule        UpsertSchedulePort
+	DeleteSchedule        DeleteSchedulePort
 }
 
 // LoadConfig resolves MCP_BIND and MCP_PORT with ADR-0007 precedence:

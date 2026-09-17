@@ -96,9 +96,21 @@ MCP wiring + RBAC owner gates (ADR-0015 Context ¶4).
       accepts unpadded "9:00" (only write path is regex-guarded seeder); deps.Bookings not
       nil-guarded (programmer-error surface, untested); redundant json.Valid call; map-iteration
       nondeterministic first-error pick.
-- [ ] **T2 — Application layer**: DTOs + ports + use cases for the 8 maintenance
-      operations; owner-only `RequireRole`; sentinel→SemanticError mapping; structured
-      audit slog; use-case unit tests (mock repos).
+- [x] **T2 — Application layer** ✅ commit `108a5d9` [size:exception ~2.4k lines] (native review
+      review-d5f3c2cd73aa56fc approved high/4-lens, 13 non-blocking findings; GGA passed):
+      8 owner-only use cases (update_business_profile partial merge with empty-update rejection;
+      create/update/delete service; create/update professional; upsert/delete schedule) + 10 DTOs
+      + maintenance_audit.go slog helper + 43 use-case tests. FK classification added at repo layer
+      (sqlite_errors.go: 787 + FK-message-guarded 1811; wired at ServicesRepo.Delete /
+      SchedulesRepo.Upsert) so delete_service ⇒ "tiene reservas asociadas" (conflict) and
+      upsert_schedule ⇒ "el profesional indicado no existe" (not found). Driver facts pinned by
+      tests: modernc.org/sqlite RESTRICT emits 1811, dangling FK emits 787.
+      **Follow-ups (non-blocking, from 4-lens review):** R2-001 WARNING update_business_profile.go:83-164
+      (readability, applyProfileUpdates size); R3-001 WARNING + R4-001 WARNING upsert_schedule.go:64-79
+      (read-back semantics / single-source-of-truth); R3-002/R4-002 sqlite_errors.go:94-99 message-guard
+      fragility for future triggers; R3-003/R4-003 update_professional.go:84-92 concurrent-delete
+      mapping; R4-004 update_business_profile.go:46-60; R2-002..005, R3-004 suggestions. Full list
+      burned in review receipt cb99619.
 - [ ] **T3 — MCP wiring**: new registrar (tools_maintenance.go or per-domain files), port
       fields in mcp.Config, ports.go entries, ToolRBAC entries in main.go, repo/use-case
       construction wiring; unit tests with mock ports; update registry-count test.
@@ -112,6 +124,7 @@ MCP wiring + RBAC owner gates (ADR-0015 Context ¶4).
 
 (recorded per task on feature branch)
 - T1: `0f64724` on `feat/hermes-maintenance-t1` — fix(domain): normalize day-key encoding and harden booking-time validation
+- T2: `108a5d9` — feat(application): maintenance use cases for Hermes tools (T2) [size:exception]
 
 ## Notes / deferred
 

@@ -82,3 +82,60 @@ type MarkAlertAsSentPort interface {
 type GetLoyaltyReportPort interface {
 	Execute(context.Context, dto.GetLoyaltyReportInput) (*dto.GetLoyaltyReportResult, error)
 }
+
+// ── Maintenance WRITE ports (ADR-0015, T3) ──
+//
+// The eight use cases behind the operational maintenance tools. Every one of
+// them re-asserts auth.RequireRole(RoleOwner) after re-injecting the caller,
+// and every one has an owner-only ToolRBAC entry in the composition root: the
+// transport gate and the use-case gate are both required. On a nil error the
+// returned entity/result is never nil (the transport still fails closed).
+
+// UpdateBusinessProfilePort applies a partial merge to the singleton business
+// profile and returns it — the same shape get_business_profile reads.
+// ToolRBAC entry: owner only.
+type UpdateBusinessProfilePort interface {
+	Execute(context.Context, dto.UpdateBusinessProfileInput) (*entity.BusinessProfile, error)
+}
+
+// CreateServicePort inserts a catalog service and returns it as stored.
+// ToolRBAC entry: owner only.
+type CreateServicePort interface {
+	Execute(context.Context, dto.CreateServiceInput) (*entity.Service, error)
+}
+
+// UpdateServicePort applies a partial merge to a catalog service and returns
+// it as stored. ToolRBAC entry: owner only.
+type UpdateServicePort interface {
+	Execute(context.Context, dto.UpdateServiceInput) (*entity.Service, error)
+}
+
+// DeleteServicePort removes a catalog service.
+// ToolRBAC entry: owner only.
+type DeleteServicePort interface {
+	Execute(context.Context, dto.DeleteServiceInput) (*dto.DeleteServiceResult, error)
+}
+
+// CreateProfessionalPort inserts a staff member and returns it as stored.
+// ToolRBAC entry: owner only.
+type CreateProfessionalPort interface {
+	Execute(context.Context, dto.CreateProfessionalInput) (*entity.Professional, error)
+}
+
+// UpdateProfessionalPort applies a partial merge to a staff member and returns
+// it as stored. ToolRBAC entry: owner only.
+type UpdateProfessionalPort interface {
+	Execute(context.Context, dto.UpdateProfessionalInput) (*entity.Professional, error)
+}
+
+// UpsertSchedulePort inserts or replaces one weekly slot and returns the row as
+// stored. ToolRBAC entry: owner only.
+type UpsertSchedulePort interface {
+	Execute(context.Context, dto.UpsertScheduleInput) (*entity.Schedule, error)
+}
+
+// DeleteSchedulePort removes one weekly slot.
+// ToolRBAC entry: owner only.
+type DeleteSchedulePort interface {
+	Execute(context.Context, dto.DeleteScheduleInput) (*dto.DeleteScheduleResult, error)
+}
