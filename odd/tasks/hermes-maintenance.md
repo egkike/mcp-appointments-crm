@@ -82,10 +82,20 @@ MCP wiring + RBAC owner gates (ADR-0015 Context ¶4).
 
 ## Tasks
 
-- [ ] **T1 — Day-key normalization** (small, independent, unblocks schedule/profile work):
-      single translation helper for "1".."7" (Monday=1) ↔ 0..6 (Sunday=0); fix
-      `booking_time_validator.go:91` to use it; tests pinning the helper + the validator
-      behavior (open/closed by real weekday) + regression coverage for Sunday/Monday.
+- [x] **T1 — Day-key normalization** ✅ commit `0f64724` (native review review-15171847a628596a
+      approved medium/1-lens, 1 non-blocking follow-up; GGA re-run PASSED after 6 hardening fixes):
+      single translation helper `entity.ProfileDayKey(time.Weekday)`; fixed the pre-existing
+      Sunday-closed bug (raw Weekday 0..6 fed into 1..7-keyed map); GGA pass hardened
+      parseBusinessHours (strict strconv keys 1..7) + validateBusinessHoursJSON (HH:MM regex,
+      open<close, single unmarshal) + validator fail-closed nil guards / minute-based HH:MM
+      comparisons / slot-timezone now; repo fixture "mon"→"1". Tests: helper all 7 weekdays,
+      encoding pin, Sunday/Monday/Saturday regressions, invalid-key/malformed-hours tables.
+      **Follow-ups (non-blocking):** pluralization "los domingo."→"los domingos" (validator copy);
+      R3-001 SUGGESTION business_profile.go:73-76 (informational, reliability lens); Atoi accepts
+      "+1"/"01"/"007" as valid keys (minor, read/write share helper, no drift); hhmmToMinutes
+      accepts unpadded "9:00" (only write path is regex-guarded seeder); deps.Bookings not
+      nil-guarded (programmer-error surface, untested); redundant json.Valid call; map-iteration
+      nondeterministic first-error pick.
 - [ ] **T2 — Application layer**: DTOs + ports + use cases for the 8 maintenance
       operations; owner-only `RequireRole`; sentinel→SemanticError mapping; structured
       audit slog; use-case unit tests (mock repos).
@@ -100,7 +110,8 @@ MCP wiring + RBAC owner gates (ADR-0015 Context ¶4).
 
 ## Commits
 
-(recorded per task on feature branch `feat/hermes-maintenance`)
+(recorded per task on feature branch)
+- T1: `0f64724` on `feat/hermes-maintenance-t1` — fix(domain): normalize day-key encoding and harden booking-time validation
 
 ## Notes / deferred
 

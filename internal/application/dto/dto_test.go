@@ -29,6 +29,16 @@ func TestDTOPackageCompiles(t *testing.T) {
 	_ = SearchClientsAdvancedResult{}
 	_ = SearchServicesAdvancedInput{}
 	_ = SearchServicesAdvancedResult{}
+	_ = UpdateBusinessProfileInput{}
+	_ = CreateServiceInput{}
+	_ = UpdateServiceInput{}
+	_ = DeleteServiceInput{}
+	_ = DeleteServiceResult{}
+	_ = CreateProfessionalInput{}
+	_ = UpdateProfessionalInput{}
+	_ = UpsertScheduleInput{}
+	_ = DeleteScheduleInput{}
+	_ = DeleteScheduleResult{}
 }
 
 // TestCallerFieldNotSerialized verifies that the Caller field on every Input
@@ -44,6 +54,15 @@ func TestCallerFieldNotSerialized(t *testing.T) {
 		GetBookingInput{Caller: caller, BookingID: "b1"},
 		SearchClientsAdvancedInput{Caller: caller, QueryText: "juan"},
 		SearchServicesAdvancedInput{Caller: caller, QueryText: "corte"},
+		// Maintenance inputs (ADR-0015) — owner-only write surface.
+		UpdateBusinessProfileInput{Caller: caller},
+		CreateServiceInput{Caller: caller},
+		UpdateServiceInput{Caller: caller},
+		DeleteServiceInput{Caller: caller},
+		CreateProfessionalInput{Caller: caller},
+		UpdateProfessionalInput{Caller: caller},
+		UpsertScheduleInput{Caller: caller},
+		DeleteScheduleInput{Caller: caller},
 	}
 	for _, input := range inputs {
 		data, err := json.Marshal(input)
@@ -170,6 +189,23 @@ func TestDTOFieldTags(t *testing.T) {
 				{"PaymentMethod", "payment_method,omitempty"},
 				{"CreatedAt", "created_at"},
 				{"UpdatedAt", "updated_at"},
+			},
+		},
+		{
+			name:   "DeleteServiceResult",
+			target: DeleteServiceResult{},
+			fields: []fieldSpec{
+				{"ServiceID", "service_id"},
+				{"Status", "status"},
+			},
+		},
+		{
+			name:   "DeleteScheduleResult",
+			target: DeleteScheduleResult{},
+			fields: []fieldSpec{
+				{"ProfessionalID", "professional_id"},
+				{"DayOfWeek", "day_of_week"},
+				{"Status", "status"},
 			},
 		},
 	}
@@ -301,6 +337,33 @@ func TestResultJSONRoundTrip(t *testing.T) {
 			}
 			if !b.UpdatedAt.Equal(original.Booking.UpdatedAt) {
 				t.Errorf("UpdatedAt = %v, want %v", b.UpdatedAt, original.Booking.UpdatedAt)
+			}
+		})
+	})
+
+	t.Run("DeleteServiceResult", func(t *testing.T) {
+		original := DeleteServiceResult{ServiceID: "sv-9", Status: "deleted"}
+		assertRoundTrip(t, original, func(decoded DeleteServiceResult) {
+			if decoded.ServiceID != original.ServiceID {
+				t.Errorf("ServiceID = %q, want %q", decoded.ServiceID, original.ServiceID)
+			}
+			if decoded.Status != original.Status {
+				t.Errorf("Status = %q, want %q", decoded.Status, original.Status)
+			}
+		})
+	})
+
+	t.Run("DeleteScheduleResult", func(t *testing.T) {
+		original := DeleteScheduleResult{ProfessionalID: "pr-3", DayOfWeek: 3, Status: "deleted"}
+		assertRoundTrip(t, original, func(decoded DeleteScheduleResult) {
+			if decoded.ProfessionalID != original.ProfessionalID {
+				t.Errorf("ProfessionalID = %q, want %q", decoded.ProfessionalID, original.ProfessionalID)
+			}
+			if decoded.DayOfWeek != original.DayOfWeek {
+				t.Errorf("DayOfWeek = %d, want %d", decoded.DayOfWeek, original.DayOfWeek)
+			}
+			if decoded.Status != original.Status {
+				t.Errorf("Status = %q, want %q", decoded.Status, original.Status)
 			}
 		})
 	})

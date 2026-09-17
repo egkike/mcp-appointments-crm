@@ -94,6 +94,8 @@ func (r *SchedulesRepo) FindByProfessionalAndDay(ctx context.Context, profession
 // (professional_id, day_of_week) combination, it updates the times; otherwise
 // it inserts a new row.
 // Returns domain.ErrInvalidInput if day_of_week is out of range or times are invalid.
+// Returns domain.ErrConflict if professional_id has no matching row in
+// professionals (schema.go, schedules.professional_id foreign key).
 // Requires admin or owner role.
 func (r *SchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
@@ -138,7 +140,11 @@ func (r *SchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) error {
 		return nil
 	}
 
-	return fmt.Errorf("upsert horario: %w", err)
+	// Not a duplicate key: the only other constraint on this INSERT is the
+	// schedules.professional_id foreign key (schema.go), so a slot for a
+	// professional that does not exist lands here. Translate it so the use case
+	// can answer with a semantic error instead of leaking an internal one.
+	return fmt.Errorf("upsert horario: %w", classifyForeignKeyViolation(err))
 }
 
 // Delete removes a schedule for a professional on a specific day.

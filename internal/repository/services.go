@@ -117,7 +117,9 @@ func (r *ServicesRepo) Update(ctx context.Context, s *entity.Service) error {
 	return nil
 }
 
-// Delete removes a service by ID. Returns domain.ErrNotFound if no row matches.
+// Delete removes a service by ID. Returns domain.ErrNotFound if no row matches
+// and domain.ErrConflict if a booking still references the service
+// (bookings.service_id is ON DELETE RESTRICT in schema.go).
 // Requires admin or owner role.
 func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
@@ -125,7 +127,11 @@ func (r *ServicesRepo) Delete(ctx context.Context, id string) error {
 	}
 	result, err := r.db.ExecContext(ctx, `DELETE FROM services WHERE id = ?`, id)
 	if err != nil {
-		return fmt.Errorf("eliminar servicio: %w", err)
+		// A booking pointing at this service blocks the delete with a foreign-key
+		// failure (SQLITE_CONSTRAINT_TRIGGER 1811 under ON DELETE RESTRICT).
+		// Translate it here so the use case can answer with a semantic conflict
+		// instead of leaking an internal error.
+		return fmt.Errorf("eliminar servicio: %w", classifyForeignKeyViolation(err))
 	}
 	n, err := result.RowsAffected()
 	if err != nil {
