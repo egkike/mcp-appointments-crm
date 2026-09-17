@@ -111,9 +111,15 @@ MCP wiring + RBAC owner gates (ADR-0015 Context ¶4).
       fragility for future triggers; R3-003/R4-003 update_professional.go:84-92 concurrent-delete
       mapping; R4-004 update_business_profile.go:46-60; R2-002..005, R3-004 suggestions. Full list
       burned in review receipt cb99619.
-- [ ] **T3 — MCP wiring**: new registrar (tools_maintenance.go or per-domain files), port
-      fields in mcp.Config, ports.go entries, ToolRBAC entries in main.go, repo/use-case
-      construction wiring; unit tests with mock ports; update registry-count test.
+- [x] **T3 — MCP wiring** ✅ commit `3ce2a05` (native review review-b95804a7498af54f approved
+      medium/1-lens, 1 non-blocking follow-up R3-001 main.go:357-364; GGA passed): 8 tools
+      registered (update_business_profile, create/update/delete_service, create/update_professional,
+      upsert/delete_schedule); transport-only shape checks; ports.go/config.go/server.go wiring;
+      ToolRBAC rows owner-only in main.go; registry test 11→19; profile write reuses the
+      get_business_profile read mapper (identical read/write shape for Hermes).
+      **Follow-ups:** e2e_test.go + server_loyalty_integration_test.go still assert 11 tools (fixed in T4);
+      main.go "mcp server starting" log counts stale (11 use cases / "usecases", 8); integration
+      mux harness wiring owned by T4.
 - [ ] **T4 — Integration tests (real SQLite)**: happy path per tool family; RBAC 403 for
       staff/client (owner 200); semantic error mapping (-32002); day-key contract
       end-to-end (profile hours vs schedule day_of_week vs availability).
