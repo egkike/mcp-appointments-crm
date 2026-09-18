@@ -1,0 +1,60 @@
+# Release pipeline — MCP Appointments CRM (ADR-0014, Decision 1)
+#
+# Triggered by pushing an annotated tag `vX.Y.Z`. That tag IS the release: the
+# workflow cross-compiles the 5 targets declared in .goreleaser.yaml, archives
+# them with checksums.txt, and publishes them to GitHub Releases. There is no
+# manual asset upload and no `latest` resolution — scripts/install.sh pins an
+# exact `vMAJOR.MINOR.PATCH` tag and downloads that release's assets.
+#
+# No path filter and no "changes" job here, unlike ci.yml: a tag push is already
+# a deliberate release signal, so the job always runs and there is nothing to
+# gate on. `contents: write` is the single permission the release needs (create
+# the Release and upload its assets) — everything else stays at the default
+# deny. No concurrency group: two tag runs touch different refs, and cancelling
+# a run mid-publish would leave a half-populated Release behind.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      # Full history: GoReleaser builds the changelog from the commits between
+      # the previous tag and this one, which a shallow (depth 1) clone cannot see.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+          check-latest: true
+
+      - name: Print Go version
+        run: go version
+
+      # Version pinned on purpose: the config in .goreleaser.yaml is verified
+      # against this exact GoReleaser release locally (`goreleaser check` +
+      # `goreleaser release --snapshot --skip=publish`), and floating the tag
+      # would let a new GoReleaser version change published asset names.
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: 'v2.18.2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
