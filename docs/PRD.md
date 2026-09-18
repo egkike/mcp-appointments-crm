@@ -758,7 +758,7 @@ CREATE TABLE accounts (
 
 #### 3.8.3 Flujo de identificación del caller
 
-Cada MCP tool call incluye un header `X-Caller-Id: <phone|handle>`. El cliente MCP (Hermes) inyecta este header **automáticamente** desde el contexto del chat. El LLM no decide ni manipula el `caller_id` — esto es crítico para seguridad.
+Cada MCP tool call incluye un header `X-Caller-Id: <phone>`. El cliente MCP (Hermes) inyecta este header **automáticamente** desde el contexto del chat. El LLM no decide ni manipula el `caller_id` — esto es crítico para seguridad.
 
 ```
 Hermes (cliente MCP)                           MCP Server
@@ -1084,7 +1084,7 @@ Override con otro caller_id (debug):
   - [ ] Dado que hay 50 clientes con al menos una reserva en el último mes, cuando Hermes invoca `get_loyalty_report("last_month")`, entonces el sistema retorna el Top N de clientes ordenados por cantidad de reservas descendente, junto con su `client_id`, `name`, `phone` y `booking_count`.
 
 **RF9: Despliegue automatizado con `install.sh` y seed del owner vía TUI menú**
-- **Descripción**: El sistema debe proveer un script `install.sh` ejecutable vía `curl | bash` que instala el binario, lo registra como servicio del SO e imprime al final la invocación de `backup.sh` como recordatorio (sin sugerir ningún scheduler; el scheduling queda a criterio del operador). **Además, el sistema debe proveer un mecanismo para crear el primer owner** (single-owner invariant, §3.8.7). **Este mecanismo es el TUI menú operacional (Fase 2)**, no el script `install.sh`. El TUI captura el `X-Caller-Id` del dueño (phone o handle del messenger del admin) y crea el INSERT inicial en `accounts` con `role='owner'`, `is_active=1`, `display_name='Owner'`. El owner se crea con el phone que el admin ingresa (validado por regex); si el owner ya existe, se verifica que sigue activo y se omite el INSERT.
+- **Descripción**: El sistema debe proveer un script `install.sh` ejecutable vía `curl | bash` que instala el binario, lo registra como servicio del SO e imprime al final la invocación de `backup.sh` como recordatorio (sin sugerir ningún scheduler; el scheduling queda a criterio del operador). **Además, el sistema debe proveer un mecanismo para crear el primer owner** (single-owner invariant, §3.8.7). **Este mecanismo es el TUI menú operacional (Fase 2)**, no el script `install.sh`. El TUI captura el `X-Caller-Id` del dueño (phone del messenger del admin, E.164 subset: 4-15 dígitos con `+` opcional — verificado en la instalación; el handle alfanumérico no es una identidad válida de owner) y crea el INSERT inicial en `accounts` con `role='owner'`, `is_active=1`, `display_name='Owner'`. El owner se crea con el phone que el admin ingresa (validado por regex); si el owner ya existe, se verifica que sigue activo y se omite el INSERT.
 - **Prioridad**: Must, Fase 2 (el seed del owner se hace vía TUI menu en Fase 2, no durante install)
 - **Criterios de Aceptación**:
   - [ ] Dado que el script se ejecuta en una VPS Ubuntu limpia (sólo con `curl` y `bash`), cuando termina exitosamente, entonces el servicio `mcp-appointments-crm` está activo (`systemctl is-active` o equivalente) y el log final imprime `http://127.0.0.1:3000/mcp` y el log final imprime la invocación de `backup.sh` como recordatorio, sin sugerir `crontab` ni ningún otro scheduler.
