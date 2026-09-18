@@ -140,10 +140,11 @@ fixtures.
   `~/.config/mcp-appointments-crm/setup/` (Linux) or
   `~/Library/Application Support/MCP Appointments CRM/setup/` (macOS). A missing
   file is fatal: `el archivo de configuración setup_business.json no existe`.
-- Without `MCP_DB_PATH` it uses `./data/appointments.db` relative to the working
-  directory; the installed service uses
-  `~/.local/share/mcp-appointments-crm/reservas.db` instead. Running both gives
-  you two different databases.
+- Without `MCP_DB_PATH` it defaults to
+  `~/.local/share/mcp-appointments-crm/reservas.db`, the same file the installed
+  service uses. A manual run and the service therefore share one database; still,
+  do not run two processes against it at once, since they contend for the SQLite
+  file and the listen port.
 - The seed never creates an `accounts` row, so authenticated calls are rejected
   with a JSON-RPC error (`-32000`) even while `/healthz` returns 200. Create the
   owner with `mcp-server admin tui` (seed wizard + `caller-id` file); see

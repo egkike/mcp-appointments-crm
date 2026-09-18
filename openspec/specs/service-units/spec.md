@@ -35,7 +35,7 @@ El template `mcp-appointments-crm.service` MUST declarar una unit **user-level**
 
 - GIVEN el deploy completado en Linux (unit renderizada e instalada)
 - WHEN el servicio arranca
-- THEN el proceso `mcp-server` usa la DB `{DATA_DIR}/reservas.db` (no `./data/appointments.db`) y lee bind/port del `.env`
+- THEN el proceso `mcp-server` usa la DB `{DATA_DIR}/reservas.db` (el default XDG del binario desde issue #90, no un path relativo al CWD) y lee bind/port del `.env`
 
 #### Scenario: Habilitada por defecto tras install
 

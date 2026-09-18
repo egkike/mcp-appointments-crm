@@ -169,7 +169,7 @@ En macOS, el instalador MUST instalar el LaunchAgent en `~/Library/LaunchAgents/
 
 ### REQ-INS-010 — Log final de post-instalación accionable
 
-Al completar el deploy, el script MUST imprimir un log final que incluya, como mínimo: (a) una línea de comando `backup.sh` copy-pasteable que referencie el `MCP_DB_PATH` real en uso, (b) el bloque "Recommended additional tools" no vacío en español, (c) la URL del endpoint MCP (`http://127.0.0.1:3000/mcp`) y la ruta resuelta de la DB. Declarar el `MCP_DB_PATH` exacto en el log mitiga el riesgo de DB split-brain (riesgo 5 del proposal): una ejecución manual de `./mcp-server` usaría `./data/appointments.db` en su lugar.
+Al completar el deploy, el script MUST imprimir un log final que incluya, como mínimo: (a) una línea de comando `backup.sh` copy-pasteable que referencie el `MCP_DB_PATH` real en uso, (b) el bloque "Recommended additional tools" no vacío en español, (c) la URL del endpoint MCP (`http://127.0.0.1:3000/mcp`) y la ruta resuelta de la DB. Declarar el `MCP_DB_PATH` exacto en el log sigue mitigando el riesgo de DB split-brain (riesgo 5 del proposal), pero el mecanismo cambió: el default del binario es ahora la ruta XDG (issue #90), de modo que una ejecución manual y el servicio comparten la misma DB por defecto, y el log es lo que deja esa ruta efectiva auditable.
 
 #### Scenario: Log final contiene los cuatro elementos (DoD 7, 8, 9)
 
