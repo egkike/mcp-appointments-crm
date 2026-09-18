@@ -31,11 +31,11 @@ The MCP server currently exposes 19 tools: `check_availability`, `create_booking
 > **Scope note:** completed phases mean their packs are merged and demo-validated — not that the product has no pending work. Known pending scope (Fase 2+ / Fase N):
 >
 > - ✅ **Admin TUI + owner seed** (`mcp-server admin tui`, PRD §3.8.8 / RF9 / ADR-0010, scope in ADR-0016) — **MVP shipped (2026-09-16)**: the first-boot seed wizard creates the owner and writes the `caller-id` file (`0600`, `MCP_CONFIG_DIR` override), alongside Add Staff, Deactivate, list views, Transfer Ownership and Add-yourself-as-client. Bubble Tea on a TTY, equivalent console fallback without one. Deferred: persisted audit-log view, day-key normalization. Account setup no longer needs manual SQL.
-> - **Multi-platform release assets** — the published release (v0.3.0) ships a single `Linux_x86_64` binary, so **macOS and Windows are not distributable today**; the 5-platform matrix needs the GoReleaser pipeline (PRD §7).
+> - **Multi-platform release assets** — the published release (v0.3.0) ships a single `Linux_x86_64` binary, so **macOS and Windows are not distributable today**; the GoReleaser pipeline now produces the 5-platform matrix per tag (see the ✅ GoReleaser item below), and the next tag ships it.
 > - **Windows install** — no supported path: no `install.ps1`, no `--register-service` flag, no Task Scheduler template, no Windows release asset. Only the manual guide [`setup/service/nssm-install.md`](./setup/service/nssm-install.md) exists (untested in CI). Declared a non-goal of Phase 5 and tracked as pending scope (PRD §7, ADR-0014).
 > - ✅ **Hermes maintenance tools** (profile/services/professionals/schedules, ADR-0015) — **shipped**: 8 owner-only tools (`update_business_profile`, `create/update/delete_service`, `create/update_professional`, `upsert/delete_schedule`) let Hermes edit install-seeded operation data; manual SQL is no longer required.
 > - ✅ **Setup import wizard → DB done (2026-09-11)** — PRs [#72](https://github.com/egkike/mcp-appointments-crm/pull/72) / [#73](https://github.com/egkike/mcp-appointments-crm/pull/73) / [#74](https://github.com/egkike/mcp-appointments-crm/pull/74) (issue #71 closed): the server seeds `reservas.db` from the 3 setup JSONs on first boot; later boots are no-ops via guard.
-> - **GoReleaser CI releases** — releases are currently built and published by hand (demo-plan Paso 1); automation is pending.
+> - ✅ **GoReleaser CI releases (2026-09-18)** — `.goreleaser.yaml` + `.github/workflows/release.yml`: pushing an annotated `vX.Y.Z` tag builds and publishes all 5 platform archives + `checksums.txt` (GoReleaser v2.18.2, no manual upload). Verified with `goreleaser check` + a full local snapshot release; `v0.3.0` remains the only hand-built release until the next tag runs through the pipeline.
 
 ## Quickstart
 
@@ -72,16 +72,19 @@ HTTP request; the liveness probe is `http://127.0.0.1:3000/healthz` (a bare `GET
 answers **405 by design** — the MCP endpoint accepts POST JSON-RPC only).
 
 > **macOS caveat:** the installer's macOS path is implemented, but the published
-> release (v0.3.0) ships **no `Darwin` asset** — only `Linux_x86_64`. On macOS, build
-> from source until the multi-platform release pipeline lands
+> release (v0.3.0) ships **no `Darwin` asset** — only `Linux_x86_64`. The GoReleaser
+> pipeline now builds the `Darwin` archives per tag (verified locally, see
+> [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md)); until the next
+> tag is published, build from source on macOS
 > ([PRD §7](./docs/PRD.md#7-roadmap-por-fases)).
 
 ### Install — Windows
 
 **Not available yet.** There is no supported Windows install path today: no install
-script, no `--register-service` flag, no Task Scheduler template, and no Windows asset
-in the published release. Manual service registration guidance (untested in CI) lives
-in [`setup/service/nssm-install.md`](./setup/service/nssm-install.md).
+script, no `--register-service` flag, no Task Scheduler template. The GoReleaser
+pipeline now ships the `Windows_x86_64.zip` asset per tag (v0.3.0 predates it), but the
+install automation remains unimplemented. Manual service registration guidance (untested
+in CI) lives in [`setup/service/nssm-install.md`](./setup/service/nssm-install.md).
 
 Tracked as pending scope in [PRD §7](./docs/PRD.md#7-roadmap-por-fases) and
 [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md) (Decision 3 status
@@ -90,8 +93,9 @@ note).
 > See [docs/deployment.md](./docs/deployment.md) for the full runbook (HomeLab VM
 > example, manual download, verification checklist, rollback, troubleshooting) and
 > [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md) for the
-> release rationale (GoReleaser target of 5 platforms, checksums, `go install` vs
-> prebuilt EXE trade-offs — target design, not yet implemented).
+> release rationale (GoReleaser 5-platform matrix, checksums, `go install` vs
+> prebuilt EXE trade-offs — implemented in `.goreleaser.yaml` + `release.yml`; the
+> Windows install paths are still pending).
 
 ## Architecture
 
