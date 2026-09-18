@@ -268,7 +268,7 @@ En macOS los paths de datos/logs/config usan `~/Library/Application Support/...`
 
 ## Caveat importante: no corras `./mcp-server` a mano como servicio
 
-El binario, cuando se ejecuta directamente sin el service unit, usa como default `./data/appointments.db` en el directorio de trabajo actual. Eso es **solo para desarrollo**.
+El binario, cuando se ejecuta directamente sin el service unit, usa como default `~/.local/share/mcp-appointments-crm/reservas.db` (layout XDG, ADR-0002), la misma ruta que apunta el service unit. `MCP_DB_PATH` sigue siendo el override explícito.
 
 El camino soportado en producción es el service unit, que inyecta:
 
@@ -276,7 +276,7 @@ El camino soportado en producción es el service unit, que inyecta:
 Environment=MCP_DB_PATH=%h/.local/share/mcp-appointments-crm/reservas.db
 ```
 
-Si corré el binario a mano mientras el servicio está activo, terminás con **dos bases de datos distintas** (split-brain). Para operar el sistema siempre usá el servicio registrado.
+Como el default del binario ya es esa ruta, una ejecución manual abre la **misma base de datos** que el servicio: no hay split-brain por CWD. Aun así, no corras un segundo proceso contra la misma DB mientras el servicio está activo — dos procesos compiten por el archivo SQLite y por el puerto. Para operar el sistema siempre usá el servicio registrado.
 
 ---
 

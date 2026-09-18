@@ -194,18 +194,18 @@ launchctl bootstrap gui/$UID \
 
 ## 5. Caveat: nunca corras el binario a mano junto al servicio
 
-El binario `mcp-server`, cuando se ejecuta directamente sin el service unit, usa como default `./data/appointments.db` en el directorio de trabajo actual. Ese path es **solo para desarrollo**.
+El binario `mcp-server`, cuando se ejecuta directamente sin el service unit, usa como default `~/.local/share/mcp-appointments-crm/reservas.db` (layout XDG del usuario, ADR-0002). Ese default lo resuelve el propio binario con `os.UserHomeDir()`; si el home no se puede resolver, el arranque falla en vez de adivinar un path. `MCP_DB_PATH` sigue siendo el override explícito y gana cuando está definido.
 
-El servicio inyecta:
+El servicio inyecta la misma ruta:
 
 ```systemd
 Environment=MCP_DB_PATH=%h/.local/share/mcp-appointments-crm/reservas.db
 ```
 
-Si ejecutás `./mcp-server` o `~/.local/bin/mcp-server` a mano mientras el servicio está activo, el segundo proceso abrirá una DB distinta (`./data/appointments.db`) y tendrás datos divergentes. El camino soportado es:
+Ya **no** hay bifurcación por CWD: una ejecución manual abre el **mismo archivo** que el servicio. El riesgo que queda es otro: dos procesos sobre la misma DB compiten por el archivo SQLite y por el puerto. El camino soportado sigue siendo:
 
 - Siempre operar a través del servicio (`systemctl --user` o `launchctl`).
-- Si necesitás correr el binario manualmente para debug, detené primero el servicio y exportá `MCP_DB_PATH`:
+- Si necesitás correr el binario manualmente para debug, detené primero el servicio y fijá la ruta explícita:
 
 ```bash
 systemctl --user stop mcp-appointments-crm

@@ -13,7 +13,7 @@ Entregar la historia de soporte completa en español: `docs/installation.md` (ma
 
 ### REQ-IDOC-001 — `docs/installation.md`: instalación verificable de punta a punta (DoD 12)
 
-`docs/installation.md` MUST existir, estar escrita en español, y documentar el flujo completo desde VPS limpio hasta servicio activo: prerrequisitos (Ubuntu 22.04+ o macOS, bash/sqlite3/gzip), el comando de instalación pinned (`curl ... | bash -s -- --version vX.Y.Z`), la verificación post-install (servicio activo, endpoint MCP, DB), y el paso de setup interactivo previo (ejecutar `bash install.sh` en terminal para completar los prompts cuando aplique). Un revisor MUST poder seguir el documento de arriba a abajo contra el flujo de DoD 1 sin adivinar ningún paso intermedio. El documento MUST declarar explícitamente el caveat de D1: una ejecución manual de `./mcp-server` (sin el servicio) usa `./data/appointments.db` por default — el camino soportado es el servicio.
+`docs/installation.md` MUST existir, estar escrita en español, y documentar el flujo completo desde VPS limpio hasta servicio activo: prerrequisitos (Ubuntu 22.04+ o macOS, bash/sqlite3/gzip), el comando de instalación pinned (`curl ... | bash -s -- --version vX.Y.Z`), la verificación post-install (servicio activo, endpoint MCP, DB), y el paso de setup interactivo previo (ejecutar `bash install.sh` en terminal para completar los prompts cuando aplique). Un revisor MUST poder seguir el documento de arriba a abajo contra el flujo de DoD 1 sin adivinar ningún paso intermedio. El documento MUST declarar explícitamente el caveat de D1: una ejecución manual de `./mcp-server` (sin el servicio) usa por default la ruta XDG `~/.local/share/mcp-appointments-crm/reservas.db`, la misma DB que el servicio; el camino soportado sigue siendo el servicio, y no debe correrse un segundo proceso contra esa DB.
 
 #### Scenario: Un revisor sigue la instalación sin adivinar (DoD 12)
 
@@ -25,7 +25,7 @@ Entregar la historia de soporte completa en español: `docs/installation.md` (ma
 
 - GIVEN `docs/installation.md`
 - WHEN se lee la sección de verificación/notas
-- THEN declara que `./mcp-server` directo usa `./data/appointments.db` y que el camino soportado es el servicio con `MCP_DB_PATH` al layout XDG
+- THEN declara que `./mcp-server` directo usa por default `~/.local/share/mcp-appointments-crm/reservas.db` (la misma DB que el servicio, que la fija con `MCP_DB_PATH` al layout XDG) y que el camino soportado es el servicio
 
 #### Scenario: La TUI no aparece como paso de instalación (ADR-0008)
 
@@ -35,7 +35,7 @@ Entregar la historia de soporte completa en español: `docs/installation.md` (ma
 
 ### REQ-IDOC-002 — `docs/maintenance.md`: manual de operación anual (DoD 13)
 
-`docs/maintenance.md` MUST existir, estar escrita en español, y cubrir como mínimo: (a) ejecución y restauración de backups (`backup.sh`, verificación de integridad), (b) upgrade mediante re-ejecución de `install.sh --version vX.Y.Z` más nuevo (comportamiento REQ-INS-013), (c) inspección de logs (journalctl en Linux y `LOG_DIR`), (d) control del servicio por OS (start/stop/status/restart para systemd user y launchd), y (e) el caveat de DB de ejecución manual (D1/D5): nunca ejecutar el binario a mano junto al servicio, o se bifurca la DB a `./data/appointments.db`. El manual DEBERÍA (SHOULD) incluir troubleshooting de los casos conocidos de `systemctl --user` sin bus de usuario sobre ssh plano (riesgo 4 del proposal).
+`docs/maintenance.md` MUST existir, estar escrita en español, y cubrir como mínimo: (a) ejecución y restauración de backups (`backup.sh`, verificación de integridad), (b) upgrade mediante re-ejecución de `install.sh --version vX.Y.Z` más nuevo (comportamiento REQ-INS-013), (c) inspección de logs (journalctl en Linux y `LOG_DIR`), (d) control del servicio por OS (start/stop/status/restart para systemd user y launchd), y (e) el caveat de DB de ejecución manual (D1/D5): nunca ejecutar el binario a mano junto al servicio, porque dos procesos compiten por el mismo archivo SQLite (la ruta XDG por defecto desde issue #90) y por el puerto. El manual DEBERÍA (SHOULD) incluir troubleshooting de los casos conocidos de `systemctl --user` sin bus de usuario sobre ssh plano (riesgo 4 del proposal).
 
 #### Scenario: Cobertura de las cinco secciones (DoD 13)
 
@@ -51,13 +51,13 @@ Entregar la historia de soporte completa en español: `docs/installation.md` (ma
 
 ### REQ-IDOC-003 — Unificación del nombre de DB en la documentación (D5)
 
-Toda la documentación de producción (`installation.md`, `maintenance.md`, y las menciones existentes en `deployment.md`/`PRD.md` donde `appointments.db` aparece como DB de producción) MUST converger en `reservas.db` como nombre canónico de la DB de producción, consistente con PRD §3.5 y `backups/reservas-YYYYMMDD.db.gz`. La mención de `appointments.db` solo es aceptable como default interno de desarrollo para ejecución directa del binario (D1), explicado como caveat, nunca como ruta de producción.
+Toda la documentación de producción (`installation.md`, `maintenance.md`, y las menciones existentes en `deployment.md`/`PRD.md` donde `appointments.db` aparece como DB de producción) MUST converger en `reservas.db` como nombre canónico de la DB de producción, consistente con PRD §3.5 y `backups/reservas-YYYYMMDD.db.gz`. La mención de `appointments.db` ya no corresponde a ningún default vigente: desde issue #90 el default del binario es la ruta XDG `~/.local/share/mcp-appointments-crm/reservas.db`, así que `appointments.db` no debe presentarse ni como default de desarrollo ni como ruta de producción, y cualquier mención remanente es histórica.
 
 #### Scenario: Ninguna doc de producción promete appointments.db
 
 - GIVEN `docs/installation.md`, `docs/maintenance.md` y `docs/deployment.md`
 - WHEN se buscan referencias a `appointments.db`
-- THEN solo aparecen, si aparecen, como caveat de ejecución manual/desarrollo; toda ruta de producción usa `reservas.db`
+- THEN `appointments.db` no aparece como default vigente ni como ruta de producción; toda ruta de producción usa `reservas.db` y las menciones remanentes, si las hay, son históricas
 
 ### REQ-IDOC-004 — Scheduling de backups: guía opcional del cliente (ADR-0005)
 

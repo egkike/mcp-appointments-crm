@@ -1457,7 +1457,11 @@ print_post_install_summary() {
   echo "  - hermes doctor: verificar la salud del servidor MCP"
   printf '\n'
   echo "Nota: no ejecutes ./mcp-server manualmente mientras corre el servicio;"
-  echo "      usaría una DB distinta (./data/appointments.db) y bifurcaría el estado."
+  echo "      dos procesos sobre la misma DB compiten por el archivo y por el puerto."
+  echo "      El default del binario ya no es relativo al CWD: sin MCP_DB_PATH usa"
+  echo "      ~/.local/share/mcp-appointments-crm/reservas.db."
+  echo "      Para debuggear, detené el servicio y fijá la ruta explícita con"
+  echo "      MCP_DB_PATH=$DATA_DIR/reservas.db"
 }
 
 run_deploy() {

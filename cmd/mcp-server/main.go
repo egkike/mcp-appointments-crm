@@ -23,7 +23,12 @@
 //
 // Design decisions documented per refactor-clean-architecture P4.1:
 //
-//	D1. DB path: ./data/appointments.db by default, override via MCP_DB_PATH env var
+//	D1. DB path: ~/.local/share/mcp-appointments-crm/reservas.db by default,
+//	    resolved through os.UserHomeDir; override via MCP_DB_PATH env var.
+//	    The default is absolute on purpose (ADR-0002: the data lives under the
+//	    user's XDG data dir), so a manual `mcp-server admin tui` run without the
+//	    env var cannot fork state into a CWD-relative file while the systemd
+//	    unit (Environment=MCP_DB_PATH) points at the XDG layout.
 //	D2. Logger:   slog.Default() (writes to stderr); only NewAccountsRepo receives it
 //	D3. Exit:     slog info + os.Exit(0) on clean shutdown; os.Exit(1) on DB
 //	    failure, loopback violation, or listen/serve failure. A benign
@@ -62,6 +67,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
@@ -505,14 +511,42 @@ func (d *commandDependencies) close() {
 	closeDatabase(d.database, d.logger)
 }
 
+// resolveDBPath resolves the SQLite file the process must open. MCP_DB_PATH is
+// an explicit override and wins whenever it is non-empty (D1). Without it, the
+// path is the XDG data layout under the user home
+// (~/.local/share/mcp-appointments-crm/reservas.db), which is the same file the
+// systemd/launchd unit points at through Environment=MCP_DB_PATH. The absolute
+// default is what removes the CWD-relative fork: a manual run and the service
+// share one database instead of silently diverging.
+//
+// A home directory that cannot be resolved is a hard error, never a fallback:
+// guessing a path here is exactly the split-brain this function exists to
+// prevent.
+func resolveDBPath() (string, error) {
+	if dbPath := os.Getenv("MCP_DB_PATH"); dbPath != "" {
+		return dbPath, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// The home directory stays out of the returned error (security
+		// checklist: no internal file paths in client-facing errors).
+		// os.UserHomeDir reports only the missing variable, and the caller
+		// logs the cause as a structured field for the operator.
+		return "", fmt.Errorf("resolving default DB path: %w", err)
+	}
+	return filepath.Join(home, ".local", "share", "mcp-appointments-crm", "reservas.db"), nil
+}
+
 // openDatabase resolves the SQLite path (D1: the MCP_DB_PATH env var overrides
-// the ./data/appointments.db default) and opens the database. NewDatabase
-// creates the directory, verifies pragmas, and runs initSchema — all
+// the XDG default resolved by resolveDBPath) and opens the database.
+// NewDatabase creates the directory, verifies pragmas, and runs initSchema — all
 // idempotent.
 func openDatabase(ctx context.Context, logger *slog.Logger) (*db.DB, error) {
-	dbPath := os.Getenv("MCP_DB_PATH")
-	if dbPath == "" {
-		dbPath = "./data/appointments.db"
+	dbPath, err := resolveDBPath()
+	if err != nil {
+		logger.Error("resolve default database path failed", "error", err)
+		return nil, fmt.Errorf("open database: %w", err)
 	}
 
 	database, err := db.NewDatabase(ctx, dbPath)

@@ -35,7 +35,7 @@ El binario `mcp-server` MUST reconocer el flag `--version` como primer argumento
 
 ### REQ-BVER-002 — Cambio aislado: cero alteración de semántica existente
 
-La incorporación del flag MUST ser un cambio aislado en `cmd/mcp-server/main.go`: el default de DB (`./data/appointments.db`), la semántica de env vars (`MCP_DB_PATH`, `MCP_BIND`, `MCP_PORT`, precedencia ADR-0007) y el comportamiento de arranque sin `--version` MUST permanecer idénticos (D1: el path de DB de producción lo fija el service unit, no el binario). Ejecutar el binario sin argumentos MUST comportarse exactamente como antes de esta fase. El flag MUST tener su propio test (unit o e2e) en el árbol de tests Go existente.
+La incorporación del flag MUST ser un cambio aislado en `cmd/mcp-server/main.go`: el default de DB, la semántica de env vars (`MCP_DB_PATH`, `MCP_BIND`, `MCP_PORT`, precedencia ADR-0007) y el comportamiento de arranque sin `--version` MUST permanecer idénticos (D1: el path de DB de producción lo fija el service unit, no el binario). En esta fase el default de DB era `./data/appointments.db`; issue #90 lo cambió después a la ruta XDG `~/.local/share/mcp-appointments-crm/reservas.db`, sin alterar el override `MCP_DB_PATH` ni la precedencia bind/port. Ejecutar el binario sin argumentos MUST comportarse exactamente como antes de esta fase. El flag MUST tener su propio test (unit o e2e) en el árbol de tests Go existente.
 
 #### Scenario: Arranque sin flags idéntico a Fase 4
 

@@ -317,6 +317,88 @@ func TestBinarySubCommandDispatch(t *testing.T) {
 	}
 }
 
+// setTestHome points the user home directory used by os.UserHomeDir at dir.
+// On Windows the lookup reads USERPROFILE instead of HOME, so both variables
+// are set to keep the resolution tests portable.
+func setTestHome(t *testing.T, dir string) {
+	t.Helper()
+
+	t.Setenv("HOME", dir)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", dir)
+	}
+}
+
+func TestResolveDBPath(t *testing.T) {
+	t.Run("no override resolves the XDG data layout under the user home", func(t *testing.T) {
+		home := t.TempDir()
+		setTestHome(t, home)
+		t.Setenv("MCP_DB_PATH", "")
+
+		got, err := resolveDBPath()
+		if err != nil {
+			t.Fatalf("resolveDBPath() unexpected error: %v", err)
+		}
+
+		want := filepath.Join(home, ".local", "share", "mcp-appointments-crm", "reservas.db")
+		if got != want {
+			t.Errorf("resolveDBPath() = %q, want %q", got, want)
+		}
+
+		// The CWD-relative fork this change removes: the default must never
+		// depend on the process working directory.
+		if strings.HasPrefix(got, ".") {
+			t.Errorf("resolveDBPath() = %q, want an absolute XDG path", got)
+		}
+	})
+
+	t.Run("MCP_DB_PATH override wins over the default", func(t *testing.T) {
+		setTestHome(t, t.TempDir())
+		override := filepath.Join(t.TempDir(), "custom.db")
+		t.Setenv("MCP_DB_PATH", override)
+
+		got, err := resolveDBPath()
+		if err != nil {
+			t.Fatalf("resolveDBPath() unexpected error: %v", err)
+		}
+		if got != override {
+			t.Errorf("resolveDBPath() = %q, want the override %q", got, override)
+		}
+	})
+
+	t.Run("missing home directory is a clear error, not a CWD fork", func(t *testing.T) {
+		setTestHome(t, "")
+		t.Setenv("MCP_DB_PATH", "")
+
+		got, err := resolveDBPath()
+		if err == nil {
+			t.Fatalf("resolveDBPath() = %q, want an error when the home directory is unset", got)
+		}
+		if got != "" {
+			t.Errorf("resolveDBPath() = %q with error, want an empty path", got)
+		}
+		if !strings.Contains(err.Error(), "resolving default DB path") {
+			t.Errorf("resolveDBPath() error = %q, want it to name the failing resolution step", err)
+		}
+	})
+}
+
+func TestOpenDatabaseDefaultPathError(t *testing.T) {
+	setTestHome(t, "")
+	t.Setenv("MCP_DB_PATH", "")
+
+	database, err := openDatabase(context.Background(), slog.Default())
+	if err == nil {
+		t.Fatal("openDatabase() with no home directory = nil error, want a startup failure")
+	}
+	if database != nil {
+		t.Errorf("openDatabase() database = %v, want nil on error", database)
+	}
+	if !strings.Contains(err.Error(), "open database: resolving default DB path") {
+		t.Errorf("openDatabase() error = %q, want the wrapped resolution error", err)
+	}
+}
+
 func TestNewIdentityDepsWiresIdentityRepos(t *testing.T) {
 	database, err := db.NewDatabase(context.Background(), filepath.Join(t.TempDir(), "appointments.db"))
 	if err != nil {
