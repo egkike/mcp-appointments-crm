@@ -70,13 +70,16 @@ all 5 platforms and both Unix and Windows install paths.
 
 ### Decision 1: GoReleaser builds 5 artifacts + checksums + version ldflags
 
-> **Status note (implementation): this decision describes the TARGET, not the shipped
-> state.** No CI release pipeline exists yet: `.github/workflows/` ships only `ci.yml`
-> (no `release.yml`) and there is no `.goreleaser.yml`. The only published release
-> (`v0.3.0`) was built and uploaded by hand and carries a single Linux x86_64 archive
-> plus `checksums.txt`. Everything below is the accepted design, to be delivered by the
-> `GoReleaser + releases por CI` backlog item (`docs/PRD.md` §7, Fase N). Today's manual
-> procedure is in `docs/deployment.md` → Release Process.
+> **Status note (2026-09-18): implemented — this decision now describes the shipped
+> state.** Shipped in `.goreleaser.yaml` + `.github/workflows/release.yml`, with GoReleaser
+> pinned to `v2.18.2`; verified with `goreleaser check` and a full local
+> `goreleaser release --snapshot --clean --skip=publish`, which produced exactly the 6
+> contract files below (5 archives + `checksums.txt`). Historical context, kept as the
+> design record: before this feature `.github/workflows/` shipped only `ci.yml` (no
+> `release.yml`), there was no `.goreleaser.yml`, and the only published release
+> (`v0.3.0`) was built and uploaded by hand carrying a single Linux x86_64 archive plus
+> `checksums.txt`. The manual re-tag/rollback procedure remains documented in
+> `docs/deployment.md` → Release Process.
 
 - **Trigger**: `git tag vX.Y.Z && git push origin vX.Y.Z` triggers
   `.github/workflows/release.yml` (build + publish). No manual asset upload.
@@ -185,7 +188,10 @@ bash install.sh --version v0.3.0
 > - There is no Task Scheduler template (`setup/service/` ships the systemd unit, the
 >   launchd plist and the manual `nssm-install.md` guide, nothing else).
 > - The only published release (v0.3.0) contains **no Windows asset**: just
->   `checksums.txt` and `mcp-appointments-crm_Linux_x86_64.tar.gz`.
+>   `checksums.txt` and `mcp-appointments-crm_Linux_x86_64.tar.gz` (from the GoReleaser
+>   pipeline onward — Decision 1, implemented 2026-09-18 — every `vX.Y.Z` tag does publish
+>   `mcp-appointments-crm_Windows_x86_64.zip`; the Windows install paths below remain
+>   unimplemented).
 >
 > Windows install automation was declared an explicit **non-goal of Fase 5**
 > (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004:
