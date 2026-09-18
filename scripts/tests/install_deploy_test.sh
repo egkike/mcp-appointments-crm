@@ -380,6 +380,29 @@ test_verify_install_version_match() {
   assertEquals 'version match ok' 0 $?
 }
 
+# Issue #88: GoReleaser injects {{.Version}} as bare semver, so the CI-built
+# binary reports "0.4.0" while the requested tag is "v0.4.0". Both spellings
+# must verify (issue #88).
+test_verify_install_version_bare_semver_match() {
+  INSTALL_TAG="v0.4.0"
+  mkdir -p "$BIN_DIR"
+  printf '#!/bin/bash\necho "0.4.0"\n' > "$BIN_DIR/mcp-server"
+  chmod +x "$BIN_DIR/mcp-server"
+
+  verify_installation >/dev/null 2>&1
+  assertEquals 'bare semver matches v-prefixed tag' 0 $?
+}
+
+test_verify_install_version_v_prefix_match() {
+  INSTALL_TAG="v0.4.0"
+  mkdir -p "$BIN_DIR"
+  printf '#!/bin/bash\necho "v0.4.0"\n' > "$BIN_DIR/mcp-server"
+  chmod +x "$BIN_DIR/mcp-server"
+
+  verify_installation >/dev/null 2>&1
+  assertEquals 'v-prefixed legacy build still matches' 0 $?
+}
+
 test_verify_install_version_mismatch() {
   INSTALL_TAG="v0.3.0"
   mkdir -p "$BIN_DIR"
@@ -388,6 +411,18 @@ test_verify_install_version_mismatch() {
 
   verify_installation >/dev/null 2>&1
   assertNotEquals 'version mismatch fails' 0 $?
+}
+
+# Exact comparison must not reopen the substring hole: bare semver "0.4.0"
+# must NOT satisfy a hypothetical tag "v10.4.0" (issue #88).
+test_verify_install_version_substring_regression_rejected() {
+  INSTALL_TAG="v10.4.0"
+  mkdir -p "$BIN_DIR"
+  printf '#!/bin/bash\necho "0.4.0"\n' > "$BIN_DIR/mcp-server"
+  chmod +x "$BIN_DIR/mcp-server"
+
+  verify_installation >/dev/null 2>&1
+  assertNotEquals 'bare semver must not match a different tag' 0 $?
 }
 
 test_print_post_install_summary() {

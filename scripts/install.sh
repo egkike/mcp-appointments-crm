@@ -1389,14 +1389,20 @@ _print_binary_rollback_hint() {
 }
 
 verify_installation() {
-  local version_out
+  local version_out tag_norm
   if ! version_out=$("$BIN_DIR/mcp-server" --version 2>&1); then
     echo "Error: no se pudo ejecutar mcp-server --version." >&2
     _print_binary_rollback_hint
     return 1
   fi
+  # The CI-built binary injects GoReleaser's {{.Version}} as bare semver ("0.4.0"),
+  # while pre-GoReleaser manual builds injected "git describe" output ("v0.3.0").
+  # Compare exactly on the normalized spelling (optional leading "v" on both sides)
+  # so both formats verify without reopening the substring hole where "0.4.0"
+  # would also match a hypothetical tag "10.4.0".
+  tag_norm="${INSTALL_TAG#v}"
   case "$version_out" in
-    *"$INSTALL_TAG"*) : ;;
+    "v$tag_norm"|"$tag_norm") : ;;
     *)
       echo "Error: la versión instalada ($version_out) no coincide con $INSTALL_TAG." >&2
       _print_binary_rollback_hint
