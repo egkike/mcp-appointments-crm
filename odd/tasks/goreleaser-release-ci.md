@@ -62,8 +62,10 @@ maintenance #85).
 - [x] **T5 — Gate + PR** ✅ — pre-flight pipeline PASSED (8/8). Native review
       review-d76fbe5576d59627 approved (4 lenses, high tier, 11 informational findings,
       0 blocking); acknowledgement burned, delivery per ordinary policy. Commits:
-      `70d165c` (feat, code work unit) + `6f82a9a` (docs work unit incl. this doc).
-      Pending user decision: push + PR + merge.
+      `70d165c` (feat, code work unit) + `e23e829` (docs work unit incl. this doc).
+      Delivered: issue #86 (status:approved) -> PR #87 -> squash merge `e653ae6` into
+      main (2026-09-18); local + remote feature branches deleted. Post-release steps
+      (VM smoke, tag v0.4.0) remain user-decided.
 
 ## Post-merge (user decisions, not part of this feature's code)
 
