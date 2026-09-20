@@ -334,6 +334,7 @@ func TestResolveDBPath(t *testing.T) {
 		home := t.TempDir()
 		setTestHome(t, home)
 		t.Setenv("MCP_DB_PATH", "")
+		t.Setenv("XDG_DATA_HOME", "")
 
 		got, err := resolveDBPath()
 		if err != nil {
@@ -354,6 +355,7 @@ func TestResolveDBPath(t *testing.T) {
 
 	t.Run("MCP_DB_PATH override wins over the default", func(t *testing.T) {
 		setTestHome(t, t.TempDir())
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
 		override := filepath.Join(t.TempDir(), "custom.db")
 		t.Setenv("MCP_DB_PATH", override)
 
@@ -366,9 +368,76 @@ func TestResolveDBPath(t *testing.T) {
 		}
 	})
 
+	t.Run("absolute XDG_DATA_HOME wins over the home default", func(t *testing.T) {
+		setTestHome(t, t.TempDir())
+		t.Setenv("MCP_DB_PATH", "")
+		dataHome := t.TempDir()
+		t.Setenv("XDG_DATA_HOME", dataHome)
+
+		got, err := resolveDBPath()
+		if err != nil {
+			t.Fatalf("resolveDBPath() unexpected error: %v", err)
+		}
+		want := filepath.Join(dataHome, "mcp-appointments-crm", "reservas.db")
+		if got != want {
+			t.Errorf("resolveDBPath() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("relative XDG_DATA_HOME is ignored and falls back to home", func(t *testing.T) {
+		home := t.TempDir()
+		setTestHome(t, home)
+		t.Setenv("MCP_DB_PATH", "")
+		// The XDG Base Directory spec requires non-absolute values to be
+		// ignored, so a relative value must not fork the DB on the CWD.
+		t.Setenv("XDG_DATA_HOME", filepath.Join("relative", "data"))
+
+		got, err := resolveDBPath()
+		if err != nil {
+			t.Fatalf("resolveDBPath() unexpected error: %v", err)
+		}
+		want := filepath.Join(home, ".local", "share", "mcp-appointments-crm", "reservas.db")
+		if got != want {
+			t.Errorf("resolveDBPath() = %q, want the home fallback %q", got, want)
+		}
+	})
+
+	t.Run("empty XDG_DATA_HOME falls back to the home default", func(t *testing.T) {
+		home := t.TempDir()
+		setTestHome(t, home)
+		t.Setenv("MCP_DB_PATH", "")
+		t.Setenv("XDG_DATA_HOME", "")
+
+		got, err := resolveDBPath()
+		if err != nil {
+			t.Fatalf("resolveDBPath() unexpected error: %v", err)
+		}
+		want := filepath.Join(home, ".local", "share", "mcp-appointments-crm", "reservas.db")
+		if got != want {
+			t.Errorf("resolveDBPath() = %q, want the home fallback %q", got, want)
+		}
+	})
+
+	t.Run("absolute XDG_DATA_HOME resolves without a home directory", func(t *testing.T) {
+		setTestHome(t, "")
+		t.Setenv("MCP_DB_PATH", "")
+		dataHome := t.TempDir()
+		t.Setenv("XDG_DATA_HOME", dataHome)
+
+		got, err := resolveDBPath()
+		if err != nil {
+			t.Fatalf("resolveDBPath() unexpected error: %v", err)
+		}
+		want := filepath.Join(dataHome, "mcp-appointments-crm", "reservas.db")
+		if got != want {
+			t.Errorf("resolveDBPath() = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("missing home directory is a clear error, not a CWD fork", func(t *testing.T) {
 		setTestHome(t, "")
 		t.Setenv("MCP_DB_PATH", "")
+		t.Setenv("XDG_DATA_HOME", "")
 
 		got, err := resolveDBPath()
 		if err == nil {
@@ -386,6 +455,7 @@ func TestResolveDBPath(t *testing.T) {
 func TestOpenDatabaseDefaultPathError(t *testing.T) {
 	setTestHome(t, "")
 	t.Setenv("MCP_DB_PATH", "")
+	t.Setenv("XDG_DATA_HOME", "")
 
 	database, err := openDatabase(context.Background(), slog.Default())
 	if err == nil {

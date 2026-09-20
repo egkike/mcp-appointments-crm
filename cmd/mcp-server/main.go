@@ -511,20 +511,30 @@ func (d *commandDependencies) close() {
 	closeDatabase(d.database, d.logger)
 }
 
-// resolveDBPath resolves the SQLite file the process must open. MCP_DB_PATH is
-// an explicit override and wins whenever it is non-empty (D1). Without it, the
-// path is the XDG data layout under the user home
-// (~/.local/share/mcp-appointments-crm/reservas.db), which is the same file the
-// systemd/launchd unit points at through Environment=MCP_DB_PATH. The absolute
-// default is what removes the CWD-relative fork: a manual run and the service
-// share one database instead of silently diverging.
+// resolveDBPath resolves the SQLite file the process must open, in this
+// precedence order:
 //
-// A home directory that cannot be resolved is a hard error, never a fallback:
-// guessing a path here is exactly the split-brain this function exists to
-// prevent.
+//  1. MCP_DB_PATH, an explicit override that wins whenever it is non-empty (D1).
+//  2. XDG_DATA_HOME, when set to a non-empty absolute path, as
+//     $XDG_DATA_HOME/mcp-appointments-crm/reservas.db. The XDG Base Directory
+//     spec says a relative value must be ignored, so a relative XDG_DATA_HOME
+//     falls through to the home default instead of forking the database on the
+//     process working directory.
+//  3. $HOME/.local/share/mcp-appointments-crm/reservas.db, the layout the
+//     systemd/launchd unit points at through Environment=MCP_DB_PATH. The
+//     absolute default is what removes the CWD-relative fork: a manual run and
+//     the service share one database instead of silently diverging.
+//
+// A home directory that cannot be resolved (and no usable XDG_DATA_HOME
+// override) is a hard error, never a fallback: guessing a path here is exactly
+// the split-brain this function exists to prevent.
 func resolveDBPath() (string, error) {
 	if dbPath := os.Getenv("MCP_DB_PATH"); dbPath != "" {
 		return dbPath, nil
+	}
+
+	if dataHome := os.Getenv("XDG_DATA_HOME"); dataHome != "" && filepath.IsAbs(dataHome) {
+		return filepath.Join(dataHome, "mcp-appointments-crm", "reservas.db"), nil
 	}
 
 	home, err := os.UserHomeDir()
