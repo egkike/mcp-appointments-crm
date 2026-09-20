@@ -26,21 +26,24 @@ Close the actionable findings from the v0.4.0 fresh-install functional smoke on 
 
 ## Tasks
 
-- [ ] **T1 — Wizard closed-day acceptance**: accept `no trabaja` (and `n`) in prompt_day_hours;
-      keep the prompt copy as-is (it already advertises both). Add shunit2 coverage for the
-      closed-day acceptance matrix in scripts/tests/.
-- [ ] **T2 — XDG_DATA_HOME support**: resolveDBPath prefers `$XDG_DATA_HOME/mcp-appointments-crm/reservas.db`
-      when XDG_DATA_HOME is set and absolute; falls back to `$HOME/.local/share/...` otherwise;
-      MCP_DB_PATH still wins; unresolvable home stays a hard error. Table test in main_test.go.
-- [ ] **T3 — Stale deployment docs**: update deployment.md macOS/Windows sections to reflect
-      the v0.4.0 GoReleaser matrix (5 assets + checksums); keep the Windows "not implemented yet"
-      distinction (install.ps1/`--register-service` genuinely absent) but fix the false asset claims.
-- [ ] **T4 — Gate + PR**: AGENTS.md pre-flight pipeline (fmt/vet/golangci/build/test -race +
-      shunit2 suites), native review gate per Verification & Review Protocol routing, then PR.
+- [x] **T1 — Wizard closed-day acceptance** ✅ commit `afef85b`
+- [x] **T2 — XDG_DATA_HOME support** ✅ commit `80e37d0`
+- [x] **T2b — stale repos count log fix** ✅ commit `ce56650` (GGA observation on 80e37d0;
+      9 repos not 11, same class as d7b65f7)
+- [x] **T3 — Stale deployment docs** ✅ commit `12d62e9`
+- [ ] **T4 — Gate + PR**
 
 ## Evidence / commits
 
-(recorded per task on feature branch)
+- T1: `afef85b` — fix(install): accept "no trabaja" as a closed day in the wizard
+- T2: `80e37d0` — fix(config): honor XDG_DATA_HOME in the default database path
+- T2b: `ce56650` — fix(mcp): correct stale repos count in startup log
+- T3: `12d62e9` — docs(deployment): refresh macOS/Windows install sections for v0.4.0
+- GGA incidents: opencode provider timed out 5x (~25 min) during T2 commit; owner chose
+  retry-over-provider-switch, commit passed on retry. T2b commit hit STRICT_MODE ambiguous
+  STATUS (3 fails) — cache clear + retry passed. GGA observations recorded: deps.config
+  write-only field, commandServe-with-error smell, wantsVersion(os.Args) convention mix
+  (non-blocking, unclaimed backlog).
 
 ## Notes / deferred
 
