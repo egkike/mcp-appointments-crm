@@ -49,3 +49,13 @@ Close the actionable findings from the v0.4.0 fresh-install functional smoke on 
 
 - V3 (plist divergence) recorded as follow-up for a Mac-verified session.
 - v0.5.0 tag after merge would ship T2 to users (DB-default XDG fix already on main + these).
+
+## T4 gate status (2026-09-20)
+
+- Native review lineage review-132759522ab84ba5 created (high/4-lens, budget 106, base=main
+  committed range). Reviewer relay blocked at slot 0: opencode Go 400 MissingSessionID x2
+  (deterministic). Root cause confirmed upstream: pi-ai 0.86.1 withSessionHeader requires
+  options.sessionId; gentle-ai 3.4.0 in-process reviewer completion passes none. Duplicate
+  confirmed on Gentleman-Programming/gentle-shell#1260 (+#1242/#1235); repro comment posted
+  with pi-ai code pointer (issuecomment-5751553667). Nothing captured/burned; branch verified
+  via pipeline + shunit2 + GGA. Gate pending upstream fix or provider switch.
