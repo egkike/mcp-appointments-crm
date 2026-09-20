@@ -217,6 +217,17 @@ test_hours_inverted_range_reasks() {
   assertTrue 'spanish range error' "printf '%s' \"$out\" | grep -q 'anterior'"
 }
 
+# V1 smoke fix: the prompt advertises "no trabaja", so it must be accepted as a
+# closed day and written as a null business_hours entry.
+test_hours_no_trabaja_closes_day() {
+  local out rc
+  out=$({ _business_input; printf 'no trabaja\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-13:00\ncerrado\n'; _staff_input; _services_input; printf 's\n'; } | _run_install 2>&1)
+  rc=$?
+  assertEquals 'exit after full flow' 0 "$rc"
+  assertTrue 'monday closed as null' "grep -q '\"monday\": null' \"$SETUP_DIR/setup_business.json\""
+  assertTrue 'tuesday open captured' "grep -q '\"tuesday\": {\"open\": \"09:00\"' \"$SETUP_DIR/setup_business.json\""
+}
+
 # Task 2.5 / 2.6: prompt engine + business profile ---------------------------
 
 test_invalid_email_reasks() {
