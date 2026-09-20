@@ -244,19 +244,19 @@ mcp-server --version
 
 ## Install — macOS
 
-> **Not distributable today.** The published release (v0.3.0) ships **no `Darwin`
-> asset** — only `mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`. The
-> `Darwin` branch of `install.sh` is implemented, but it **fails at download (404)**.
-> On macOS, build from source until the multi-platform release pipeline lands
-> ([PRD §7](./PRD.md#7-roadmap-por-fases), Fase N).
+> **`Darwin` asset disponible desde v0.4.0.** El pipeline de GoReleaser publica
+> `mcp-appointments-crm_Darwin_x86_64.tar.gz` y
+> `mcp-appointments-crm_Darwin_arm64.tar.gz` junto con `checksums.txt` en cada tag,
+> así que `install.sh` resuelve la plataforma con `uname -s`/`uname -m` y descarga
+> el archivo correcto. Un build local desde el source sigue siendo el fallback
+> ([PRD §7](./PRD.md#7-roadmap-y-fases)).
 
-Same `curl | bash` path as Linux, once a `Darwin` asset exists (detects `Darwin` via
-`uname -s`):
+Mismo camino `curl | bash` que Linux (detecta `Darwin` vía `uname -s`):
 
 ```bash
 # pinned (required — the installer resolves no `latest` and rejects pre-releases;
 # a piped invocation without --version needs a real terminal and aborts)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.4.0
 ```
 
 Service registration uses `launchd`:
@@ -288,14 +288,15 @@ No `loginctl` step on macOS — user LaunchAgents persist after logout by defaul
 > - `scripts/install.ps1` does not exist in the repository.
 > - `mcp-server --register-service` is not implemented; the binary only supports
 >   `--version`.
-> - No Windows asset is published — the only release (v0.3.0) ships
->   `mcp-appointments-crm_Linux_x86_64.tar.gz` and `checksums.txt`.
+> - Sí se publica un asset Windows (`mcp-appointments-crm_Windows_x86_64.zip` desde
+>   v0.4.0, junto con los assets de Linux y macOS y `checksums.txt`), pero no existe
+>   un path de instalación soportado que lo consuma.
 > - There is no Task Scheduler template; `setup/service/` ships the systemd unit, the
 >   launchd plist and the manual `nssm-install.md` guide.
 >
 > Windows install automation was declared a non-goal of Fase 5
 > (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004) and is
-> tracked as pending scope in [docs/PRD.md §7](./PRD.md#7-roadmap-por-fases). For manual
+> tracked as pending scope in [docs/PRD.md §7](./PRD.md#7-roadmap-y-fases). For manual
 > service registration guidance (untested in CI) see
 > [`setup/service/nssm-install.md`](../setup/service/nssm-install.md).
 
