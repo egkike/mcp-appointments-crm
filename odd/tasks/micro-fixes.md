@@ -59,9 +59,14 @@ One PR aggregating three sources:
       **Follow-up (upstream):** report gga parser window (30 lines hardcoded at line 1017 of gga
       2.10.1 script) vs agent-transcript providers — verdict lines land ~line 130 and get discarded
       as ambiguous; only PASSED results are cached, so retries re-roll the verdict each time.
-- [ ] **T4 — sqlite_errors message-guard hardening**: 1811 FK classification less
-      brittle for future triggers (R3-002/R4-002); keep single-owner triggers
-      unclassified; pin driver facts with tests.
+- [x] **T4 — sqlite_errors message-guard hardening**: applicationTriggerMessages registry (single
+      source of truth for RAISE(ABORT) markers sharing 1811, seeded with "single-owner invariant")
+      + documented maintenance contract; 1811 branch now two-sided (FK message present AND no app
+      marker; unknown 1811 stays unclassified, fail-safe direction preserved); isSingleOwnerViolation
+      consults the registry; real-SQLite harness extended (dangling 787 / RESTRICT 1811 / trigger
+      aborts / adversarial registered-marker-with-FK-string / fail-safe unknown message) + registry
+      drift guard. GGA PASSED first attempt (compact response, STATUS at line 22). Commit on
+      `feat/micro-fixes` — refactor(repository): two-sided guard for 1811 foreign-key classification.
 - [ ] **T5 — Telemetry counts from wiring**: main.go startup log derives repos/usecases
       counts from the wired structures; test or compile-time assertion.
 - [ ] **T6 — Integration coverage**: admin-denial (staff/admin RBAC matrix gap),
