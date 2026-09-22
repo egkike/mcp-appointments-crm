@@ -89,12 +89,34 @@ One PR aggregating three sources:
       e2e + both integration suites + the ToolCount registry test — no literal 19 left). All test
       files (excluded from GGA patterns); pipeline green. Commit `8636c4a` on `feat/micro-fixes` —
       test(mcp): admin-denial and invalid-input integration coverage; dedup tool count.
-- [ ] **T7 — Close-out**: full pre-flight pipeline (fmt/vet/golangci/build/test-race),
-      native review gate (owner asked first), issue-first PR, owner squash-merge.
+- [x] **T7 — Close-out**: full pre-flight pipeline green (fmt/vet/golangci 0 issues/build/test -race
+      all packages) at 8636c4a. Native review gate over the committed branch (base main, committed
+      range): lineage review-e463099b71c8f9e1 (high, 4 lenses, 1073 lines, budget 200) — 4/4 lenses
+      captured (2 relay flakes recovered via fresh-STATUS retry), refuter confirmed R4-001 CRITICAL
+      (resilience, inferential, introduced: strict day-key validator broke persisted legacy
+      "01"/"007" keys on read), correction plan 40/200 → correction committed e746220 (38 lines);
+      targeted validator then FAILED native-operation-failed (gentle-shell#1324 validator family,
+      still open) → lineage ESCALATED (terminal, durable upstream evidence). Owner approved fresh
+      START over the corrected candidate: lineage review-f63843adf4e84ecb (high, 4 lenses, 1071
+      lines) — 4/4 lenses + refuter, new finding R3-001 CRITICAL (isSingleOwnerViolation delegated
+      to the shared registry → future unrelated markers would be misreported as single-owner),
+      correction plan 25/200 → correction committed 1e089c9 (25 lines) → targeted validator
+      APPROVED, 4 informational findings (R2-001/R2-002/R3-002/R4-001, WARNING, non-blocking
+      follow-ups). acknowledge-approved executed; authority burned (review-acknowledged/v1).
+      Delivery = ordinary repository policy (issue-first PR, CI, owner squash-merge).
 
 ## Commits
 
 (recorded per task on feature branch)
+- T1: `cf2bbdc` on `feat/micro-fixes` — fix(domain): strict validation for day keys, HH:MM times and plural day messages
+- T2: `f6388bd` — fix(domain): fail closed on nil deps.Bookings and reject midnight-crossing slots
+- T3: `0635b57` — refactor(application): split applyProfileUpdates by assignment semantics
+- T4: `0850438` — refactor(repository): two-sided guard for 1811 foreign-key classification
+- T5: `b18cc59` — refactor(mcp): derive startup telemetry counts from the wiring
+- T6: `8636c4a` — test(mcp): admin-denial and invalid-input integration coverage; dedup tool count
+- docs: `91ae0cd` — docs(odd): record micro-fixes T6 coverage evidence
+- correction R4-001 (gate 1): `e746220` — fix(domain): normalize legacy zero-padded business-hours day keys on read
+- correction R3-001 (gate 2): `1e089c9` — fix(repository): keep the single-owner classifier specific to its own marker
 
 ## Notes
 
