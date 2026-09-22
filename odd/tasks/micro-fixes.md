@@ -1,6 +1,7 @@
 # Feature: micro-fixes — PR de micro-deuda agregado (backlog item 1)
 
-**Status:** IN PROGRESS (started 2026-09-23 session)
+**Status:** COMPLETE (closed 2026-09-23) — PR #96 squash-merged as `21c48bb` on main; issue #95 auto-closed
+COMPLETED; local/remote feature branches deleted; post-merge sanity green (build + test -race all packages).
 **Branch:** `feat/micro-fixes` (code lane → feature branch + PR)
 **Gate:** native review (Go code, default routing per AGENTS.md)
 **Origin:** backlog obs 914 item (1); deferred findings R2-002 (review-67ce9afd81bae865,
