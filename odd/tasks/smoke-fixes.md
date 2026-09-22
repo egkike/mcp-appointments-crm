@@ -13,8 +13,10 @@ Close the actionable findings from the v0.4.0 fresh-install functional smoke on 
 
 - V1 — install.sh wizard copy vs validator: the day-hours prompt promises `cerrado/no trabaja`
   but the validator only accepts `cerrado|c|no` (scripts/install.sh:651/658).
-- V2 — resolveDBPath must honor XDG_DATA_HOME before falling back to `$HOME/.local/share`
-  (cmd/mcp-server/main.go:525), matching ADR-0002 XDG layout semantics.
+- V2 — resolveDBPath XDG_DATA_HOME support (cmd/mcp-server/main.go:525), matching ADR-0002
+  XDG layout semantics. ⚠️ DELIVERED then REVERTED by review R4-001 (see 7ab53a8): the
+  service units pin MCP_DB_PATH to the home layout, so honoring XDG for manual runs would
+  fork the DB. Final behavior: MCP_DB_PATH > home default, XDG deliberately ignored.
 - D1/D2 — deployment.md stale "not distributable today" notes (macOS ~246, Windows ~286)
   written for v0.3.0; v0.4.0 ships 5 platform assets + checksums.txt.
 
@@ -27,7 +29,8 @@ Close the actionable findings from the v0.4.0 fresh-install functional smoke on 
 ## Tasks
 
 - [x] **T1 — Wizard closed-day acceptance** ✅ commit `afef85b`
-- [x] **T2 — XDG_DATA_HOME support** ✅ commit `80e37d0`
+- [x] **T2 — XDG_DATA_HOME support** ✅ commit `80e37d0` — REVERTED by `7ab53a8` (review
+      R4-001 CRITICAL): final behavior keeps MCP_DB_PATH > home default; see Evidence.
 - [x] **T2b — stale repos count log fix** ✅ commit `ce56650` (GGA observation on 80e37d0;
       9 repos not 11, same class as d7b65f7)
 - [x] **T3 — Stale deployment docs** ✅ commit `12d62e9`
@@ -63,7 +66,8 @@ Close the actionable findings from the v0.4.0 fresh-install functional smoke on 
 ## Notes / deferred
 
 - V3 (plist divergence) recorded as follow-up for a Mac-verified session.
-- v0.5.0 tag after merge ships T2 (DB-default XDG fix, #91) + this PR to users.
+- v0.5.0 tag after merge ships the DB-default hardening (#91 + the R4-001 correction) and
+  the wizard fix to users. The delivered DB default remains the home layout, not XDG.
 
 ## Notes / deferred
 
