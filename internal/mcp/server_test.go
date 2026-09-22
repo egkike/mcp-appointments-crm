@@ -124,14 +124,15 @@ func TestServerToolsListEmpty(t *testing.T) {
 }
 
 // TestServerToolCountTracksRegisteredTools pins ToolCount to the registry that
-// registerTools populates. A fully-wired production config registers all 19
-// tools (the count the e2e and integration suites already pin through
-// tools/list); an empty Config registers none, because nil ports are skipped.
+// registerTools populates. A fully-wired production config registers every
+// expected tool (the count the e2e and integration suites already pin through
+// tools/list via expectedToolCount); an empty Config registers none, because
+// nil ports are skipped.
 func TestServerToolCountTracksRegisteredTools(t *testing.T) {
-	t.Run("fully wired config registers all 19 tools", func(t *testing.T) {
+	t.Run("fully wired config registers all expected tools", func(t *testing.T) {
 		srv, _ := newToolServer(t)
-		if got := srv.ToolCount(); got != 19 {
-			t.Errorf("ToolCount() = %d, want 19", got)
+		if got := srv.ToolCount(); got != expectedToolCount {
+			t.Errorf("ToolCount() = %d, want %d", got, expectedToolCount)
 		}
 	})
 

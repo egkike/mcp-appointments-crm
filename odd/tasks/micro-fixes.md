@@ -67,8 +67,20 @@ One PR aggregating three sources:
       aborts / adversarial registered-marker-with-FK-string / fail-safe unknown message) + registry
       drift guard. GGA PASSED first attempt (compact response, STATUS at line 22). Commit on
       `feat/micro-fixes` — refactor(repository): two-sided guard for 1811 foreign-key classification.
-- [ ] **T5 — Telemetry counts from wiring**: main.go startup log derives repos/usecases
-      counts from the wired structures; test or compile-time assertion.
+- [x] **T5 — Telemetry counts from wiring**: startup log derives counts instead of hand-maintained
+      literals (drift history: usecases 8→19, repos 6→11→9 — two fix commits needed). "usecases" ←
+      new mcp.Server.ToolCount() (registry; 1:1 tool↔port↔use-case, key kept for ops grep); "repos" ←
+      wiredRepoInventory() = len() over an auditable name list (single source of truth + maintenance
+      contract). GGA iterations: (1) []any hard violation → typed params returning literal 9;
+      (2) WARNING: circular compile-guarantee claim (unread params) → no-arg len([]string{...}) shape
+      per reviewer; (3) RBAC map comment corrected (three tools absent from map, not one —
+      check_availability / search_clients_advanced row-scope / search_services_advanced RequireRole,
+      all verified downstream); (4) commandKind zero value now fail-secure commandInvalid. Duplicate
+      serve-mode ProfessionalsRepo documented. GGA PASSED (final). Commit on `feat/micro-fixes` —
+      refactor(mcp): derive startup telemetry counts from the wiring.
+      **Follow-ups (pre-existing suggestions, out of scope):** nil-AuthMiddleware panic in
+      Server.AuthHandler; per-request Handler() rebuild in methodGate; openCommandDependencies
+      hardcoded context.Background().
 - [ ] **T6 — Integration coverage**: admin-denial (staff/admin RBAC matrix gap),
       invalid-input tool args through the mux, tool-count dedup (single source of
       truth for the 19-tools assertion).

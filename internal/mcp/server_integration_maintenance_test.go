@@ -115,6 +115,53 @@ func searchServices(t *testing.T, h http.Handler, callerID, query string) []dto.
 	return out.Results
 }
 
+// countRows returns the row count of one of the seeded integration tables.
+// The table name is matched against a fixed allowlist: test helpers must never
+// interpolate a caller-provided identifier into SQL (the production code
+// follows the same rule, see AGENTS.md SQL injection section).
+func countRows(t *testing.T, conn *sql.DB, table string) int {
+	t.Helper()
+	var query string
+	switch table {
+	case "services":
+		query = `SELECT COUNT(*) FROM services`
+	case "bookings":
+		query = `SELECT COUNT(*) FROM bookings`
+	default:
+		t.Fatalf("countRows: unsupported table %q", table)
+	}
+	var n int
+	if err := conn.QueryRowContext(context.Background(), query).Scan(&n); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	return n
+}
+
+// toolErrorText decodes a tools/call result that carries a tool-level error
+// (isError=true, the SDK's SEP-2106 shape for argument validation failures)
+// and returns the concatenated content text. It fails the test when the result
+// is not a tool error envelope.
+func toolErrorText(t *testing.T, result json.RawMessage) string {
+	t.Helper()
+	var res struct {
+		IsError bool `json:"isError"`
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(result, &res); err != nil {
+		t.Fatalf("unmarshal tool result: %v; body=%s", err, string(result))
+	}
+	if !res.IsError {
+		t.Fatalf("tool result isError=false; want a tool error envelope: %s", string(result))
+	}
+	var sb strings.Builder
+	for _, c := range res.Content {
+		sb.WriteString(c.Text)
+	}
+	return sb.String()
+}
+
 // countScheduleRows counts the stored weekly slots for one (professional, day).
 func countScheduleRows(t *testing.T, conn *sql.DB, professionalID string, day int) int {
 	t.Helper()
@@ -148,8 +195,8 @@ func TestIntegrationMaintenanceToolsRegistered(t *testing.T) {
 	if err := json.Unmarshal(result, &list); err != nil {
 		t.Fatalf("unmarshal tools/list: %v", err)
 	}
-	if len(list.Tools) != 19 {
-		t.Errorf("tools = %d; want 19", len(list.Tools))
+	if len(list.Tools) != expectedToolCount {
+		t.Errorf("tools = %d; want %d", len(list.Tools), expectedToolCount)
 	}
 	registered := make(map[string]bool, len(list.Tools))
 	for _, tool := range list.Tools {
@@ -163,15 +210,19 @@ func TestIntegrationMaintenanceToolsRegistered(t *testing.T) {
 }
 
 // TestIntegrationMaintenanceRoleRejection proves the owner-only gate is live at
-// the transport RBAC layer for every maintenance tool: a staff account and a
-// client are rejected with -32001 before the handler runs, while the owner
-// succeeds with the same tool.
+// the transport RBAC layer for every maintenance tool: a staff account, an
+// admin account and a client are rejected with -32001 before the handler runs,
+// while the owner succeeds with the same tool.
 func TestIntegrationMaintenanceRoleRejection(t *testing.T) {
 	mux := newIntegrationMux(t)
 
 	// Arguments are the schema-valid fixtures from the mock-port suite: the RBAC
 	// denial is answered by the auth middleware before the SDK validates them.
-	for _, caller := range []string{"staff-1", "c1"} {
+	// The admin caller is included because "not an owner" must never be assumed
+	// to mean "denied": admin is a privileged role everywhere else, so it pins
+	// that the maintenance RBAC rows are owner-only rather than accidentally
+	// broad.
+	for _, caller := range []string{"staff-1", "c1", "admin-1"} {
 		for _, tool := range maintenanceToolNames() {
 			_, code, msg := callMCPTool(t, mux, caller, tool, maintenanceToolArgs[tool])
 			if code != -32001 || msg != "no tienes permiso para realizar esta acción" {
@@ -179,6 +230,14 @@ func TestIntegrationMaintenanceRoleRejection(t *testing.T) {
 					caller, tool, code, msg, "no tienes permiso para realizar esta acción")
 			}
 		}
+	}
+
+	// The admin denial above is TOOL-scoped, not caller-scoped: the same admin
+	// reads a tool it is granted (get_business_profile: owner/admin/staff), so
+	// the -32001 rows came from the maintenance RBAC entries, not from a
+	// caller-level wall.
+	if got := getBusinessProfile(t, mux, "admin-1"); got.Name != "Mi Negocio" {
+		t.Errorf("admin get_business_profile name = %q; want %q", got.Name, "Mi Negocio")
 	}
 
 	// Same tool the staff caller was denied: the owner is admitted.
@@ -200,6 +259,95 @@ func TestIntegrationMaintenanceMissingCallerID(t *testing.T) {
 		if code != -32000 || msg != "no se proporcionó X-Caller-Id" {
 			t.Errorf("%s: code=%d msg=%q; want -32000 %q", tool, code, msg, "no se proporcionó X-Caller-Id")
 		}
+	}
+}
+
+// ── invalid input through the real stack ──
+
+// TestIntegrationMaintenanceInvalidInput proves the transport contract for
+// malformed tool arguments driven through the REAL production stack: the SDK
+// schema validation runs over the authenticated mux, so a missing required
+// argument or a wrong-typed argument is answered as a tool error envelope
+// (isError=true, the go-sdk SEP-2106 shape) before any use case runs. The
+// database is therefore untouched. A malformed JSON body is a transport
+// violation caught earlier by jsonParseGuard, answered with the -32700
+// "Parse error" envelope over HTTP 400.
+func TestIntegrationMaintenanceInvalidInput(t *testing.T) {
+	mux, conn := newIntegrationMuxWithDB(t)
+
+	servicesBefore := countRows(t, conn, "services")
+	bookingsBefore := countRows(t, conn, "bookings")
+
+	// A far-future, well-formed timestamp keeps the datetime field valid so the
+	// booking cases fail on the field each case targets, not on the date.
+	const validStart = "2027-03-01T13:00:00Z"
+
+	cases := []struct {
+		name     string
+		tool     string
+		args     string
+		wantText string
+	}{
+		{
+			name:     "missing required maintenance argument",
+			tool:     "create_service",
+			args:     `{"name":"Corte","duration_minutes":30}`, // price is required
+			wantText: "missing properties",
+		},
+		{
+			name:     "wrong-typed maintenance argument",
+			tool:     "create_service",
+			args:     `{"name":"Corte","duration_minutes":"treinta","price":1000}`,
+			wantText: "has type",
+		},
+		{
+			name: "missing required booking argument",
+			tool: "create_booking",
+			// client_id is required and omitted.
+			args:     fmt.Sprintf(`{"service_id":"s1","professional_id":"p1","start_datetime":%q}`, validStart),
+			wantText: "missing properties",
+		},
+		{
+			name: "wrong-typed booking argument",
+			tool: "create_booking",
+			// client_id must be a string, not a number.
+			args:     fmt.Sprintf(`{"client_id":123,"service_id":"s1","professional_id":"p1","start_datetime":%q}`, validStart),
+			wantText: "has type",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, code, msg := callMCPTool(t, mux, "owner-1", tc.tool, tc.args)
+			if code != 0 {
+				t.Fatalf("%s: JSON-RPC error code=%d msg=%q; want a tool isError envelope", tc.tool, code, msg)
+			}
+			if text := toolErrorText(t, result); !strings.Contains(text, tc.wantText) {
+				t.Errorf("%s error text = %q; want it to contain %q", tc.tool, text, tc.wantText)
+			}
+		})
+	}
+
+	// Every invalid call was rejected before its use case ran: neither table grew.
+	if got := countRows(t, conn, "services"); got != servicesBefore {
+		t.Errorf("services rows = %d; want unchanged %d", got, servicesBefore)
+	}
+	if got := countRows(t, conn, "bookings"); got != bookingsBefore {
+		t.Errorf("bookings rows = %d; want unchanged %d", got, bookingsBefore)
+	}
+
+	// Malformed JSON is not a tool error: jsonParseGuard answers HTTP 400 with
+	// the -32700 parse-error envelope. owner-1 is a valid caller, so the request
+	// reaches the guard through the authenticated chain.
+	rec := postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":9,"method":`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("malformed body status = %d; want 400 (body=%s)", rec.Code, rec.Body.String())
+	}
+	var parseEnv parseErrorEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &parseEnv); err != nil {
+		t.Fatalf("parse-error body is not JSON: %v; body=%s", err, rec.Body.String())
+	}
+	if parseEnv.Error.Code != -32700 || parseEnv.Error.Message != "Parse error" {
+		t.Errorf("parse error = %d %q; want -32700 %q", parseEnv.Error.Code, parseEnv.Error.Message, "Parse error")
 	}
 }
 
