@@ -81,9 +81,14 @@ One PR aggregating three sources:
       **Follow-ups (pre-existing suggestions, out of scope):** nil-AuthMiddleware panic in
       Server.AuthHandler; per-request Handler() rebuild in methodGate; openCommandDependencies
       hardcoded context.Background().
-- [ ] **T6 — Integration coverage**: admin-denial (staff/admin RBAC matrix gap),
-      invalid-input tool args through the mux, tool-count dedup (single source of
-      truth for the 19-tools assertion).
+- [x] **T6 — Integration coverage**: admin-denial (admin-1 seeded; denied -32001 on all 8 owner-only
+      maintenance tools AND admitted on granted get_business_profile → denial is tool-scoped);
+      invalid-input through the real mux (TestIntegrationMaintenanceInvalidInput: missing/wrong-type
+      args → SDK tool-error envelope with row counts unchanged; malformed body → parse guard HTTP
+      400/-32700); tool-count dedup (single expectedToolCount const in test_helpers_test.go, used by
+      e2e + both integration suites + the ToolCount registry test — no literal 19 left). All test
+      files (excluded from GGA patterns); pipeline green. Commit `8636c4a` on `feat/micro-fixes` —
+      test(mcp): admin-denial and invalid-input integration coverage; dedup tool count.
 - [ ] **T7 — Close-out**: full pre-flight pipeline (fmt/vet/golangci/build/test-race),
       native review gate (owner asked first), issue-first PR, owner squash-merge.
 
