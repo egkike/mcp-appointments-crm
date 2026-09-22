@@ -244,6 +244,48 @@ func foreignKeyViolationErrors(t *testing.T) (dangling, restricted, triggerAbort
 	return dangling, restricted, triggerAbort
 }
 
+// applicationTriggerViolationErrors returns real *sqlite.Error values for
+// application RAISE(ABORT) triggers that share SQLITE_CONSTRAINT_TRIGGER (1811)
+// with SQLite's implicit ON DELETE RESTRICT foreign-key trigger:
+//   - singleOwner: the exact production accounts single-owner abort message
+//     (internal/db/schema.go), which must not be read as a foreign-key failure.
+//   - markerWithFKString: a hypothetical future registered trigger whose message
+//     embeds the SQLite FK string. It exercises the exclusion half of the
+//     two-sided guard: same code and FK substring, but not a foreign-key error.
+func applicationTriggerViolationErrors(t *testing.T) (singleOwner, markerWithFKString error) {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	db.SetMaxOpenConns(1)
+
+	ctx := context.Background()
+	for _, stmt := range []string{
+		"CREATE TABLE guarded_single_owner (id TEXT PRIMARY KEY, flag INTEGER NOT NULL DEFAULT 0)",
+		`CREATE TRIGGER guarded_single_owner_abort BEFORE INSERT ON guarded_single_owner
+		 WHEN NEW.flag = 1 BEGIN SELECT RAISE(ABORT, 'single-owner invariant: only one active owner allowed'); END`,
+		"CREATE TABLE guarded_marker_fk (id TEXT PRIMARY KEY, flag INTEGER NOT NULL DEFAULT 0)",
+		`CREATE TRIGGER guarded_marker_fk_abort BEFORE INSERT ON guarded_marker_fk
+		 WHEN NEW.flag = 1 BEGIN SELECT RAISE(ABORT, 'single-owner invariant: FOREIGN KEY constraint failed'); END`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("setup %q: %v", stmt, err)
+		}
+	}
+
+	_, singleOwner = db.ExecContext(ctx, "INSERT INTO guarded_single_owner (id, flag) VALUES ('s1', 1)")
+	if singleOwner == nil {
+		t.Fatal("expected single-owner trigger abort, got nil")
+	}
+	_, markerWithFKString = db.ExecContext(ctx, "INSERT INTO guarded_marker_fk (id, flag) VALUES ('m1', 1)")
+	if markerWithFKString == nil {
+		t.Fatal("expected registered-marker trigger abort, got nil")
+	}
+	return singleOwner, markerWithFKString
+}
+
 // sqliteCode extracts the extended result code reported by the driver.
 func sqliteCode(t *testing.T, err error) int {
 	t.Helper()
@@ -256,6 +298,7 @@ func sqliteCode(t *testing.T, err error) int {
 
 func TestIsForeignKeyViolation(t *testing.T) {
 	dangling, restricted, triggerAbort := foreignKeyViolationErrors(t)
+	singleOwner, markerWithFKString := applicationTriggerViolationErrors(t)
 
 	// Guard the driver contract: if modernc.org/sqlite changes the result code
 	// of either FK shape, fail loudly instead of silently falling back to the
@@ -269,6 +312,14 @@ func TestIsForeignKeyViolation(t *testing.T) {
 	if got := sqliteCode(t, triggerAbort); got != sqliteConstraintTrigger {
 		t.Fatalf("custom trigger abort code = %d, want %d (%v)", got, sqliteConstraintTrigger, triggerAbort)
 	}
+	// Both application triggers must carry the same 1811 code as the RESTRICT
+	// case, otherwise this test proves nothing about the two-sided guard.
+	if got := sqliteCode(t, singleOwner); got != sqliteConstraintTrigger {
+		t.Fatalf("single-owner trigger abort code = %d, want %d (%v)", got, sqliteConstraintTrigger, singleOwner)
+	}
+	if got := sqliteCode(t, markerWithFKString); got != sqliteConstraintTrigger {
+		t.Fatalf("registered-marker abort code = %d, want %d (%v)", got, sqliteConstraintTrigger, markerWithFKString)
+	}
 
 	tests := []struct {
 		name string
@@ -280,9 +331,12 @@ func TestIsForeignKeyViolation(t *testing.T) {
 		{"wrapped typed *sqlite.Error dangling reference", fmt.Errorf("upsert horario: %w", dangling), true},
 		{"typed *sqlite.Error RESTRICT parent delete (1811)", restricted, true},
 		{"wrapped typed *sqlite.Error RESTRICT parent delete", fmt.Errorf("eliminar servicio: %w", restricted), true},
+		{"typed *sqlite.Error single-owner trigger abort (1811) is not a FK failure", singleOwner, false},
+		{"typed *sqlite.Error registered marker with FK string (1811) is not a FK failure", markerWithFKString, false},
 		{"typed *sqlite.Error custom trigger abort (1811) is not a FK failure", triggerAbort, false},
 		{"plain FOREIGN KEY string match", errors.New("FOREIGN KEY constraint failed"), true},
 		{"wrapped FOREIGN KEY string match", fmt.Errorf("upsert horario: %w", errors.New("FOREIGN KEY constraint failed")), true},
+		{"plain registered marker with FK string is not a FK failure", errors.New("single-owner invariant: FOREIGN KEY constraint failed"), false},
 		{"UNIQUE is not a foreign key violation", errors.New("UNIQUE constraint failed: clients.phone"), false},
 		{"PRIMARY KEY is not a foreign key violation", errors.New("PRIMARY KEY constraint failed: accounts.id"), false},
 		{"plain non-constraint error", errors.New("disk I/O error"), false},
@@ -352,6 +406,56 @@ func TestClassifyForeignKeyViolation(t *testing.T) {
 			t.Errorf("classifyForeignKeyViolation(nil) = %v; want nil", classified)
 		}
 	})
+}
+
+// TestApplicationTriggerMessagesRegistry is a cheap drift guard on the
+// maintenance contract documented on applicationTriggerMessages: a future
+// RAISE(ABORT) trigger that forgets to register (or registers a blank/duplicate
+// marker) fails here before it can be misclassified.
+func TestApplicationTriggerMessagesRegistry(t *testing.T) {
+	if len(applicationTriggerMessages) == 0 {
+		t.Fatal("applicationTriggerMessages registry is empty; every RAISE(ABORT) trigger sharing code 1811 must be registered")
+	}
+	seen := make(map[string]struct{}, len(applicationTriggerMessages))
+	for i, marker := range applicationTriggerMessages {
+		if strings.TrimSpace(marker) == "" {
+			t.Errorf("applicationTriggerMessages[%d] is blank", i)
+		}
+		if _, dup := seen[marker]; dup {
+			t.Errorf("applicationTriggerMessages[%d] = %q is a duplicate marker", i, marker)
+		}
+		seen[marker] = struct{}{}
+	}
+}
+
+// TestIsSingleOwnerViolation pins the registry-backed classifier: every
+// registered marker matches and an unknown 1811 message stays unclassified.
+func TestIsSingleOwnerViolation(t *testing.T) {
+	type testCase struct {
+		name string
+		err  error
+		want bool
+	}
+	tests := make([]testCase, 0, 5+len(applicationTriggerMessages))
+	tests = append(tests,
+		testCase{"nil error", nil, false},
+		testCase{"plain production marker", errors.New("single-owner invariant: only one active owner allowed"), true},
+		testCase{"wrapped production marker", fmt.Errorf("create account: %w", errors.New("single-owner invariant: only one active owner allowed")), true},
+		testCase{"unknown 1811 message", errors.New("custom trigger abort"), false},
+		testCase{"foreign key message", errors.New("FOREIGN KEY constraint failed"), false},
+		testCase{"empty error message", errors.New(""), false},
+	)
+	for _, marker := range applicationTriggerMessages {
+		tests = append(tests, testCase{"registry marker: " + marker, errors.New(marker), true})
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSingleOwnerViolation(tt.err); got != tt.want {
+				t.Errorf("isSingleOwnerViolation(%v) = %v; want %v", tt.err, got, tt.want)
+			}
+		})
+	}
 }
 
 // TestRepositoryDoesNotImportValidation verifies that the repository package

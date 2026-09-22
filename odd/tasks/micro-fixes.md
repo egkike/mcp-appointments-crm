@@ -47,8 +47,18 @@ One PR aggregating three sources:
       GGA PASSED after 6 ambiguous retries (provider opencode-go/deepseek-v4.1-flash flaking on the
       STATUS line — 4+ consecutive). Commit `f6388bd` on `feat/micro-fixes` — fix(domain): fail closed
       on nil deps.Bookings and reject midnight-crossing slots.
-- [ ] **T3 — applyProfileUpdates refactor**: readability-only, behavior-preserving
-      (R2-001); keep semantic identical partial-merge; tests must pass unchanged.
+- [x] **T3 — applyProfileUpdates refactor**: split into applyProfileScalarUpdates (6 deref-assign
+      scalars) + applyProfileReferenceUpdates (13 verbatim pointer copies); composition entry unchanged;
+      characterization table test pins the nil-keeps-value partial-merge over all 19 columns
+      (the 13 pointer columns were previously untested at use-case level). Behavior-preserving;
+      pipeline green (vet/golangci 0 issues/build/test -race). GGA hook failed on the parse-window
+      flake across 6 retries; one fresh run returned full report STATUS: PASSED for the exact staged
+      content (evidence: /tmp/gga-t3.log captured) — committed `0635b57` with --no-verify under
+      explicit owner authorization, verdict recorded here. Commit `0635b57` on `feat/micro-fixes` —
+      refactor(application): split applyProfileUpdates by assignment semantics.
+      **Follow-up (upstream):** report gga parser window (30 lines hardcoded at line 1017 of gga
+      2.10.1 script) vs agent-transcript providers — verdict lines land ~line 130 and get discarded
+      as ambiguous; only PASSED results are cached, so retries re-roll the verdict each time.
 - [ ] **T4 — sqlite_errors message-guard hardening**: 1811 FK classification less
       brittle for future triggers (R3-002/R4-002); keep single-owner triggers
       unclassified; pin driver facts with tests.

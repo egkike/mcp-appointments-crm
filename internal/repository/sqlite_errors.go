@@ -41,6 +41,21 @@ const sqliteConstraintTrigger = 1811
 // application trigger abort that uses the same result code.
 const foreignKeyViolationMessage = "FOREIGN KEY constraint failed"
 
+// applicationTriggerMessages is the single source of truth for the RAISE(ABORT)
+// application triggers whose failures share SQLITE_CONSTRAINT_TRIGGER (1811) with
+// SQLite's implicit ON DELETE RESTRICT foreign-key trigger. Each entry is a
+// distinctive marker of the full RAISE(ABORT) message and is matched with
+// strings.Contains, so a stable prefix is enough.
+//
+// Maintenance contract: any new application trigger in internal/db/schema.go
+// that RAISE(ABORT)s MUST add its message marker here AND get a classifier test
+// in sqlite_errors_test.go. Without that registration a same-code abort whose
+// message happens to contain "FOREIGN KEY constraint failed" could be
+// misclassified as a foreign-key conflict and mapped to domain.ErrConflict.
+var applicationTriggerMessages = []string{
+	"single-owner invariant",
+}
+
 // isUniqueViolation checks whether err is a duplicate-key constraint error
 // (UNIQUE or PRIMARY KEY).
 // Primary path: typed check via *sqlite.Error.Code() for reliability.
@@ -60,14 +75,32 @@ func isUniqueViolation(err error) bool {
 		strings.Contains(msg, "PRIMARY KEY constraint failed")
 }
 
+// matchesApplicationTriggerMessage reports whether msg was raised by a trigger
+// registered in applicationTriggerMessages (see its maintenance contract).
+func matchesApplicationTriggerMessage(msg string) bool {
+	for _, marker := range applicationTriggerMessages {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // isForeignKeyViolation checks whether err is a foreign-key enforcement failure:
 // either SQLITE_CONSTRAINT_FOREIGNKEY (787, dangling reference) or
 // SQLITE_CONSTRAINT_TRIGGER (1811, parent delete blocked by an ON DELETE
-// RESTRICT child). The 1811 case requires the message to match, so the
-// single-owner triggers are not misread as foreign-key errors.
+// RESTRICT child).
+//
+// The 1811 code is guarded on BOTH sides: it counts as a foreign-key failure
+// only when the message contains foreignKeyViolationMessage AND no registered
+// application-trigger marker matches. The exclusion is defense-in-depth against
+// a future RAISE(ABORT) trigger whose message embeds the FK string; the
+// fail-safe direction is deliberate — an unknown 1811 message stays
+// unclassified rather than being forced into domain.ErrConflict.
+//
 // Same two-step strategy as isUniqueViolation: typed code check for reliability,
 // string fallback for drivers that don't expose *sqlite.Error (e.g., go-sqlmock
-// in tests).
+// in tests). The two-sided guard applies to both paths.
 func isForeignKeyViolation(err error) bool {
 	if err == nil {
 		return false
@@ -78,12 +111,20 @@ func isForeignKeyViolation(err error) bool {
 		case sqliteConstraintForeignKey:
 			return true
 		case sqliteConstraintTrigger:
-			return strings.Contains(err.Error(), foreignKeyViolationMessage)
+			return isForeignKeyMessage(err.Error())
 		default:
 			return false
 		}
 	}
-	return strings.Contains(err.Error(), foreignKeyViolationMessage)
+	return isForeignKeyMessage(err.Error())
+}
+
+// isForeignKeyMessage applies the two-sided guard for the message-only paths:
+// the SQLite FK message must be present and no application trigger may own the
+// message.
+func isForeignKeyMessage(msg string) bool {
+	return strings.Contains(msg, foreignKeyViolationMessage) &&
+		!matchesApplicationTriggerMessage(msg)
 }
 
 // classifyForeignKeyViolation wraps a foreign-key violation around
@@ -99,9 +140,11 @@ func classifyForeignKeyViolation(err error) error {
 }
 
 // isSingleOwnerViolation checks if the error is the SQLite single-owner trigger.
+// It resolves the trigger message through applicationTriggerMessages so the
+// registry stays the single source of truth for 1811 application-trigger aborts.
 func isSingleOwnerViolation(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), "single-owner invariant")
+	return matchesApplicationTriggerMessage(err.Error())
 }
