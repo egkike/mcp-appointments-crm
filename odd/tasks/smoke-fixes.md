@@ -1,6 +1,6 @@
-# Feature: smoke-fixes
+# Feature: smoke-fixes — COMPLETE (PR #93 merged 478386f)
 
-**Date**: 2026-09-20
+**Date**: 2026-09-20 → closed 2026-09-22
 **Type**: fix/docs (small PR, aggregated smoke follow-ups)
 **TDD**: OFF (not configured in this project); every task ships focused tests following existing patterns
 
@@ -39,11 +39,31 @@ Close the actionable findings from the v0.4.0 fresh-install functional smoke on 
 - T2: `80e37d0` — fix(config): honor XDG_DATA_HOME in the default database path
 - T2b: `ce56650` — fix(mcp): correct stale repos count in startup log
 - T3: `12d62e9` — docs(deployment): refresh macOS/Windows install sections for v0.4.0
-- GGA incidents: opencode provider timed out 5x (~25 min) during T2 commit; owner chose
-  retry-over-provider-switch, commit passed on retry. T2b commit hit STRICT_MODE ambiguous
-  STATUS (3 fails) — cache clear + retry passed. GGA observations recorded: deps.config
-  write-only field, commandServe-with-error smell, wantsVersion(os.Args) convention mix
-  (non-blocking, unclaimed backlog).
+- Squash-merged as `478386f` on main (PR #93, issue #92 closed) 2026-09-22.
+
+## Native review evidence (2026-09-22)
+
+- First lineage `review-35f3d62c00f1915f` (high/4-lens): 4 lenses captured; R4-001 CRITICAL
+  (resilience, deterministic, introduced) — XDG_DATA_HOME precedence forked the DB vs the
+  service units that pin MCP_DB_PATH to the home layout. Correction plan (75 lines ≤ 111)
+  admitted; correction committed `7ab53a8`; targeted-validator capture blocked by upstream
+  bug (gentle-shell#1324/#924 class) → lineage escalated (native_stop_required). Escalated
+  lineage left as evidence only.
+- Second lineage `review-67ce9afd81bae865` over the corrected candidate (165 lines, budget 83):
+  all 4 lenses captured (1 transport retry on slot 3), closed **APPROVED** with 6
+  informational findings, no corrections. acknowledge-approved executed; authority burned
+  (`gentle-ai.review-acknowledged/v1`). Delivery under ordinary repository policy.
+- Informational findings (backlog, non-blocking): R1-001 install.sh:651 copy suggestion;
+  R1-002/R2-001 smoke-fixes.md:13 wording; R2-002 main.go:425 telemetry counts hardcoded;
+  R3-001 smoke-fixes.md:16-17; R4-XDG-CONFLICT smoke-fixes.md:30 note now stale (XDG reverted).
+- GGA incidents: opencode provider timeouts 5x on 2026-09-20 (resolved by owner pinning
+  PROVIDER=opencode:opencode-go/deepseek-v4.1-flash in .gga, commit 64e232b); STRICT_MODE
+  ambiguous-STATUS flake on the repos-count commit (cache clear + retry passed).
+
+## Notes / deferred
+
+- V3 (plist divergence) recorded as follow-up for a Mac-verified session.
+- v0.5.0 tag after merge ships T2 (DB-default XDG fix, #91) + this PR to users.
 
 ## Notes / deferred
 
