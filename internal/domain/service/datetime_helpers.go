@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
 // ParseBusinessTimezone loads an IANA timezone location by name.
@@ -33,12 +34,16 @@ func ParseStartDatetime(input string, loc *time.Location) (time.Time, error) {
 	return dt, nil
 }
 
-// hhmmToMinutes converts a "HH:MM" string to total minutes since midnight.
+// hhmmToMinutes converts a zero-padded "HH:MM" string to total minutes since
+// midnight. Only the strict HH:MM form with a two-digit hour (00..23) and a
+// two-digit minute (00..59) is accepted; unpadded values such as "9:00" are
+// rejected. entity.ValidHHMM is the single source of truth for that format gate.
 // Returns an error wrapping domain.ErrInvalidInput if the format is invalid.
 func hhmmToMinutes(s string) (int, error) {
-	t, err := time.Parse("15:04", s)
-	if err != nil {
+	if !entity.ValidHHMM(s) {
 		return 0, fmt.Errorf("formato HH:MM inválido %q: %w", s, domain.ErrInvalidInput)
 	}
-	return t.Hour()*60 + t.Minute(), nil
+	hour := int(s[0]-'0')*10 + int(s[1]-'0')
+	minute := int(s[3]-'0')*10 + int(s[4]-'0')
+	return hour*60 + minute, nil
 }

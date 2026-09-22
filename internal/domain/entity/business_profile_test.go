@@ -147,6 +147,16 @@ func TestBusinessProfile_GetOpenClose(t *testing.T) {
 			t.Error("GetOpenClose with invalid JSON returned ok=true, want false")
 		}
 	})
+
+	t.Run("legacy zero-padded day keys normalize", func(t *testing.T) {
+		legacy := &BusinessProfile{BusinessHours: `{"01":{"open":"09:00","close":"18:00"},"007":{"open":"10:00","close":"14:00"}}`}
+		if _, _, ok := legacy.GetOpenClose(1); !ok {
+			t.Error(`GetOpenClose(1) = not ok; want legacy key "01" normalized to day 1`)
+		}
+		if _, _, ok := legacy.GetOpenClose(7); !ok {
+			t.Error(`GetOpenClose(7) = not ok; want legacy key "007" normalized to day 7`)
+		}
+	})
 }
 
 func TestBusinessProfile_parseBusinessHoursInvalidKey(t *testing.T) {
@@ -169,6 +179,16 @@ func TestBusinessProfile_parseBusinessHoursInvalidKey(t *testing.T) {
 			name:          "key out of range",
 			businessHours: `{"8":{"open":"09:00","close":"18:00"}}`,
 			wantKey:       `"8"`,
+		},
+		{
+			name:          "signed key",
+			businessHours: `{"+1":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"+1"`,
+		},
+		{
+			name:          "key zero",
+			businessHours: `{"0":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"0"`,
 		},
 	}
 	for _, tt := range tests {

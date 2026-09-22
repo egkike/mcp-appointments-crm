@@ -123,6 +123,27 @@ func TestServerToolsListEmpty(t *testing.T) {
 	}
 }
 
+// TestServerToolCountTracksRegisteredTools pins ToolCount to the registry that
+// registerTools populates. A fully-wired production config registers every
+// expected tool (the count the e2e and integration suites already pin through
+// tools/list via expectedToolCount); an empty Config registers none, because
+// nil ports are skipped.
+func TestServerToolCountTracksRegisteredTools(t *testing.T) {
+	t.Run("fully wired config registers all expected tools", func(t *testing.T) {
+		srv, _ := newToolServer(t)
+		if got := srv.ToolCount(); got != expectedToolCount {
+			t.Errorf("ToolCount() = %d, want %d", got, expectedToolCount)
+		}
+	})
+
+	t.Run("empty config registers no tools", func(t *testing.T) {
+		srv := NewServer(Config{Version: testServerVersion})
+		if got := srv.ToolCount(); got != 0 {
+			t.Errorf("ToolCount() = %d, want 0 (nil ports are skipped by registerTools)", got)
+		}
+	})
+}
+
 // TestServerGetMethodNotAllowed covers REQ-MT-002: in stateless mode the SDK
 // answers GET /mcp with 405.
 func TestServerGetMethodNotAllowed(t *testing.T) {

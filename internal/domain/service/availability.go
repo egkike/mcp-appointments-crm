@@ -47,8 +47,15 @@ type AvailabilityDeps struct {
 	Bookings                repository.BookingsRepo
 }
 
-// spanishDayNames maps Go time.Weekday (0=Sunday) to Spanish names.
+// spanishDayNames maps Go time.Weekday (0=Sunday) to the singular Spanish day
+// name. It is the canonical spelling; spanishDayNamesPlural is its plural form.
 var spanishDayNames = [7]string{"domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"}
+
+// spanishDayNamesPlural is the plural form of spanishDayNames, used by the
+// booking-time messages whose fixed article is "los" ("no abre los domingos").
+// Spanish day names ending in -s (lunes, martes, miércoles, jueves, viernes)
+// are invariant in the plural; only domingo and sábado take a final -s.
+var spanishDayNamesPlural = [7]string{"domingos", "lunes", "martes", "miércoles", "jueves", "viernes", "sábados"}
 
 // CheckAvailability runs the 5-step validation chain. On success returns
 // &CheckAvailabilityResult{Available: true}. On first failure returns a

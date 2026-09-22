@@ -56,6 +56,14 @@ func (s *Server) registerTools() {
 	s.registerMaintenanceTools()
 }
 
+// ToolCount returns how many MCP tools this server registered, derived from
+// the toolNames registry populated by registerTools. Because registerTools
+// skips every port left nil in Config, the count equals the wired use-case
+// ports 1:1 (ADR-0015/transport design): each registered tool is backed by
+// exactly one non-nil Config port. Startup telemetry reads this instead of a
+// hand-maintained literal that could drift out of sync with the wiring.
+func (s *Server) ToolCount() int { return len(s.toolNames) }
+
 // Handler returns the /mcp HTTP handler: the SDK Streamable HTTP handler
 // (stateless, JSON responses) wrapped by the JSON-RPC parse guard and the
 // unknown-tool guard (REQ-MT-006). This is the unauthenticated path used by

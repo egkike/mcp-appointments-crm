@@ -112,8 +112,12 @@ func main() {
 type commandKind int
 
 const (
-	// commandServe is the default: the MCP streamable-HTTP server.
-	commandServe commandKind = iota
+	// commandInvalid is the fail-secure zero value. Every rejected invocation
+	// returns it alongside its error, so a parse bug can never default into
+	// serve mode.
+	commandInvalid commandKind = iota
+	// commandServe is the bare invocation: the MCP streamable-HTTP server.
+	commandServe
 	// commandAdminTUI is `mcp-server admin tui` (ADR-0016 §5).
 	commandAdminTUI
 	// commandHermesChat is `mcp-server hermes chat` (reserved name, ADR-0016 §5).
@@ -143,7 +147,7 @@ func parseCommand(args []string) (commandKind, error) {
 	case "hermes":
 		return parseSubCommand(args, "hermes", "chat", commandHermesChat)
 	default:
-		return commandServe, invalidArgsError(fmt.Sprintf("argumento desconocido: %q", args[0]))
+		return commandInvalid, invalidArgsError(fmt.Sprintf("argumento desconocido: %q", args[0]))
 	}
 }
 
@@ -152,15 +156,15 @@ func parseCommand(args []string) (commandKind, error) {
 // (missing child, unknown child, extra arguments).
 func parseSubCommand(args []string, parent, child string, kind commandKind) (commandKind, error) {
 	if len(args) == 1 {
-		return commandServe, invalidArgsError(fmt.Sprintf(
+		return commandInvalid, invalidArgsError(fmt.Sprintf(
 			"sub-comando faltante para %q: el único sub-comando válido es %q", parent, child))
 	}
 	if args[1] != child {
-		return commandServe, invalidArgsError(fmt.Sprintf(
+		return commandInvalid, invalidArgsError(fmt.Sprintf(
 			"sub-comando desconocido %q para %q: el único sub-comando válido es %q", args[1], parent, child))
 	}
 	if len(args) > 2 {
-		return commandServe, invalidArgsError(fmt.Sprintf(
+		return commandInvalid, invalidArgsError(fmt.Sprintf(
 			"argumentos no esperados %q después de %q", args[2:], parent+" "+child))
 	}
 	return kind, nil
@@ -197,12 +201,16 @@ func executeCLI(args []string, runners cliRunners) error {
 	}
 
 	switch kind {
+	case commandServe:
+		return runners.serve()
 	case commandAdminTUI:
 		return runners.adminTUI()
 	case commandHermesChat:
 		return runners.hermesChat()
 	default:
-		return runners.serve()
+		// Defensive: parseCommand never yields commandInvalid with a nil
+		// error, and this branch must not start the server if it ever did.
+		return invalidArgsError(fmt.Sprintf("comando inválido: %d", kind))
 	}
 }
 
@@ -264,6 +272,10 @@ func run() error {
 	// `admin tui` sub-command (T1, ADR-0016 D3.5). Serve mode consumes only the
 	// clients handle: account management deliberately stays outside the MCP
 	// surface (ADR-0010), so the owner seed gateway is the TUI's job alone.
+	// newIdentityDeps is the shared serve/admin-tui site: identity.professionals
+	// duplicates prosRepo above and only the admin TUI consumes it, while
+	// identity.accounts is routed into the "repos" inventory. The inventory
+	// counts the serve-side handles, never this duplicate.
 	identity := newIdentityDeps(database, logger)
 	clientsRepo := identity.clients
 
@@ -277,6 +289,14 @@ func run() error {
 
 	// Pending alerts adapter for booking lifecycle (create/cancel/reschedule).
 	pendingAlertsRepo := repository.NewPendingAlertsRepo(database.Conn)
+
+	// Startup telemetry source of truth: every repo handle serve mode wires
+	// joins the name list inside wiredRepoInventory (9 handles, one per
+	// repository implementation). A new handle that forgets the list makes the
+	// log lie — keep it in sync, exactly like the MCP tool registry in
+	// internal/mcp.
+	repoCount := wiredRepoInventory()
+
 	alertStore := usecase.NewEnsurePendingAlertsRepo(pendingAlertsRepo)
 
 	// 1-arg use cases: only Bookings repo needed.
@@ -342,12 +362,16 @@ func run() error {
 
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
-	// Every /mcp request must carry X-Caller-Id; check_availability has no
-	// RBAC entry (any authenticated caller — open set), the other tools
-	// restrict by role. RBAC keys on r.URL.Path, so the JSON-RPC auth
-	// translator rewrites the path to the tool name for tools/call requests.
-	// The eight maintenance tools are owner-only (ADR-0015 Decision 2): the
-	// partial admin scope stays deferred, so no admin role is granted here.
+	// Every /mcp request must carry X-Caller-Id. Three tools deliberately have
+	// no entry here and enforce role downstream:
+	//   - check_availability       → any authenticated caller
+	//   - search_clients_advanced  → row scope by caller role (repository/clients.go)
+	//   - search_services_advanced → auth.RequireRole(RoleOwner, RoleAdmin) in the use case
+	// Every other tool is gated by the map below. RBAC keys on r.URL.Path, so
+	// the JSON-RPC auth translator rewrites the path to the tool name for
+	// tools/call requests. The eight maintenance tools are owner-only
+	// (ADR-0015 Decision 2): the partial admin scope stays deferred, so no
+	// admin role is granted here.
 	resolver := auth.NewCallerResolver(database.Conn)
 	rbac := auth.ToolRBAC{
 		"create_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
@@ -422,8 +446,12 @@ func run() error {
 	logger.Info("mcp server starting",
 		"addr", httpSrv.Addr,
 		"version", cfg.Version,
-		"repos", 9,
-		"usecases", 19,
+		"repos", repoCount,
+		// "usecases" reads the MCP tool registry: each tool is backed by
+		// exactly one non-nil Config port, so the registered-tool count is
+		// the wired use-case count 1:1 (ADR-0015/transport design). The key
+		// stays "usecases" because docs/ops grep it.
+		"usecases", srv.ToolCount(),
 		"booking_validator_shared", true,
 	)
 
@@ -437,6 +465,29 @@ func run() error {
 		"force_closed", result.ForceClosed,
 	)
 	return nil
+}
+
+// wiredRepoInventory reports how many repository handles serve mode wires, one
+// per repository implementation, and is the single source of truth for the
+// startup telemetry "repos" count.
+//
+// The count is derived from the name list below with len, so the list — not a
+// hard-coded literal — is what the operator reads, audits and updates. Adding a
+// repository handle to the wiring in run() MUST also join this list, exactly
+// like the MCP tool registry in internal/mcp
+// (TestServerToolCountTracksRegisteredTools).
+//
+// This is an auditable maintenance contract, not a compiler-enforced one: the
+// previous typed-parameter shape claimed a compile-time guarantee it did not
+// provide, since the pointer parameters were never read and a new handle added
+// only to the wiring still compiled. TestWiredRepoInventoryContract pins both
+// the count and the documented handle set so drift is caught at test time.
+func wiredRepoInventory() int {
+	return len([]string{
+		"bookings", "business_hours_exceptions", "business_profile",
+		"professionals", "schedules", "services", "pending_alerts",
+		"clients", "accounts",
+	})
 }
 
 // runHermesChat is the entry point of `mcp-server hermes chat`, a name reserved

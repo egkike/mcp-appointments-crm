@@ -148,7 +148,9 @@ func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
 
 // seedIntegrationDB inserts the minimal domain state for the happy path:
 // a Monday-working professional with a 60-minute service, a full-week
-// business (09:00-18:00, Buenos Aires), an owner account and a client.
+// business (09:00-18:00, Buenos Aires), an owner, an admin and a staff account
+// plus a client. The admin account needs no professional_id (schema CHECK:
+// only the staff role requires one).
 func seedIntegrationDB(t *testing.T, conn *sql.DB) {
 	t.Helper()
 	businessHours := `{"1":{"open":"09:00","close":"18:00"},"2":{"open":"09:00","close":"18:00"},"3":{"open":"09:00","close":"18:00"},"4":{"open":"09:00","close":"18:00"},"5":{"open":"09:00","close":"18:00"},"6":{"open":"09:00","close":"18:00"},"7":{"open":"09:00","close":"18:00"}}`
@@ -158,6 +160,7 @@ func seedIntegrationDB(t *testing.T, conn *sql.DB) {
 		`INSERT INTO services (id, name, description, duration_minutes, price, is_active) VALUES ('s1', 'Consulta', 'consulta general', 60, 100.0, 1)`,
 		`INSERT INTO schedules (professional_id, day_of_week, start_time, end_time) VALUES ('p1', 1, '09:00', '17:00')`,
 		`INSERT INTO accounts (id, role, display_name, is_active) VALUES ('owner-1', 'owner', 'Owner', 1)`,
+		`INSERT INTO accounts (id, role, display_name, is_active) VALUES ('admin-1', 'admin', 'Admin', 1)`,
 		`INSERT INTO accounts (id, role, display_name, professional_id, is_active) VALUES ('staff-1', 'staff', 'Staff', 'p1', 1)`,
 		`INSERT INTO clients (id, name, phone) VALUES ('c1', 'Cliente Uno', '+5491100000001')`,
 		`INSERT INTO clients (id, name, phone) VALUES ('c2', 'Cliente Dos', '+5491100000002')`,
@@ -242,8 +245,8 @@ func TestIntegrationHappyPath(t *testing.T) {
 	if err := json.Unmarshal(result, &list); err != nil {
 		t.Fatalf("tools/list result: %v", err)
 	}
-	if len(list.Tools) != 19 {
-		t.Errorf("tools = %d; want 19: %s", len(list.Tools), string(result))
+	if len(list.Tools) != expectedToolCount {
+		t.Errorf("tools = %d; want %d: %s", len(list.Tools), expectedToolCount, string(result))
 	}
 
 	// search_clients_advanced by owner returns both seeded clients (no RBAC entry).

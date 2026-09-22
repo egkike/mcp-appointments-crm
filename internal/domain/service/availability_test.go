@@ -214,7 +214,15 @@ func TestHHMMToMinutes(t *testing.T) {
 		{"midnight", "00:00", 0, false},
 		{"morning", "09:30", 570, false},
 		{"afternoon", "18:00", 1080, false},
+		{"last minute of the day", "23:59", 1439, false},
 		{"invalid", "abc", 0, true},
+		{"unpadded hour", "9:00", 0, true},
+		{"unpadded minute", "09:5", 0, true},
+		{"minute out of range", "09:60", 0, true},
+		{"hour out of range", "24:00", 0, true},
+		{"missing colon", "0900", 0, true},
+		{"trailing characters", "09:00x", 0, true},
+		{"leading space", " 9:00", 0, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -235,5 +243,22 @@ func TestHHMMToMinutes(t *testing.T) {
 				t.Errorf("hhmmToMinutes(%q) = %d; want %d", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestSpanishDayNamesPluralization pins the plural day names used by the
+// booking-time messages against the singular table, so the two can never drift.
+// Spanish day names ending in -s (lunes, martes, miércoles, jueves, viernes)
+// are invariant in the plural; only domingo and sábado take a final -s.
+func TestSpanishDayNamesPluralization(t *testing.T) {
+	for day := 0; day < len(spanishDayNames); day++ {
+		singular := spanishDayNames[day]
+		want := singular
+		if !strings.HasSuffix(singular, "s") {
+			want += "s"
+		}
+		if got := spanishDayNamesPlural[day]; got != want {
+			t.Errorf("spanishDayNamesPlural[%d] = %q; want %q (singular %q)", day, got, want, singular)
+		}
 	}
 }

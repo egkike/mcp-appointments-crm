@@ -165,8 +165,8 @@ func TestParseCommand(t *testing.T) {
 			}
 			// A rejected invocation must never select a command: serve mode would
 			// start the HTTP server and a sub-command would run its runner.
-			if got != commandServe {
-				t.Errorf("parseCommand(%v) kind = %d, want commandServe when invalid", tt.args, got)
+			if got != commandInvalid {
+				t.Errorf("parseCommand(%v) kind = %d, want commandInvalid when invalid", tt.args, got)
 			}
 
 			var semErr *domain.SemanticError
@@ -454,5 +454,33 @@ func TestNewIdentityDepsWiresIdentityRepos(t *testing.T) {
 	}
 	if deps.professionals == nil {
 		t.Error("newIdentityDeps() professionals repo = nil, want a *ProfessionalsRepo")
+	}
+}
+
+// TestWiredRepoInventoryContract pins the startup telemetry "repos" source of
+// truth as an auditable contract, not a compiler-enforced one. The count comes
+// from the name list inside wiredRepoInventory (9 today), so the list must be
+// updated alongside the internal/repository constructors and the wiring in
+// run(). This test fails when the reported count drifts from the documented
+// handle set, or when that expected set itself contains a duplicate.
+func TestWiredRepoInventoryContract(t *testing.T) {
+	// The documented handle set, one entry per repository implementation the
+	// serve path wires. Keep it in sync with wiredRepoInventory in main.go.
+	documented := []string{
+		"bookings", "business_hours_exceptions", "business_profile",
+		"professionals", "schedules", "services", "pending_alerts",
+		"clients", "accounts",
+	}
+
+	seen := make(map[string]struct{}, len(documented))
+	for _, name := range documented {
+		if _, duplicate := seen[name]; duplicate {
+			t.Errorf("documented handle %q appears more than once", name)
+		}
+		seen[name] = struct{}{}
+	}
+
+	if got := wiredRepoInventory(); got != len(documented) {
+		t.Errorf("wiredRepoInventory() = %d handles, want %d; a new repo handle must join the list in wiredRepoInventory and the wiring in run()", got, len(documented))
 	}
 }

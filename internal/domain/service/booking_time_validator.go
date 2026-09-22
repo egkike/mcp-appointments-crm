@@ -38,7 +38,8 @@ type BookingOverlapReader interface {
 // SlotInput is the proposed slot expressed in business-local terms plus the
 // resolved entities and identifiers the chain needs to produce localized
 // messages. Every entity is assumed already resolved by the caller; the helper
-// performs no lookups itself.
+// performs no entity lookups itself, but it does perform one overlap query
+// through deps.Bookings (see ValidateBookingTimeSlot).
 //
 // Contract: Professional, BusinessProfile, and Service MUST be non-nil, and
 // Service MUST have a positive duration. A violation is a programmer error and
@@ -55,6 +56,9 @@ type SlotInput struct {
 }
 
 // BookingTimeValidatorDeps groups the read-side dependencies for the chain.
+// Bookings MUST be non-nil: the overlap step dereferences it, and a nil reader
+// is a programmer contract violation that fails closed with an internal error
+// (see ValidateBookingTimeSlot).
 type BookingTimeValidatorDeps struct {
 	Bookings BookingOverlapReader
 }
@@ -68,13 +72,16 @@ type BookingTimeValidatorDeps struct {
 //  5. overlap check via Bookings.FindOverlapping
 //
 // It returns the first *domain.SemanticError encountered, or nil on success,
-// and short-circuits after the first failing step (REQ-BTV-3). It is a pure
-// helper: performs no I/O and holds no state.
+// and short-circuits after the first failing step (REQ-BTV-3). The function
+// holds no state: steps 1–4 are pure (no I/O) and step 5 issues a single read
+// through deps.Bookings to detect overlaps. Callers MUST inject a non-nil
+// BookingOverlapReader and honor ctx cancellation for that overlap read.
 //
 // The Service duration is a required input for step 4. Passing a nil Service or
 // a Service with non-positive Duration is a programmer error (contract
 // violation) that returns an internal *domain.SemanticError instead of
-// panicking.
+// panicking. Likewise, a nil deps.Bookings (needed by step 5) fails closed with
+// an internal *domain.SemanticError instead of a nil-pointer panic.
 func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTimeValidatorDeps) *domain.SemanticError {
 	// Defense in depth (zero trust): the steps below dereference these resolved
 	// entities (BusinessProfile for the weekly schedule, Professional for the
@@ -82,6 +89,14 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	// chain fails closed before comparing anything.
 	if slot.BusinessProfile == nil || slot.Professional == nil {
 		return internalValidationError(errors.New("slot.BusinessProfile y slot.Professional deben ser no nulos"))
+	}
+
+	// Step 5 dereferences deps.Bookings.FindOverlapping, so a nil reader is a
+	// caller contract violation at the wiring boundary (AvailabilityDeps.Bookings
+	// and ValidateBookingInput.Bookings). Fail closed with an internal error here
+	// instead of nil-panicking at step 5 (fail-secure / zero trust).
+	if deps.Bookings == nil {
+		return internalValidationError(errors.New("deps.Bookings debe ser no nulo"))
 	}
 
 	// ─── Step 1 — Past time check ────────────────────────────────────────
@@ -97,7 +112,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	}
 
 	// dayOfWeek keeps Go's time.Weekday encoding (0..6, Sunday=0): the one used
-	// by schedules.day_of_week and by spanishDayNames.
+	// by schedules.day_of_week and by spanishDayNamesPlural.
 	dayOfWeek := int(slot.Start.Weekday())
 	// profileDayKey is the business_hours JSON encoding ("1".."7", Monday=1);
 	// entity.ProfileDayKey is the single translation point between both.
@@ -128,7 +143,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 		if !ok || open == "" || close == "" {
 			return &domain.SemanticError{
 				Code:    domain.ErrCodeBusinessClosed,
-				Message: fmt.Sprintf("Negocio no abre los %s.", spanishDayNames[dayOfWeek]),
+				Message: fmt.Sprintf("Negocio no abre los %s.", spanishDayNamesPlural[dayOfWeek]),
 			}
 		}
 		businessOpenHHMM = open
@@ -139,7 +154,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	if slot.Schedule == nil {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeProfessionalNotWorking,
-			Message: fmt.Sprintf("Profesional %s no trabaja los %s.", slot.Professional.Name, spanishDayNames[dayOfWeek]),
+			Message: fmt.Sprintf("Profesional %s no trabaja los %s.", slot.Professional.Name, spanishDayNamesPlural[dayOfWeek]),
 		}
 	}
 	proStartHHMM := slot.Schedule.StartTime
@@ -152,7 +167,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 		return internalValidationError(errors.New("slot.Service debe ser no nulo y con duración positiva"))
 	}
 	slotStartHHMM := slot.Start.Format("15:04")
-	slotEndHHMM := slot.Start.Add(slot.Service.Duration()).Format("15:04")
+	durationMin := int(slot.Service.Duration() / time.Minute)
 
 	// Every HH:MM bound is converted to minutes-since-midnight before being
 	// compared. Comparing the raw strings only happens to work for well-formed
@@ -178,10 +193,14 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	if err != nil {
 		return internalValidationError(err)
 	}
-	slotEndMin, err := hhmmToMinutes(slotEndHHMM)
-	if err != nil {
-		return internalValidationError(err)
-	}
+	// The slot end is an absolute minute offset from midnight of the start day
+	// (slotStartMin + durationMin). Re-deriving it from the wrapped wall clock —
+	// slot.Start.Add(duration).Format("15:04") — would be wrong: a slot crossing
+	// midnight (e.g. 23:00 + 2h) re-formats to "01:00" = 60 minutes and would
+	// silently satisfy any close bound. Business hours never span midnight
+	// (open < close is enforced at write time; close ≤ "23:59" = 1439), so any
+	// end beyond 1439 is out of hours and must be compared as such.
+	slotEndMin := slotStartMin + durationMin
 
 	effectiveCloseMin := businessCloseMin
 	effectiveCloseHHMM := businessCloseHHMM
