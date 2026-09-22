@@ -428,25 +428,28 @@ func TestApplicationTriggerMessagesRegistry(t *testing.T) {
 	}
 }
 
-// TestIsSingleOwnerViolation pins the registry-backed classifier: every
-// registered marker matches and an unknown 1811 message stays unclassified.
+// TestIsSingleOwnerViolation pins the marker-specific classifier: only the
+// single-owner marker matches, even when a registry entry is 1811-shaped.
 func TestIsSingleOwnerViolation(t *testing.T) {
 	type testCase struct {
 		name string
 		err  error
 		want bool
 	}
-	tests := make([]testCase, 0, 5+len(applicationTriggerMessages))
+	tests := make([]testCase, 0, 7+len(applicationTriggerMessages))
 	tests = append(tests,
 		testCase{"nil error", nil, false},
 		testCase{"plain production marker", errors.New("single-owner invariant: only one active owner allowed"), true},
 		testCase{"wrapped production marker", fmt.Errorf("create account: %w", errors.New("single-owner invariant: only one active owner allowed")), true},
 		testCase{"unknown 1811 message", errors.New("custom trigger abort"), false},
+		testCase{"registered non-single-owner marker is not a single-owner violation", errors.New("other trigger: FOREIGN KEY constraint failed"), false},
 		testCase{"foreign key message", errors.New("FOREIGN KEY constraint failed"), false},
 		testCase{"empty error message", errors.New(""), false},
 	)
+	// Registry entries serve the FK guard: only single-owner markers may match.
 	for _, marker := range applicationTriggerMessages {
-		tests = append(tests, testCase{"registry marker: " + marker, errors.New(marker), true})
+		want := strings.Contains(marker, singleOwnerViolationMessage)
+		tests = append(tests, testCase{"registry marker: " + marker, errors.New(marker), want})
 	}
 
 	for _, tt := range tests {

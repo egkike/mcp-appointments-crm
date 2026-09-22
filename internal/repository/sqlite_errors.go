@@ -139,12 +139,18 @@ func classifyForeignKeyViolation(err error) error {
 	return fmt.Errorf("foreign key constraint violation: %w", domain.ErrConflict)
 }
 
-// isSingleOwnerViolation checks if the error is the SQLite single-owner trigger.
-// It resolves the trigger message through applicationTriggerMessages so the
-// registry stays the single source of truth for 1811 application-trigger aborts.
+// singleOwnerViolationMessage is the marker of the two accounts single-owner
+// RAISE(ABORT) triggers in internal/db/schema.go.
+const singleOwnerViolationMessage = "single-owner invariant"
+
+// isSingleOwnerViolation checks if the error is the SQLite single-owner trigger
+// abort. It matches this trigger's own marker instead of the shared
+// applicationTriggerMessages registry: that registry exists for the FK exclusion
+// guard (isForeignKeyMessage) and may grow with unrelated 1811 trigger markers
+// whose failures must not be reported as single-owner violations.
 func isSingleOwnerViolation(err error) bool {
 	if err == nil {
 		return false
 	}
-	return matchesApplicationTriggerMessage(err.Error())
+	return strings.Contains(err.Error(), singleOwnerViolationMessage)
 }
