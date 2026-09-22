@@ -170,6 +170,26 @@ func TestBusinessProfile_parseBusinessHoursInvalidKey(t *testing.T) {
 			businessHours: `{"8":{"open":"09:00","close":"18:00"}}`,
 			wantKey:       `"8"`,
 		},
+		{
+			name:          "signed key",
+			businessHours: `{"+1":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"+1"`,
+		},
+		{
+			name:          "zero-padded key",
+			businessHours: `{"01":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"01"`,
+		},
+		{
+			name:          "multi zero-padded key",
+			businessHours: `{"007":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"007"`,
+		},
+		{
+			name:          "key zero",
+			businessHours: `{"0":{"open":"09:00","close":"18:00"}}`,
+			wantKey:       `"0"`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

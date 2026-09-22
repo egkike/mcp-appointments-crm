@@ -598,8 +598,8 @@ func TestIntegrationMaintenanceDayKeyContract(t *testing.T) {
 	if code != -32002 {
 		t.Fatalf("closed Sunday: code = %d (msg=%q); want -32002", code, msg)
 	}
-	// "los domingo" stays prefix-compatible with the pending pluralization fix.
-	if !strings.Contains(msg, "no abre los domingo") {
+	// The day must be rendered in the plural form that matches the fixed "los".
+	if !strings.Contains(msg, "no abre los domingos") {
 		t.Errorf("closed Sunday msg = %q; want the business-closed message", msg)
 	}
 

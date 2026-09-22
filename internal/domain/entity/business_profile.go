@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +12,15 @@ import (
 
 // businessHoursHHMMRegex matches a zero-padded 24-hour HH:MM time (00:00..23:59).
 var businessHoursHHMMRegex = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
+
+// ValidHHMM reports whether s is a strict zero-padded 24-hour "HH:MM" time
+// (00:00..23:59). It is the single format gate shared by every consumer of
+// stored times: unpadded input ("9:00"), a leading sign or space, a missing
+// colon, and trailing characters are all rejected. Consumers in upper layers
+// call this instead of re-declaring the pattern, so the format cannot drift.
+func ValidHHMM(s string) bool {
+	return businessHoursHHMMRegex.MatchString(s)
+}
 
 // BusinessProfile is the singleton configuration row for the business.
 // There is exactly one row with ID="singleton" (enforced by CHECK constraint).
@@ -92,15 +100,16 @@ func (bp *BusinessProfile) GetOpenClose(dayOfWeek int) (open, close string, ok b
 }
 
 // parseBusinessHoursDayKey validates a business_hours JSON key and converts it
-// to its integer day number. The only accepted keys are "1".."7" (1=Monday,
-// 7=Sunday). It is the single key-validation rule shared by parseBusinessHours
-// and validateBusinessHoursJSON, so the read and write paths can never drift.
+// to its integer day number. The only accepted keys are the exact single digits
+// "1".."7" (1=Monday, 7=Sunday): digits only, no sign, no leading zeros, no
+// surrounding whitespace. It is the single key-validation rule shared by
+// parseBusinessHours and validateBusinessHoursJSON, so the read and write paths
+// can never drift.
 func parseBusinessHoursDayKey(key string) (int, error) {
-	day, err := strconv.Atoi(key)
-	if err != nil || day < 1 || day > 7 {
+	if len(key) != 1 || key[0] < '1' || key[0] > '7' {
 		return 0, fmt.Errorf("clave de día %q inválida (1..7): %w", key, domain.ErrInvalidInput)
 	}
-	return day, nil
+	return int(key[0] - '0'), nil
 }
 
 // parseBusinessHours parses the BusinessHours JSON string. Every key must be a
@@ -184,11 +193,11 @@ func (bp *BusinessProfile) validateBusinessHoursJSON() error {
 		if _, err := parseBusinessHoursDayKey(key); err != nil {
 			return err
 		}
-		if !businessHoursHHMMRegex.MatchString(day.Open) {
+		if !ValidHHMM(day.Open) {
 			return fmt.Errorf("el horario del día %s: la hora de apertura debe tener formato HH:MM (24h): %w",
 				key, domain.ErrInvalidInput)
 		}
-		if !businessHoursHHMMRegex.MatchString(day.Close) {
+		if !ValidHHMM(day.Close) {
 			return fmt.Errorf("el horario del día %s: la hora de cierre debe tener formato HH:MM (24h): %w",
 				key, domain.ErrInvalidInput)
 		}

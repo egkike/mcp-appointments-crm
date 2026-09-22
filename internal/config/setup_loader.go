@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -27,7 +26,6 @@ var (
 		"saturday":  6,
 		"sunday":    7,
 	}
-	hhmmRegex = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 )
 
 // LoadSetup reads the three wizard JSON files from dir and decodes them into
@@ -108,10 +106,10 @@ func mapBusinessHours(in map[string]*BusinessHoursEntry) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("business_hours contiene un día desconocido: %q", dayName)
 		}
-		if !hhmmRegex.MatchString(entry.Open) {
+		if !entity.ValidHHMM(entry.Open) {
 			return "", fmt.Errorf("el horario de %s debe tener formato HH:MM", dayName)
 		}
-		if !hhmmRegex.MatchString(entry.Close) {
+		if !entity.ValidHHMM(entry.Close) {
 			return "", fmt.Errorf("el horario de %s debe tener formato HH:MM", dayName)
 		}
 		if entry.Open >= entry.Close {
@@ -209,10 +207,10 @@ func validateForSeed(data *SetupData) error {
 			if s.DayOfWeek < 0 || s.DayOfWeek > 6 {
 				return fmt.Errorf("el horario del profesional %q para el día %d: el día debe estar entre 0 y 6", m.Name, s.DayOfWeek)
 			}
-			if !hhmmRegex.MatchString(s.StartTime) {
+			if !entity.ValidHHMM(s.StartTime) {
 				return fmt.Errorf("el horario del profesional %q para el día %d: la hora de inicio debe tener formato HH:MM", m.Name, s.DayOfWeek)
 			}
-			if !hhmmRegex.MatchString(s.EndTime) {
+			if !entity.ValidHHMM(s.EndTime) {
 				return fmt.Errorf("el horario del profesional %q para el día %d: la hora de fin debe tener formato HH:MM", m.Name, s.DayOfWeek)
 			}
 			if s.StartTime >= s.EndTime {

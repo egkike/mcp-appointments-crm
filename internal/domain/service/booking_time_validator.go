@@ -97,7 +97,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	}
 
 	// dayOfWeek keeps Go's time.Weekday encoding (0..6, Sunday=0): the one used
-	// by schedules.day_of_week and by spanishDayNames.
+	// by schedules.day_of_week and by spanishDayNamesPlural.
 	dayOfWeek := int(slot.Start.Weekday())
 	// profileDayKey is the business_hours JSON encoding ("1".."7", Monday=1);
 	// entity.ProfileDayKey is the single translation point between both.
@@ -128,7 +128,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 		if !ok || open == "" || close == "" {
 			return &domain.SemanticError{
 				Code:    domain.ErrCodeBusinessClosed,
-				Message: fmt.Sprintf("Negocio no abre los %s.", spanishDayNames[dayOfWeek]),
+				Message: fmt.Sprintf("Negocio no abre los %s.", spanishDayNamesPlural[dayOfWeek]),
 			}
 		}
 		businessOpenHHMM = open
@@ -139,7 +139,7 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	if slot.Schedule == nil {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeProfessionalNotWorking,
-			Message: fmt.Sprintf("Profesional %s no trabaja los %s.", slot.Professional.Name, spanishDayNames[dayOfWeek]),
+			Message: fmt.Sprintf("Profesional %s no trabaja los %s.", slot.Professional.Name, spanishDayNamesPlural[dayOfWeek]),
 		}
 	}
 	proStartHHMM := slot.Schedule.StartTime

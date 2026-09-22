@@ -111,7 +111,16 @@ func TestValidateBookingTimeSlotDayKey(t *testing.T) {
 			businessHours: weekdaysOnlyHours,
 			schedule:      &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 0, StartTime: "09:00", EndTime: "17:00"},
 			wantCode:      code(domain.ErrCodeBusinessClosed),
-			wantMessage:   "domingo",
+			wantMessage:   "no abre los domingos",
+		},
+		{
+			name:          "sunday_professional_not_working_message_is_plural",
+			start:         sundayInTZ("10:00", loc),
+			weekday:       time.Sunday,
+			businessHours: sundayOnlyHours,
+			schedule:      nil,
+			wantCode:      code(domain.ErrCodeProfessionalNotWorking),
+			wantMessage:   "no trabaja los domingos",
 		},
 		{
 			name:          "monday_uses_profile_key_1",
@@ -128,7 +137,7 @@ func TestValidateBookingTimeSlotDayKey(t *testing.T) {
 			businessHours: sundayOnlyHours,
 			schedule:      &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 1, StartTime: "09:00", EndTime: "17:00"},
 			wantCode:      code(domain.ErrCodeBusinessClosed),
-			wantMessage:   "lunes",
+			wantMessage:   "no abre los lunes",
 		},
 		{
 			name:          "saturday_uses_profile_key_6",
@@ -137,6 +146,24 @@ func TestValidateBookingTimeSlotDayKey(t *testing.T) {
 			businessHours: weekdaysOnlyHours,
 			schedule:      &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 6, StartTime: "10:00", EndTime: "14:00"},
 			wantCode:      nil,
+		},
+		{
+			name:          "saturday_closed_message_is_plural",
+			start:         saturdayInTZ("11:00", loc),
+			weekday:       time.Saturday,
+			businessHours: sundayOnlyHours,
+			schedule:      &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 6, StartTime: "10:00", EndTime: "14:00"},
+			wantCode:      code(domain.ErrCodeBusinessClosed),
+			wantMessage:   "no abre los sábados",
+		},
+		{
+			name:          "saturday_professional_not_working_message_is_plural",
+			start:         saturdayInTZ("11:00", loc),
+			weekday:       time.Saturday,
+			businessHours: weekdaysOnlyHours,
+			schedule:      nil,
+			wantCode:      code(domain.ErrCodeProfessionalNotWorking),
+			wantMessage:   "no trabaja los sábados",
 		},
 	}
 
