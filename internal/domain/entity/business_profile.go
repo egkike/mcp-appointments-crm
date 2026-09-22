@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,17 +100,18 @@ func (bp *BusinessProfile) GetOpenClose(dayOfWeek int) (open, close string, ok b
 	return day.Open, day.Close, true
 }
 
-// parseBusinessHoursDayKey validates a business_hours JSON key and converts it
-// to its integer day number. The only accepted keys are the exact single digits
-// "1".."7" (1=Monday, 7=Sunday): digits only, no sign, no leading zeros, no
-// surrounding whitespace. It is the single key-validation rule shared by
-// parseBusinessHours and validateBusinessHoursJSON, so the read and write paths
-// can never drift.
+// parseBusinessHoursDayKey converts a business_hours JSON key to its integer day
+// number (1=Monday, 7=Sunday). Digit-only keys of any length are accepted: legacy
+// zero-padded keys ("01", "007") normalize for read compatibility with databases
+// written before the strict validator (no migration), while the canonical emitted
+// form remains "1".."7". Sign-prefixed keys ("+1"/"-1"), whitespace, and values
+// outside 1..7 stay rejected; it is the single rule shared by the read/write paths.
 func parseBusinessHoursDayKey(key string) (int, error) {
-	if len(key) != 1 || key[0] < '1' || key[0] > '7' {
+	day, err := strconv.Atoi(key)
+	if err != nil || day < 1 || day > 7 || strings.ContainsFunc(key, func(r rune) bool { return r < '0' || r > '9' }) {
 		return 0, fmt.Errorf("clave de día %q inválida (1..7): %w", key, domain.ErrInvalidInput)
 	}
-	return int(key[0] - '0'), nil
+	return day, nil
 }
 
 // parseBusinessHours parses the BusinessHours JSON string. Every key must be a
