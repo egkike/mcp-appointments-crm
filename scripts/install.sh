@@ -659,7 +659,7 @@ prompt_day_hours() {
   local name="$1" key_open="$2" raw start end
   local key_close="${key_open%.open}.close"
   while true; do
-    printf 'Horario para %s (cerrado/no trabaja o HH:MM-HH:MM): ' "$name"
+    printf 'Horario para %s (cerrado, c, no, n, no trabaja o HH:MM-HH:MM): ' "$name"
     if ! read -r raw; then
       echo '' >&2
       echo 'Instalación cancelada. El checkpoint se conserva.' >&2
