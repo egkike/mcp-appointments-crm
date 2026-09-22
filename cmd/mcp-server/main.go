@@ -422,7 +422,7 @@ func run() error {
 	logger.Info("mcp server starting",
 		"addr", httpSrv.Addr,
 		"version", cfg.Version,
-		"repos", 11,
+		"repos", 9,
 		"usecases", 19,
 		"booking_validator_shared", true,
 	)
@@ -518,6 +518,11 @@ func (d *commandDependencies) close() {
 // systemd/launchd unit points at through Environment=MCP_DB_PATH. The absolute
 // default is what removes the CWD-relative fork: a manual run and the service
 // share one database instead of silently diverging.
+//
+// XDG_DATA_HOME is deliberately not honored: the service units pin MCP_DB_PATH
+// to this home layout, so an XDG-redirected manual run would open a different
+// SQLite file than the service (split-brain bookings). Operators who need a
+// custom location set MCP_DB_PATH.
 //
 // A home directory that cannot be resolved is a hard error, never a fallback:
 // guessing a path here is exactly the split-brain this function exists to

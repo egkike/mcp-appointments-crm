@@ -644,6 +644,17 @@ prompt_field() {
   done
 }
 
+# is_closed_day: tokens the wizard accepts as "this day is closed" in
+# prompt_day_hours. The prompt advertises "cerrado/no trabaja", so both the
+# long spelling and the short answers ("c", "no", "n") must match. Exact
+# string match on purpose: the input is trimmed before this check runs.
+is_closed_day() {
+  case "$1" in
+    cerrado|c|no|n|"no trabaja") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 prompt_day_hours() {
   local name="$1" key_open="$2" raw start end
   local key_close="${key_open%.open}.close"
@@ -655,7 +666,7 @@ prompt_day_hours() {
       exit 1
     fi
     raw=$(trim_value "$raw")
-    if [ "$raw" = "cerrado" ] || [ "$raw" = "c" ] || [ "$raw" = "no" ]; then
+    if is_closed_day "$raw"; then
       store_set "$key_open" "null"
       checkpoint_save
       return 0

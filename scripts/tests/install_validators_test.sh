@@ -145,6 +145,18 @@ test_v_time_pair() {
       assertEquals 'cross midnight' 1 "$(_chk2 22:00 06:00)"
 }
 
+# Matriz de aceptación de día cerrado (prompt_day_hours delega en el helper).
+test_is_closed_day() {
+      assertTrue  'cerrado closes the day' 'is_closed_day cerrado'
+      assertTrue  'c closes the day' 'is_closed_day c'
+      assertTrue  'no closes the day' 'is_closed_day no'
+      assertTrue  'n closes the day' 'is_closed_day n'
+      assertTrue  'no trabaja closes the day' 'is_closed_day "no trabaja"'
+      assertFalse 'a time pair is not a closed day' 'is_closed_day 09:00-18:00'
+      assertFalse 'unknown token is not a closed day' 'is_closed_day xyz'
+      assertFalse 'partial phrase is not a closed day' 'is_closed_day "no trabaj"'
+}
+
 # Transforms ---------------------------------------------------------------
 
 test_transforms() {

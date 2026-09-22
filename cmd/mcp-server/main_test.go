@@ -334,6 +334,7 @@ func TestResolveDBPath(t *testing.T) {
 		home := t.TempDir()
 		setTestHome(t, home)
 		t.Setenv("MCP_DB_PATH", "")
+		t.Setenv("XDG_DATA_HOME", "")
 
 		got, err := resolveDBPath()
 		if err != nil {
@@ -354,6 +355,7 @@ func TestResolveDBPath(t *testing.T) {
 
 	t.Run("MCP_DB_PATH override wins over the default", func(t *testing.T) {
 		setTestHome(t, t.TempDir())
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
 		override := filepath.Join(t.TempDir(), "custom.db")
 		t.Setenv("MCP_DB_PATH", override)
 
@@ -366,9 +368,44 @@ func TestResolveDBPath(t *testing.T) {
 		}
 	})
 
+	t.Run("XDG_DATA_HOME is deliberately ignored (manual/service agreement)", func(t *testing.T) {
+		home := t.TempDir()
+		setTestHome(t, home)
+		t.Setenv("MCP_DB_PATH", "")
+		// The service units pin MCP_DB_PATH to the home layout; honoring an
+		// XDG redirect for manual runs would fork the DB (review R4-001).
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+		got, err := resolveDBPath()
+		if err != nil {
+			t.Fatalf("resolveDBPath() unexpected error: %v", err)
+		}
+		want := filepath.Join(home, ".local", "share", "mcp-appointments-crm", "reservas.db")
+		if got != want {
+			t.Errorf("resolveDBPath() = %q, want the home default %q", got, want)
+		}
+	})
+
+	t.Run("empty XDG_DATA_HOME falls back to the home default", func(t *testing.T) {
+		home := t.TempDir()
+		setTestHome(t, home)
+		t.Setenv("MCP_DB_PATH", "")
+		t.Setenv("XDG_DATA_HOME", "")
+
+		got, err := resolveDBPath()
+		if err != nil {
+			t.Fatalf("resolveDBPath() unexpected error: %v", err)
+		}
+		want := filepath.Join(home, ".local", "share", "mcp-appointments-crm", "reservas.db")
+		if got != want {
+			t.Errorf("resolveDBPath() = %q, want the home fallback %q", got, want)
+		}
+	})
+
 	t.Run("missing home directory is a clear error, not a CWD fork", func(t *testing.T) {
 		setTestHome(t, "")
 		t.Setenv("MCP_DB_PATH", "")
+		t.Setenv("XDG_DATA_HOME", "")
 
 		got, err := resolveDBPath()
 		if err == nil {
@@ -386,6 +423,7 @@ func TestResolveDBPath(t *testing.T) {
 func TestOpenDatabaseDefaultPathError(t *testing.T) {
 	setTestHome(t, "")
 	t.Setenv("MCP_DB_PATH", "")
+	t.Setenv("XDG_DATA_HOME", "")
 
 	database, err := openDatabase(context.Background(), slog.Default())
 	if err == nil {
