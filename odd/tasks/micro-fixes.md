@@ -38,8 +38,15 @@ One PR aggregating three sources:
       calls ValidHHMM).
       Commit `cf2bbdc` on `feat/micro-fixes` — fix(domain): strict validation for day keys,
       HH:MM times and plural day messages.
-- [ ] **T2 — deps.Bookings nil-guard**: fail-closed internal error when
-      AvailabilityDeps.Bookings (→ BookingTimeValidatorDeps) is nil; test.
+- [x] **T2 — deps.Bookings nil-guard**: fail-closed internal error when BookingTimeValidatorDeps.Bookings
+      is nil (step 5 dereferences it); contract docs corrected ("pure helper / no I/O" claim was false —
+      steps 1-4 pure, step 5 single read). GGA surfaced a pre-existing CRITICAL fixed in the same
+      work unit: midnight-crossing slots bypassed step 4 (slot end re-formatted from the wrapped wall
+      clock → "01:00" = 60min passed any close bound); slot end now computed as absolute minute offset
+      (start + duration), regression tests added (crossing rejected, same-day before close passes).
+      GGA PASSED after 6 ambiguous retries (provider opencode-go/deepseek-v4.1-flash flaking on the
+      STATUS line — 4+ consecutive). Commit `f6388bd` on `feat/micro-fixes` — fix(domain): fail closed
+      on nil deps.Bookings and reject midnight-crossing slots.
 - [ ] **T3 — applyProfileUpdates refactor**: readability-only, behavior-preserving
       (R2-001); keep semantic identical partial-merge; tests must pass unchanged.
 - [ ] **T4 — sqlite_errors message-guard hardening**: 1811 FK classification less

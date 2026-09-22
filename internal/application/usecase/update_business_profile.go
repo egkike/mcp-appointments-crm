@@ -102,11 +102,51 @@ func hasProfileUpdates(in dto.UpdateBusinessProfileInput) bool {
 		in.BusinessHours != nil
 }
 
-// applyProfileUpdates overwrites only the profile fields present in the input.
+// applyProfileUpdates merges the fields present in the input onto the stored
+// profile: the partial-merge rule is exactly "nil keeps the stored value", and
+// only explicit non-nil fields are overwritten. It is the composition entry for
+// the two semantics-grouped helpers below; their relative order is irrelevant
+// because the two field sets are disjoint.
 func applyProfileUpdates(p *entity.BusinessProfile, in dto.UpdateBusinessProfileInput) {
+	applyProfileScalarUpdates(p, in)
+	applyProfileReferenceUpdates(p, in)
+}
+
+// applyProfileScalarUpdates applies the partial merge to the scalar columns
+// (Name, CurrencyCode, CurrencySymbol, Timezone, SlotIntervalMinutes,
+// BusinessHours), where the entity stores the value and the DTO carries a
+// pointer: a non-nil pointer is dereferenced and assigned, a nil pointer keeps
+// the stored value. Its fields are disjoint from
+// applyProfileReferenceUpdates, so calling either helper alone is safe.
+func applyProfileScalarUpdates(p *entity.BusinessProfile, in dto.UpdateBusinessProfileInput) {
 	if in.Name != nil {
 		p.Name = *in.Name
 	}
+	if in.CurrencyCode != nil {
+		p.CurrencyCode = *in.CurrencyCode
+	}
+	if in.CurrencySymbol != nil {
+		p.CurrencySymbol = *in.CurrencySymbol
+	}
+	if in.Timezone != nil {
+		p.Timezone = *in.Timezone
+	}
+	if in.SlotIntervalMinutes != nil {
+		p.SlotIntervalMinutes = *in.SlotIntervalMinutes
+	}
+	if in.BusinessHours != nil {
+		p.BusinessHours = *in.BusinessHours
+	}
+}
+
+// applyProfileReferenceUpdates applies the partial merge to the pointer columns
+// (Industry, Country, Address, Latitude, Longitude, CoverPhotoURL, PublicPhone,
+// MessengerPlatform, MessengerID, ContactEmail, WebsiteURL,
+// GeneralDescription, AcceptedPaymentMethods), which share the same type on the
+// entity and the DTO: a non-nil pointer is copied verbatim (pointer and pointee
+// alike), a nil pointer keeps the stored reference. Its fields are disjoint from
+// applyProfileScalarUpdates, so calling either helper alone is safe.
+func applyProfileReferenceUpdates(p *entity.BusinessProfile, in dto.UpdateBusinessProfileInput) {
 	if in.Industry != nil {
 		p.Industry = in.Industry
 	}
@@ -143,22 +183,7 @@ func applyProfileUpdates(p *entity.BusinessProfile, in dto.UpdateBusinessProfile
 	if in.GeneralDescription != nil {
 		p.GeneralDescription = in.GeneralDescription
 	}
-	if in.CurrencyCode != nil {
-		p.CurrencyCode = *in.CurrencyCode
-	}
-	if in.CurrencySymbol != nil {
-		p.CurrencySymbol = *in.CurrencySymbol
-	}
 	if in.AcceptedPaymentMethods != nil {
 		p.AcceptedPaymentMethods = in.AcceptedPaymentMethods
-	}
-	if in.Timezone != nil {
-		p.Timezone = *in.Timezone
-	}
-	if in.SlotIntervalMinutes != nil {
-		p.SlotIntervalMinutes = *in.SlotIntervalMinutes
-	}
-	if in.BusinessHours != nil {
-		p.BusinessHours = *in.BusinessHours
 	}
 }
