@@ -249,6 +249,34 @@ func TestValidateBookingTimeSlot(t *testing.T) {
 			wantCode: code(domain.ErrCodeSlotOutOfHours),
 		},
 		{
+			name: "slot_crossing_midnight_rejected",
+			mutate: func(s *SlotInput) {
+				// 23:30 + 60min ends at 00:30 the next day (absolute end = 1470 min).
+				// Re-formatting the wrapped wall clock ("00:30") would read as 30
+				// minutes and silently satisfy the 23:59 close; the absolute end must
+				// exceed 1439 and be rejected.
+				s.Start = futureDateInTZ("23:30", buenosAiresLoc(t))
+				s.Service = &entity.Service{ID: "svc-1", Name: "Tinte", DurationMinutes: 60}
+				s.BusinessProfile.BusinessHours = `{"1":{"open":"09:00","close":"23:59"}}`
+				s.Schedule = &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 1, StartTime: "09:00", EndTime: "23:59"}
+			},
+			wantCode:      code(domain.ErrCodeSlotOutOfHours),
+			wantNoOverlap: true,
+		},
+		{
+			name: "slot_ending_same_day_before_close_passes",
+			mutate: func(s *SlotInput) {
+				// 23:00 + 30min ends at 23:30 (absolute end = 1410 min), which fits
+				// under the 23:59 close (1439 min): the absolute-minute computation
+				// must not over-reject a same-day slot.
+				s.Start = futureDateInTZ("23:00", buenosAiresLoc(t))
+				s.Service = &entity.Service{ID: "svc-1", Name: "Tinte", DurationMinutes: 30}
+				s.BusinessProfile.BusinessHours = `{"1":{"open":"09:00","close":"23:59"}}`
+				s.Schedule = &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 1, StartTime: "09:00", EndTime: "23:59"}
+			},
+			wantCode: nil,
+		},
+		{
 			name: "slot_starts_before_business_open",
 			mutate: func(s *SlotInput) {
 				s.Start = futureDateInTZ("08:00", buenosAiresLoc(t))
@@ -323,14 +351,16 @@ func TestValidateBookingTimeSlot(t *testing.T) {
 }
 
 // TestValidateBookingTimeSlotMissingEntities pins the fail-closed contract for
-// missing resolved entities: a nil BusinessProfile, Professional, or Service
-// (or a non-positive Service duration) MUST return an INTERNAL SemanticError
-// with the opaque message instead of panicking, and MUST short-circuit before
-// the overlap query (defense in depth / zero trust).
+// missing resolved entities and read-side dependencies: a nil BusinessProfile,
+// Professional, or Service (or a non-positive Service duration), or a nil
+// deps.Bookings reader, MUST return an INTERNAL SemanticError with the opaque
+// message instead of panicking, and MUST short-circuit before the overlap query
+// (defense in depth / zero trust).
 func TestValidateBookingTimeSlotMissingEntities(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func(*SlotInput)
+		name       string
+		mutate     func(*SlotInput)
+		mutateDeps func(*BookingTimeValidatorDeps)
 	}{
 		{
 			name:   "nil_business_profile",
@@ -350,6 +380,10 @@ func TestValidateBookingTimeSlotMissingEntities(t *testing.T) {
 				s.Service = &entity.Service{ID: "svc-1", Name: "Corte", DurationMinutes: 0}
 			},
 		},
+		{
+			name:       "nil_bookings_reader",
+			mutateDeps: func(d *BookingTimeValidatorDeps) { d.Bookings = nil },
+		},
 	}
 
 	for _, tt := range tests {
@@ -364,7 +398,12 @@ func TestValidateBookingTimeSlotMissingEntities(t *testing.T) {
 				overlapCalls++
 				return nil, nil
 			}
-			tt.mutate(&slot)
+			if tt.mutate != nil {
+				tt.mutate(&slot)
+			}
+			if tt.mutateDeps != nil {
+				tt.mutateDeps(&deps)
+			}
 
 			err := ValidateBookingTimeSlot(context.Background(), slot, deps)
 
@@ -381,6 +420,24 @@ func TestValidateBookingTimeSlotMissingEntities(t *testing.T) {
 				t.Errorf("FindOverlapping called %d times; want 0 (fail closed before the overlap step)", overlapCalls)
 			}
 		})
+	}
+}
+
+// TestValidateBookingTimeSlotNilBookingsCause pins the server-side cause for a
+// nil overlap reader: the Cause names the exact contract breach ("deps.Bookings")
+// while the LLM-facing Message stays opaque, so the diagnostic never leaks
+// internals upstream.
+func TestValidateBookingTimeSlotNilBookingsCause(t *testing.T) {
+	slot, deps := defaultTimeSlot(t)
+	deps.Bookings = nil
+
+	err := ValidateBookingTimeSlot(context.Background(), slot, deps)
+
+	if err == nil {
+		t.Fatal("expected an internal error, got nil")
+	}
+	if err.Cause == nil || !strings.Contains(err.Cause.Error(), "deps.Bookings") {
+		t.Errorf("cause = %v; want a cause naming deps.Bookings", err.Cause)
 	}
 }
 

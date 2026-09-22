@@ -31,9 +31,13 @@ One PR aggregating three sources:
       (spanishDayNamesPlural: domingo→domingos, sábado→sábados, rest invariable; singular table
       kept + drift-guard test); strict day-key parse (exact "1".."7", rejects "+1"/"01"/"007"/"0"/"8");
       hhmmToMinutes strict padded HH:MM; HH:MM pattern deduplicated to single source of truth
-      entity.ValidHHMM (service datetime_helpers + config/setup_loader migrated — third duplicate
-      eliminated); integration assertion tightened to "no abre los domingos". Full pipeline green
-      (fmt/vet/golangci 0 issues/build/test -race all packages). Commit pending owner approval.
+      entity.ValidHHMM (service datetime_helpers + config/setup_loader + entity's own
+      validateBusinessHoursJSON migrated — third duplicate eliminated); integration assertion
+      tightened to "no abre los domingos". Full pipeline green; GGA PASSED on retry
+      (first run hit STRICT_MODE ambiguous flake; 1 finding fixed: validateBusinessHoursJSON now
+      calls ValidHHMM).
+      Commit `cf2bbdc` on `feat/micro-fixes` — fix(domain): strict validation for day keys,
+      HH:MM times and plural day messages.
 - [ ] **T2 — deps.Bookings nil-guard**: fail-closed internal error when
       AvailabilityDeps.Bookings (→ BookingTimeValidatorDeps) is nil; test.
 - [ ] **T3 — applyProfileUpdates refactor**: readability-only, behavior-preserving
