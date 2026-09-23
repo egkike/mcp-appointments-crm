@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -60,11 +61,8 @@ func TestLoadHermesConfig_AbsentFileReturnsEmptyDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadHermesConfig() error = %v, want nil for an absent file", err)
 	}
-	if doc == nil {
-		t.Fatal("LoadHermesConfig() = nil, want a non-nil empty document")
-	}
-	if len(doc) != 0 {
-		t.Errorf("LoadHermesConfig() = %v, want an empty document", doc)
+	if len(doc.storage()) != 0 {
+		t.Errorf("LoadHermesConfig() = %v, want an empty document", doc.storage())
 	}
 }
 
@@ -81,8 +79,8 @@ func TestLoadHermesConfig_EmptyFileReturnsEmptyDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadHermesConfig() error = %v", err)
 	}
-	if len(doc) != 0 {
-		t.Errorf("LoadHermesConfig() = %v, want an empty document", doc)
+	if len(doc.storage()) != 0 {
+		t.Errorf("LoadHermesConfig() = %v, want an empty document", doc.storage())
 	}
 }
 
@@ -100,12 +98,12 @@ func TestLoadHermesConfig_ParsesExistingMapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadHermesConfig() error = %v", err)
 	}
-	if got := doc["model"]; got != "hermes-default" {
+	if got := doc.storage()["model"]; got != "hermes-default" {
 		t.Errorf("doc[model] = %v, want %q", got, "hermes-default")
 	}
-	servers, ok := doc[hermesServersSection].(map[string]any)
+	servers, ok := doc.storage()[hermesServersSection].(map[string]any)
 	if !ok {
-		t.Fatalf("doc[mcp_servers] = %T, want map[string]any", doc[hermesServersSection])
+		t.Fatalf("doc[mcp_servers] = %T, want map[string]any", doc.storage()[hermesServersSection])
 	}
 	if _, ok := servers["openai"]; !ok {
 		t.Errorf("doc[mcp_servers] lost the openai server: %v", servers)
@@ -166,9 +164,10 @@ func TestSetHermesServer_AbsentFileFlowCreatesEntry(t *testing.T) {
 // loaded document, failing the test when the shape is wrong.
 func hermesEntryFrom(t *testing.T, doc HermesDocument) map[string]any {
 	t.Helper()
-	servers, ok := doc[hermesServersSection].(map[string]any)
+	fields := doc.storage()
+	servers, ok := fields[hermesServersSection].(map[string]any)
 	if !ok {
-		t.Fatalf("mcp_servers = %T, want map[string]any", doc[hermesServersSection])
+		t.Fatalf("mcp_servers = %T, want map[string]any", fields[hermesServersSection])
 	}
 	entry, ok := servers[HermesServerName].(map[string]any)
 	if !ok {
@@ -210,17 +209,17 @@ func TestSetHermesServer_PreservesUnknownKeysAndOtherServers(t *testing.T) {
 		t.Fatalf("SetHermesServer() error = %v", err)
 	}
 
-	if got := doc["model"]; got != "hermes-default" {
+	if got := doc.storage()["model"]; got != "hermes-default" {
 		t.Errorf("unknown top-level key lost: doc[model] = %v", got)
 	}
-	custom, ok := doc["custom_section"].(map[string]any)
+	custom, ok := doc.storage()["custom_section"].(map[string]any)
 	if !ok || custom["nested"] != true {
-		t.Errorf("unknown nested key lost: doc[custom_section] = %v", doc["custom_section"])
+		t.Errorf("unknown nested key lost: doc[custom_section] = %v", doc.storage()["custom_section"])
 	}
 
-	servers, ok := doc[hermesServersSection].(map[string]any)
+	servers, ok := doc.storage()[hermesServersSection].(map[string]any)
 	if !ok {
-		t.Fatalf("mcp_servers = %T, want map[string]any", doc[hermesServersSection])
+		t.Fatalf("mcp_servers = %T, want map[string]any", doc.storage()[hermesServersSection])
 	}
 	openai, ok := servers["openai"].(map[string]any)
 	if !ok {
@@ -283,9 +282,9 @@ func TestSetHermesServer_IdempotentReMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload error = %v", err)
 	}
-	servers, ok := reloaded[hermesServersSection].(map[string]any)
+	servers, ok := reloaded.storage()[hermesServersSection].(map[string]any)
 	if !ok {
-		t.Fatalf("mcp_servers is not a mapping after re-merge: %#v", reloaded[hermesServersSection])
+		t.Fatalf("mcp_servers is not a mapping after re-merge: %#v", reloaded.storage()[hermesServersSection])
 	}
 	if _, ok := servers["openai"]; !ok {
 		t.Errorf("idempotent re-merge dropped the other server: %v", servers)
@@ -307,7 +306,7 @@ func TestSetHermesServer_NormalizesSurroundingWhitespaceInURL(t *testing.T) {
 }
 
 func TestSetHermesServer_RejectsNonMappingSection(t *testing.T) {
-	doc := HermesDocument{hermesServersSection: "not-a-map"}
+	doc := HermesDocument{fields: hermesDocument{hermesServersSection: "not-a-map"}}
 
 	err := doc.SetHermesServer(testHermesURL, testHermesPhone)
 	if err == nil {
@@ -399,16 +398,21 @@ func TestValidateHermesURL(t *testing.T) {
 
 func TestHermesEndpointURL(t *testing.T) {
 	tests := []struct {
-		name    string
-		bind    string
-		port    string
-		want    string
-		wantErr bool
+		name            string
+		bind            string
+		port            string
+		want            string
+		wantErr         bool
+		wantErrContains string
 	}{
 		{name: "ipv4", bind: "127.0.0.1", port: "3000", want: "http://127.0.0.1:3000/mcp"},
 		{name: "ipv6 is bracketed", bind: "::1", port: "3000", want: "http://[::1]:3000/mcp"},
 		{name: "missing bind", bind: "", port: "3000", wantErr: true},
 		{name: "missing port", bind: "127.0.0.1", port: "", wantErr: true},
+		{name: "unspecified ipv4 bind", bind: "0.0.0.0", port: "3000", wantErr: true, wantErrContains: "0.0.0.0"},
+		{name: "unspecified ipv6 bind", bind: "::", port: "3000", wantErr: true, wantErrContains: "::"},
+		{name: "non-loopback bind", bind: "10.0.0.1", port: "3000", wantErr: true, wantErrContains: "10.0.0.1"},
+		{name: "hostname bind", bind: "example.com", port: "3000", wantErr: true, wantErrContains: "example.com"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -416,6 +420,16 @@ func TestHermesEndpointURL(t *testing.T) {
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("HermesEndpointURL(%q, %q) = %q, want an error", tc.bind, tc.port, got)
+				}
+				var semErr *domain.SemanticError
+				if !errors.As(err, &semErr) {
+					t.Fatalf("HermesEndpointURL(%q, %q) = %T, want *domain.SemanticError", tc.bind, tc.port, err)
+				}
+				if semErr.Code != domain.ErrCodeInvalidInput {
+					t.Errorf("HermesEndpointURL(%q, %q) code = %q, want %q", tc.bind, tc.port, semErr.Code, domain.ErrCodeInvalidInput)
+				}
+				if tc.wantErrContains != "" && !strings.Contains(semErr.Message, tc.wantErrContains) {
+					t.Errorf("HermesEndpointURL(%q, %q) message = %q, want it to name %q", tc.bind, tc.port, semErr.Message, tc.wantErrContains)
 				}
 				return
 			}
@@ -519,7 +533,70 @@ func TestWriteHermesConfig_QuotedPhoneEmissionContract(t *testing.T) {
 	}
 }
 
+// TestWriteHermesConfig_PreservesNonOwnedScalarSemantics pins the accepted
+// round-trip deviation documented on HermesDocument: this flow rewrites the
+// file, so the lexical form of keys it does not own is not guaranteed, but
+// their semantic values are. It seeds typical non-owned scalars of a real
+// Hermes config and asserts each survives with its original Go type after a
+// SetHermesServer + WriteHermesConfig cycle.
+func TestWriteHermesConfig_PreservesNonOwnedScalarSemantics(t *testing.T) {
+	path := hermesConfigInTempDir(t)
+	if err := os.MkdirAll(filepath.Dir(path), hermesDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	seed := strings.Join([]string{
+		"model: gpt-4",
+		"port: 3000",
+		"verbose: true",
+		`max_retries: "007"`,
+		`phone: "011-5555"`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(seed), hermesFileMode); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	doc, err := LoadHermesConfig(path)
+	if err != nil {
+		t.Fatalf("LoadHermesConfig() error = %v", err)
+	}
+	if err := doc.SetHermesServer(testHermesURL, testHermesPhone); err != nil {
+		t.Fatalf("SetHermesServer() error = %v", err)
+	}
+	if err := WriteHermesConfig(path, doc); err != nil {
+		t.Fatalf("WriteHermesConfig() error = %v", err)
+	}
+
+	var decoded map[string]any
+	if err := yaml.Unmarshal(readHermesFile(t, path), &decoded); err != nil {
+		t.Fatalf("yaml.Unmarshal round-trip: %v", err)
+	}
+
+	// Expected Go types are the semantic contract: strings stay strings, an
+	// unquoted integer stays int, a bool stays bool.
+	want := map[string]any{
+		"model":       "gpt-4",
+		"port":        3000,
+		"verbose":     true,
+		"max_retries": "007",
+		"phone":       "011-5555",
+	}
+	for key, wantValue := range want {
+		got, ok := decoded[key]
+		if !ok {
+			t.Errorf("non-owned key %q missing after round trip", key)
+			continue
+		}
+		if !reflect.DeepEqual(got, wantValue) {
+			t.Errorf("non-owned key %q = %#v (%T), want %#v (%T)", key, got, got, wantValue, wantValue)
+		}
+	}
+}
+
 func TestWriteHermesConfig_CreatesRestrictedDirAndFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reports synthesized 0666/0777 modes; POSIX bits are not asserted")
+	}
 	path := hermesConfigInTempDir(t)
 	dir := filepath.Dir(path)
 	doc := HermesDocument{}
@@ -548,6 +625,9 @@ func TestWriteHermesConfig_CreatesRestrictedDirAndFile(t *testing.T) {
 }
 
 func TestWriteHermesConfig_DoesNotChmodPreexistingDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows reports synthesized 0666/0777 modes; POSIX bits are not asserted")
+	}
 	path := hermesConfigInTempDir(t)
 	dir := filepath.Dir(path)
 	// #nosec G301 -- the fixture must seed a pre-existing permissive dir (0755);

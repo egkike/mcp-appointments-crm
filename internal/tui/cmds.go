@@ -64,11 +64,14 @@ type selfOwnerMsg struct {
 }
 
 // hermesDataMsg carries the ACTIVE owner whose phone prefills the "Configurar
-// Hermes" wizard. Without an active owner the flow cannot proceed (ADR-0017
-// Decision 3).
+// Hermes" wizard plus the lazily-resolved bootstrap facts. Without an active
+// owner the flow cannot proceed (ADR-0017 Decision 3); resolveFailed is true
+// when err came from resolving the bootstrap rather than from the missing owner.
 type hermesDataMsg struct {
-	owner admin.AccountView
-	err   error
+	owner         admin.AccountView
+	hermes        HermesConfig
+	resolveFailed bool
+	err           error
 }
 
 // hermesResultMsg is the outcome of the Hermes bootstrap. written is true when
@@ -339,13 +342,21 @@ func addSelfCmd(ctx context.Context, deps Deps, callerID, name string) tea.Cmd {
 	}
 }
 
-// hermesDataCmd reads the ACTIVE owner whose phone prefills the Hermes wizard.
-// The account id is the X-Caller-Id Hermes sends, so the wizard starts from the
-// sanctioned value and the operator only edits it when needed.
+// hermesDataCmd resolves the Hermes bootstrap facts and reads the ACTIVE owner
+// whose phone prefills the wizard. Resolution happens HERE, inside the command,
+// never at tui startup: an invalid MCP_BIND or an unresolvable home surfaces as
+// the wizard's error line instead of blocking the whole admin TUI. The account
+// id is the X-Caller-Id Hermes sends, so the wizard starts from the sanctioned
+// value and the operator only edits it when needed.
 func hermesDataCmd(ctx context.Context, deps Deps) tea.Cmd {
 	return func() tea.Msg {
+		hermes, err := deps.Hermes.Resolve()
+		if err != nil {
+			return hermesDataMsg{resolveFailed: true, err: err}
+		}
+
 		owner, err := admin.ActiveOwner(ctx, deps.Accounts)
-		return hermesDataMsg{owner: owner, err: err}
+		return hermesDataMsg{owner: owner, hermes: hermes, err: err}
 	}
 }
 

@@ -54,13 +54,43 @@ type HermesConfig struct {
 	EndpointURL string
 }
 
+// HermesResolver resolves the Hermes bootstrap facts on demand.
+type HermesResolver func() (HermesConfig, error)
+
+// HermesBootstrap is the lazily-resolved Hermes bootstrap of the TUI. It embeds
+// the resolved HermesConfig, so the Hermes screens read Path/EndpointURL
+// directly, and carries the resolver that fills them. Nothing resolves at tui
+// startup: the composition root builds it with NewHermesBootstrap and the
+// "Configurar Hermes" command calls Resolve, so an unresolvable home or an
+// invalid MCP_BIND only surfaces when the operator opens that capability.
+type HermesBootstrap struct {
+	HermesConfig
+	resolve HermesResolver
+}
+
+// NewHermesBootstrap returns a bootstrap that resolves its facts on demand
+// through resolve. The composition root caches resolve (sync.OnceValues), so the
+// cost is paid at most once.
+func NewHermesBootstrap(resolve HermesResolver) HermesBootstrap {
+	return HermesBootstrap{resolve: resolve}
+}
+
+// Resolve returns the resolved bootstrap facts. A bootstrap with no resolver
+// (already resolved, e.g. a test fixture) returns its embedded facts unchanged.
+func (h HermesBootstrap) Resolve() (HermesConfig, error) {
+	if h.resolve == nil {
+		return h.HermesConfig, nil
+	}
+	return h.resolve()
+}
+
 // Deps bundles the identity repositories the TUI operates on. The composition
 // root (cmd/mcp-server) builds it from newIdentityDeps, so the TUI and serve
-// mode cannot drift in repository construction. Hermes carries the resolved
-// Hermes bootstrap data of the "Configurar Hermes" capability.
+// mode cannot drift in repository construction. Hermes carries the lazily
+// resolved Hermes bootstrap of the "Configurar Hermes" capability.
 type Deps struct {
 	Accounts      AccountsPort
 	Professionals ProfessionalsPort
 	Clients       ClientsPort
-	Hermes        HermesConfig
+	Hermes        HermesBootstrap
 }

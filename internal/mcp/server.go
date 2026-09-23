@@ -99,9 +99,13 @@ func (s *Server) AuthHandler(authMW *auth.AuthMiddleware) http.Handler {
 		panic("mcp: AuthHandler requires a non-nil AuthMiddleware")
 	}
 	postChain := jsonrpcAuthTranslator(authMW.Wrap(s.Handler()))
+	// The unauth handler is allocation-stable after NewServer (tools register
+	// exactly once there), so it is cached once instead of rebuilt on every
+	// non-POST request (streamableHandler allocates a fresh SDK handler).
+	unauthChain := s.Handler()
 	methodGate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			s.Handler().ServeHTTP(w, r)
+			unauthChain.ServeHTTP(w, r)
 			return
 		}
 		postChain.ServeHTTP(w, r)
