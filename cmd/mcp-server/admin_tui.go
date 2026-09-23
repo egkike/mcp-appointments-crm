@@ -13,7 +13,6 @@ import (
 
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/tui"
 	"github.com/mattn/go-isatty"
 )
@@ -32,9 +31,11 @@ import (
 //     without a terminal. It is not dead code: it is the fallback path, and the
 //     binary-level dispatch test locks its seed-gateway output.
 //
-// Both paths validate the configuration and SQLite in the same order and build
-// the identity repositories through the shared construction site
-// (newIdentityDeps), so the two entry points cannot drift.
+// Both paths validate the configuration and SQLite in the same order, build the
+// identity repositories through the shared construction site (newIdentityDeps)
+// and render the shared operator facts through the presentation helpers in
+// internal/admin (account label, role menu, successor list, recovery hint), so
+// the two entry points cannot drift.
 func runAdminTUI() error {
 	if interactiveTerminal() {
 		return runAdminTUIProgram()
@@ -54,11 +55,34 @@ func runAdminTUIProgram() error {
 	defer deps.close()
 
 	identity := newIdentityDeps(deps.database, deps.logger)
+	hermes, err := resolveHermesConfig(deps.config.Bind, deps.config.Port)
+	if err != nil {
+		return err
+	}
 	return tui.Run(context.Background(), tui.Deps{
 		Accounts:      identity.accounts,
 		Professionals: identity.professionals,
 		Clients:       identity.clients,
+		Hermes:        hermes,
 	})
+}
+
+// resolveHermesConfig composes the Hermes bootstrap data the TUI needs from the
+// already-resolved runtime configuration (ADR-0017 Decision 3): the standard
+// ~/.hermes/config.yaml path and the MCP endpoint URL derived from
+// MCP_BIND/MCP_PORT with the fixed /mcp path. Resolving both once here keeps the
+// TUI free of hardcoded paths and URLs and keeps the values testable through
+// tui.Deps.
+func resolveHermesConfig(bind, port string) (tui.HermesConfig, error) {
+	path, err := admin.HermesConfigPath()
+	if err != nil {
+		return tui.HermesConfig{}, err
+	}
+	endpoint, err := admin.HermesEndpointURL(bind, port)
+	if err != nil {
+		return tui.HermesConfig{}, err
+	}
+	return tui.HermesConfig{Path: path, EndpointURL: endpoint}, nil
 }
 
 // interactiveTerminal reports whether both process streams are attached to a
@@ -223,7 +247,7 @@ func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, scanner 
 			return err
 		}
 		for i, view := range inactiveOwners {
-			if err := writeConsole(stdout, "  [%d] Reactivar %s\n", i+1, accountLabel(view)); err != nil {
+			if err := writeConsole(stdout, "  [%d] Reactivar %s\n", i+1, admin.AccountLabel(view)); err != nil {
 				return err
 			}
 		}
@@ -264,7 +288,7 @@ func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, scanner 
 // re-renders.
 func runReactivateOwnerChoice(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, candidate admin.AccountView) (done bool, err error) {
 	confirmed, err := promptConfirm(scanner, stdout,
-		fmt.Sprintf("Se reactivará %s como owner activo. ¿Confirmar?", accountLabel(candidate)))
+		fmt.Sprintf("Se reactivará %s como owner activo. ¿Confirmar?", admin.AccountLabel(candidate)))
 	if err != nil {
 		return false, err
 	}
@@ -306,7 +330,7 @@ func runNewOwnerSeed(ctx context.Context, identity identityDeps, scanner *bufio.
 			if err := writeConsole(stdout, "No se creó ninguna cuenta: %v\n", err); err != nil {
 				return false, err
 			}
-			if hint := reactivationHint(inactiveOwners, input.Phone); hint != "" {
+			if hint := admin.ReactivationHint(inactiveOwners, input.Phone); hint != "" {
 				if err := writeConsole(stdout, "%s\n", hint); err != nil {
 					return false, err
 				}
@@ -327,20 +351,6 @@ func runNewOwnerSeed(ctx context.Context, identity identityDeps, scanner *bufio.
 		return false, err
 	}
 	return true, writeConsole(stdout, "Ya podés usar `mcp-server hermes chat` con ese caller id.\n")
-}
-
-// reactivationHint names the deactivated owner whose phone the operator just
-// tried to reuse, so the semantic conflict carries the exact next step. It
-// returns an empty string when the phone belongs to something else.
-func reactivationHint(inactiveOwners []admin.AccountView, phone string) string {
-	for _, view := range inactiveOwners {
-		if view.ID == phone {
-			return fmt.Sprintf(
-				"Sugerencia: el teléfono %s pertenece a la cuenta de owner desactivada %q; reactivala con la opción de reactivación en lugar de crear una cuenta nueva.",
-				phone, view.DisplayName)
-		}
-	}
-	return ""
 }
 
 // menuExitKey leaves the operator menu (ADR-0016 §5 keeps `q` as the quit
@@ -529,7 +539,7 @@ func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanne
 		return err
 	}
 	for i, view := range views {
-		if err := writeConsole(stdout, "  [%d] %s\n", i+1, accountLabel(view)); err != nil {
+		if err := writeConsole(stdout, "  [%d] %s\n", i+1, admin.AccountLabel(view)); err != nil {
 			return err
 		}
 	}
@@ -541,7 +551,7 @@ func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanne
 	selected := views[index-1]
 
 	confirmed, err := promptConfirm(scanner, stdout,
-		fmt.Sprintf("Esta acción desactiva la cuenta %s. ¿Confirmar?", accountLabel(selected)))
+		fmt.Sprintf("Esta acción desactiva la cuenta %s. ¿Confirmar?", admin.AccountLabel(selected)))
 	if err != nil {
 		return err
 	}
@@ -554,22 +564,10 @@ func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanne
 		return err
 	}
 	if outcome.AlreadyInactive {
-		return writeConsole(stdout, "La cuenta ya estaba inactiva: %s\n", accountLabel(outcome.Account))
+		return writeConsole(stdout, "La cuenta ya estaba inactiva: %s\n", admin.AccountLabel(outcome.Account))
 	}
-	return writeConsole(stdout, "Cuenta desactivada: %s\n", accountLabel(outcome.Account))
+	return writeConsole(stdout, "Cuenta desactivada: %s\n", admin.AccountLabel(outcome.Account))
 }
-
-// accountLabel renders one account for the operator: the display name the human
-// recognises, plus the role and the phone, the two fields that cannot be
-// guessed from the name.
-func accountLabel(view admin.AccountView) string {
-	return fmt.Sprintf("%s (%s, %s)", view.DisplayName, view.Role, view.ID)
-}
-
-// listableRoles is the role sub-menu of the "Listar por rol" flow. It mirrors
-// the domain enumeration (ADR-0009) in menu order; the core validates the
-// selected role again before any port call.
-var listableRoles = [...]entity.AccountRole{entity.RoleOwner, entity.RoleAdmin, entity.RoleStaff}
 
 // runListAllAccountsFlow renders the "all accounts" view (ADR-0016
 // Decision 1), asking first whether the soft-deleted rows must show up.
@@ -584,20 +582,21 @@ func runListAllAccountsFlow(ctx context.Context, identity identityDeps, scanner 
 // runListByRoleFlow renders the role-filtered view: the operator picks a role
 // from the frozen sub-menu and then decides whether inactive rows show up.
 func runListByRoleFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+	roles := admin.ListableRoles()
 	if err := writeConsole(stdout, "Roles disponibles:\n"); err != nil {
 		return err
 	}
-	for i, role := range listableRoles {
+	for i, role := range roles {
 		if err := writeConsole(stdout, "  [%d] %s\n", i+1, role); err != nil {
 			return err
 		}
 	}
 
-	index, err := promptIndex(scanner, stdout, "Elegí el rol", len(listableRoles))
+	index, err := promptIndex(scanner, stdout, "Elegí el rol", len(roles))
 	if err != nil {
 		return err
 	}
-	role := listableRoles[index-1]
+	role := roles[index-1]
 
 	includeInactive, err := promptConfirm(scanner, stdout, "¿Incluir las cuentas inactivas?")
 	if err != nil {
@@ -720,6 +719,13 @@ func promptIndex(scanner *bufio.Scanner, stdout io.Writer, label string, count i
 // write error would let a broken console masquerade as a successful run, so
 // the failure is propagated as a semantic error: an operator flow that cannot
 // echo its prompts has no usable environment.
+//
+// The variadic args ...any is the idiomatic fmt.Fprintf printf signature, not a
+// lost concrete type: the format string is the contract and the args are
+// validated by go vet's printf checker at every call site. Accepted deviation,
+// mirroring internal/auth/middleware.go (hashCallerID): contorting the
+// signature into a typed struct would only move the same dynamic typing behind
+// a wrapper without adding safety.
 func writeConsole(stdout io.Writer, format string, args ...any) error {
 	if _, err := fmt.Fprintf(stdout, format, args...); err != nil {
 		return &domain.SemanticError{
@@ -864,7 +870,7 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanne
 	if err := writeConsole(stdout, "Paso 1 de 2: elegir el sucesor.\n"); err != nil {
 		return err
 	}
-	if err := writeConsole(stdout, "Owner actual: %s\n", accountLabel(owner)); err != nil {
+	if err := writeConsole(stdout, "Owner actual: %s\n", admin.AccountLabel(owner)); err != nil {
 		return err
 	}
 
@@ -939,54 +945,31 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanne
 	}
 
 	if err := writeConsole(stdout, "Ownership transferido: %s → %s\n",
-		accountLabel(outcome.From), accountLabel(outcome.To)); err != nil {
+		admin.AccountLabel(outcome.From), admin.AccountLabel(outcome.To)); err != nil {
 		return err
 	}
 	return writeConsole(stdout, "caller-id actualizado en %s\n", path)
 }
 
-// transferSuccessorOptions builds the numbered successor list: every inactive
-// owner row, then every active staff account, then the "new phone" escape
-// hatch. The active owner is never offered — the transfer deactivates it.
-// Labels carry name, role and phone so the operator recognises the row they are
-// about to promote.
+// transferSuccessorOptions maps the shared core successor list (internal/admin)
+// onto the console's own option struct. The console keeps its struct because it
+// also carries the operator input of the new-phone case; the ordering, the
+// eligibility and the labels are single-sourced in the core.
 func transferSuccessorOptions(ctx context.Context, identity identityDeps) ([]transferSuccessorOption, error) {
-	owners, err := admin.ListAccounts(ctx, identity.accounts, admin.ListFilter{
-		Role:            entity.RoleOwner,
-		IncludeInactive: true,
-	})
+	candidates, err := admin.SuccessorCandidates(ctx, identity.accounts)
 	if err != nil {
 		return nil, err
 	}
 
-	options := make([]transferSuccessorOption, 0, len(owners)+1)
-	for _, view := range owners {
-		if view.Active {
-			continue
-		}
+	options := make([]transferSuccessorOption, 0, len(candidates))
+	for _, candidate := range candidates {
 		options = append(options, transferSuccessorOption{
-			kind:  admin.SuccessorInactiveOwner,
-			id:    view.ID,
-			label: accountLabel(view),
+			kind:  candidate.Kind,
+			id:    candidate.ID,
+			label: candidate.Label,
 		})
 	}
-
-	staff, err := admin.ListAccounts(ctx, identity.accounts, admin.ListFilter{Role: entity.RoleStaff})
-	if err != nil {
-		return nil, err
-	}
-	for _, view := range staff {
-		options = append(options, transferSuccessorOption{
-			kind:  admin.SuccessorStaff,
-			id:    view.ID,
-			label: accountLabel(view) + " — promover a owner",
-		})
-	}
-
-	return append(options, transferSuccessorOption{
-		kind:  admin.SuccessorNewPhone,
-		label: "Otro teléfono (crear una cuenta de owner nueva)",
-	}), nil
+	return options, nil
 }
 
 // runAddSelfAsClientFlow drives the "Agregarme como cliente" capability

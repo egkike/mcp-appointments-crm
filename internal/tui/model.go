@@ -46,6 +46,8 @@ const (
 	screenSelfForm
 	screenConfirm
 	screenInfo
+	screenHermesForm
+	screenHermesSnippet
 )
 
 // confirmAction identifies the write the confirmation screen gates. One screen
@@ -58,6 +60,7 @@ const (
 	confirmReactivate
 	confirmDeactivate
 	confirmTransfer
+	confirmHermesConfig
 )
 
 // infoKind distinguishes the outcome of a flow on the shared info screen: a
@@ -88,7 +91,10 @@ type confirmState struct {
 	title    string
 	question string
 	warning  string
-	target   admin.AccountView
+	// details are the plain facts of a non-destructive confirmation (the
+	// Hermes endpoint, phone and target file). Empty for the account flows.
+	details []string
+	target  admin.AccountView
 }
 
 // busyLine is the answer to Esc, q or Ctrl+C while a core call is in flight: the
@@ -157,6 +163,12 @@ type AppModel struct {
 	successor      transferOption
 	transferDraft  admin.TransferSuccessor
 	confirm        confirmState
+
+	// hermesDraft is the phone and the fallback snippet of the "Configurar
+	// Hermes" flow (ADR-0017). The endpoint and the target file come from the
+	// composition root through deps.Hermes and are never derived here.
+	hermesPhone   string
+	hermesSnippet string
 }
 
 // NewAppModel builds the initial model. ctx is propagated into every core call
@@ -212,6 +224,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onTransferData(msg)
 	case selfOwnerMsg:
 		return m.onSelfOwner(msg)
+	case hermesDataMsg:
+		return m.onHermesData(msg)
+	case hermesResultMsg:
+		return m.onHermesResult(msg)
 	case resultMsg:
 		return m.onResult(msg)
 
@@ -262,7 +278,7 @@ func (m AppModel) quit() (tea.Model, tea.Cmd) {
 // `q` stays a plain character while the operator types a name.
 func (m AppModel) typing() bool {
 	switch m.screen {
-	case screenSeedForm, screenStaffForm, screenTransferForm, screenSelfForm:
+	case screenSeedForm, screenStaffForm, screenTransferForm, screenSelfForm, screenHermesForm:
 		return true
 	default:
 		return false
@@ -311,7 +327,12 @@ func (m AppModel) routeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.goBack()
 		}
 		return m, nil
-	case screenSeedForm, screenStaffForm, screenTransferForm, screenSelfForm:
+	case screenHermesSnippet:
+		if key.String() == "enter" {
+			return m.goBack()
+		}
+		return m, nil
+	case screenSeedForm, screenStaffForm, screenTransferForm, screenSelfForm, screenHermesForm:
 		if key.String() == "enter" {
 			return m.submitForm()
 		}
@@ -398,6 +419,8 @@ func (m AppModel) runConfirmed() (tea.Model, tea.Cmd) {
 		return m.started(deactivateCmd(m.ctx, m.deps, m.confirm.target.ID))
 	case confirmTransfer:
 		return m.started(transferCmd(m.ctx, m.deps, m.owner.ID, m.transferDraft))
+	case confirmHermesConfig:
+		return m.started(hermesConfigCmd(m.deps, m.hermesPhone))
 	default:
 		return m.menuScreen(""), nil
 	}
@@ -451,6 +474,19 @@ func (m AppModel) runForm() (tea.Model, tea.Cmd) {
 	case screenSelfForm:
 		return m.started(addSelfCmd(m.ctx, m.deps, m.owner.ID, m.form.value(0)))
 
+	case screenHermesForm:
+		m.hermesPhone = m.form.value(0)
+		return m.askConfirm(confirmState{
+			action:   confirmHermesConfig,
+			title:    confirmHermesTitle,
+			question: confirmHermesQuestion,
+			details: []string{
+				"Endpoint: " + m.deps.Hermes.EndpointURL,
+				"Teléfono (X-Caller-Id): " + m.hermesPhone,
+				"Archivo: " + m.deps.Hermes.Path,
+			},
+		}), nil
+
 	default:
 		return m, nil
 	}
@@ -479,7 +515,7 @@ func (m AppModel) pick() (tea.Model, tea.Cmd) {
 		return m.askConfirm(confirmState{
 			action:   confirmDeactivate,
 			title:    confirmDeactivateTitle,
-			question: fmt.Sprintf("Esta acción desactiva la cuenta %s. ¿Confirmar?", accountLabel(m.accounts[m.cursor])),
+			question: fmt.Sprintf("Esta acción desactiva la cuenta %s. ¿Confirmar?", admin.AccountLabel(m.accounts[m.cursor])),
 			target:   m.accounts[m.cursor],
 		}), nil
 	case screenRolePicker:
@@ -509,7 +545,7 @@ func (m AppModel) pickSeedRecovery() (tea.Model, tea.Cmd) {
 	return m.askConfirm(confirmState{
 		action:   confirmReactivate,
 		title:    confirmReactivateTitle,
-		question: fmt.Sprintf("Se reactivará %s como owner activo. ¿Confirmar?", accountLabel(candidate)),
+		question: fmt.Sprintf("Se reactivará %s como owner activo. ¿Confirmar?", admin.AccountLabel(candidate)),
 		target:   candidate,
 	}), nil
 }
@@ -564,13 +600,15 @@ func (m AppModel) openMenuItem(index int) (tea.Model, tea.Cmd) {
 		return m.started(accountsCmd(m.ctx, m.deps, accountTable, admin.ListFilter{}))
 	case capabilityListByRole:
 		m = m.withScreen(screenRolePicker)
-		m.roles = listableRoles()
+		m.roles = admin.ListableRoles()
 		m.cursor = 0
 		return m, nil
 	case capabilityTransfer:
 		return m.started(transferDataCmd(m.ctx, m.deps))
 	case capabilityAddSelf:
 		return m.started(selfOwnerCmd(m.ctx, m.deps))
+	case capabilityConfigureHermes:
+		return m.started(hermesDataCmd(m.ctx, m.deps))
 	default:
 		return m, nil
 	}
@@ -701,6 +739,46 @@ func (m AppModel) onSelfOwner(msg selfOwnerMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// onHermesData opens the Hermes phone wizard once the active owner is known. A
+// missing ACTIVE owner (the menu could only be open if the owner was deactivated
+// after the gate ran) is a business failure: the flow needs an owner phone to
+// prefill, so it re-derives the gate instead of continuing with an empty field.
+func (m AppModel) onHermesData(msg hermesDataMsg) (tea.Model, tea.Cmd) {
+	m.busy = false
+	if msg.err != nil {
+		m.errLine = msg.err.Error()
+		return m.retryGate()
+	}
+
+	m.owner = msg.owner
+	m = m.withScreen(screenHermesForm)
+	m.form = newForm(hermesTitle, hermesSteps(msg.owner.ID))
+	return m, nil
+}
+
+// onHermesResult lands the Hermes write. Success shows the written facts; a
+// failure (the config could not be merged or written) opens the snippet screen
+// with the exact YAML the operator can paste by hand (ADR-0017 Decision 1).
+func (m AppModel) onHermesResult(msg hermesResultMsg) (tea.Model, tea.Cmd) {
+	m.busy = false
+
+	if msg.written {
+		return m.withInfo(infoSuccess,
+			"Configuración de Hermes actualizada.",
+			"Endpoint: "+m.deps.Hermes.EndpointURL,
+			"Teléfono (X-Caller-Id): "+m.hermesPhone,
+			"Archivo: "+m.deps.Hermes.Path,
+		), nil
+	}
+
+	m = m.withScreen(screenHermesSnippet)
+	if msg.err != nil {
+		m.errLine = msg.err.Error()
+	}
+	m.hermesSnippet = msg.snippet
+	return m, nil
+}
+
 // onResult lands a write. A seed or recovery failure re-derives the gate instead
 // of trusting the state the flow started from, which is what keeps the seed
 // gateway loop honest: the operator cannot end up in the menu without an owner.
@@ -732,7 +810,7 @@ func (m AppModel) seedErrorLine(err error) string {
 	if m.screen != screenSeedForm || !errors.Is(err, admin.ErrOwnerAlreadyExists) {
 		return line
 	}
-	if hint := seedConflictHint(m.inactive, m.submittedPhone); hint != "" {
+	if hint := admin.ReactivationHint(m.inactive, m.submittedPhone); hint != "" {
 		return line + "\n" + hint
 	}
 	return line
@@ -770,6 +848,8 @@ func (m AppModel) menuScreen(notice string) AppModel {
 	m.form = formModel{}
 	m.successor = transferOption{}
 	m.transferDraft = admin.TransferSuccessor{}
+	m.hermesPhone = ""
+	m.hermesSnippet = ""
 	return m
 }
 
@@ -824,7 +904,7 @@ func (m AppModel) pickerLabels() []string {
 	case screenSeedRecovery:
 		labels := make([]string, 0, len(m.inactive)+1)
 		for _, view := range m.inactive {
-			labels = append(labels, "Reactivar "+accountLabel(view))
+			labels = append(labels, "Reactivar "+admin.AccountLabel(view))
 		}
 		return append(labels, "Crear un owner nuevo con otro teléfono")
 	case screenStaffPicker:
@@ -836,7 +916,7 @@ func (m AppModel) pickerLabels() []string {
 	case screenDeactivatePicker:
 		labels := make([]string, 0, len(m.accounts))
 		for _, view := range m.accounts {
-			labels = append(labels, accountLabel(view))
+			labels = append(labels, admin.AccountLabel(view))
 		}
 		return labels
 	case screenRolePicker:
@@ -877,20 +957,6 @@ func tableHeight(height int) int {
 	return max(height-chromeLines, 3)
 }
 
-// accountLabel renders one account for the operator: the display name the human
-// recognises, plus the role and the phone, the two fields that cannot be guessed
-// from the name.
-func accountLabel(view admin.AccountView) string {
-	return fmt.Sprintf("%s (%s, %s)", view.DisplayName, view.Role, view.ID)
-}
-
-// listableRoles is the role sub-menu of "Listar por rol". It mirrors the domain
-// enumeration (ADR-0009); the core validates the selected role again before any
-// port call.
-func listableRoles() []entity.AccountRole {
-	return []entity.AccountRole{entity.RoleOwner, entity.RoleAdmin, entity.RoleStaff}
-}
-
 // cancelNotice phrases the cancellation of the confirmation the operator just
 // declined. A cancellation is a decision, not an error.
 func cancelNotice(action confirmAction) string {
@@ -901,6 +967,8 @@ func cancelNotice(action confirmAction) string {
 		return "Operación cancelada: no se desactivó ninguna cuenta."
 	case confirmTransfer:
 		return "Operación cancelada: no se transfirió la propiedad."
+	case confirmHermesConfig:
+		return "Operación cancelada: no se cambió la configuración de Hermes."
 	default:
 		return "Operación cancelada."
 	}

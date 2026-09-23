@@ -43,11 +43,24 @@ type ClientsPort interface {
 	admin.ClientsSelfService
 }
 
+// HermesConfig is the Hermes bootstrap data the composition root resolves once
+// from the running server configuration (ADR-0017): the config file the flow
+// reads, merges and writes, and the MCP endpoint URL Hermes must call. The TUI
+// derives neither value itself — the endpoint comes from MCP_BIND/MCP_PORT and
+// the path from the standard ~/.hermes layout — and the path stays injectable so
+// a test points it at t.TempDir() instead of a real home.
+type HermesConfig struct {
+	Path        string
+	EndpointURL string
+}
+
 // Deps bundles the identity repositories the TUI operates on. The composition
 // root (cmd/mcp-server) builds it from newIdentityDeps, so the TUI and serve
-// mode cannot drift in repository construction.
+// mode cannot drift in repository construction. Hermes carries the resolved
+// Hermes bootstrap data of the "Configurar Hermes" capability.
 type Deps struct {
 	Accounts      AccountsPort
 	Professionals ProfessionalsPort
 	Clients       ClientsPort
+	Hermes        HermesConfig
 }
