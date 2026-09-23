@@ -190,7 +190,7 @@ func TestExecuteCLIDispatch(t *testing.T) {
 
 	var called []string
 	recorder := func(name string, err error) commandRunner {
-		return func() error {
+		return func(context.Context) error {
 			called = append(called, name)
 			return err
 		}
@@ -218,7 +218,7 @@ func TestExecuteCLIDispatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			called = nil
 
-			err := executeCLI(tt.args, runners)
+			err := executeCLI(context.Background(), tt.args, runners)
 
 			switch {
 			case tt.wantErr != nil:

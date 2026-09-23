@@ -71,7 +71,7 @@ func TestRunAdminTUIFlow_SeedsOwnerAndWritesCallerID(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("+5491100000000\nDueño\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -129,7 +129,7 @@ func TestRunAdminTUIFlow_ExistingOwnerExitsCleanlyWithoutPrompting(t *testing.T)
 	var out bytes.Buffer
 	// The stream is empty on purpose: an already-seeded install must not ask
 	// the operator anything (and must not fail on EOF).
-	if err := runAdminTUIFlow(strings.NewReader(""), &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), strings.NewReader(""), &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v, want a clean exit", err)
 	}
 
@@ -160,7 +160,7 @@ func TestRunAdminTUIFlow_RepairsMissingCallerIDForExistingOwner(t *testing.T) {
 
 	var out bytes.Buffer
 	// No stdin on purpose: the repair path must not prompt either.
-	if err := runAdminTUIFlow(strings.NewReader(""), &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), strings.NewReader(""), &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v, want the repair to succeed", err)
 	}
 
@@ -197,7 +197,7 @@ func TestRunAdminTUIFlow_RepairFailureIsReported(t *testing.T) {
 	t.Setenv("MCP_CONFIG_DIR", filepath.Join(blocker, "config"))
 
 	var out bytes.Buffer
-	err := runAdminTUIFlow(strings.NewReader(""), &out)
+	err := runAdminTUIFlow(context.Background(), strings.NewReader(""), &out)
 	if err == nil {
 		t.Fatal("runAdminTUIFlow() error = nil, want the caller-id repair failure")
 	}
@@ -218,7 +218,7 @@ func TestRunAdminTUIFlow_RepromptsOnInvalidPhone(t *testing.T) {
 	// Two invalid answers (non-numeric, then too short) before a valid one.
 	stdin := strings.NewReader("no-es-un-telefono\n123\n+5491100000000\nDueño\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -241,7 +241,7 @@ func TestRunAdminTUIFlow_RepromptsOnBlankDisplayName(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("+5491100000000\n   \nDueño\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -261,7 +261,7 @@ func TestRunAdminTUIFlow_RepromptsOnBlankDisplayName(t *testing.T) {
 func TestRunAdminTUIFlow_AbortedInputCreatesNothing(t *testing.T) {
 	dbPath, _ := prepareAdminTUI(t)
 
-	err := runAdminTUIFlow(strings.NewReader(""), &bytes.Buffer{})
+	err := runAdminTUIFlow(context.Background(), strings.NewReader(""), &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("runAdminTUIFlow() error = nil, want an aborted-seed error")
 	}
@@ -282,7 +282,7 @@ func TestRunAdminTUIReportsDatabaseFailure(t *testing.T) {
 	t.Setenv("MCP_DB_PATH", filepath.Join(blocker, "appointments.db"))
 	t.Setenv("MCP_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
 
-	err := runAdminTUI()
+	err := runAdminTUI(context.Background())
 	if err == nil {
 		t.Fatal("runAdminTUI() error = nil, want an open-database failure")
 	}
@@ -300,10 +300,10 @@ func TestExecuteCLIRoutesAdminTUIRunner(t *testing.T) {
 	seedOwnerForTest(t, dbPath, "+5491100000000", "Dueño")
 
 	var serveCalled, hermesCalled bool
-	err := executeCLI([]string{"admin", "tui"}, cliRunners{
-		serve:      func() error { serveCalled = true; return nil },
+	err := executeCLI(context.Background(), []string{"admin", "tui"}, cliRunners{
+		serve:      func(context.Context) error { serveCalled = true; return nil },
 		adminTUI:   runAdminTUI,
-		hermesChat: func() error { hermesCalled = true; return nil },
+		hermesChat: func(context.Context) error { hermesCalled = true; return nil },
 	})
 
 	if serveCalled {
@@ -322,7 +322,7 @@ func TestExecuteCLIRoutesAdminTUIRunner(t *testing.T) {
 func TestRunHermesChatWithoutImplementation(t *testing.T) {
 	t.Setenv("MCP_DB_PATH", filepath.Join(t.TempDir(), "appointments.db"))
 
-	err := runHermesChat()
+	err := runHermesChat(context.Background())
 	if err == nil {
 		t.Fatal("runHermesChat() error = nil, want the not-implemented semantic error")
 	}
@@ -409,7 +409,7 @@ func TestRunAdminTUIFlow_AddStaffFromMenu(t *testing.T) {
 	// (blank line) -> display name -> quit.
 	stdin := strings.NewReader("1\n1\n\nAna Staff\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -448,7 +448,7 @@ func TestRunAdminTUIFlow_RepromptsOnInvalidProfessionalSelection(t *testing.T) {
 	// selection.
 	stdin := strings.NewReader("1\n9\n0\nabc\n1\n\nAna Staff\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -469,7 +469,7 @@ func TestRunAdminTUIFlow_RepromptsOnInvalidStaffPhone(t *testing.T) {
 	// The default is overridden by two invalid answers, then a valid one.
 	stdin := strings.NewReader("1\n1\nno-es-un-telefono\n123\n+5491100000002\nAna Staff\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -510,7 +510,7 @@ func TestRunAdminTUIFlow_AddStaffConflictReturnsToMenu(t *testing.T) {
 	// menu reopens and `q` still exits cleanly.
 	stdin := strings.NewReader("1\n1\n+5491100000001\nAna Staff\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v, want the error to return to the menu", err)
 	}
 
@@ -532,7 +532,7 @@ func TestRunAdminTUIFlow_NoActiveProfessionalsReturnsToMenu(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("1\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -551,7 +551,7 @@ func TestRunAdminTUIFlow_UnknownMenuOptionReprompts(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("x\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v, want a clean exit", err)
 	}
 
@@ -571,7 +571,7 @@ func TestRunAdminTUIFlow_SeedThenAddStaffInSameSession(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("+5491100000000\nDueño\n1\n1\n\nAna Staff\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -715,7 +715,7 @@ func TestRunAdminTUIFlow_DeactivateFromMenu(t *testing.T) {
 	// Menu -> Deactivate -> pick the staff account -> confirm -> quit.
 	stdin := strings.NewReader(fmt.Sprintf("2\n%d\ns\nq\n", staffIndex))
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -749,7 +749,7 @@ func TestRunAdminTUIFlow_DeactivateCancelledWritesNothing(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader(fmt.Sprintf("2\n%d\nn\nq\n", staffIndex))
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -775,7 +775,7 @@ func TestRunAdminTUIFlow_DeactivateRepromptsOnInvalidConfirmation(t *testing.T) 
 	// and only the explicit "s" deactivates.
 	stdin := strings.NewReader(fmt.Sprintf("2\n%d\nquizás\ns\nq\n", staffIndex))
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -802,7 +802,7 @@ func TestRunAdminTUIFlow_RefusesToDeactivateTheLastActiveOwner(t *testing.T) {
 	// and the menu reopens instead of aborting the session.
 	stdin := strings.NewReader(fmt.Sprintf("2\n%d\ns\nq\n", ownerIndex))
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v, want the refusal to return to the menu", err)
 	}
 
@@ -830,7 +830,7 @@ func TestRunAdminTUIFlow_ListsAllAccounts(t *testing.T) {
 	// Menu -> List accounts -> do not include inactive -> quit.
 	stdin := strings.NewReader("3\nn\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -850,7 +850,7 @@ func TestRunAdminTUIFlow_ListHidesInactiveUntilOptedIn(t *testing.T) {
 	deactivateAccountForTest(t, dbPath, staffPhone)
 
 	var hidden bytes.Buffer
-	if err := runAdminTUIFlow(strings.NewReader("3\nn\nq\n"), &hidden); err != nil {
+	if err := runAdminTUIFlow(context.Background(), strings.NewReader("3\nn\nq\n"), &hidden); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 	if strings.Contains(hidden.String(), staffPhone) {
@@ -863,7 +863,7 @@ func TestRunAdminTUIFlow_ListHidesInactiveUntilOptedIn(t *testing.T) {
 	}
 
 	var shown bytes.Buffer
-	if err := runAdminTUIFlow(strings.NewReader("3\ns\nq\n"), &shown); err != nil {
+	if err := runAdminTUIFlow(context.Background(), strings.NewReader("3\ns\nq\n"), &shown); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 	if !strings.Contains(shown.String(), staffPhone) {
@@ -882,7 +882,7 @@ func TestRunAdminTUIFlow_ListsByRole(t *testing.T) {
 	// Menu -> List by role -> invalid role index -> staff -> no inactive -> quit.
 	stdin := strings.NewReader("4\n9\n3\nn\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -905,7 +905,7 @@ func TestRunAdminTUIFlow_EmptyRoleListShowsSemanticMessage(t *testing.T) {
 	// There is no admin account: the empty view is an answer, not an error.
 	stdin := strings.NewReader("4\n2\nn\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -959,7 +959,7 @@ func TestRunAdminTUIFlow_TransferOwnershipPromotesStaffFromMenu(t *testing.T) {
 	// Menu -> Transfer -> option 1 (the only staff account) -> confirm -> quit.
 	stdin := strings.NewReader("5\n1\ns\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1014,7 +1014,7 @@ func TestRunAdminTUIFlow_TransferCancelledWritesNothing(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("5\n1\nn\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1049,7 +1049,7 @@ func TestRunAdminTUIFlow_TransferToNewPhoneCreatesInactiveOwnerThenSwaps(t *test
 	// Menu -> Transfer -> option 2 (new phone) -> phone -> name -> confirm -> quit.
 	stdin := strings.NewReader("5\n2\n" + successorPhone + "\nDueño Nuevo\ns\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1088,7 +1088,7 @@ func TestRunAdminTUIFlow_DeadendOffersReactivation(t *testing.T) {
 	// Recovery menu -> reactivate option 1 -> confirm -> quit the operator menu.
 	stdin := strings.NewReader("1\ns\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1128,7 +1128,7 @@ func TestRunAdminTUIFlow_DeadendReactivationCancelledKeepsTheSystemOwnerless(t *
 	// Recovery -> reactivate -> decline -> create a new owner with a fresh phone -> quit.
 	stdin := strings.NewReader("1\nn\n2\n" + successorPhone + "\nDueño Nuevo\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1162,7 +1162,7 @@ func TestRunAdminTUIFlow_DeadendTakenPhoneGivesReactivationGuidance(t *testing.T
 	// re-render -> reactivate option 1 -> confirm -> quit.
 	stdin := strings.NewReader("2\n" + ownerPhone + "\nOtro Nombre\n1\ns\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1263,7 +1263,7 @@ func TestRunAdminTUIFlow_AddSelfAsClientFromMenu(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("6\nDueño Cliente\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1302,7 +1302,7 @@ func TestRunAdminTUIFlow_AddSelfAsClientIsIdempotent(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("6\nDueño Cliente\n6\nDueño Cliente\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1334,7 +1334,7 @@ func TestRunAdminTUIFlow_AddSelfAsClientConflictReturnsToMenu(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("6\nDueño Cliente\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v, want the error to return to the menu", err)
 	}
 
@@ -1367,7 +1367,7 @@ func TestRunAdminTUIFlow_AddSelfAsClientRepromptsOnBlankName(t *testing.T) {
 	var out bytes.Buffer
 	stdin := strings.NewReader("6\n   \nDueño Cliente\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1422,7 +1422,9 @@ func consoleIdentity(t *testing.T, dbPath string) identityDeps {
 // contract: the Hermes capability is exactly one entry, in menu order, with the
 // label the Bubble Tea menu renders.
 func TestAdminMenuOptions_RegistersConfigureHermes(t *testing.T) {
-	options := adminMenuOptions(consoleHermes{path: "p", endpointURL: "e"})
+	options := adminMenuOptions(func() (consoleHermes, error) {
+		return consoleHermes{path: "p", endpointURL: "e"}, nil
+	})
 
 	if len(options) != 7 {
 		t.Fatalf("option count = %d, want 7", len(options))
@@ -1462,7 +1464,7 @@ func TestRunAdminTUIFlow_ConfigureHermesWritesMergedConfig(t *testing.T) {
 	// -> confirm -> quit.
 	stdin := strings.NewReader("7\n\ns\nq\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1507,7 +1509,7 @@ func TestRunAdminTUIFlow_ConfigureHermesRejectsInvalidPhone(t *testing.T) {
 	// The prefill is overridden by an invalid answer and the stream then ends.
 	stdin := strings.NewReader("7\nno-es-un-telefono\n")
 
-	if err := runAdminTUIFlow(stdin, &out); err != nil {
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
 	}
 
@@ -1516,6 +1518,41 @@ func TestRunAdminTUIFlow_ConfigureHermesRejectsInvalidPhone(t *testing.T) {
 	}
 	if _, err := os.Stat(hermesPath); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("stat Hermes config = %v, want it not to exist after an invalid phone", err)
+	}
+}
+
+// TestRunAdminTUIFlow_ConfigureHermesSurfacesAnInvalidBindLazily locks the lazy
+// bootstrap contract end to end: a non-loopback MCP_BIND (rejected by fix #2 in
+// HermesEndpointURL) must not block the console startup. The seed/menu path runs
+// normally and the semantic error surfaces only when option 7 is opened, with
+// the menu reopening afterwards.
+func TestRunAdminTUIFlow_ConfigureHermesSurfacesAnInvalidBindLazily(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+
+	// A throwaway home so the path resolution is hermetic, and a non-loopback
+	// bind so HermesEndpointURL fails.
+	setTestHome(t, t.TempDir())
+	t.Setenv("MCP_BIND", "192.168.1.1")
+	t.Setenv("MCP_PORT", "3000")
+
+	var out bytes.Buffer
+	// Menu -> Configure Hermes (resolution fails) -> quit.
+	stdin := strings.NewReader("7\nq\n")
+
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v, want the console to survive the resolution failure", err)
+	}
+
+	// Startup was unaffected: the menu opened (no eager resolution failure).
+	for _, want := range []string{"¿Qué querés hacer?", "Configurar Hermes"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+	// The invalid bind surfaced as the menu's semantic error.
+	if !strings.Contains(out.String(), "Error: ") || !strings.Contains(out.String(), "no es loopback") {
+		t.Errorf("output = %q, want the semantic bind error on the menu", out.String())
 	}
 }
 

@@ -37,6 +37,7 @@ type fixture struct {
 	dbPath     string
 	configDir  string
 	hermesPath string
+	hermes     *HermesConfig
 
 	accounts      *repository.AccountsRepo
 	professionals *repository.ProfessionalsRepo
@@ -71,6 +72,12 @@ func newFixture(t *testing.T) fixture {
 		t.Fatalf("admin.HermesEndpointURL() failed: %v", err)
 	}
 
+	// The Hermes bootstrap is resolved lazily by the TUI, so the fixture hands
+	// the model a resolver over a shared config: a test mutates f.hermes to
+	// change what the "Configurar Hermes" command sees.
+	hermes := &HermesConfig{Path: f.hermesPath, EndpointURL: endpoint}
+	f.hermes = hermes
+
 	f.accounts = repository.NewAccountsRepo(database.Conn, slog.Default())
 	f.professionals = repository.NewProfessionalsRepo(database.Conn)
 	f.clients = repository.NewClientsRepo(database.Conn)
@@ -78,7 +85,7 @@ func newFixture(t *testing.T) fixture {
 		Accounts:      f.accounts,
 		Professionals: f.professionals,
 		Clients:       f.clients,
-		Hermes:        HermesConfig{Path: f.hermesPath, EndpointURL: endpoint},
+		Hermes:        NewHermesBootstrap(func() (HermesConfig, error) { return *hermes, nil }),
 	}
 	return f
 }
@@ -1196,7 +1203,7 @@ func TestAppModelHermesConfigWritesTheMergedConfig(t *testing.T) {
 	}
 
 	confirmView := d.view()
-	for _, want := range []string{f.deps.Hermes.EndpointURL, ownerPhone, f.hermesPath} {
+	for _, want := range []string{f.hermes.EndpointURL, ownerPhone, f.hermesPath} {
 		if !strings.Contains(confirmView, want) {
 			t.Errorf("confirmation view missing %q\n%s", want, confirmView)
 		}
@@ -1216,7 +1223,7 @@ func TestAppModelHermesConfigWritesTheMergedConfig(t *testing.T) {
 		"model: hermes-default",
 		"openai",
 		admin.HermesServerName,
-		f.deps.Hermes.EndpointURL,
+		f.hermes.EndpointURL,
 		`X-Caller-Id: "` + ownerPhone + `"`,
 	} {
 		if !strings.Contains(content, want) {
@@ -1259,7 +1266,7 @@ func TestAppModelHermesConfigFallsBackToTheSnippetWhenTheWriteIsImpossible(t *te
 	// treats the missing file as empty, and the write fails with a semantic error
 	// instead of a raw driver failure. The flow must degrade to the manual
 	// snippet (ADR-0017 Decision 1).
-	f.deps.Hermes.Path = ""
+	f.hermes.Path = ""
 
 	d := newDriver(t, f)
 	d.press("7")
@@ -1304,6 +1311,42 @@ func TestAppModelHermesConfigRequiresAnActiveOwner(t *testing.T) {
 	}
 	if view := d.view(); !strings.Contains(view, "cuentas de owner desactivadas") {
 		t.Errorf("view = %q, want the recovery gateway", view)
+	}
+}
+
+// TestAppModelHermesConfigSurfacesAResolutionFailureOnTheMenu locks the lazy
+// bootstrap contract: a bind the endpoint validator rejects (fix #2, c28743d)
+// must not block the tui startup. The error surfaces only when the operator
+// opens "Configurar Hermes", and the menu reopens with it visible.
+func TestAppModelHermesConfigSurfacesAResolutionFailureOnTheMenu(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+
+	_, bindErr := admin.HermesEndpointURL("192.168.1.1", "3000")
+	if bindErr == nil {
+		t.Fatal("admin.HermesEndpointURL(192.168.1.1) succeeded, want the loopback validation failure")
+	}
+	f.deps.Hermes = NewHermesBootstrap(func() (HermesConfig, error) {
+		return HermesConfig{}, bindErr
+	})
+
+	d := newDriver(t, f)
+	// Startup is unaffected: the gate opened the menu because an owner exists,
+	// even though the bootstrap cannot be resolved.
+	if d.model.screen != screenMenu {
+		t.Fatalf("startup screen = %v, want the menu (resolution must not run at startup)", d.model.screen)
+	}
+
+	d.press("7")
+
+	if d.model.screen != screenMenu {
+		t.Fatalf("screen after opening Hermes with an invalid bind = %v, want the menu", d.model.screen)
+	}
+	if !strings.Contains(d.model.errLine, "no es loopback") {
+		t.Errorf("errLine = %q, want the semantic bind failure", d.model.errLine)
+	}
+	if view := d.view(); !strings.Contains(view, "Error: ") || !strings.Contains(view, "no es loopback") {
+		t.Errorf("menu view = %q, want the semantic bind error rendered", view)
 	}
 }
 

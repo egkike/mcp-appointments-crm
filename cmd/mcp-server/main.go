@@ -67,7 +67,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
@@ -89,13 +91,28 @@ func main() {
 		return
 	}
 
+	// #7 (hygiene-followups): one signal-bound context for the whole process.
+	// SIGTERM/SIGINT cancel it and every command receives it, so the shared
+	// SQLite open (openDatabase) is cancellation-aware and serve mode reuses the
+	// same context instead of minting a private Background. The interactive
+	// sub-commands use it ONLY for that shared open: their in-flight operator
+	// writes must run to completion, so the admin flows keep their own
+	// background context (see runAdminTUIProgram/runAdminTUIFlow). mcp.Run keeps
+	// its own signal.Notify for the second-signal force-close; the two
+	// registrations on the same signals coexist without clashing.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+
 	// os.Exit only here, where no defers are pending: every runner owns its
-	// database handle and always closes it before returning an error.
-	if err := executeCLI(os.Args[1:], cliRunners{
+	// database handle and always closes it before returning an error. stop() is
+	// called explicitly (not deferred) so the signal handler is released on both
+	// the clean and the fatal path without tripping exitAfterDefer.
+	err := executeCLI(ctx, os.Args[1:], cliRunners{
 		serve:      run,
 		adminTUI:   runAdminTUI,
 		hermesChat: runHermesChat,
-	}); err != nil {
+	})
+	stop()
+	if err != nil {
 		slog.Default().Error("mcp server failed", "error", err)
 		os.Exit(1)
 	}
@@ -179,8 +196,10 @@ func invalidArgsError(detail string) error {
 	}
 }
 
-// commandRunner is the entry point of one top-level command.
-type commandRunner func() error
+// commandRunner is the entry point of one top-level command. It receives the
+// process signal context so the shared startup step (openDatabase) is
+// cancellation-aware.
+type commandRunner func(ctx context.Context) error
 
 // cliRunners binds each command kind to its entry point. main() supplies the
 // real runners; tests inject stubs so dispatch is asserted without a database
@@ -194,7 +213,7 @@ type cliRunners struct {
 // executeCLI parses args and runs exactly one command. It is the single
 // dispatch point of the binary: a sub-command can never fall through into
 // serve mode, and an invalid invocation runs nothing at all.
-func executeCLI(args []string, runners cliRunners) error {
+func executeCLI(ctx context.Context, args []string, runners cliRunners) error {
 	kind, err := parseCommand(args)
 	if err != nil {
 		return err
@@ -202,11 +221,11 @@ func executeCLI(args []string, runners cliRunners) error {
 
 	switch kind {
 	case commandServe:
-		return runners.serve()
+		return runners.serve(ctx)
 	case commandAdminTUI:
-		return runners.adminTUI()
+		return runners.adminTUI(ctx)
 	case commandHermesChat:
-		return runners.hermesChat()
+		return runners.hermesChat(ctx)
 	default:
 		// Defensive: parseCommand never yields commandInvalid with a nil
 		// error, and this branch must not start the server if it ever did.
@@ -226,7 +245,7 @@ func printVersion(w io.Writer) {
 	_, _ = fmt.Fprintln(w, buildinfo.Version) //nolint:errcheck // best-effort write to stdout; caller exits immediately
 }
 
-func run() error {
+func run(ctx context.Context) error {
 	// D2: Logger from slog.Default() (writes to stderr).
 	logger := slog.Default()
 
@@ -243,8 +262,9 @@ func run() error {
 	}
 
 	// D1: open the SQLite database (WAL, busy_timeout=5000) through the same
-	// helper the sub-commands use (D6).
-	ctx := context.Background()
+	// helper the sub-commands use (D6). ctx is the process signal context
+	// created once in main(), so SIGTERM/SIGINT cancel the open like the rest of
+	// serve mode instead of leaving it on a private Background.
 	database, err := openDatabase(ctx, logger)
 	if err != nil {
 		return err
@@ -496,8 +516,8 @@ func wiredRepoInventory() int {
 // T1 wires the sub-command only: it validates the shared startup dependencies
 // exactly like serve mode does and then fails fast, so the reserved name never
 // silently degrades into the MCP server.
-func runHermesChat() error {
-	deps, err := openCommandDependencies()
+func runHermesChat(ctx context.Context) error {
+	deps, err := openCommandDependencies(ctx)
 	if err != nil {
 		return err
 	}
@@ -541,7 +561,7 @@ type commandDependencies struct {
 // for those two steps (loopback validation stays serve-only: the TUI does not
 // depend on the HTTP transport, ADR-0016 Decision 3.5). The caller MUST call
 // close when done.
-func openCommandDependencies() (*commandDependencies, error) {
+func openCommandDependencies(ctx context.Context) (*commandDependencies, error) {
 	logger := slog.Default()
 
 	cfg, err := loadConfig(logger)
@@ -549,7 +569,7 @@ func openCommandDependencies() (*commandDependencies, error) {
 		return nil, err
 	}
 
-	database, err := openDatabase(context.Background(), logger)
+	database, err := openDatabase(ctx, logger)
 	if err != nil {
 		return nil, err
 	}

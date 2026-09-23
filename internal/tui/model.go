@@ -743,13 +743,23 @@ func (m AppModel) onSelfOwner(msg selfOwnerMsg) (tea.Model, tea.Cmd) {
 // missing ACTIVE owner (the menu could only be open if the owner was deactivated
 // after the gate ran) is a business failure: the flow needs an owner phone to
 // prefill, so it re-derives the gate instead of continuing with an empty field.
+// A bootstrap resolution failure (invalid MCP_BIND, unresolvable home) is
+// action-scoped instead: the menu reopens with the error visible.
 func (m AppModel) onHermesData(msg hermesDataMsg) (tea.Model, tea.Cmd) {
 	m.busy = false
 	if msg.err != nil {
 		m.errLine = msg.err.Error()
+		if msg.resolveFailed {
+			return m.reopenMenu(), nil
+		}
 		return m.retryGate()
 	}
 
+	// Store the resolved facts in the model's deps copy: the Hermes screens read
+	// the promoted EndpointURL/Path fields, and the confirmation and write
+	// commands read them back. The resolver is kept so the cached provider is
+	// reused on a later open.
+	m.deps.Hermes.HermesConfig = msg.hermes
 	m.owner = msg.owner
 	m = m.withScreen(screenHermesForm)
 	m.form = newForm(hermesTitle, hermesSteps(msg.owner.ID))
@@ -834,6 +844,17 @@ func (m AppModel) retryGate() (tea.Model, tea.Cmd) {
 	m.screen = screenBoot
 	m.busy = true
 	return m, tea.Batch(loadGateCmd(m.ctx, m.deps), m.spinner.Tick)
+}
+
+// reopenMenu returns to the operator menu keeping the error line that explains
+// why the action could not open. Unlike retryGate it does not re-run the boot
+// sequence: the installation state is unchanged, only the action's own
+// dependency failed to resolve, so the error must stay visible on the menu.
+func (m AppModel) reopenMenu() AppModel {
+	errLine := m.errLine
+	m = m.menuScreen("")
+	m.errLine = errLine
+	return m
 }
 
 // menuScreen returns to the menu, dropping the flow drafts: a cancelled or

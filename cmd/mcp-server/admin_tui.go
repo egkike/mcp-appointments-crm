@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
@@ -36,34 +37,43 @@ import (
 // and render the shared operator facts through the presentation helpers in
 // internal/admin (account label, role menu, successor list, recovery hint), so
 // the two entry points cannot drift.
-func runAdminTUI() error {
+func runAdminTUI(ctx context.Context) error {
 	if interactiveTerminal() {
-		return runAdminTUIProgram()
+		return runAdminTUIProgram(ctx)
 	}
-	return runAdminTUIFlow(os.Stdin, os.Stdout)
+	return runAdminTUIFlow(ctx, os.Stdin, os.Stdout)
 }
 
 // runAdminTUIProgram opens the interactive Bubble Tea program over the identity
 // repositories. The HTTP transport is deliberately not validated: ADR-0016
 // Decision 3.5 keeps the TUI independent from it (shared *sql.DB, logger and
 // repos only).
-func runAdminTUIProgram() error {
-	deps, err := openCommandDependencies()
+func runAdminTUIProgram(ctx context.Context) error {
+	deps, err := openCommandDependencies(ctx)
 	if err != nil {
 		return err
 	}
 	defer deps.close()
 
 	identity := newIdentityDeps(deps.database, deps.logger)
-	hermes, err := resolveHermesConfig(deps.config.Bind, deps.config.Port)
-	if err != nil {
-		return err
-	}
+
+	// #1 (hygiene-followups): the Hermes bootstrap is resolved lazily, inside the
+	// "Configurar Hermes" command, never at startup. sync.OnceValues caches the
+	// resolution (success or failure) so the cost is paid at most once, and an
+	// unresolvable home or an invalid MCP_BIND can no longer block the whole
+	// admin TUI.
+	resolveHermes := sync.OnceValues(func() (tui.HermesConfig, error) {
+		return resolveHermesConfig(deps.config.Bind, deps.config.Port)
+	})
+
+	// tui.Run keeps a background context on purpose: the program is interactive
+	// and a termination signal must not cancel an in-flight operator write
+	// mid-flow. ctx only bounded the shared database open above.
 	return tui.Run(context.Background(), tui.Deps{
 		Accounts:      identity.accounts,
 		Professionals: identity.professionals,
 		Clients:       identity.clients,
-		Hermes:        hermes,
+		Hermes:        tui.NewHermesBootstrap(resolveHermes),
 	})
 }
 
@@ -150,27 +160,35 @@ func isTerminalFile(file *os.File) bool {
 // The interactive presentation (internal/tui, T7) drives the same core with the
 // same startup validation; this one exists for the invocations that have no
 // terminal to render on.
-func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
-	deps, err := openCommandDependencies()
+func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
+	deps, err := openCommandDependencies(ctx)
 	if err != nil {
 		return err
 	}
 	defer deps.close()
 
 	identity := newIdentityDeps(deps.database, deps.logger)
-	ctx := context.Background()
+
+	// The console flow is interactive: its admin calls run on a background
+	// context so a termination signal never cancels an in-flight write mid-flow.
+	// ctx only bounded the shared database open above.
+	flowCtx := context.Background()
 	scanner := bufio.NewScanner(stdin)
 
-	// The Hermes bootstrap facts come from the running server configuration
-	// (MCP_BIND/MCP_PORT), never from a hardcoded path or URL. They are resolved
-	// once here and threaded into the menu, mirroring runAdminTUIProgram.
-	hermesPath, hermesEndpoint, err := resolveHermesBootstrap(deps.config.Bind, deps.config.Port)
-	if err != nil {
-		return err
+	// #1 (hygiene-followups): the Hermes bootstrap facts come from the running
+	// server configuration (MCP_BIND/MCP_PORT), never from a hardcoded path or
+	// URL, and they are resolved on demand when the operator opens "Configurar
+	// Hermes". A bad bind or an unresolvable home therefore only surfaces as the
+	// menu's "Error: ..." line and no longer blocks the whole console.
+	resolveHermes := func() (consoleHermes, error) {
+		path, endpoint, err := resolveHermesBootstrap(deps.config.Bind, deps.config.Port)
+		if err != nil {
+			return consoleHermes{}, err
+		}
+		return consoleHermes{path: path, endpointURL: endpoint}, nil
 	}
-	hermes := consoleHermes{path: hermesPath, endpointURL: hermesEndpoint}
 
-	needsSeed, err := admin.NeedsSeed(ctx, identity.accounts)
+	needsSeed, err := admin.NeedsSeed(flowCtx, identity.accounts)
 	if err != nil {
 		return err
 	}
@@ -179,7 +197,7 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 		// R4-partial-seed-wedge: a previous run may have created the owner and
 		// then failed to write the caller-id file. Repair it before reporting a
 		// clean exit, or Hermes keeps failing to resolve a caller id.
-		repaired, err := admin.EnsureCallerID(ctx, identity.accounts)
+		repaired, err := admin.EnsureCallerID(flowCtx, identity.accounts)
 		if err != nil {
 			return err
 		}
@@ -193,22 +211,22 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 				return err
 			}
 		}
-		return runAdminMenu(ctx, identity, scanner, stdout, hermes)
+		return runAdminMenu(flowCtx, identity, scanner, stdout, resolveHermes)
 	}
 
 	// R4-deactivated-owner-seed-deadend: "no ACTIVE owner" does not mean "no
 	// owner row". When deactivated owner rows exist, the seed questionnaire
 	// stalls on the accounts.id PRIMARY KEY the moment the operator retypes that
 	// phone, so the reactivation path is offered first.
-	inactiveOwners, err := admin.InactiveOwners(ctx, identity.accounts)
+	inactiveOwners, err := admin.InactiveOwners(flowCtx, identity.accounts)
 	if err != nil {
 		return err
 	}
 	if len(inactiveOwners) > 0 {
-		if err := runSeedDeadendRecovery(ctx, identity, scanner, stdout, inactiveOwners); err != nil {
+		if err := runSeedDeadendRecovery(flowCtx, identity, scanner, stdout, inactiveOwners); err != nil {
 			return err
 		}
-		return runAdminMenu(ctx, identity, scanner, stdout, hermes)
+		return runAdminMenu(flowCtx, identity, scanner, stdout, resolveHermes)
 	}
 
 	if err := writeConsole(stdout,
@@ -222,7 +240,7 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 
-	if err := admin.Seed(ctx, identity.accounts, input); err != nil {
+	if err := admin.Seed(flowCtx, identity.accounts, input); err != nil {
 		if errors.Is(err, admin.ErrOwnerAlreadyExists) {
 			// Idempotent outcome: an owner appeared between the decision and
 			// the write. Report it semantically and exit clean — never
@@ -250,7 +268,7 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 
-	return runAdminMenu(ctx, identity, scanner, stdout, hermes)
+	return runAdminMenu(flowCtx, identity, scanner, stdout, resolveHermes)
 }
 
 // runSeedDeadendRecovery closes finding R4-deactivated-owner-seed-deadend: the
@@ -398,13 +416,18 @@ type adminMenuOption struct {
 	action adminMenuAction
 }
 
+// hermesResolver resolves the Hermes bootstrap facts on demand, so a bad bind
+// or an unresolvable home only surfaces when the operator opens "Configurar
+// Hermes" instead of blocking the whole console at startup.
+type hermesResolver func() (consoleHermes, error)
+
 // adminMenuOptions is the single dispatch table of the console menu. Landing
 // T5-T7 appends an entry here instead of adding branches to runAdminTUIFlow, so
 // the menu stays trivial to grow. The Hermes entry is the only capability whose
 // inputs come from the runtime configuration rather than from the operator
-// database, so it closes over the resolved bootstrap facts instead of reading
-// them from a package-level path.
-func adminMenuOptions(hermes consoleHermes) []adminMenuOption {
+// database, so it resolves them on demand through resolveHermes instead of
+// reading them from a package-level path.
+func adminMenuOptions(resolveHermes hermesResolver) []adminMenuOption {
 	return []adminMenuOption{
 		{key: "1", label: "Add Staff", action: runAddStaffFlow},
 		{key: "2", label: "Desactivar cuenta", action: runDeactivateAccountFlow},
@@ -413,6 +436,13 @@ func adminMenuOptions(hermes consoleHermes) []adminMenuOption {
 		{key: "5", label: "Transferir ownership", action: runTransferOwnershipFlow},
 		{key: "6", label: "Agregarme como cliente", action: runAddSelfAsClientFlow},
 		{key: "7", label: "Configurar Hermes", action: func(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+			// Lazy resolution: a bad bind or an unresolvable home is returned as
+			// a semantic error, which runAdminMenu renders as "Error: ..." and
+			// reopens the menu instead of aborting the session.
+			hermes, err := resolveHermes()
+			if err != nil {
+				return err
+			}
 			return runConfigureHermesFlow(ctx, identity, scanner, stdout, hermes)
 		}},
 	}
@@ -422,8 +452,8 @@ func adminMenuOptions(hermes consoleHermes) []adminMenuOption {
 // until they quit or the stream ends. End of input (Ctrl+D or a
 // non-interactive invocation) is a clean exit, not an error: an operator who
 // only needed the seed must not get a failure for not answering the menu.
-func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, hermes consoleHermes) error {
-	options := adminMenuOptions(hermes)
+func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, resolveHermes hermesResolver) error {
+	options := adminMenuOptions(resolveHermes)
 	for {
 		if err := writeMenu(stdout, options); err != nil {
 			return err
