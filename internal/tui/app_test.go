@@ -34,8 +34,9 @@ const (
 // model drives. Verification reads through the same connections, so a test
 // asserts the committed state and not a cached copy.
 type fixture struct {
-	dbPath    string
-	configDir string
+	dbPath     string
+	configDir  string
+	hermesPath string
 
 	accounts      *repository.AccountsRepo
 	professionals *repository.ProfessionalsRepo
@@ -48,8 +49,9 @@ func newFixture(t *testing.T) fixture {
 	t.Helper()
 
 	f := fixture{
-		dbPath:    filepath.Join(t.TempDir(), "appointments.db"),
-		configDir: filepath.Join(t.TempDir(), "config"),
+		dbPath:     filepath.Join(t.TempDir(), "appointments.db"),
+		configDir:  filepath.Join(t.TempDir(), "config"),
+		hermesPath: filepath.Join(t.TempDir(), ".hermes", admin.HermesConfigFileName),
 	}
 	t.Setenv("MCP_DB_PATH", f.dbPath)
 	t.Setenv("MCP_CONFIG_DIR", f.configDir)
@@ -64,10 +66,20 @@ func newFixture(t *testing.T) fixture {
 		}
 	})
 
+	endpoint, err := admin.HermesEndpointURL("127.0.0.1", "3000")
+	if err != nil {
+		t.Fatalf("admin.HermesEndpointURL() failed: %v", err)
+	}
+
 	f.accounts = repository.NewAccountsRepo(database.Conn, slog.Default())
 	f.professionals = repository.NewProfessionalsRepo(database.Conn)
 	f.clients = repository.NewClientsRepo(database.Conn)
-	f.deps = Deps{Accounts: f.accounts, Professionals: f.professionals, Clients: f.clients}
+	f.deps = Deps{
+		Accounts:      f.accounts,
+		Professionals: f.professionals,
+		Clients:       f.clients,
+		Hermes:        HermesConfig{Path: f.hermesPath, EndpointURL: endpoint},
+	}
 	return f
 }
 
@@ -154,6 +166,16 @@ func (f fixture) hasCallerID(t *testing.T) bool {
 	return err == nil
 }
 
+// hermesFile reads the Hermes config the flow wrote.
+func (f fixture) hermesFile(t *testing.T) string {
+	t.Helper()
+	content, err := os.ReadFile(f.hermesPath)
+	if err != nil {
+		t.Fatalf("read hermes config: %v", err)
+	}
+	return string(content)
+}
+
 // withOwnerAndStaff prepares the two-account installation the menu flows operate
 // on: an active owner and an active staff account linked to a professional.
 func withOwnerAndStaff(t *testing.T, f fixture) {
@@ -221,7 +243,7 @@ func (d *driver) run(cmd tea.Cmd) {
 		}
 	case tea.QuitMsg:
 		d.quit = true
-	case gateMsg, professionalsMsg, accountsMsg, transferDataMsg, selfOwnerMsg, resultMsg:
+	case gateMsg, professionalsMsg, accountsMsg, transferDataMsg, selfOwnerMsg, hermesDataMsg, hermesResultMsg, resultMsg:
 		d.send(msg)
 	default:
 		// spinner.TickMsg, cursor blink messages and other framework traffic.
@@ -1141,6 +1163,150 @@ func TestAppModelAddSelfAsClientIsIdempotent(t *testing.T) {
 	}
 }
 
+// ── Configurar Hermes (ADR-0017) ────────────────────────────────────────
+
+func TestAppModelHermesConfigWritesTheMergedConfig(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+
+	// A pre-existing Hermes config with a foreign top-level key and a foreign
+	// server: the merge must preserve both and only replace our entry.
+	if err := os.MkdirAll(filepath.Dir(f.hermesPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	seed := []byte("model: hermes-default\nmcp_servers:\n  openai:\n    url: https://api.example/mcp\n")
+	if err := os.WriteFile(f.hermesPath, seed, 0o600); err != nil {
+		t.Fatalf("seed hermes config: %v", err)
+	}
+
+	d := newDriver(t, f)
+	d.press("7")
+
+	if d.model.screen != screenHermesForm {
+		t.Fatalf("screen = %v, want the Hermes phone wizard", d.model.screen)
+	}
+	if got := d.model.form.input.Value(); got != ownerPhone {
+		t.Errorf("prefilled phone = %q, want the active owner phone %q", got, ownerPhone)
+	}
+
+	d.press("enter") // accept the prefilled phone
+	if d.model.screen != screenConfirm || d.model.confirm.action != confirmHermesConfig {
+		t.Fatalf("screen = %v action = %v, want the Hermes confirmation",
+			d.model.screen, d.model.confirm.action)
+	}
+
+	confirmView := d.view()
+	for _, want := range []string{f.deps.Hermes.EndpointURL, ownerPhone, f.hermesPath} {
+		if !strings.Contains(confirmView, want) {
+			t.Errorf("confirmation view missing %q\n%s", want, confirmView)
+		}
+	}
+
+	d.press("s")
+
+	if d.model.screen != screenInfo || d.model.infoKind != infoSuccess {
+		t.Fatalf("screen = %v kind = %v, want the success info screen", d.model.screen, d.model.infoKind)
+	}
+	if view := d.view(); !strings.Contains(view, "Configuración de Hermes actualizada") {
+		t.Errorf("view = %q, want the success summary", view)
+	}
+
+	content := f.hermesFile(t)
+	for _, want := range []string{
+		"model: hermes-default",
+		"openai",
+		admin.HermesServerName,
+		f.deps.Hermes.EndpointURL,
+		`X-Caller-Id: "` + ownerPhone + `"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("written Hermes config missing %q\n%s", want, content)
+		}
+	}
+}
+
+func TestAppModelHermesConfigRejectsAnInvalidPhone(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+
+	d := newDriver(t, f)
+	d.press("7")
+
+	// Clear the prefill and type something invalid.
+	for range d.model.form.input.Value() {
+		d.press("backspace")
+	}
+	d.typeText("nope")
+	d.press("enter")
+
+	if d.model.screen != screenHermesForm || d.model.form.index != 0 {
+		t.Fatalf("screen = %v index = %d, want the wizard still on the phone step",
+			d.model.screen, d.model.form.index)
+	}
+	if view := d.view(); !strings.Contains(view, "no es válido") {
+		t.Errorf("view = %q, want the semantic phone error", view)
+	}
+	if _, err := os.Stat(f.hermesPath); err == nil {
+		t.Error("an invalid phone wrote the Hermes config")
+	}
+}
+
+func TestAppModelHermesConfigFallsBackToTheSnippetWhenTheWriteIsImpossible(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+
+	// An empty path is the degenerate "there is nowhere to write" case: the load
+	// treats the missing file as empty, and the write fails with a semantic error
+	// instead of a raw driver failure. The flow must degrade to the manual
+	// snippet (ADR-0017 Decision 1).
+	f.deps.Hermes.Path = ""
+
+	d := newDriver(t, f)
+	d.press("7")
+	d.press("enter") // accept the prefilled phone
+	d.press("s")
+
+	if d.model.screen != screenHermesSnippet {
+		t.Fatalf("screen = %v, want the snippet fallback screen", d.model.screen)
+	}
+	view := d.view()
+	for _, want := range []string{
+		"Configuración manual de Hermes",
+		"no se indicó dónde escribir",
+		admin.HermesServerName,
+		`X-Caller-Id: "` + ownerPhone + `"`,
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("snippet view missing %q\n%s", want, view)
+		}
+	}
+}
+
+func TestAppModelHermesConfigRequiresAnActiveOwner(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+
+	d := newDriver(t, f)
+	if d.model.screen != screenMenu {
+		t.Fatalf("precondition: screen = %v, want the menu", d.model.screen)
+	}
+
+	// The owner disappears after the gate opened: the flow must refuse and
+	// re-derive the seed gate instead of continuing with an empty prefill.
+	f.deactivate(t, ownerPhone)
+	d.press("7")
+
+	if d.model.screen != screenSeedRecovery {
+		t.Fatalf("screen = %v, want the deactivated-owner recovery picker", d.model.screen)
+	}
+	if d.model.errLine == "" {
+		t.Error("errLine is empty, want the semantic no-active-owner error")
+	}
+	if view := d.view(); !strings.Contains(view, "cuentas de owner desactivadas") {
+		t.Errorf("view = %q, want the recovery gateway", view)
+	}
+}
+
 // ── Pure helpers ─────────────────────────────────────────────────────────
 
 func TestPickerWindowKeepsTheCursorVisible(t *testing.T) {
@@ -1260,6 +1426,7 @@ func TestMenuItemsMirrorTheFrozenScope(t *testing.T) {
 		"Listar por rol",
 		"Transferir ownership",
 		"Agregarme como cliente",
+		"Configurar Hermes",
 	}
 
 	if len(items) != len(want) {

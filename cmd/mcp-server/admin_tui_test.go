@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -1375,5 +1376,213 @@ func TestRunAdminTUIFlow_AddSelfAsClientRepromptsOnBlankName(t *testing.T) {
 	}
 	if got := countClients(t, dbPath); got != 1 {
 		t.Errorf("clients row count = %d, want exactly 1 after the valid answer", got)
+	}
+}
+
+// ── T7: Configurar Hermes (ADR-0017) ───────────────────────────────────────
+
+// prepareHermesConsole points the Hermes resolution at a throwaway home so the
+// console "Configurar Hermes" flow never touches the operator's real ~/.hermes,
+// and pins MCP_BIND/MCP_PORT so the resolved endpoint is hermetic. It returns the
+// config path the flow will resolve under that home.
+func prepareHermesConsole(t *testing.T) (hermesPath string) {
+	t.Helper()
+	home := t.TempDir()
+	setTestHome(t, home)
+	t.Setenv("MCP_BIND", "127.0.0.1")
+	t.Setenv("MCP_PORT", "3000")
+	return filepath.Join(home, ".hermes", admin.HermesConfigFileName)
+}
+
+// consoleHermesEndpoint returns the endpoint URL the console resolves for the
+// bind/port pinned by prepareHermesConsole, so the tests assert the same value
+// the flow reports instead of a hand-copied string.
+func consoleHermesEndpoint(t *testing.T) string {
+	t.Helper()
+	endpoint, err := admin.HermesEndpointURL("127.0.0.1", "3000")
+	if err != nil {
+		t.Fatalf("admin.HermesEndpointURL() failed: %v", err)
+	}
+	return endpoint
+}
+
+// consoleIdentity opens dbPath and builds the production identity repositories,
+// so a direct call to one console action runs against the real wiring.
+func consoleIdentity(t *testing.T, dbPath string) identityDeps {
+	t.Helper()
+	database, err := db.NewDatabase(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("db.NewDatabase() failed: %v", err)
+	}
+	t.Cleanup(func() { closeDatabase(database, slog.Default()) })
+	return newIdentityDeps(database, slog.Default())
+}
+
+// TestAdminMenuOptions_RegistersConfigureHermes locks the single dispatch table
+// contract: the Hermes capability is exactly one entry, in menu order, with the
+// label the Bubble Tea menu renders.
+func TestAdminMenuOptions_RegistersConfigureHermes(t *testing.T) {
+	options := adminMenuOptions(consoleHermes{path: "p", endpointURL: "e"})
+
+	if len(options) != 7 {
+		t.Fatalf("option count = %d, want 7", len(options))
+	}
+	last := options[len(options)-1]
+	if last.key != "7" {
+		t.Errorf("last option key = %q, want %q", last.key, "7")
+	}
+	if last.label != "Configurar Hermes" {
+		t.Errorf("last option label = %q, want %q", last.label, "Configurar Hermes")
+	}
+	if last.action == nil {
+		t.Error("last option action = nil, want the Hermes flow")
+	}
+}
+
+// TestRunAdminTUIFlow_ConfigureHermesWritesMergedConfig covers the whole console
+// path: menu -> prefill the owner phone -> confirm the three facts -> merge and
+// write the mcp_servers.mcp-appointments entry, preserving everything else.
+func TestRunAdminTUIFlow_ConfigureHermesWritesMergedConfig(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	hermesPath := prepareHermesConsole(t)
+
+	// A pre-existing Hermes config with a foreign top-level key and a foreign
+	// server: the merge must preserve both and only replace our entry.
+	if err := os.MkdirAll(filepath.Dir(hermesPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	seed := []byte("model: hermes-default\nmcp_servers:\n  openai:\n    url: https://api.example/mcp\n")
+	if err := os.WriteFile(hermesPath, seed, 0o600); err != nil {
+		t.Fatalf("seed hermes config: %v", err)
+	}
+
+	var out bytes.Buffer
+	// Menu -> Configure Hermes -> accept the prefilled owner phone (blank line)
+	// -> confirm -> quit.
+	stdin := strings.NewReader("7\n\ns\nq\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"Configurar Hermes",
+		"Endpoint: " + consoleHermesEndpoint(t),
+		"Teléfono (X-Caller-Id): " + ownerPhone,
+		"Archivo: " + hermesPath,
+		"Configuración de Hermes actualizada.",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+
+	// #nosec G304 -- hermesPath is under a throwaway t.TempDir() home.
+	content, err := os.ReadFile(hermesPath)
+	if err != nil {
+		t.Fatalf("read written Hermes config: %v", err)
+	}
+	for _, want := range []string{
+		"model: hermes-default",
+		"openai",
+		admin.HermesServerName,
+		`X-Caller-Id: "` + ownerPhone + `"`,
+	} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("written Hermes config missing %q\n%s", want, content)
+		}
+	}
+}
+
+// TestRunAdminTUIFlow_ConfigureHermesRejectsInvalidPhone locks the input
+// validation: an invalid phone is re-prompted and never reaches the write. With
+// no further input the questionnaire aborts and the config file is not created.
+func TestRunAdminTUIFlow_ConfigureHermesRejectsInvalidPhone(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	hermesPath := prepareHermesConsole(t)
+
+	var out bytes.Buffer
+	// The prefill is overridden by an invalid answer and the stream then ends.
+	stdin := strings.NewReader("7\nno-es-un-telefono\n")
+
+	if err := runAdminTUIFlow(stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	if got := strings.Count(out.String(), "Error: el teléfono no es válido"); got != 1 {
+		t.Errorf("rejection count = %d, want 1\noutput: %s", got, out.String())
+	}
+	if _, err := os.Stat(hermesPath); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat Hermes config = %v, want it not to exist after an invalid phone", err)
+	}
+}
+
+// TestRunConfigureHermesFlow_RequiresAnActiveOwner closes the no-owner path: the
+// flow has nothing to prefill and no id Hermes could send, so it fails
+// semantically instead of continuing with an empty phone.
+func TestRunConfigureHermesFlow_RequiresAnActiveOwner(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	identity := consoleIdentity(t, dbPath)
+
+	var out bytes.Buffer
+	err := runConfigureHermesFlow(context.Background(), identity,
+		bufio.NewScanner(strings.NewReader("")), &out,
+		consoleHermes{path: filepath.Join(t.TempDir(), "config.yaml"), endpointURL: consoleHermesEndpoint(t)})
+
+	if err == nil {
+		t.Fatal("runConfigureHermesFlow() error = nil, want the no-active-owner failure")
+	}
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) {
+		t.Fatalf("error = %T (%v), want *domain.SemanticError", err, err)
+	}
+	if !strings.Contains(semErr.Message, "no hay un owner activo") {
+		t.Errorf("message = %q, want it to state there is no active owner", semErr.Message)
+	}
+	if strings.Contains(out.String(), "Endpoint:") {
+		t.Errorf("output = %q, want no bootstrap facts after the refusal", out.String())
+	}
+}
+
+// TestRunConfigureHermesFlow_FallsBackToSnippetWhenWriteFails locks the ADR-0017
+// Decision 1 fallback: when the write chain cannot complete, the exact YAML
+// snippet is printed with the target path and the semantic error is returned so
+// the menu renders it and reopens.
+func TestRunConfigureHermesFlow_FallsBackToSnippetWhenWriteFails(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	identity := consoleIdentity(t, dbPath)
+
+	var out bytes.Buffer
+	// An empty path is the degenerate "there is nowhere to write" case: the load
+	// treats the missing file as empty and the write fails with a semantic error
+	// instead of a raw driver failure.
+	stdin := bufio.NewScanner(strings.NewReader("\ns\n"))
+
+	err := runConfigureHermesFlow(context.Background(), identity, stdin, &out,
+		consoleHermes{path: "", endpointURL: consoleHermesEndpoint(t)})
+
+	if err == nil {
+		t.Fatal("runConfigureHermesFlow() error = nil, want the write failure")
+	}
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) {
+		t.Fatalf("error = %T (%v), want *domain.SemanticError", err, err)
+	}
+	if !strings.Contains(semErr.Message, "no se indicó dónde escribir") {
+		t.Errorf("message = %q, want the semantic write-path failure", semErr.Message)
+	}
+
+	for _, want := range []string{
+		"Configuración manual de Hermes",
+		"No se pudo escribir el archivo automáticamente",
+		admin.HermesServerName,
+		`X-Caller-Id: "` + ownerPhone + `"`,
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
 	}
 }

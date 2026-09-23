@@ -1,6 +1,6 @@
 # Feature: hermes-config-tui — TUI "configurar Hermes"
 
-**Status**: IN PROGRESS
+**Status**: COMPLETE (pending owner merge of PR)
 **Started**: 2026-09-24
 **Branch**: `feat/hermes-config-tui` (code), docs lane for ADR
 **Backlog**: obs 914 item 2 (micro-fixes done in obs 959/967)
@@ -78,7 +78,33 @@ PRD risk R5 ("El dueño del negocio no sabe cómo configurar Hermes ni apuntarlo
 
 ## Evidence
 
-(recorded per task as they land)
+- T0 (ADR-0017): docs lane `74dc04b` on main (GGA n/a — docs excluded by pattern).
+- T1 (admin core): `362dccc` — internal/admin/hermes.go + 25 tests; golangci 0; fresh GGA run
+  STATUS: PASSED captured (/tmp/gga-t1-fresh.log) after the parse-window flake; trivial test
+  comma-ok fix applied (GGA suggestion). go.mod gains gopkg.in/yaml.v3 v3.0.1.
+- T2+T3 (TUI wiring + composition root): `6a76a6f` — capability/screen/form/cmds/view with
+  snippet fallback, Deps.Hermes{Path, EndpointURL}, scope-pin test updated to 7 items.
+  First commit attempt hit the GGA parse-window flake; fresh run returned substantive
+  STATUS: FAILED with 2 pre-existing WARNINGs (duplicated presentation helpers across the
+  two entry points; writeConsole ...any) + 1 SUGGESTION — all fixed in the same commit:
+  internal/admin/presentation.go now owns AccountLabel / ListableRoles / ReactivationHint /
+  SuccessorCandidates (single source for console + TUI), writeConsole carries an
+  accepted-deviation comment (middleware.go:149 precedent), capacity hint corrected.
+  Fresh GGA after fixes: STATUS: PASSED (/tmp/gga-t23-fix.log).
+- T4 (console option): `d8246a9` — "7 / Configurar Hermes" in adminMenuOptions, shared
+  resolveHermesBootstrap resolution site for both presentations, console tests
+  (happy path with foreign-server preservation, invalid phone, no active owner,
+  write-failure → snippet). Fresh GGA: STATUS: PASSED (/tmp/gga-t4-fresh.log).
+- T5 (gate): native review review-eb6b809fafd682a0 (medium, single lens review-reliability,
+  13 files, 2341 original lines, budget 200, committed range base 5818a81) — APPROVED first
+  pass, no correction transition offered, receipt burned (authority: burned, store_revision
+  aa954ecd). 4 informational findings (all non-blocking, later work):
+  R3-hermes-eager-bootstrap (WARNING, admin_tui.go:167 — bootstrap resolved even when the
+  capability is not used), R3-lossy-config-roundtrip (SUGGESTION, hermes.go:183 — unknown
+  scalar shapes can be re-typed by the round-trip), R3-wildcard-bind-endpoint (WARNING,
+  hermes.go:147-151 — MCP_BIND=0.0.0.0 would emit a non-connectable client URL),
+  R3-windows-mode-assertions (WARNING, hermes_test.go:537-547 — mode assertions skipped on
+  Windows). Issue #97 tracks the feature.
 
 ## Notes
 

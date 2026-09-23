@@ -6,7 +6,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
-	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
 // ── Asynchronous core-call results ───────────────────────────────────────
@@ -62,6 +61,24 @@ type transferDataMsg struct {
 type selfOwnerMsg struct {
 	owner admin.AccountView
 	err   error
+}
+
+// hermesDataMsg carries the ACTIVE owner whose phone prefills the "Configurar
+// Hermes" wizard. Without an active owner the flow cannot proceed (ADR-0017
+// Decision 3).
+type hermesDataMsg struct {
+	owner admin.AccountView
+	err   error
+}
+
+// hermesResultMsg is the outcome of the Hermes bootstrap. written is true when
+// the merged config landed on disk; otherwise err carries the semantic failure
+// and snippet the exact YAML block the operator copies by hand (ADR-0017
+// Decision 1).
+type hermesResultMsg struct {
+	written bool
+	snippet string
+	err     error
 }
 
 // resultMsg is the outcome of a write through the core. lines are the semantic
@@ -146,12 +163,12 @@ func reactivateOwnerCmd(ctx context.Context, deps Deps, id string) tea.Cmd {
 		if err != nil {
 			return resultMsg{
 				err: fmt.Errorf("se reactivó %s pero no se pudo escribir el caller-id: %w",
-					accountLabel(reactivated), err),
+					admin.AccountLabel(reactivated), err),
 				reloadGate: true,
 			}
 		}
 		return resultMsg{lines: []string{
-			fmt.Sprintf("Owner reactivado: %s", accountLabel(reactivated)),
+			fmt.Sprintf("Owner reactivado: %s", admin.AccountLabel(reactivated)),
 			fmt.Sprintf("caller-id escrito en %s", path),
 			"Ya podés usar `mcp-server hermes chat` con ese caller id.",
 		}}
@@ -199,9 +216,9 @@ func deactivateCmd(ctx context.Context, deps Deps, id string) tea.Cmd {
 		}
 		if outcome.AlreadyInactive {
 			return resultMsg{lines: []string{
-				"La cuenta ya estaba inactiva: " + accountLabel(outcome.Account)}}
+				"La cuenta ya estaba inactiva: " + admin.AccountLabel(outcome.Account)}}
 		}
-		return resultMsg{lines: []string{"Cuenta desactivada: " + accountLabel(outcome.Account)}}
+		return resultMsg{lines: []string{"Cuenta desactivada: " + admin.AccountLabel(outcome.Account)}}
 	}
 }
 
@@ -224,47 +241,26 @@ func transferDataCmd(ctx context.Context, deps Deps) tea.Cmd {
 	}
 }
 
-// successorOptions composes the two read-only core queries of the successor
-// list. It performs no write and no business decision: the ordering and the
-// eligibility of every candidate are re-validated by PrepareSuccessor and
+// successorOptions maps the shared core successor list (internal/admin) onto the
+// TUI's own option struct. The ordering, the eligibility and the labels are
+// single-sourced in the core, which performs no write and no business decision:
+// the eligibility of every candidate is re-validated by PrepareSuccessor and
 // TransferOwnership before anything is written.
 func successorOptions(ctx context.Context, deps Deps) ([]transferOption, error) {
-	owners, err := admin.ListAccounts(ctx, deps.Accounts, admin.ListFilter{
-		Role:            entity.RoleOwner,
-		IncludeInactive: true,
-	})
+	candidates, err := admin.SuccessorCandidates(ctx, deps.Accounts)
 	if err != nil {
 		return nil, err
 	}
 
-	options := make([]transferOption, 0, len(owners)+len(owners)+1)
-	for _, view := range owners {
-		if view.Active {
-			continue
-		}
+	options := make([]transferOption, 0, len(candidates))
+	for _, candidate := range candidates {
 		options = append(options, transferOption{
-			kind:  admin.SuccessorInactiveOwner,
-			id:    view.ID,
-			label: accountLabel(view),
+			kind:  candidate.Kind,
+			id:    candidate.ID,
+			label: candidate.Label,
 		})
 	}
-
-	staff, err := admin.ListAccounts(ctx, deps.Accounts, admin.ListFilter{Role: entity.RoleStaff})
-	if err != nil {
-		return nil, err
-	}
-	for _, view := range staff {
-		options = append(options, transferOption{
-			kind:  admin.SuccessorStaff,
-			id:    view.ID,
-			label: accountLabel(view) + " — promover a owner",
-		})
-	}
-
-	return append(options, transferOption{
-		kind:  admin.SuccessorNewPhone,
-		label: "Otro teléfono (crear una cuenta de owner nueva)",
-	}), nil
+	return options, nil
 }
 
 // transferCmd runs the two steps of the ownership transfer in one command:
@@ -290,7 +286,7 @@ func transferCmd(ctx context.Context, deps Deps, fromID string, successor admin.
 		}
 
 		swapLine := fmt.Sprintf("Ownership transferido: %s → %s",
-			accountLabel(outcome.From), accountLabel(outcome.To))
+			admin.AccountLabel(outcome.From), admin.AccountLabel(outcome.To))
 
 		path, err := admin.WriteCallerID(outcome.To.ID)
 		if err != nil {
@@ -343,21 +339,45 @@ func addSelfCmd(ctx context.Context, deps Deps, callerID, name string) tea.Cmd {
 	}
 }
 
-// seedConflictHint closes the operator-experience half of
-// R4-deactivated-owner-seed-deadend: when the seed collides with an existing
-// deactivated owner row, the error names the row and the sanctioned recovery
-// instead of leaving the operator with a PRIMARY KEY conflict. It returns an
-// empty string when the submitted phone belongs to something else.
-//
-// The caller only uses the hint for admin.ErrOwnerAlreadyExists conflicts, so
-// the sentinel dependency stays in the model where the error is classified.
-func seedConflictHint(inactive []admin.AccountView, phone string) string {
-	for _, view := range inactive {
-		if view.ID == phone {
-			return fmt.Sprintf(
-				"Sugerencia: el teléfono %s pertenece a la cuenta de owner desactivada %q; reactivala en lugar de crear una cuenta nueva.",
-				phone, view.DisplayName)
-		}
+// hermesDataCmd reads the ACTIVE owner whose phone prefills the Hermes wizard.
+// The account id is the X-Caller-Id Hermes sends, so the wizard starts from the
+// sanctioned value and the operator only edits it when needed.
+func hermesDataCmd(ctx context.Context, deps Deps) tea.Cmd {
+	return func() tea.Msg {
+		owner, err := admin.ActiveOwner(ctx, deps.Accounts)
+		return hermesDataMsg{owner: owner, err: err}
 	}
-	return ""
+}
+
+// hermesConfigCmd runs the three steps of the Hermes bootstrap against the
+// reviewed core: load the existing ~/.hermes/config.yaml, merge the single
+// mcp_servers.mcp-appointments entry (preserving everything else) and write it
+// atomically. The path and the endpoint URL come from deps.Hermes, resolved once
+// at the composition root, and are never hardcoded here.
+//
+// Any failure of the chain means the write is impossible (absent home,
+// unwritable directory, malformed YAML, a non-mapping mcp_servers section), so
+// the command renders the exact fallback snippet with the same values instead of
+// surfacing a raw driver error (ADR-0017 Decision 1). The snippet is rendered
+// with the same validators the writer uses, so it can never advertise a value
+// the writer would reject.
+func hermesConfigCmd(deps Deps, phone string) tea.Cmd {
+	return func() tea.Msg {
+		doc, err := admin.LoadHermesConfig(deps.Hermes.Path)
+		if err == nil {
+			err = doc.SetHermesServer(deps.Hermes.EndpointURL, phone)
+		}
+		if err == nil {
+			err = admin.WriteHermesConfig(deps.Hermes.Path, doc)
+		}
+		if err == nil {
+			return hermesResultMsg{written: true}
+		}
+
+		snippet, snippetErr := admin.RenderHermesSnippet(deps.Hermes.EndpointURL, phone)
+		if snippetErr != nil {
+			snippet = ""
+		}
+		return hermesResultMsg{snippet: snippet, err: err}
+	}
 }

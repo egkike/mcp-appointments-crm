@@ -40,6 +40,13 @@ const (
 	confirmTransferTitle    = "Transferir ownership"
 	confirmTransferQuestion = "El owner actual quedará desactivado. ¿Confirmar?"
 	busyLabel               = "Operación en curso…"
+
+	hermesTitle           = "Configurar Hermes"
+	hermesPhoneLabel      = "Teléfono del owner (X-Caller-Id)"
+	confirmHermesTitle    = "Confirmar configuración de Hermes"
+	confirmHermesQuestion = "Se escribirá la entrada mcp-appointments en el config de Hermes. ¿Confirmar?"
+	hermesSnippetTitle    = "Configuración manual de Hermes"
+	hermesSnippetIntro    = "No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado:"
 )
 
 // capability identifies one operator capability of the menu (ADR-0016
@@ -54,6 +61,7 @@ const (
 	capabilityListByRole
 	capabilityTransfer
 	capabilityAddSelf
+	capabilityConfigureHermes
 )
 
 // menuItem is one numbered entry of the operator menu, in menu order.
@@ -72,6 +80,7 @@ func menuItems() []menuItem {
 		{label: "Listar por rol", capability: capabilityListByRole},
 		{label: "Transferir ownership", capability: capabilityTransfer},
 		{label: "Agregarme como cliente", capability: capabilityAddSelf},
+		{label: "Configurar Hermes", capability: capabilityConfigureHermes},
 	}
 }
 
@@ -114,6 +123,16 @@ func transferSteps() []formStep {
 	}
 }
 
+// hermesSteps is the single-field Hermes questionnaire: the owner phone that
+// Hermes sends as X-Caller-Id, prefilled from the active owner and validated by
+// admin.ValidatePhone — the same single validation point the core re-applies
+// before writing.
+func hermesSteps(defaultPhone string) []formStep {
+	return []formStep{
+		{label: hermesPhoneLabel, defaultValue: defaultPhone, validate: admin.ValidatePhone},
+	}
+}
+
 // View renders the current frame purely from the model state. It performs no
 // side effect and no port call.
 func (m AppModel) View() string {
@@ -135,7 +154,7 @@ func (m AppModel) View() string {
 		b.WriteString("Verificando el estado de la instalación…\n")
 	case screenMenu:
 		b.WriteString(m.viewMenu())
-	case screenSeedForm, screenStaffForm, screenTransferForm, screenSelfForm:
+	case screenSeedForm, screenStaffForm, screenTransferForm, screenSelfForm, screenHermesForm:
 		b.WriteString(m.viewForm())
 	case screenSeedRecovery, screenStaffPicker, screenDeactivatePicker, screenRolePicker, screenTransferPicker:
 		b.WriteString(m.viewPicker())
@@ -145,6 +164,8 @@ func (m AppModel) View() string {
 		b.WriteString(m.viewConfirm())
 	case screenInfo:
 		b.WriteString(m.viewInfo())
+	case screenHermesSnippet:
+		b.WriteString(m.viewHermesSnippet())
 	}
 
 	b.WriteString("\n" + subtleStyle.Render(m.hintLine()) + "\n")
@@ -175,6 +196,9 @@ func (m AppModel) viewForm() string {
 	if m.screen == screenSeedForm {
 		b.WriteString(subtleStyle.Render(seedIntro) + "\n")
 	}
+	if m.screen == screenHermesForm {
+		b.WriteString(subtleStyle.Render("Endpoint: "+m.deps.Hermes.EndpointURL) + "\n")
+	}
 	step := m.form.steps[m.form.index]
 	b.WriteString(step.label + m.form.stepCounter() + "\n")
 	b.WriteString(m.form.input.View() + "\n")
@@ -195,7 +219,7 @@ func (m AppModel) viewPicker() string {
 	case screenSeedRecovery:
 		b.WriteString(subtleStyle.Render(seedRecoveryIntro) + "\n")
 	case screenTransferPicker:
-		b.WriteString("Owner actual: " + accountLabel(m.owner) + "\n")
+		b.WriteString("Owner actual: " + admin.AccountLabel(m.owner) + "\n")
 	}
 
 	start, end := pickerWindow(len(labels), m.cursor, maxPickerRows)
@@ -236,8 +260,27 @@ func (m AppModel) viewConfirm() string {
 	if m.confirm.warning != "" {
 		b.WriteString(noticeStyle.Render(m.confirm.warning) + "\n")
 	}
+	for _, detail := range m.confirm.details {
+		b.WriteString(subtleStyle.Render(detail) + "\n")
+	}
 	b.WriteString(m.confirm.question + "\n")
 	b.WriteString(subtleStyle.Render(confirmHint) + "\n")
+	return b.String()
+}
+
+// viewHermesSnippet renders the manual fallback of the Hermes bootstrap: the
+// semantic failure is already on screen (errLine), and this adds the exact YAML
+// block and the file it belongs in, so the operator copies a working value
+// instead of reconstructing it.
+func (m AppModel) viewHermesSnippet() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(hermesSnippetTitle) + "\n")
+	b.WriteString(subtleStyle.Render(hermesSnippetIntro) + "\n")
+	b.WriteString(subtleStyle.Render(m.deps.Hermes.Path) + "\n\n")
+	b.WriteString(m.hermesSnippet)
+	if !strings.HasSuffix(m.hermesSnippet, "\n") {
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 
@@ -294,11 +337,13 @@ func (m AppModel) hintLine() string {
 		return "Enter: confirmar el campo · Esc: salir sin crear nada"
 	case screenSeedRecovery:
 		return "↑/↓ y Enter: elegir · Esc: salir sin crear nada"
-	case screenStaffForm, screenTransferForm, screenSelfForm:
+	case screenStaffForm, screenTransferForm, screenSelfForm, screenHermesForm:
 		return "Enter: confirmar el campo · Esc: volver al menú"
 	case screenConfirm:
 		return confirmHint + " · Esc: volver al menú"
 	case screenInfo:
+		return "Enter o Esc: volver al menú"
+	case screenHermesSnippet:
 		return "Enter o Esc: volver al menú"
 	case screenAccountsTable:
 		return "↑/↓: desplazar · i: incluir inactivas · Esc: volver al menú · q: salir"
