@@ -1,6 +1,6 @@
 # Feature: hygiene-followups — limpieza de follow-ups vivos
 
-**Status**: COMPLETE (pending owner merge of PR)
+**Status**: COMPLETE (merged)
 **Started**: 2026-09-24
 **Branch**: `feat/hygiene-followups` (desde main @ 94ee8fa)
 **Origin**: follow-ups acumulados del gate de hermes-config-tui (4 informativos R3) + micro-debt
@@ -82,6 +82,9 @@ default → review nativo.
   requires a non-nil AuthMiddleware") + test que fija la intención
   (TestAuthHandlerPanicsOnNilMiddleware, "must fail fast at wiring time, not per-request").
   Cambiarlo a (http.Handler, error) contradiría la intención documentada del test.
+- **Merge**: squash-merged by owner as `5694316` on main (PR #100, CI green); issue #99
+  auto-closed; branch feat/hygiene-followups deleted local+remote; post-merge sanity green
+  (build + test -race admin/tui/mcp/cmd). main @ 5694316 clean.
 
 ## Notes
 
