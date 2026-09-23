@@ -1,6 +1,6 @@
 # Feature: hermes-config-tui — TUI "configurar Hermes"
 
-**Status**: COMPLETE (pending owner merge of PR)
+**Status**: COMPLETE (merged)
 **Started**: 2026-09-24
 **Branch**: `feat/hermes-config-tui` (code), docs lane for ADR
 **Backlog**: obs 914 item 2 (micro-fixes done in obs 959/967)
@@ -105,6 +105,9 @@ PRD risk R5 ("El dueño del negocio no sabe cómo configurar Hermes ni apuntarlo
   hermes.go:147-151 — MCP_BIND=0.0.0.0 would emit a non-connectable client URL),
   R3-windows-mode-assertions (WARNING, hermes_test.go:537-547 — mode assertions skipped on
   Windows). Issue #97 tracks the feature.
+- **Merge**: squash-merged by owner as `c0fdba3` on main (PR #98, CI green); issue #97
+  auto-closed; branch deleted local+remote; post-merge sanity green (build + test -race
+  admin/tui/cmd).
 
 ## Notes
 
