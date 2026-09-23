@@ -67,22 +67,41 @@ func runAdminTUIProgram() error {
 	})
 }
 
-// resolveHermesConfig composes the Hermes bootstrap data the TUI needs from the
+// resolveHermesBootstrap composes the two facts of the Hermes bootstrap from the
 // already-resolved runtime configuration (ADR-0017 Decision 3): the standard
 // ~/.hermes/config.yaml path and the MCP endpoint URL derived from
-// MCP_BIND/MCP_PORT with the fixed /mcp path. Resolving both once here keeps the
-// TUI free of hardcoded paths and URLs and keeps the values testable through
-// tui.Deps.
+// MCP_BIND/MCP_PORT with the fixed /mcp path. It is the single resolution site
+// consumed by both presentations — the Bubble Tea program and the line-based
+// console — so the path and the URL cannot drift between them.
+func resolveHermesBootstrap(bind, port string) (path, endpointURL string, err error) {
+	path, err = admin.HermesConfigPath()
+	if err != nil {
+		return "", "", err
+	}
+	endpointURL, err = admin.HermesEndpointURL(bind, port)
+	if err != nil {
+		return "", "", err
+	}
+	return path, endpointURL, nil
+}
+
+// resolveHermesConfig maps the shared Hermes bootstrap facts onto the tui.Deps
+// value the Bubble Tea program consumes.
 func resolveHermesConfig(bind, port string) (tui.HermesConfig, error) {
-	path, err := admin.HermesConfigPath()
+	path, endpointURL, err := resolveHermesBootstrap(bind, port)
 	if err != nil {
 		return tui.HermesConfig{}, err
 	}
-	endpoint, err := admin.HermesEndpointURL(bind, port)
-	if err != nil {
-		return tui.HermesConfig{}, err
-	}
-	return tui.HermesConfig{Path: path, EndpointURL: endpoint}, nil
+	return tui.HermesConfig{Path: path, EndpointURL: endpointURL}, nil
+}
+
+// consoleHermes is the console counterpart of tui.HermesConfig: the resolved
+// Hermes bootstrap facts the "Configurar Hermes" action consumes. Resolving them
+// at the composition root (ADR-0017 Decision 3) keeps the console flow free of
+// hardcoded paths and URLs, exactly like the Bubble Tea program.
+type consoleHermes struct {
+	path        string
+	endpointURL string
 }
 
 // interactiveTerminal reports whether both process streams are attached to a
@@ -142,6 +161,15 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 	ctx := context.Background()
 	scanner := bufio.NewScanner(stdin)
 
+	// The Hermes bootstrap facts come from the running server configuration
+	// (MCP_BIND/MCP_PORT), never from a hardcoded path or URL. They are resolved
+	// once here and threaded into the menu, mirroring runAdminTUIProgram.
+	hermesPath, hermesEndpoint, err := resolveHermesBootstrap(deps.config.Bind, deps.config.Port)
+	if err != nil {
+		return err
+	}
+	hermes := consoleHermes{path: hermesPath, endpointURL: hermesEndpoint}
+
 	needsSeed, err := admin.NeedsSeed(ctx, identity.accounts)
 	if err != nil {
 		return err
@@ -165,7 +193,7 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 				return err
 			}
 		}
-		return runAdminMenu(ctx, identity, scanner, stdout)
+		return runAdminMenu(ctx, identity, scanner, stdout, hermes)
 	}
 
 	// R4-deactivated-owner-seed-deadend: "no ACTIVE owner" does not mean "no
@@ -180,7 +208,7 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 		if err := runSeedDeadendRecovery(ctx, identity, scanner, stdout, inactiveOwners); err != nil {
 			return err
 		}
-		return runAdminMenu(ctx, identity, scanner, stdout)
+		return runAdminMenu(ctx, identity, scanner, stdout, hermes)
 	}
 
 	if err := writeConsole(stdout,
@@ -222,7 +250,7 @@ func runAdminTUIFlow(stdin io.Reader, stdout io.Writer) error {
 		return err
 	}
 
-	return runAdminMenu(ctx, identity, scanner, stdout)
+	return runAdminMenu(ctx, identity, scanner, stdout, hermes)
 }
 
 // runSeedDeadendRecovery closes finding R4-deactivated-owner-seed-deadend: the
@@ -371,9 +399,12 @@ type adminMenuOption struct {
 }
 
 // adminMenuOptions is the single dispatch table of the console menu. Landing
-// T5-T6 appends an entry here instead of adding branches to runAdminTUIFlow, so
-// the menu stays trivial to grow.
-func adminMenuOptions() []adminMenuOption {
+// T5-T7 appends an entry here instead of adding branches to runAdminTUIFlow, so
+// the menu stays trivial to grow. The Hermes entry is the only capability whose
+// inputs come from the runtime configuration rather than from the operator
+// database, so it closes over the resolved bootstrap facts instead of reading
+// them from a package-level path.
+func adminMenuOptions(hermes consoleHermes) []adminMenuOption {
 	return []adminMenuOption{
 		{key: "1", label: "Add Staff", action: runAddStaffFlow},
 		{key: "2", label: "Desactivar cuenta", action: runDeactivateAccountFlow},
@@ -381,6 +412,9 @@ func adminMenuOptions() []adminMenuOption {
 		{key: "4", label: "Listar por rol", action: runListByRoleFlow},
 		{key: "5", label: "Transferir ownership", action: runTransferOwnershipFlow},
 		{key: "6", label: "Agregarme como cliente", action: runAddSelfAsClientFlow},
+		{key: "7", label: "Configurar Hermes", action: func(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+			return runConfigureHermesFlow(ctx, identity, scanner, stdout, hermes)
+		}},
 	}
 }
 
@@ -388,8 +422,8 @@ func adminMenuOptions() []adminMenuOption {
 // until they quit or the stream ends. End of input (Ctrl+D or a
 // non-interactive invocation) is a clean exit, not an error: an operator who
 // only needed the seed must not get a failure for not answering the menu.
-func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
-	options := adminMenuOptions()
+func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, hermes consoleHermes) error {
+	options := adminMenuOptions(hermes)
 	for {
 		if err := writeMenu(stdout, options); err != nil {
 			return err
@@ -1008,4 +1042,101 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner 
 		return writeConsole(stdout, "Ya estabas registrado como cliente con este teléfono.\n")
 	}
 	return writeConsole(stdout, "Ya podés operar como cliente con este teléfono.\n")
+}
+
+// runConfigureHermesFlow drives the "Configurar Hermes" capability (ADR-0017):
+// it prefills the phone from the ACTIVE owner, validates it through the single
+// phone validator, shows the three facts of the bootstrap (endpoint, phone and
+// target file), asks for an explicit confirmation and then merges and writes the
+// mcp_servers.mcp-appointments entry. It mirrors the Bubble Tea wizard 1:1; the
+// resolved Hermes facts arrive through the menu closure, so the console never
+// re-derives the path or the endpoint.
+//
+// Without an ACTIVE owner the flow has nothing to prefill and no owner id Hermes
+// could send, so it reports the semantic failure and the menu reopens.
+//
+// A failed write chain is never a dead end: the exact YAML snippet the writer
+// would have produced is printed with the target path and the semantic error, so
+// the operator can finish the bootstrap by hand (ADR-0017 Decision 1).
+func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, hermes consoleHermes) error {
+	owner, err := admin.ActiveOwner(ctx, identity.accounts)
+	if err != nil {
+		return err
+	}
+
+	phone, err := promptValidated(scanner, stdout, "Teléfono del owner (X-Caller-Id)", owner.ID, admin.ValidatePhone)
+	if err != nil {
+		return err
+	}
+
+	if err := writeHermesFacts(stdout, hermes, phone); err != nil {
+		return err
+	}
+
+	confirmed, err := promptConfirm(scanner, stdout,
+		"Se escribirá la entrada mcp-appointments en el config de Hermes. ¿Confirmar?")
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return writeConsole(stdout, "Operación cancelada: no se cambió la configuración de Hermes.\n")
+	}
+
+	doc, err := admin.LoadHermesConfig(hermes.path)
+	if err == nil {
+		err = doc.SetHermesServer(hermes.endpointURL, phone)
+	}
+	if err == nil {
+		err = admin.WriteHermesConfig(hermes.path, doc)
+	}
+	if err == nil {
+		if err := writeConsole(stdout, "Configuración de Hermes actualizada.\n"); err != nil {
+			return err
+		}
+		return writeHermesFacts(stdout, hermes, phone)
+	}
+	return writeHermesSnippetFallback(stdout, hermes, phone, err)
+}
+
+// writeHermesFacts renders the three facts of the bootstrap — endpoint, phone
+// and target file — in the same order and wording as the Bubble Tea confirmation
+// and success screens, so the two presentations report the same contract.
+func writeHermesFacts(stdout io.Writer, hermes consoleHermes, phone string) error {
+	if err := writeConsole(stdout, "Endpoint: %s\n", hermes.endpointURL); err != nil {
+		return err
+	}
+	if err := writeConsole(stdout, "Teléfono (X-Caller-Id): %s\n", phone); err != nil {
+		return err
+	}
+	return writeConsole(stdout, "Archivo: %s\n", hermes.path)
+}
+
+// writeHermesSnippetFallback renders the manual path of ADR-0017 Decision 1 when
+// the write chain failed: the exact YAML block the writer would have emitted,
+// the file it belongs in, and the semantic error that forced the fallback. The
+// error is returned so runAdminMenu renders it as "Error: <detalle>" and reopens
+// the menu; the snippet is rendered with the same validators the writer uses, so
+// it can never advertise a value the writer would reject.
+func writeHermesSnippetFallback(stdout io.Writer, hermes consoleHermes, phone string, writeErr error) error {
+	snippet, snippetErr := admin.RenderHermesSnippet(hermes.endpointURL, phone)
+	if snippetErr != nil {
+		snippet = ""
+	}
+
+	if err := writeConsole(stdout, "Configuración manual de Hermes\n"); err != nil {
+		return err
+	}
+	if err := writeConsole(stdout,
+		"No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado:\n"); err != nil {
+		return err
+	}
+	if err := writeConsole(stdout, "%s\n", hermes.path); err != nil {
+		return err
+	}
+	if snippet != "" {
+		if err := writeConsole(stdout, "%s", snippet); err != nil {
+			return err
+		}
+	}
+	return writeErr
 }
