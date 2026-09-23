@@ -66,12 +66,45 @@ const (
 	hermesYAMLIndent = 2
 )
 
-// HermesDocument is a generic representation of a Hermes config.yaml. It is
-// intentionally a named map rather than a fixed struct: the merge must
+// HermesDocument is the exported handle for a Hermes config.yaml. It wraps an
+// unexported generic mapping rather than exposing one, so the merge can
 // preserve every key this flow does not own (other servers, other top-level
-// settings) and we do not control Hermes's schema. Only the leaf values that
-// this flow sets are concrete (strings plus a *yaml.Node for the quoted phone).
-type HermesDocument map[string]any
+// settings) while no exported signature carries `any`. We do not control
+// Hermes's schema; only the leaf values this flow sets are concrete (strings
+// plus a *yaml.Node for the quoted phone).
+//
+// Construct it with LoadHermesConfig or the zero value and mutate it through
+// the typed methods below. The generic mapping never crosses the package
+// boundary.
+//
+// Accepted round-trip deviation (ADR-0017): LoadHermesConfig decodes the file
+// into the generic mapping and marshalHermesDocument re-marshals it, so the
+// lexical form of keys this flow does NOT own is not preserved — comments, key
+// order, anchors and scalar style are normalized by the YAML emitter. Semantic
+// values are preserved. Preserving the verbatim form would require a node-based
+// model (a yaml.Node tree threaded end to end); that was rejected for cost vs
+// value, because only non-owned keys are affected and Hermes consumes semantic
+// values, not their on-disk style.
+type HermesDocument struct {
+	// fields is the generic mapping backing the document. It is nil only for
+	// the zero value, which SetHermesServer lazily initializes.
+	fields hermesDocument
+}
+
+// hermesDocument is the unexported generic storage of a Hermes config.yaml: a
+// YAML mapping decoded into Go values. It stays unexported so `any` never
+// appears in an exported signature.
+type hermesDocument map[string]any
+
+// storage returns the generic mapping backing the document, never nil. It is
+// unexported because the mapping carries `any` and must not cross the package
+// boundary; the package's own tests read through it too.
+func (d HermesDocument) storage() hermesDocument {
+	if d.fields == nil {
+		return hermesDocument{}
+	}
+	return d.fields
+}
 
 // HermesConfigPath returns the default Hermes configuration path:
 // ~/.hermes/config.yaml. The caller resolves it once and passes the path
@@ -133,6 +166,13 @@ func ValidateHermesURL(rawURL string) error {
 // HermesEndpointURL builds the MCP endpoint URL from the server bind/port, with
 // the path pinned to HermesMCPPath. The URL is derived from the running server
 // configuration (MCP_BIND/MCP_PORT) and is never hardcoded by callers.
+//
+// The bind is validated here as a literal loopback IP. Hermes consumes this URL
+// as a CLIENT, so a listener-only bind would produce a URL nobody can dial. The
+// server bind is validated the same way at startup (mcp.ValidateLoopback,
+// ADR-0007 §D4); this mirrors that semantic locally instead of importing
+// internal/mcp, because the failure is about the endpoint URL rather than about
+// opening a socket, and admin→mcp imports stay at zero by design.
 func HermesEndpointURL(bind, port string) (string, error) {
 	bind = strings.TrimSpace(bind)
 	port = strings.TrimSpace(port)
@@ -140,6 +180,28 @@ func HermesEndpointURL(bind, port string) (string, error) {
 		return "", &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: "no se pudo armar la URL del endpoint MCP: bind y puerto son obligatorios",
+		}
+	}
+
+	// A hostname is not a loopback literal; serve mode rejects it too, so a URL
+	// built from it would advertise an endpoint that never comes up.
+	ip := net.ParseIP(bind)
+	if ip == nil {
+		return "", &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "la URL del endpoint MCP no es alcanzable: el bind " + bind + " no es una IP loopback literal",
+		}
+	}
+	if ip.IsUnspecified() {
+		return "", &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "la URL del endpoint MCP no es alcanzable: el bind es la dirección no especificada " + bind,
+		}
+	}
+	if !ip.IsLoopback() {
+		return "", &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "la URL del endpoint MCP no es alcanzable: el bind " + bind + " no es loopback",
 		}
 	}
 
@@ -157,9 +219,13 @@ func HermesEndpointURL(bind, port string) (string, error) {
 }
 
 // LoadHermesConfig reads path into a generic document. A missing file is NOT an
-// error: it returns a non-nil empty document so the flow can create the file
+// error: it returns a usable empty document so the flow can create the file
 // (ADR-0017 Decision 1). An unreadable or malformed file is reported as a
 // *domain.SemanticError; the operator message never contains a filesystem path.
+//
+// Decoding is generic (map[string]any), so only semantic values survive the
+// load/write round trip; see HermesDocument for the accepted lexical deviation
+// on keys this flow does not own.
 func LoadHermesConfig(path string) (HermesDocument, error) {
 	// #nosec G304 -- path is the resolved Hermes config path (constant filename
 	// under ~/.hermes, or an explicit caller path), not attacker-controlled input.
@@ -168,7 +234,7 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return HermesDocument{}, nil
 		}
-		return nil, &domain.SemanticError{
+		return HermesDocument{}, &domain.SemanticError{
 			Code:    domain.ErrCodeInternal,
 			Message: "no se pudo leer la configuración de Hermes",
 			Cause:   err,
@@ -181,7 +247,7 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		return nil, &domain.SemanticError{
+		return HermesDocument{}, &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: "la configuración de Hermes no es YAML válido",
 			Cause:   err,
@@ -190,7 +256,7 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 	if raw == nil {
 		return HermesDocument{}, nil
 	}
-	return HermesDocument(raw), nil
+	return HermesDocument{fields: hermesDocument(raw)}, nil
 }
 
 // SetHermesServer sets (or replaces) the mcp_servers.<HermesServerName> entry
@@ -201,26 +267,29 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 // codebase — never a copy.
 //
 // The entry is replaced wholesale, so re-running the flow is idempotent and
-// stale keys inside the previous entry cannot survive.
-func (d HermesDocument) SetHermesServer(rawURL, phone string) error {
+// stale keys inside the previous entry cannot survive. The pointer receiver is
+// required because a zero-value HermesDocument lazily allocates its backing
+// mapping here; an initialized document shares the same map through the value.
+func (d *HermesDocument) SetHermesServer(rawURL, phone string) error {
 	if err := ValidateHermesURL(rawURL); err != nil {
 		return err
 	}
 	if err := ValidatePhone(phone); err != nil {
 		return err
 	}
-	if d == nil {
-		return &domain.SemanticError{
-			Code:    domain.ErrCodeInternal,
-			Message: "el documento de configuración de Hermes no está inicializado",
-		}
-	}
 
-	servers, err := hermesMapping(d, hermesServersSection)
+	fields := d.storage()
+	servers, err := hermesMapping(fields, hermesServersSection)
 	if err != nil {
 		return err
 	}
-	servers[HermesServerName] = hermesServerEntry(strings.TrimSpace(rawURL), phone)
+	servers[HermesServerName] = hermesServerEntry{
+		url:      strings.TrimSpace(rawURL),
+		callerID: phone,
+	}.asMapping()
+	// Persist the mapping for the zero value, whose storage() call allocated a
+	// fresh one; for an initialized document this reassigns the same map.
+	d.fields = fields
 	return nil
 }
 
@@ -237,11 +306,14 @@ func RenderHermesSnippet(rawURL, phone string) (string, error) {
 		return "", err
 	}
 
-	doc := HermesDocument{
+	doc := HermesDocument{fields: hermesDocument{
 		hermesServersSection: map[string]any{
-			HermesServerName: hermesServerEntry(strings.TrimSpace(rawURL), phone),
+			HermesServerName: hermesServerEntry{
+				url:      strings.TrimSpace(rawURL),
+				callerID: phone,
+			}.asMapping(),
 		},
-	}
+	}}
 	data, err := marshalHermesDocument(doc)
 	if err != nil {
 		return "", err
@@ -383,7 +455,7 @@ func ensureHermesDir(dir string) error {
 // hermesMapping returns the mapping stored at key, creating an empty one when
 // the key is absent. A present non-mapping value is a failure: overwriting it
 // would silently drop data we do not own.
-func hermesMapping(doc HermesDocument, key string) (map[string]any, error) {
+func hermesMapping(doc hermesDocument, key string) (map[string]any, error) {
 	existing, ok := doc[key]
 	if !ok || existing == nil {
 		section := map[string]any{}
@@ -401,13 +473,22 @@ func hermesMapping(doc HermesDocument, key string) (map[string]any, error) {
 	return section, nil
 }
 
-// hermesServerEntry builds the single entry this flow owns. Only the two keys
-// of the contract are present; a previous entry is replaced entirely.
-func hermesServerEntry(rawURL, phone string) map[string]any {
+// hermesServerEntry is the concrete shape of the single mcp_servers entry this
+// flow owns. Only the two contract fields exist; a previous entry is replaced
+// entirely.
+type hermesServerEntry struct {
+	url      string
+	callerID string
+}
+
+// asMapping renders the entry into the generic YAML mapping stored in the
+// document. The X-Caller-Id value is wrapped in a double-quoted *yaml.Node so
+// the quoting contract does not depend on emitter heuristics.
+func (e hermesServerEntry) asMapping() map[string]any {
 	return map[string]any{
-		hermesURLKey: rawURL,
+		hermesURLKey: e.url,
 		hermesHeadersKey: map[string]any{
-			HermesCallerIDHeader: hermesQuotedScalar(phone),
+			HermesCallerIDHeader: hermesQuotedScalar(e.callerID),
 		},
 	}
 }
@@ -431,7 +512,7 @@ func marshalHermesDocument(doc HermesDocument) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(hermesYAMLIndent)
-	if err := enc.Encode(map[string]any(doc)); err != nil {
+	if err := enc.Encode(map[string]any(doc.storage())); err != nil {
 		_ = enc.Close()
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeInternal,
