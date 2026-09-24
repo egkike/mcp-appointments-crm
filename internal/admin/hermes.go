@@ -191,7 +191,7 @@ func HermesEndpointURL(bind, port string) (string, error) {
 
 	// A hostname is not a loopback literal; serve mode rejects it too, so a URL
 	// built from it would advertise an endpoint that never comes up.
-	_, reason := loopback.Classify(bind)
+	reason := loopback.Classify(bind)
 	if reason != loopback.OK {
 		var message string
 		switch reason {

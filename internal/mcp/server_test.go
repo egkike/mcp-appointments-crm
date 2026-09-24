@@ -221,6 +221,25 @@ func TestServerHandlerChainIsStable(t *testing.T) {
 	if first.Code != http.StatusOK || second.Code != http.StatusOK {
 		t.Fatalf("Handler() statuses = %d and %d, want 200 for both", first.Code, second.Code)
 	}
+
+	// Anchor the comparison on a genuine initialize result: two identical error
+	// bodies would otherwise satisfy the equality check below.
+	result, code, msg := decodeRPCEnvelope(t, first)
+	if code != 0 {
+		t.Fatalf("first Handler() response is a JSON-RPC error: code=%d message=%q", code, msg)
+	}
+	var initialized struct {
+		ServerInfo struct {
+			Version string `json:"version"`
+		} `json:"serverInfo"`
+	}
+	if err := json.Unmarshal(result, &initialized); err != nil {
+		t.Fatalf("initialize result is not JSON: %v", err)
+	}
+	if initialized.ServerInfo.Version != testServerVersion {
+		t.Errorf("serverInfo.version = %q, want %q", initialized.ServerInfo.Version, testServerVersion)
+	}
+
 	if got, want := second.Body.String(), first.Body.String(); got != want {
 		t.Errorf("Handler() responses differ between calls:\nfirst:  %s\nsecond: %s", want, got)
 	}

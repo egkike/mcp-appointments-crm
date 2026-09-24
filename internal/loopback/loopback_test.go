@@ -25,15 +25,8 @@ func TestClassify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ip, reason := Classify(tt.bind)
-			if reason != tt.want {
+			if reason := Classify(tt.bind); reason != tt.want {
 				t.Fatalf("Classify(%q) reason = %v, want %v", tt.bind, reason, tt.want)
-			}
-			if tt.want == NotAnIP && ip != nil {
-				t.Errorf("Classify(%q) ip = %v, want nil", tt.bind, ip)
-			}
-			if tt.want != NotAnIP && ip == nil {
-				t.Errorf("Classify(%q) ip = nil, want parsed address", tt.bind)
 			}
 		})
 	}

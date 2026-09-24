@@ -23,23 +23,23 @@ const (
 )
 
 // Classify parses bind as an IP literal and reports whether it is a valid
-// loopback address. It returns the parsed IP (nil when bind is not an IP) and
-// the Reason.
+// loopback address. The parsed IP is never exposed: no caller consumes it, and
+// returning it would only widen the surface without adding safety.
 //
 // The order is load-bearing: an unspecified address is reported before the
 // loopback check so 0.0.0.0 and :: map to a stable reason instead of falling
 // into the generic non-loopback bucket. The caller owns any trimming or
 // empty-input handling; Classify treats bind verbatim.
-func Classify(bind string) (net.IP, Reason) {
+func Classify(bind string) Reason {
 	ip := net.ParseIP(bind)
 	if ip == nil {
-		return nil, NotAnIP
+		return NotAnIP
 	}
 	if ip.IsUnspecified() {
-		return ip, Unspecified
+		return Unspecified
 	}
 	if !ip.IsLoopback() {
-		return ip, NotLoopback
+		return NotLoopback
 	}
-	return ip, OK
+	return OK
 }

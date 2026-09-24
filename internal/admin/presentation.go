@@ -30,9 +30,15 @@ import (
 // It is the single chain both presentations run (R2-01): the Bubble Tea
 // hermesConfigCmd and the line-based console runConfigureHermesFlow, so the
 // merge, the atomic write and the fallback snippet cannot drift between them.
-// The values arrive as plain data, so neither presentation re-derives the path
-// or the endpoint. It lives next to the Hermes core in this package so the
-// chain and the operations it composes share one home.
+// The values arrive as plain data (a path and two strings), so neither
+// presentation re-derives the path or the endpoint.
+//
+// presentation.go is the deliberate home: this composition is the seam the two
+// operator entry points share, so keeping it beside the label/role/hint helpers
+// extends the "cannot drift" claim to the chain itself. The steps it composes
+// (LoadHermesConfig, SetHermesServer, WriteHermesConfig, RenderHermesSnippet)
+// stay in hermes.go as the framework-free Hermes core; this file owns only the
+// presentation-agnostic composition and the ADR-0017 Decision 1 fallback.
 func ApplyHermesConfig(path, endpointURL, phone string) (snippet string, err error) {
 	doc, err := LoadHermesConfig(path)
 	if err == nil {
