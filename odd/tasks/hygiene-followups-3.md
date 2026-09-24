@@ -1,6 +1,6 @@
 # Feature: hygiene-followups-3 — limpieza de los 5 advisory SUGGESTION del gate de hygiene-2
 
-**Status**: IN PROGRESS
+**Status**: COMPLETE (merged)
 **Started**: 2026-09-24
 **Branch**: TBD (desde main @ b046c5f)
 **Origin**: los 5 hallazgos advisory (SUGGESTION, no bloqueantes) del gate nativo
@@ -18,9 +18,9 @@ Presupuesto: ~30-60 líneas. Un solo PR issue-first.
 
 - [x] **T1 — Re-derivación + fixes (worker)**: leer las 5 regiones, fijar la premisa
       de cada advisory, implementar el fix mecánico o la disposition documentada.
-- [ ] **T2 — Verificación del orchestrator**: pipeline completo + revisión de diff.
-- [ ] **T3 — Commit + readback estructural** (owner aprueba commit).
-- [ ] **T4 — Issue-first PR + merge (owner)**.
+- [x] **T2 — Verificación del orchestrator**: pipeline completo + revisión de diff.
+- [x] **T3 — Commit `9557e32` + readback estructural PASS** (5/5 claims, cero cambio de comportamiento).
+- [x] **T4 — Issue-first PR + merge (owner)**.
 
 ## Superficies
 
@@ -37,6 +37,23 @@ Presupuesto: ~30-60 líneas. Un solo PR issue-first.
 | 3 | internal/loopback/loopback.go:33-44 (R2-loopback-ip-unused) | net.IP retornado por Classify sin consumir | fix: simplificar firma a Reason |
 | 4 | internal/mcp/server_test.go:218-225 (R3-001) | naming/cobertura del test de chain | fix menor o disposition |
 | 5 | internal/admin/presentation_test.go:174 (R3-002) | naming/cobertura del test de ApplyHermesConfig | fix menor o disposition |
+
+### Merge identity
+
+- Issue #103 (status:approved) → PR #104 `refactor(hygiene): disposition de los 5
+  advisory SUGGESTION del gate de hygiene-2` — squash-merged by owner as `2c591c5` on
+  main; issue auto-closed; branch deleted local+remote. CI: Detect Go changes + Verify
+  Go code PASS. Post-merge sanity green (build + test -race 15/15). main @ 2c591c5.
+- Delivery complete: deuda de hallazgos en cero activo. Backlog sigue: (5) smoke VM
+  v0.6.0, (4) bot WhatsApp por-sender, (3) transición a producción.
+
+## Evidence
+
+### Readback estructural (verify mufr, 2026-09-24)
+
+READBACK PASSED — claims A-E verificados contra el diff (comentario-only, strings
+byte-idénticos, call sites sin net.IP, ancla honesta, aserción del url); cero cambio de
+runtime. GGA PASSED en el commit (retry-once por el parse-window flake conocido).
 
 ## Evidence
 
