@@ -247,6 +247,53 @@ func TestExecuteCLIDispatch(t *testing.T) {
 	}
 }
 
+// TestExecuteCLIForwardsProcessContext pins R3-003: executeCLI forwards the
+// process signal context (the value main() derives from signal.NotifyContext)
+// unchanged to whichever runner the arguments select. TestExecuteCLIDispatch
+// only asserts WHICH runner ran; this test asserts the dispatch path does not
+// drop or replace the caller's context, and that a context already cancelled
+// before dispatch is observed by the runner as cancelled. It reuses the
+// existing cliRunners seam, so no production hook is added.
+func TestExecuteCLIForwardsProcessContext(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "serve", args: nil},
+		{name: "admin tui", args: []string{"admin", "tui"}},
+		{name: "hermes chat", args: []string{"hermes", "chat"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel() // dispatch must deliver an already-cancelled context as-is
+
+			var received context.Context
+			record := func(runCtx context.Context) error {
+				received = runCtx
+				return nil
+			}
+			runners := cliRunners{serve: record, adminTUI: record, hermesChat: record}
+
+			if err := executeCLI(ctx, tt.args, runners); err != nil {
+				t.Fatalf("executeCLI(%v) unexpected error: %v", tt.args, err)
+			}
+			if received == nil {
+				t.Fatalf("executeCLI(%v) ran no runner", tt.args)
+			}
+			if received != ctx {
+				t.Errorf("runner received a different context than the caller: got %v, want %v", received, ctx)
+			}
+			select {
+			case <-received.Done():
+			default:
+				t.Error("runner did not observe the pre-cancelled process context")
+			}
+		})
+	}
+}
+
 func TestBinarySubCommandDispatch(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping exec-based test on windows")

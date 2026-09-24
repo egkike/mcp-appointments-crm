@@ -42,7 +42,7 @@ Superficie del candidato (diff de PR #100, commit 5694316):
   - [x] T4 admin core (R2-04 + R3-001 + reubicación ApplyHermesConfig) — commit
     `0f619d2` (amended desde dfb8363; el hook GGA y el índice absorbieron los 10
     archivos en un solo commit, mensaje corregido por amend)
-  - [ ] T5 mcp + cmd tests (R3-002 + R3-003)
+  - [x] T5 mcp + cmd tests (R3-002 + R3-003) — pendiente commit
   - [~] T6 close-out: pipeline completo, gate nativo (default), issue-first PR
 - [ ] **T7 — Close-out**: pipeline completo (fmt/vet/golangci/build/test -race), gate
       nativo por routing (default → review nativo), issue-first PR, merge por owner.
@@ -148,7 +148,26 @@ test -race 14/14 (incluye el paquete nuevo).
 
 GGA pendiente de commit (gate en T6).
 
-## Notes
+### T5 — invariantes (worker mufyashd-5-0dz4 + verificación orchestrator)
+
+3 archivos, +93/−10. Pipeline completo verde: fmt/vet/golangci 0/build/test -race 15/15
+paquetes.
+
+- **R3-002**: el handler `/mcp` se construye UNA vez en `NewServer` (post-registerTools,
+  campo `s.handler`); `Handler()` y ambas ramas de `AuthHandler` derivan del mismo valor
+  cacheado. `TestServerHandlerChainIsStable` pinnea el comportamiento servido (dos
+  fetches → respuestas idénticas); el doc-comment honesto: la estabilidad de alocación
+  no es observable desde afuera, el build-once vive en `NewServer`.
+- **R3-003**: `TestExecuteCLIForwardsProcessContext` — identidad del ctx
+  (`received != ctx`) + observación de cancelación pre-despacho, en las 3 ramas de
+  dispatch (`serve`, `admin tui`, `hermes chat`), reusando el seam `cliRunners` sin
+  hooks de producción.
+- Nota del child (correcta): el reminder RDD del child fue dispositionado por el
+  orchestrator — el gate corresponde en T6 por decisión explícita del owner (plan
+  aprobado 2026-09-25: commits por work-unit sin gate individual, gate nativo único
+  sobre el candidato completo).
+
+GGA pendiente de commit (gate en T6).
 
 - Routing del gate: default → review nativo (Go code). GGA on commits con patrón
   owner-autorizado.
