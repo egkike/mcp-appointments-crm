@@ -39,8 +39,9 @@ Superficie del candidato (diff de PR #100, commit 5694316):
       fix / desmentido (disposition) / defer-documentado.
 - [~] **T3-T6 — Fixes agrupados**: según disposiciones (superficies a confirmar tras T2).
   - [x] T3 presentación Hermes (R2-01/02/03 + R4-001) — commit `63d3bda`, GGA PASSED
-  - [~] T4 admin core (R2-04 + R3-001 + reubicación ApplyHermesConfig) — worker
-    `mufxz1qw-4-8xxl` en background
+  - [x] T4 admin core (R2-04 + R3-001 + reubicación ApplyHermesConfig) — commit
+    `0f619d2` (amended desde dfb8363; el hook GGA y el índice absorbieron los 10
+    archivos en un solo commit, mensaje corregido por amend)
   - [ ] T5 mcp + cmd tests (R3-002 + R3-003)
   - [~] T6 close-out: pipeline completo, gate nativo (default), issue-first PR
 - [ ] **T7 — Close-out**: pipeline completo (fmt/vet/golangci/build/test -race), gate
