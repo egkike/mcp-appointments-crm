@@ -420,7 +420,7 @@ func (m AppModel) runConfirmed() (tea.Model, tea.Cmd) {
 	case confirmTransfer:
 		return m.started(transferCmd(m.ctx, m.deps, m.owner.ID, m.transferDraft))
 	case confirmHermesConfig:
-		return m.started(hermesConfigCmd(m.deps, m.hermesPhone))
+		return m.started(hermesConfigCmd(m.deps.Hermes.HermesConfig, m.hermesPhone))
 	default:
 		return m.menuScreen(""), nil
 	}
@@ -755,10 +755,11 @@ func (m AppModel) onHermesData(msg hermesDataMsg) (tea.Model, tea.Cmd) {
 		return m.retryGate()
 	}
 
-	// Store the resolved facts in the model's deps copy: the Hermes screens read
-	// the promoted EndpointURL/Path fields, and the confirmation and write
-	// commands read them back. The resolver is kept so the cached provider is
-	// reused on a later open.
+	// The resolved facts live in the model's Hermes bootstrap state: the Hermes
+	// screens render the promoted EndpointURL/Path fields from it, and the
+	// confirmation hands them to the write command as explicit arguments instead
+	// of the command reaching back into deps (R2-03). The resolver is kept so the
+	// cached provider is reused on a later open.
 	m.deps.Hermes.HermesConfig = msg.hermes
 	m.owner = msg.owner
 	m = m.withScreen(screenHermesForm)

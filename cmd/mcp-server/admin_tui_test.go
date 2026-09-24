@@ -18,6 +18,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/repository"
+	"github.com/egkike/mcp-appointments-crm/internal/tui"
 )
 
 // prepareAdminTUI points MCP_DB_PATH and MCP_CONFIG_DIR at throwaway locations
@@ -1422,8 +1423,8 @@ func consoleIdentity(t *testing.T, dbPath string) identityDeps {
 // contract: the Hermes capability is exactly one entry, in menu order, with the
 // label the Bubble Tea menu renders.
 func TestAdminMenuOptions_RegistersConfigureHermes(t *testing.T) {
-	options := adminMenuOptions(func() (consoleHermes, error) {
-		return consoleHermes{path: "p", endpointURL: "e"}, nil
+	options := adminMenuOptions(func() (tui.HermesConfig, error) {
+		return tui.HermesConfig{Path: "p", EndpointURL: "e"}, nil
 	})
 
 	if len(options) != 7 {
@@ -1566,7 +1567,7 @@ func TestRunConfigureHermesFlow_RequiresAnActiveOwner(t *testing.T) {
 	var out bytes.Buffer
 	err := runConfigureHermesFlow(context.Background(), identity,
 		bufio.NewScanner(strings.NewReader("")), &out,
-		consoleHermes{path: filepath.Join(t.TempDir(), "config.yaml"), endpointURL: consoleHermesEndpoint(t)})
+		tui.HermesConfig{Path: filepath.Join(t.TempDir(), "config.yaml"), EndpointURL: consoleHermesEndpoint(t)})
 
 	if err == nil {
 		t.Fatal("runConfigureHermesFlow() error = nil, want the no-active-owner failure")
@@ -1599,7 +1600,7 @@ func TestRunConfigureHermesFlow_FallsBackToSnippetWhenWriteFails(t *testing.T) {
 	stdin := bufio.NewScanner(strings.NewReader("\ns\n"))
 
 	err := runConfigureHermesFlow(context.Background(), identity, stdin, &out,
-		consoleHermes{path: "", endpointURL: consoleHermesEndpoint(t)})
+		tui.HermesConfig{EndpointURL: consoleHermesEndpoint(t)})
 
 	if err == nil {
 		t.Fatal("runConfigureHermesFlow() error = nil, want the write failure")
@@ -1621,5 +1622,36 @@ func TestRunConfigureHermesFlow_FallsBackToSnippetWhenWriteFails(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output = %q, want it to contain %q", out.String(), want)
 		}
+	}
+}
+
+// TestResolveHermesBootstrapRetriesAfterAFailure pins finding R4-001 end to end:
+// the cached resolver both presentations use caches a SUCCESS but not a failure,
+// so a transient bootstrap failure — here a non-loopback MCP_BIND the operator
+// corrects — is retried on the next open instead of sticking for the session.
+func TestResolveHermesBootstrapRetriesAfterAFailure(t *testing.T) {
+	setTestHome(t, t.TempDir())
+	t.Setenv("MCP_BIND", "192.168.1.1")
+	t.Setenv("MCP_PORT", "3000")
+
+	resolve := tui.NewCachedHermesResolver(func() (tui.HermesConfig, error) {
+		return resolveHermesBootstrap(os.Getenv("MCP_BIND"), os.Getenv("MCP_PORT"))
+	})
+
+	if _, err := resolve(); err == nil {
+		t.Fatal("first resolve = nil error, want the non-loopback bind failure")
+	}
+
+	// The operator fixes the environment; the next access must re-resolve.
+	t.Setenv("MCP_BIND", "127.0.0.1")
+	got, err := resolve()
+	if err != nil {
+		t.Fatalf("resolve after the fix = %v, want the repaired bootstrap", err)
+	}
+	if want := consoleHermesEndpoint(t); got.EndpointURL != want {
+		t.Errorf("EndpointURL = %q, want %q", got.EndpointURL, want)
+	}
+	if got.Path == "" {
+		t.Error("Path is empty, want the resolved ~/.hermes/config.yaml path")
 	}
 }

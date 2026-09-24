@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
@@ -57,13 +56,13 @@ func runAdminTUIProgram(ctx context.Context) error {
 
 	identity := newIdentityDeps(deps.database, deps.logger)
 
-	// #1 (hygiene-followups): the Hermes bootstrap is resolved lazily, inside the
-	// "Configurar Hermes" command, never at startup. sync.OnceValues caches the
-	// resolution (success or failure) so the cost is paid at most once, and an
-	// unresolvable home or an invalid MCP_BIND can no longer block the whole
-	// admin TUI.
-	resolveHermes := sync.OnceValues(func() (tui.HermesConfig, error) {
-		return resolveHermesConfig(deps.config.Bind, deps.config.Port)
+	// The Hermes bootstrap is resolved lazily, inside "Configurar Hermes", never
+	// at startup. The cached resolver pays a successful resolution once and lets
+	// a failed one be retried on the next open (R4-001), so an unresolvable home
+	// or an invalid MCP_BIND can neither block the whole admin TUI nor stick for
+	// the rest of the session.
+	resolveHermes := tui.NewCachedHermesResolver(func() (tui.HermesConfig, error) {
+		return resolveHermesBootstrap(deps.config.Bind, deps.config.Port)
 	})
 
 	// tui.Run keeps a background context on purpose: the program is interactive
@@ -80,38 +79,19 @@ func runAdminTUIProgram(ctx context.Context) error {
 // resolveHermesBootstrap composes the two facts of the Hermes bootstrap from the
 // already-resolved runtime configuration (ADR-0017 Decision 3): the standard
 // ~/.hermes/config.yaml path and the MCP endpoint URL derived from
-// MCP_BIND/MCP_PORT with the fixed /mcp path. It is the single resolution site
-// consumed by both presentations — the Bubble Tea program and the line-based
-// console — so the path and the URL cannot drift between them.
-func resolveHermesBootstrap(bind, port string) (path, endpointURL string, err error) {
-	path, err = admin.HermesConfigPath()
+// MCP_BIND/MCP_PORT with the fixed /mcp path. It returns the one shared
+// tui.HermesConfig shape both presentations consume, so the path and the URL
+// cannot drift between them (R2-02).
+func resolveHermesBootstrap(bind, port string) (tui.HermesConfig, error) {
+	path, err := admin.HermesConfigPath()
 	if err != nil {
-		return "", "", err
+		return tui.HermesConfig{}, err
 	}
-	endpointURL, err = admin.HermesEndpointURL(bind, port)
-	if err != nil {
-		return "", "", err
-	}
-	return path, endpointURL, nil
-}
-
-// resolveHermesConfig maps the shared Hermes bootstrap facts onto the tui.Deps
-// value the Bubble Tea program consumes.
-func resolveHermesConfig(bind, port string) (tui.HermesConfig, error) {
-	path, endpointURL, err := resolveHermesBootstrap(bind, port)
+	endpointURL, err := admin.HermesEndpointURL(bind, port)
 	if err != nil {
 		return tui.HermesConfig{}, err
 	}
 	return tui.HermesConfig{Path: path, EndpointURL: endpointURL}, nil
-}
-
-// consoleHermes is the console counterpart of tui.HermesConfig: the resolved
-// Hermes bootstrap facts the "Configurar Hermes" action consumes. Resolving them
-// at the composition root (ADR-0017 Decision 3) keeps the console flow free of
-// hardcoded paths and URLs, exactly like the Bubble Tea program.
-type consoleHermes struct {
-	path        string
-	endpointURL string
 }
 
 // interactiveTerminal reports whether both process streams are attached to a
@@ -175,18 +155,15 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 	flowCtx := context.Background()
 	scanner := bufio.NewScanner(stdin)
 
-	// #1 (hygiene-followups): the Hermes bootstrap facts come from the running
-	// server configuration (MCP_BIND/MCP_PORT), never from a hardcoded path or
-	// URL, and they are resolved on demand when the operator opens "Configurar
-	// Hermes". A bad bind or an unresolvable home therefore only surfaces as the
-	// menu's "Error: ..." line and no longer blocks the whole console.
-	resolveHermes := func() (consoleHermes, error) {
-		path, endpoint, err := resolveHermesBootstrap(deps.config.Bind, deps.config.Port)
-		if err != nil {
-			return consoleHermes{}, err
-		}
-		return consoleHermes{path: path, endpointURL: endpoint}, nil
-	}
+	// The Hermes bootstrap facts come from the running server configuration
+	// (MCP_BIND/MCP_PORT), never from a hardcoded path or URL, and they are
+	// resolved on demand when the operator opens "Configurar Hermes". A bad bind
+	// or an unresolvable home therefore only surfaces as the menu's "Error: ..."
+	// line, no longer blocks the whole console, and is retried on the next open
+	// through the same cached resolver the Bubble Tea program uses (R4-001).
+	resolveHermes := tui.NewCachedHermesResolver(func() (tui.HermesConfig, error) {
+		return resolveHermesBootstrap(deps.config.Bind, deps.config.Port)
+	})
 
 	needsSeed, err := admin.NeedsSeed(flowCtx, identity.accounts)
 	if err != nil {
@@ -245,7 +222,7 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 			// Idempotent outcome: an owner appeared between the decision and
 			// the write. Report it semantically and exit clean — never
 			// duplicate, never surface a driver error.
-			if err := writeConsole(stdout, "No se creó ninguna cuenta: %v\n", err); err != nil {
+			if err := writeConsole(stdout, fmt.Sprintf("No se creó ninguna cuenta: %v\n", err)); err != nil {
 				return err
 			}
 			return nil
@@ -258,10 +235,11 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 		return err
 	}
 
-	if err := writeConsole(stdout, "Owner creado: %s (%s)\n", input.DisplayName, input.Phone); err != nil {
+	if err := writeConsole(stdout,
+		fmt.Sprintf("Owner creado: %s (%s)\n", input.DisplayName, input.Phone)); err != nil {
 		return err
 	}
-	if err := writeConsole(stdout, "caller-id escrito en %s\n", path); err != nil {
+	if err := writeConsole(stdout, fmt.Sprintf("caller-id escrito en %s\n", path)); err != nil {
 		return err
 	}
 	if err := writeConsole(stdout, "Ya podés usar `mcp-server hermes chat` con ese caller id.\n"); err != nil {
@@ -286,18 +264,20 @@ func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, scanner 
 	createKey := len(inactiveOwners) + 1
 
 	for {
-		if err := writeConsole(stdout,
+		if err := writeConsole(stdout, fmt.Sprintf(
 			"No hay ningún owner activo, pero hay %d cuenta(s) de owner desactivada(s).\n"+
 				"Podés reactivar una de ellas o crear un owner nuevo con otro teléfono.\n",
-			len(inactiveOwners)); err != nil {
+			len(inactiveOwners))); err != nil {
 			return err
 		}
 		for i, view := range inactiveOwners {
-			if err := writeConsole(stdout, "  [%d] Reactivar %s\n", i+1, admin.AccountLabel(view)); err != nil {
+			if err := writeConsole(stdout,
+				fmt.Sprintf("  [%d] Reactivar %s\n", i+1, admin.AccountLabel(view))); err != nil {
 				return err
 			}
 		}
-		if err := writeConsole(stdout, "  [%d] Crear un owner nuevo con otro teléfono\n", createKey); err != nil {
+		if err := writeConsole(stdout,
+			fmt.Sprintf("  [%d] Crear un owner nuevo con otro teléfono\n", createKey)); err != nil {
 			return err
 		}
 
@@ -351,10 +331,11 @@ func runReactivateOwnerChoice(ctx context.Context, identity identityDeps, scanne
 	if err != nil {
 		return false, err
 	}
-	if err := writeConsole(stdout, "Owner reactivado: %s (%s)\n", reactivated.DisplayName, reactivated.ID); err != nil {
+	if err := writeConsole(stdout,
+		fmt.Sprintf("Owner reactivado: %s (%s)\n", reactivated.DisplayName, reactivated.ID)); err != nil {
 		return false, err
 	}
-	if err := writeConsole(stdout, "caller-id escrito en %s\n", path); err != nil {
+	if err := writeConsole(stdout, fmt.Sprintf("caller-id escrito en %s\n", path)); err != nil {
 		return false, err
 	}
 	return true, writeConsole(stdout, "Ya podés usar `mcp-server hermes chat` con ese caller id.\n")
@@ -373,11 +354,11 @@ func runNewOwnerSeed(ctx context.Context, identity identityDeps, scanner *bufio.
 
 	if err := admin.Seed(ctx, identity.accounts, input); err != nil {
 		if errors.Is(err, admin.ErrOwnerAlreadyExists) {
-			if err := writeConsole(stdout, "No se creó ninguna cuenta: %v\n", err); err != nil {
+			if err := writeConsole(stdout, fmt.Sprintf("No se creó ninguna cuenta: %v\n", err)); err != nil {
 				return false, err
 			}
 			if hint := admin.ReactivationHint(inactiveOwners, input.Phone); hint != "" {
-				if err := writeConsole(stdout, "%s\n", hint); err != nil {
+				if err := writeConsole(stdout, fmt.Sprintf("%s\n", hint)); err != nil {
 					return false, err
 				}
 			}
@@ -390,10 +371,11 @@ func runNewOwnerSeed(ctx context.Context, identity identityDeps, scanner *bufio.
 	if err != nil {
 		return false, err
 	}
-	if err := writeConsole(stdout, "Owner creado: %s (%s)\n", input.DisplayName, input.Phone); err != nil {
+	if err := writeConsole(stdout,
+		fmt.Sprintf("Owner creado: %s (%s)\n", input.DisplayName, input.Phone)); err != nil {
 		return false, err
 	}
-	if err := writeConsole(stdout, "caller-id escrito en %s\n", path); err != nil {
+	if err := writeConsole(stdout, fmt.Sprintf("caller-id escrito en %s\n", path)); err != nil {
 		return false, err
 	}
 	return true, writeConsole(stdout, "Ya podés usar `mcp-server hermes chat` con ese caller id.\n")
@@ -416,18 +398,15 @@ type adminMenuOption struct {
 	action adminMenuAction
 }
 
-// hermesResolver resolves the Hermes bootstrap facts on demand, so a bad bind
-// or an unresolvable home only surfaces when the operator opens "Configurar
-// Hermes" instead of blocking the whole console at startup.
-type hermesResolver func() (consoleHermes, error)
-
 // adminMenuOptions is the single dispatch table of the console menu. Landing
 // T5-T7 appends an entry here instead of adding branches to runAdminTUIFlow, so
 // the menu stays trivial to grow. The Hermes entry is the only capability whose
 // inputs come from the runtime configuration rather than from the operator
 // database, so it resolves them on demand through resolveHermes instead of
-// reading them from a package-level path.
-func adminMenuOptions(resolveHermes hermesResolver) []adminMenuOption {
+// reading them from a package-level path. resolveHermes is the shared
+// tui.HermesResolver, so the console and the Bubble Tea program consume the same
+// shape and the same retry contract (R2-02, R4-001).
+func adminMenuOptions(resolveHermes tui.HermesResolver) []adminMenuOption {
 	return []adminMenuOption{
 		{key: "1", label: "Add Staff", action: runAddStaffFlow},
 		{key: "2", label: "Desactivar cuenta", action: runDeactivateAccountFlow},
@@ -452,7 +431,7 @@ func adminMenuOptions(resolveHermes hermesResolver) []adminMenuOption {
 // until they quit or the stream ends. End of input (Ctrl+D or a
 // non-interactive invocation) is a clean exit, not an error: an operator who
 // only needed the seed must not get a failure for not answering the menu.
-func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, resolveHermes hermesResolver) error {
+func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, resolveHermes tui.HermesResolver) error {
 	options := adminMenuOptions(resolveHermes)
 	for {
 		if err := writeMenu(stdout, options); err != nil {
@@ -469,7 +448,8 @@ func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Sca
 
 		option, found := findMenuOption(options, choice)
 		if !found {
-			if err := writeConsole(stdout, "Error: opción desconocida %q\n", choice); err != nil {
+			if err := writeConsole(stdout,
+				fmt.Sprintf("Error: opción desconocida %q\n", choice)); err != nil {
 				return err
 			}
 			continue
@@ -478,7 +458,7 @@ func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Sca
 		if err := option.action(ctx, identity, scanner, stdout); err != nil {
 			// Business errors reopen the menu; only a console that can no
 			// longer echo would fail here, and that failure is propagated.
-			if werr := writeConsole(stdout, "Error: %v\n", err); werr != nil {
+			if werr := writeConsole(stdout, fmt.Sprintf("Error: %v\n", err)); werr != nil {
 				return werr
 			}
 		}
@@ -491,11 +471,11 @@ func writeMenu(stdout io.Writer, options []adminMenuOption) error {
 		return err
 	}
 	for _, option := range options {
-		if err := writeConsole(stdout, "  [%s] %s\n", option.key, option.label); err != nil {
+		if err := writeConsole(stdout, fmt.Sprintf("  [%s] %s\n", option.key, option.label)); err != nil {
 			return err
 		}
 	}
-	return writeConsole(stdout, "  [%s] Salir\n", menuExitKey)
+	return writeConsole(stdout, fmt.Sprintf("  [%s] Salir\n", menuExitKey))
 }
 
 // findMenuOption resolves a menu key against the dispatch table.
@@ -544,7 +524,7 @@ func runAddStaffFlow(ctx context.Context, identity identityDeps, scanner *bufio.
 		return err
 	}
 	for i, candidate := range candidates {
-		if err := writeConsole(stdout, "  [%d] %s\n", i+1, candidate.Name); err != nil {
+		if err := writeConsole(stdout, fmt.Sprintf("  [%d] %s\n", i+1, candidate.Name)); err != nil {
 			return err
 		}
 	}
@@ -573,8 +553,8 @@ func runAddStaffFlow(ctx context.Context, identity identityDeps, scanner *bufio.
 		return err
 	}
 
-	return writeConsole(stdout, "Cuenta de staff creada: %s (%s) para el profesional %s\n",
-		displayName, phone, professional.Name)
+	return writeConsole(stdout, fmt.Sprintf("Cuenta de staff creada: %s (%s) para el profesional %s\n",
+		displayName, phone, professional.Name))
 }
 
 // runDeactivateAccountFlow drives the Deactivate capability (ADR-0016
@@ -603,7 +583,8 @@ func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanne
 		return err
 	}
 	for i, view := range views {
-		if err := writeConsole(stdout, "  [%d] %s\n", i+1, admin.AccountLabel(view)); err != nil {
+		if err := writeConsole(stdout,
+			fmt.Sprintf("  [%d] %s\n", i+1, admin.AccountLabel(view))); err != nil {
 			return err
 		}
 	}
@@ -628,9 +609,11 @@ func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanne
 		return err
 	}
 	if outcome.AlreadyInactive {
-		return writeConsole(stdout, "La cuenta ya estaba inactiva: %s\n", admin.AccountLabel(outcome.Account))
+		return writeConsole(stdout,
+			fmt.Sprintf("La cuenta ya estaba inactiva: %s\n", admin.AccountLabel(outcome.Account)))
 	}
-	return writeConsole(stdout, "Cuenta desactivada: %s\n", admin.AccountLabel(outcome.Account))
+	return writeConsole(stdout,
+		fmt.Sprintf("Cuenta desactivada: %s\n", admin.AccountLabel(outcome.Account)))
 }
 
 // runListAllAccountsFlow renders the "all accounts" view (ADR-0016
@@ -651,7 +634,7 @@ func runListByRoleFlow(ctx context.Context, identity identityDeps, scanner *bufi
 		return err
 	}
 	for i, role := range roles {
-		if err := writeConsole(stdout, "  [%d] %s\n", i+1, role); err != nil {
+		if err := writeConsole(stdout, fmt.Sprintf("  [%d] %s\n", i+1, role)); err != nil {
 			return err
 		}
 	}
@@ -706,11 +689,12 @@ func writeAccountTable(stdout io.Writer, views []admin.AccountView) error {
 		rows = append(rows, row)
 	}
 
-	if err := writeConsole(stdout, "%s\n", formatAccountRow(headers, widths)); err != nil {
+	if err := writeConsole(stdout,
+		fmt.Sprintf("%s\n", formatAccountRow(headers, widths))); err != nil {
 		return err
 	}
 	for _, row := range rows {
-		if err := writeConsole(stdout, "%s\n", formatAccountRow(row, widths)); err != nil {
+		if err := writeConsole(stdout, fmt.Sprintf("%s\n", formatAccountRow(row, widths))); err != nil {
 			return err
 		}
 	}
@@ -759,7 +743,7 @@ func stateColumn(view admin.AccountView) string {
 // same helper serves the professional, account and role pickers.
 func promptIndex(scanner *bufio.Scanner, stdout io.Writer, label string, count int) (int, error) {
 	for {
-		if err := writeConsole(stdout, "%s [1-%d]: ", label, count); err != nil {
+		if err := writeConsole(stdout, fmt.Sprintf("%s [1-%d]: ", label, count)); err != nil {
 			return 0, err
 		}
 		if !scanner.Scan() {
@@ -770,7 +754,8 @@ func promptIndex(scanner *bufio.Scanner, stdout io.Writer, label string, count i
 		}
 		choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
 		if err != nil || choice < 1 || choice > count {
-			if err := writeConsole(stdout, "Error: opción inválida: elegí un número entre 1 y %d\n", count); err != nil {
+			if err := writeConsole(stdout,
+				fmt.Sprintf("Error: opción inválida: elegí un número entre 1 y %d\n", count)); err != nil {
 				return 0, err
 			}
 			continue
@@ -784,14 +769,12 @@ func promptIndex(scanner *bufio.Scanner, stdout io.Writer, label string, count i
 // the failure is propagated as a semantic error: an operator flow that cannot
 // echo its prompts has no usable environment.
 //
-// The variadic args ...any is the idiomatic fmt.Fprintf printf signature, not a
-// lost concrete type: the format string is the contract and the args are
-// validated by go vet's printf checker at every call site. Accepted deviation,
-// mirroring internal/auth/middleware.go (hashCallerID): contorting the
-// signature into a typed struct would only move the same dynamic typing behind
-// a wrapper without adding safety.
-func writeConsole(stdout io.Writer, format string, args ...any) error {
-	if _, err := fmt.Fprintf(stdout, format, args...); err != nil {
+// There is no dynamically-typed boundary left: callers format at the call site
+// and hand this function a finished string, so a plain string carries the whole
+// contract. The format step stays go vet checked, because fmt.Sprintf is the
+// first thing the printf checker validates at each call site.
+func writeConsole(stdout io.Writer, text string) error {
+	if _, err := io.WriteString(stdout, text); err != nil {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeInternal,
 			Message: "no se pudo escribir en la consola del operador",
@@ -810,7 +793,7 @@ func writeConsole(stdout io.Writer, format string, args ...any) error {
 // other prompts: nothing is written on a half-answered confirmation.
 func promptConfirm(scanner *bufio.Scanner, stdout io.Writer, question string) (bool, error) {
 	for {
-		if err := writeConsole(stdout, "%s (s/n): ", question); err != nil {
+		if err := writeConsole(stdout, fmt.Sprintf("%s (s/n): ", question)); err != nil {
 			return false, err
 		}
 
@@ -862,10 +845,10 @@ func promptSeedInput(scanner *bufio.Scanner, stdout io.Writer) (admin.SeedInput,
 func promptValidated(scanner *bufio.Scanner, stdout io.Writer, label, defaultValue string, validate func(string) error) (string, error) {
 	for {
 		if defaultValue != "" {
-			if err := writeConsole(stdout, "%s [%s]: ", label, defaultValue); err != nil {
+			if err := writeConsole(stdout, fmt.Sprintf("%s [%s]: ", label, defaultValue)); err != nil {
 				return "", err
 			}
-		} else if err := writeConsole(stdout, "%s: ", label); err != nil {
+		} else if err := writeConsole(stdout, fmt.Sprintf("%s: ", label)); err != nil {
 			return "", err
 		}
 
@@ -881,7 +864,7 @@ func promptValidated(scanner *bufio.Scanner, stdout io.Writer, label, defaultVal
 			value = defaultValue
 		}
 		if err := validate(value); err != nil {
-			if err := writeConsole(stdout, "Error: %v\n", err); err != nil {
+			if err := writeConsole(stdout, fmt.Sprintf("Error: %v\n", err)); err != nil {
 				return "", err
 			}
 			continue
@@ -934,7 +917,8 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanne
 	if err := writeConsole(stdout, "Paso 1 de 2: elegir el sucesor.\n"); err != nil {
 		return err
 	}
-	if err := writeConsole(stdout, "Owner actual: %s\n", admin.AccountLabel(owner)); err != nil {
+	if err := writeConsole(stdout,
+		fmt.Sprintf("Owner actual: %s\n", admin.AccountLabel(owner))); err != nil {
 		return err
 	}
 
@@ -943,7 +927,7 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanne
 		return err
 	}
 	for i, option := range options {
-		if err := writeConsole(stdout, "  [%d] %s\n", i+1, option.label); err != nil {
+		if err := writeConsole(stdout, fmt.Sprintf("  [%d] %s\n", i+1, option.label)); err != nil {
 			return err
 		}
 	}
@@ -1008,11 +992,11 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanne
 		return err
 	}
 
-	if err := writeConsole(stdout, "Ownership transferido: %s → %s\n",
-		admin.AccountLabel(outcome.From), admin.AccountLabel(outcome.To)); err != nil {
+	if err := writeConsole(stdout, fmt.Sprintf("Ownership transferido: %s → %s\n",
+		admin.AccountLabel(outcome.From), admin.AccountLabel(outcome.To))); err != nil {
 		return err
 	}
-	return writeConsole(stdout, "caller-id actualizado en %s\n", path)
+	return writeConsole(stdout, fmt.Sprintf("caller-id actualizado en %s\n", path))
 }
 
 // transferSuccessorOptions maps the shared core successor list (internal/admin)
@@ -1053,9 +1037,9 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner 
 		return err
 	}
 
-	if err := writeConsole(stdout,
+	if err := writeConsole(stdout, fmt.Sprintf(
 		"Se va a registrar tu cuenta como cliente del negocio.\n"+
-			"Tu teléfono de cuenta es: %s\n", owner.ID); err != nil {
+			"Tu teléfono de cuenta es: %s\n", owner.ID)); err != nil {
 		return err
 	}
 
@@ -1087,8 +1071,10 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner 
 //
 // A failed write chain is never a dead end: the exact YAML snippet the writer
 // would have produced is printed with the target path and the semantic error, so
-// the operator can finish the bootstrap by hand (ADR-0017 Decision 1).
-func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, hermes consoleHermes) error {
+// the operator can finish the bootstrap by hand (ADR-0017 Decision 1). The chain
+// itself lives in tui.ApplyHermesConfig, the same helper the Bubble Tea wizard
+// runs (R2-01), so the console never re-derives the path or the endpoint.
+func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, hermes tui.HermesConfig) error {
 	owner, err := admin.ActiveOwner(ctx, identity.accounts)
 	if err != nil {
 		return err
@@ -1112,47 +1098,35 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner 
 		return writeConsole(stdout, "Operación cancelada: no se cambió la configuración de Hermes.\n")
 	}
 
-	doc, err := admin.LoadHermesConfig(hermes.path)
-	if err == nil {
-		err = doc.SetHermesServer(hermes.endpointURL, phone)
-	}
-	if err == nil {
-		err = admin.WriteHermesConfig(hermes.path, doc)
-	}
+	snippet, err := tui.ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
 	if err == nil {
 		if err := writeConsole(stdout, "Configuración de Hermes actualizada.\n"); err != nil {
 			return err
 		}
 		return writeHermesFacts(stdout, hermes, phone)
 	}
-	return writeHermesSnippetFallback(stdout, hermes, phone, err)
+	return writeHermesSnippetFallback(stdout, hermes, snippet, err)
 }
 
 // writeHermesFacts renders the three facts of the bootstrap — endpoint, phone
 // and target file — in the same order and wording as the Bubble Tea confirmation
 // and success screens, so the two presentations report the same contract.
-func writeHermesFacts(stdout io.Writer, hermes consoleHermes, phone string) error {
-	if err := writeConsole(stdout, "Endpoint: %s\n", hermes.endpointURL); err != nil {
+func writeHermesFacts(stdout io.Writer, hermes tui.HermesConfig, phone string) error {
+	if err := writeConsole(stdout, fmt.Sprintf("Endpoint: %s\n", hermes.EndpointURL)); err != nil {
 		return err
 	}
-	if err := writeConsole(stdout, "Teléfono (X-Caller-Id): %s\n", phone); err != nil {
+	if err := writeConsole(stdout, fmt.Sprintf("Teléfono (X-Caller-Id): %s\n", phone)); err != nil {
 		return err
 	}
-	return writeConsole(stdout, "Archivo: %s\n", hermes.path)
+	return writeConsole(stdout, fmt.Sprintf("Archivo: %s\n", hermes.Path))
 }
 
 // writeHermesSnippetFallback renders the manual path of ADR-0017 Decision 1 when
-// the write chain failed: the exact YAML block the writer would have emitted,
-// the file it belongs in, and the semantic error that forced the fallback. The
-// error is returned so runAdminMenu renders it as "Error: <detalle>" and reopens
-// the menu; the snippet is rendered with the same validators the writer uses, so
-// it can never advertise a value the writer would reject.
-func writeHermesSnippetFallback(stdout io.Writer, hermes consoleHermes, phone string, writeErr error) error {
-	snippet, snippetErr := admin.RenderHermesSnippet(hermes.endpointURL, phone)
-	if snippetErr != nil {
-		snippet = ""
-	}
-
+// the write chain failed: the exact YAML block the shared chain (R2-01) already
+// rendered, the file it belongs in, and the semantic error that forced the
+// fallback. The error is returned so runAdminMenu renders it as "Error:
+// <detalle>" and reopens the menu.
+func writeHermesSnippetFallback(stdout io.Writer, hermes tui.HermesConfig, snippet string, writeErr error) error {
 	if err := writeConsole(stdout, "Configuración manual de Hermes\n"); err != nil {
 		return err
 	}
@@ -1160,11 +1134,11 @@ func writeHermesSnippetFallback(stdout io.Writer, hermes consoleHermes, phone st
 		"No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado:\n"); err != nil {
 		return err
 	}
-	if err := writeConsole(stdout, "%s\n", hermes.path); err != nil {
+	if err := writeConsole(stdout, fmt.Sprintf("%s\n", hermes.Path)); err != nil {
 		return err
 	}
 	if snippet != "" {
-		if err := writeConsole(stdout, "%s", snippet); err != nil {
+		if err := writeConsole(stdout, snippet); err != nil {
 			return err
 		}
 	}

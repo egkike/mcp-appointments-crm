@@ -360,34 +360,49 @@ func hermesDataCmd(ctx context.Context, deps Deps) tea.Cmd {
 	}
 }
 
-// hermesConfigCmd runs the three steps of the Hermes bootstrap against the
-// reviewed core: load the existing ~/.hermes/config.yaml, merge the single
-// mcp_servers.mcp-appointments entry (preserving everything else) and write it
-// atomically. The path and the endpoint URL come from deps.Hermes, resolved once
-// at the composition root, and are never hardcoded here.
+// ApplyHermesConfig runs the full Hermes bootstrap chain against the reviewed
+// core: load the existing config, merge the single mcp_servers.mcp-appointments
+// entry (preserving every other key and server) and write it atomically. On
+// success it returns an empty snippet and a nil error. On failure it returns the
+// semantic error that broke the chain plus the exact YAML snippet the writer
+// would have emitted — empty when the snippet itself cannot be rendered — so the
+// caller degrades to the same manual fallback (ADR-0017 Decision 1).
 //
-// Any failure of the chain means the write is impossible (absent home,
-// unwritable directory, malformed YAML, a non-mapping mcp_servers section), so
-// the command renders the exact fallback snippet with the same values instead of
-// surfacing a raw driver error (ADR-0017 Decision 1). The snippet is rendered
-// with the same validators the writer uses, so it can never advertise a value
-// the writer would reject.
-func hermesConfigCmd(deps Deps, phone string) tea.Cmd {
+// It is the single chain both presentations run (R2-01): the Bubble Tea
+// hermesConfigCmd and the line-based console runConfigureHermesFlow, so the
+// merge, the atomic write and the fallback snippet cannot drift between them.
+// The values arrive as plain data, so neither presentation re-derives the path
+// or the endpoint.
+func ApplyHermesConfig(path, endpointURL, phone string) (snippet string, err error) {
+	doc, err := admin.LoadHermesConfig(path)
+	if err == nil {
+		err = doc.SetHermesServer(endpointURL, phone)
+	}
+	if err == nil {
+		err = admin.WriteHermesConfig(path, doc)
+	}
+	if err == nil {
+		return "", nil
+	}
+
+	snippet, snippetErr := admin.RenderHermesSnippet(endpointURL, phone)
+	if snippetErr != nil {
+		snippet = ""
+	}
+	return snippet, err
+}
+
+// hermesConfigCmd runs the shared Hermes chain and maps its outcome onto the
+// wizard's result message: the written config on success, or the manual snippet
+// plus the semantic failure that forced the fallback. The resolved HermesConfig
+// and the operator's phone arrive as explicit arguments, so the command depends
+// on no model state another handler mutated (R2-03): the caller passes the facts
+// it resolved.
+func hermesConfigCmd(hermes HermesConfig, phone string) tea.Cmd {
 	return func() tea.Msg {
-		doc, err := admin.LoadHermesConfig(deps.Hermes.Path)
-		if err == nil {
-			err = doc.SetHermesServer(deps.Hermes.EndpointURL, phone)
-		}
-		if err == nil {
-			err = admin.WriteHermesConfig(deps.Hermes.Path, doc)
-		}
+		snippet, err := ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
 		if err == nil {
 			return hermesResultMsg{written: true}
-		}
-
-		snippet, snippetErr := admin.RenderHermesSnippet(deps.Hermes.EndpointURL, phone)
-		if snippetErr != nil {
-			snippet = ""
 		}
 		return hermesResultMsg{snippet: snippet, err: err}
 	}
