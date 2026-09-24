@@ -1303,7 +1303,7 @@ Override con otro caller_id (debug):
 
 **Definition of Done**:
 - [x] En una máquina **Linux x86_64**, el flujo validado — wizard interactivo en una TTY real seguido de `curl -fsSL <url> | bash -s -- --version v0.3.0` — deja el sistema corriendo en < 5 minutos *(verificado en la VM HomeLab, demo v0.3.0 del 2026-09-10; el wizard no puede pipearse)*
-- [ ] En **macOS 13+** y **Windows 10+** el mismo one-liner deja el sistema corriendo en < 5 minutos — **pendiente**: el release publicado no incluye assets `Darwin` ni `Windows`, y Windows además no tiene path de instalación (§7)
+- [ ] En **macOS 13+** y **Windows 10+** el mismo one-liner deja el sistema corriendo en < 5 minutos — **pendiente**: los assets `Darwin` y `Windows` se publican desde v0.4.0 (matriz de 5 plataformas) y el camino macOS de `install.sh` está implementado, pero el flujo end-to-end no fue verificado en máquinas reales de esos SO; Windows además no tiene path de instalación (§7, [ADR-0014](../architecture/0014-release-and-deploy-workflow.md) Decision 3)
 - [x] El script `backup.sh` está disponible en el repo y en el release, y produce un `.gz` ejecutándose manualmente con `./scripts/backup.sh`
 - [x] El script falla con mensaje claro si los JSON no existen
 - [x] Manual de instalación en español, paso a paso
