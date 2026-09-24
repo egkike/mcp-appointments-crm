@@ -120,6 +120,12 @@ note).
 - [PR Template](./docs/common/prd-template.md) — reusable template for new PRs
 - [Architecture Decisions](./docs/architecture/) — ADRs
 - [AGENTS.md](./AGENTS.md) — project conventions, coding standards, commit/PR process
+- [Installation](./docs/installation.md) — from-zero install guide (wizard + install.sh)
+- [Deployment](./docs/deployment.md) — releases, service registration, backup
+- [Demo plan](./docs/demo-plan.md) — end-to-end demonstration script
+- [Maintenance](./docs/maintenance.md) — annual support manual
+- [Feature tracking (ODD)](./odd/) — `odd/tasks/<feature>.md` per feature: tasks,
+  evidence, gates and merge identities
 
 ## Development
 
