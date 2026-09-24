@@ -1,6 +1,6 @@
 # Feature: hygiene-followups-2 — disposition de los 8 hallazgos informativos del gate de hygiene
 
-**Status**: IN PROGRESS
+**Status**: COMPLETE (merged)
 **Started**: 2026-09-25
 **Branch**: TBD (desde main @ 3929610)
 **Origin**: los 8 hallazgos informativos (WARNING/SUGGESTION, no bloqueantes) del review
@@ -180,7 +180,7 @@ propagation` — 3 archivos +93/−10 (+ doc). GGA PASSED. Árbol limpio.
 8/8 findings implementados: R2-01/02/03 + R4-001 (63d3bda), R2-04 + R3-001 +
 reubicación (0f619d2), R3-002 + R3-003 (fd68be6). Disposiciones previas: 2 hallazgos
 desmentidos por el scout (sin código), 2 warnings GGA pre-existentes documentados.
-Branch feat/hygiene-followups-2: 6 commits sobre main @ 3929610.
+Branch feat/hygiene-followups-2: 7 commits sobre main @ 3929610.
 
 GGA pendiente de commit (gate en T6).
 
@@ -199,6 +199,15 @@ GGA pendiente de commit (gate en T6).
      Classify no lo consume ningún caller; considerar simplificar la firma).
   4. R3-001 — internal/mcp/server_test.go:218-225 (naming/cobertura del test de chain).
   5. R3-002 — internal/admin/presentation_test.go:174 (idem, test de ApplyHermesConfig).
+
+### Merge identity
+
+- Issue #101 (status:approved) → PR #102 `fix(hygiene): disposition de los 8 hallazgos
+  informativos del gate de hygiene` — squash-merged by owner as `1d773b5` on main
+  (2026-09-25); issue auto-closed; branch deleted local+remote. CI: Detect Go changes +
+  Verify Go code PASS. Post-merge sanity green (build + test -race 15/15). main @ 1d773b5.
+- Delivery complete: backlog obs 914 item de higiene cerrado. Sigue: (5) smoke VM v0.6.0,
+  (4) bot WhatsApp por-sender, (3) transición a producción.
 
 ## Notes
 
