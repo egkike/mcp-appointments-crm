@@ -1,5 +1,13 @@
 # MCP Appointments CRM
 
+<div align="center">
+
+<a href="https://github.com/Gentleman-Programming/gentle-ai">
+  <img width="220" src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle-AI" />
+</a>
+
+</div>
+
 A high-performance, self-hosted, lightweight **MCP (Model Context Protocol) server**
 for business bookings and CRM. Written in **Go**, backed by **SQLite** with FTS5.
 Runs natively on **Linux** and **macOS** — no containers, no external services.
