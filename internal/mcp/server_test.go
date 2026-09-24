@@ -198,3 +198,30 @@ func TestServerMalformedJSON(t *testing.T) {
 		t.Errorf("id = %s, want null", *envelope.ID)
 	}
 }
+
+// TestServerHandlerChainIsStable pins the write-once invariant behind the
+// R3-002 cache: NewServer builds the /mcp handler exactly once (after
+// registerTools) and Handler() returns that cached chain on every call. Two
+// independent Handler() fetches must serve a request identically.
+//
+// The invariant itself is allocation-stability, which is not observable from
+// the outside: a rebuilt streamableHandler is behaviorally equivalent to the
+// cached one. So this test pins the served behavior the cache must preserve,
+// while the build-once guarantee lives in NewServer. The cached chain also
+// backs AuthHandler's non-POST branch, pinned by
+// TestAuthHandlerUnauthenticatedGETMethodNotAllowed (GET still answers 405).
+func TestServerHandlerChainIsStable(t *testing.T) {
+	srv := NewServer(Config{Version: testServerVersion})
+
+	initialize := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}`
+
+	first := doChain(t, srv.Handler(), postJSON(initialize))
+	second := doChain(t, srv.Handler(), postJSON(initialize))
+
+	if first.Code != http.StatusOK || second.Code != http.StatusOK {
+		t.Fatalf("Handler() statuses = %d and %d, want 200 for both", first.Code, second.Code)
+	}
+	if got, want := second.Body.String(), first.Body.String(); got != want {
+		t.Errorf("Handler() responses differ between calls:\nfirst:  %s\nsecond: %s", want, got)
+	}
+}

@@ -1352,6 +1352,49 @@ func TestAppModelHermesConfigSurfacesAResolutionFailureOnTheMenu(t *testing.T) {
 
 // ── Pure helpers ─────────────────────────────────────────────────────────
 
+// TestNewCachedHermesResolverCachesSuccessAndRetriesFailure locks the R4-001
+// retry contract both presentations share: a success is resolved once and
+// replayed, a failure is never cached, so the next access re-runs the resolver.
+func TestNewCachedHermesResolverCachesSuccessAndRetriesFailure(t *testing.T) {
+	attempts := 0
+	resolve := NewCachedHermesResolver(func() (HermesConfig, error) {
+		attempts++
+		if attempts < 2 {
+			return HermesConfig{}, fmt.Errorf("el home no está montado")
+		}
+		return HermesConfig{
+			Path:        "/home/op/.hermes/config.yaml",
+			EndpointURL: "http://127.0.0.1:3000/mcp",
+		}, nil
+	})
+
+	if _, err := resolve(); err == nil {
+		t.Fatal("first resolve = nil error, want the transient failure")
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts after the failure = %d, want 1", attempts)
+	}
+
+	got, err := resolve()
+	if err != nil {
+		t.Fatalf("retry resolve = %v, want the repaired bootstrap", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts after the retry = %d, want 2", attempts)
+	}
+
+	again, err := resolve()
+	if err != nil {
+		t.Fatalf("cached resolve = %v, want the cached bootstrap", err)
+	}
+	if attempts != 2 {
+		t.Errorf("attempts after the cached success = %d, want 2 (success must be cached)", attempts)
+	}
+	if again != got {
+		t.Errorf("cached = %+v, want the same value %+v", again, got)
+	}
+}
+
 func TestPickerWindowKeepsTheCursorVisible(t *testing.T) {
 	tests := []struct {
 		name      string

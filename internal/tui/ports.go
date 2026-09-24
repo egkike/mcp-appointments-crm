@@ -10,7 +10,11 @@
 // repositories only through the narrow ports declared here.
 package tui
 
-import "github.com/egkike/mcp-appointments-crm/internal/admin"
+import (
+	"sync"
+
+	"github.com/egkike/mcp-appointments-crm/internal/admin"
+)
 
 // AccountsPort is the union of the narrow internal/admin ports the TUI drives.
 // *repository.AccountsRepo satisfies it unchanged; composing the already-narrow
@@ -69,10 +73,45 @@ type HermesBootstrap struct {
 }
 
 // NewHermesBootstrap returns a bootstrap that resolves its facts on demand
-// through resolve. The composition root caches resolve (sync.OnceValues), so the
-// cost is paid at most once.
+// through resolve. The composition root wraps resolve with
+// NewCachedHermesResolver, so a success is paid once and a failure can be
+// retried on the next open.
 func NewHermesBootstrap(resolve HermesResolver) HermesBootstrap {
 	return HermesBootstrap{resolve: resolve}
+}
+
+// NewCachedHermesResolver wraps resolve so the first SUCCESSFUL resolution is
+// cached and a failed one is left uncached. A transient failure — an unmounted
+// home, a MCP_BIND the operator is about to correct — therefore surfaces on the
+// open that hit it and is retried on the next one, while a resolved bootstrap
+// pays its cost once. This replaces the sync.OnceValues the composition root
+// used to install, which cached the error forever and left a first failure
+// stuck for the whole session with no retry path (R4-001). Both presentations —
+// the Bubble Tea program and the line-based console — share this contract.
+//
+// A nil resolve returns nil: the zero HermesBootstrap already models "nothing to
+// resolve".
+func NewCachedHermesResolver(resolve HermesResolver) HermesResolver {
+	if resolve == nil {
+		return nil
+	}
+	var (
+		mu     sync.Mutex
+		cached *HermesConfig
+	)
+	return func() (HermesConfig, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if cached != nil {
+			return *cached, nil
+		}
+		config, err := resolve()
+		if err != nil {
+			return HermesConfig{}, err
+		}
+		cached = &config
+		return config, nil
+	}
 }
 
 // Resolve returns the resolved bootstrap facts. A bootstrap with no resolver

@@ -16,6 +16,7 @@ type Server struct {
 	impl      *mcp.Server
 	cfg       Config
 	toolNames map[string]struct{}
+	handler   http.Handler
 }
 
 // NewServer builds the MCP server for the given configuration. Version feeds
@@ -40,6 +41,14 @@ func NewServer(cfg Config) *Server {
 		toolNames: make(map[string]struct{}),
 	}
 	srv.registerTools()
+	// Build the unauthenticated /mcp handler exactly ONCE, after registerTools
+	// has populated toolNames (R3-002). Tool registration is allocation-stable
+	// for the lifetime of a Server (registerTools runs once, here), so
+	// unknownToolGuard's view of toolNames and the SDK handler instance never
+	// change. Caching the chain lets Handler() and AuthHandler's non-POST
+	// branch reuse the same value instead of rebuilding it (streamableHandler
+	// allocates a fresh SDK handler on every call).
+	srv.handler = jsonParseGuard(unknownToolGuard(srv.toolNames, streamableHandler(srv.impl, srv.cfg.Logger)))
 	return srv
 }
 
@@ -64,12 +73,13 @@ func (s *Server) registerTools() {
 // hand-maintained literal that could drift out of sync with the wiring.
 func (s *Server) ToolCount() int { return len(s.toolNames) }
 
-// Handler returns the /mcp HTTP handler: the SDK Streamable HTTP handler
-// (stateless, JSON responses) wrapped by the JSON-RPC parse guard and the
-// unknown-tool guard (REQ-MT-006). This is the unauthenticated path used by
-// transport-level tests.
+// Handler returns the cached /mcp HTTP handler: the SDK Streamable HTTP
+// handler (stateless, JSON responses) wrapped by the JSON-RPC parse guard and
+// the unknown-tool guard (REQ-MT-006). It is built once in NewServer (R3-002)
+// and reused by every caller, including AuthHandler's non-POST branch. This is
+// the unauthenticated path used by transport-level tests.
 func (s *Server) Handler() http.Handler {
-	return jsonParseGuard(unknownToolGuard(s.toolNames, streamableHandler(s.impl, s.cfg.Logger)))
+	return s.handler
 }
 
 // AuthHandler returns the production /mcp HTTP handler: the unauthenticated
@@ -98,11 +108,10 @@ func (s *Server) AuthHandler(authMW *auth.AuthMiddleware) http.Handler {
 	if authMW == nil {
 		panic("mcp: AuthHandler requires a non-nil AuthMiddleware")
 	}
-	postChain := jsonrpcAuthTranslator(authMW.Wrap(s.Handler()))
-	// The unauth handler is allocation-stable after NewServer (tools register
-	// exactly once there), so it is cached once instead of rebuilt on every
-	// non-POST request (streamableHandler allocates a fresh SDK handler).
-	unauthChain := s.Handler()
+	// Both branches reuse the single handler built in NewServer (R3-002): the
+	// POST branch wraps it in auth, the non-POST branch serves it directly.
+	postChain := jsonrpcAuthTranslator(authMW.Wrap(s.handler))
+	unauthChain := s.handler
 	methodGate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			unauthChain.ServeHTTP(w, r)

@@ -360,34 +360,18 @@ func hermesDataCmd(ctx context.Context, deps Deps) tea.Cmd {
 	}
 }
 
-// hermesConfigCmd runs the three steps of the Hermes bootstrap against the
-// reviewed core: load the existing ~/.hermes/config.yaml, merge the single
-// mcp_servers.mcp-appointments entry (preserving everything else) and write it
-// atomically. The path and the endpoint URL come from deps.Hermes, resolved once
-// at the composition root, and are never hardcoded here.
-//
-// Any failure of the chain means the write is impossible (absent home,
-// unwritable directory, malformed YAML, a non-mapping mcp_servers section), so
-// the command renders the exact fallback snippet with the same values instead of
-// surfacing a raw driver error (ADR-0017 Decision 1). The snippet is rendered
-// with the same validators the writer uses, so it can never advertise a value
-// the writer would reject.
-func hermesConfigCmd(deps Deps, phone string) tea.Cmd {
+// hermesConfigCmd runs the shared Hermes chain and maps its outcome onto the
+// wizard's result message: the written config on success, or the manual snippet
+// plus the semantic failure that forced the fallback. The resolved HermesConfig
+// and the operator's phone arrive as explicit arguments, so the command depends
+// on no model state another handler mutated (R2-03): the caller passes the facts
+// it resolved. The chain itself lives in admin.ApplyHermesConfig (R2-01), the
+// same helper the line-based console runs.
+func hermesConfigCmd(hermes HermesConfig, phone string) tea.Cmd {
 	return func() tea.Msg {
-		doc, err := admin.LoadHermesConfig(deps.Hermes.Path)
-		if err == nil {
-			err = doc.SetHermesServer(deps.Hermes.EndpointURL, phone)
-		}
-		if err == nil {
-			err = admin.WriteHermesConfig(deps.Hermes.Path, doc)
-		}
+		snippet, err := admin.ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
 		if err == nil {
 			return hermesResultMsg{written: true}
-		}
-
-		snippet, snippetErr := admin.RenderHermesSnippet(deps.Hermes.EndpointURL, phone)
-		if snippetErr != nil {
-			snippet = ""
 		}
 		return hermesResultMsg{snippet: snippet, err: err}
 	}
