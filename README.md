@@ -170,9 +170,15 @@ go test -v -race ./...           # test
 ```
 
 Development is orchestrated with
-[Gentle AI](https://github.com/Gentleman-Programming/gentle-ai) — the project
-follows its spec-driven development (SDD) workflow and review gates
-(`openspec/changes/`, judgment day, receipt-driven development on PRs).
+[Gentle AI](https://github.com/Gentleman-Programming/gentle-ai): features run
+through **Organic Driven Development** (ODD) — explore, classify, implement
+task by task with per-task work-unit commits tracked in `odd/tasks/<feature>.md`
+— and every code candidate passes a **native multi-lens review gate with a
+burned receipt** (receipt-driven development). Spec deltas and history live in
+`openspec/`, architectural decisions in `docs/architecture/` (ADRs).
+**Judgment Day** (dual blind review) is available as an explicit owner-requested
+escalation. Delivery follows ordinary repository policy: issue-first PRs, CI
+green, owner squash-merge.
 
 ## License
 
