@@ -43,7 +43,10 @@ Superficie del candidato (diff de PR #100, commit 5694316):
     `0f619d2` (amended desde dfb8363; el hook GGA y el índice absorbieron los 10
     archivos en un solo commit, mensaje corregido por amend)
   - [x] T5 mcp + cmd tests (R3-002 + R3-003) — commit `fd68be6`
-  - [~] T6 close-out: pipeline completo, gate nativo (default), issue-first PR
+  - [x] T6 close-out: pipeline completo (fmt/vet/golangci 0/build/test -race 15/15) +
+    **gate nativo APPROVED primera pasada** (lineage review-7b524be75481095e, tier high,
+    4/4 lens materialize, 17 paths / 958 líneas, budget 200 sin correcciones, receipt
+    ddfaba23 quemado 2026-09-25, 5 hallazgos advisory SUGGESTION) + issue-first PR
 - [ ] **T7 — Close-out**: pipeline completo (fmt/vet/golangci/build/test -race), gate
       nativo por routing (default → review nativo), issue-first PR, merge por owner.
 
@@ -180,6 +183,22 @@ desmentidos por el scout (sin código), 2 warnings GGA pre-existentes documentad
 Branch feat/hygiene-followups-2: 6 commits sobre main @ 3929610.
 
 GGA pendiente de commit (gate en T6).
+
+### T6 — gate nativo (lineage review-7b524be75481095e, APPROVED)
+
+- START committed range (baseRef main, committedOnly): high tier, 4 lens, 17 archivos,
+  958 líneas, correction budget 200 (sin uso — cero transición de corrección).
+- Group capture 4/4 admitidos; closure native-last-event; acknowledged authority BURNED
+  (consumed_revision ddfaba23, burn evidence gentle-ai.review-acknowledged/v1).
+- **5 hallazgos advisory no-bloqueantes (SUGGESTION) → trabajo posterior**:
+  1. R2-applyhermes-placement — internal/admin/presentation.go:36-52 (colocación del
+     helper; la home actual es la elegida, revisar si conviene separar del core).
+  2. R2-loopback-fallthrough — internal/mcp/loopback.go:33-42 (el fallthrough 0.0.0.0/::
+     puede leerse mejor con un sub-mapeo explícito).
+  3. R2-loopback-ip-unused — internal/loopback/loopback.go:33-44 (el net.IP devuelto por
+     Classify no lo consume ningún caller; considerar simplificar la firma).
+  4. R3-001 — internal/mcp/server_test.go:218-225 (naming/cobertura del test de chain).
+  5. R3-002 — internal/admin/presentation_test.go:174 (idem, test de ApplyHermesConfig).
 
 ## Notes
 
