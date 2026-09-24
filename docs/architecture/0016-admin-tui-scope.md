@@ -3,7 +3,7 @@
 - **Status**: accepted
 - **Date**: 2026-09-12
 - **Authors**: Kike
-- **Related**: ADR-0009 (authorization model), ADR-0010 (admin TUI), ADR-0015 (maintenance tools)
+- **Related**: ADR-0009 (authorization model), ADR-0010 (admin TUI), ADR-0015 (maintenance tools), ADR-0017 (configurar Hermes — nueva capability de TUI FUERA de este alcance, 2026-09-24)
 
 ## Context
 

@@ -2,8 +2,8 @@
 
 > **Estado**: Aprobado
 > **Owner**: Kike
-> **Versión**: 1.15
-> **Última actualización**: 2026-09-17
+> **Versión**: 1.16
+> **Última actualización**: 2026-09-24
 
 ---
 
@@ -124,16 +124,16 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 > **Target del producto vs publicado hoy**: la matriz completa es el target de distribución y el
 > pipeline de GoReleaser (`.goreleaser.yaml` + `.github/workflows/release.yml`) ya la produce por
 > CI — cada tag `vX.Y.Z` publica los 5 archives + `checksums.txt` (ver §7, Fase N: item entregado).
-> El único release publicado hasta hoy sigue siendo `v0.3.0`, armado a mano antes del pipeline, que
-> trae **solo** `mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`.
+> El release publicado más reciente es **v0.6.0** (2026-09-24, con la capacidad TUI Configurar Hermes); el único release armado a mano fue `v0.3.0`, antes del pipeline, que trajo
+> **solo** `mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`.
 
 | Plataforma | Archive de release (target) | Service manager | Publicado hoy |
 |---|---|---|---|
 | `linux/amd64` | `mcp-appointments-crm_Linux_x86_64.tar.gz` | systemd | ✅ v0.3.0 |
-| `linux/arm64` | `mcp-appointments-crm_Linux_arm64.tar.gz` | systemd | ❌ |
-| `darwin/amd64` | `mcp-appointments-crm_Darwin_x86_64.tar.gz` | launchd | ❌ |
-| `darwin/arm64` | `mcp-appointments-crm_Darwin_arm64.tar.gz` | launchd | ❌ |
-| `windows/amd64` | `mcp-appointments-crm_Windows_x86_64.zip` | NSSM o Task Scheduler | ❌ (tampoco hay path de instalación) |
+| `linux/arm64` | `mcp-appointments-crm_Linux_arm64.tar.gz` | systemd | ✅ desde v0.4.0 |
+| `darwin/amd64` | `mcp-appointments-crm_Darwin_x86_64.tar.gz` | launchd | ✅ desde v0.4.0 |
+| `darwin/arm64` | `mcp-appointments-crm_Darwin_arm64.tar.gz` | launchd | ✅ desde v0.4.0 |
+| `windows/amd64` | `mcp-appointments-crm_Windows_x86_64.zip` | NSSM o Task Scheduler | ✅ asset desde v0.4.0 (sin path de instalación) |
 
 Todos los archives contienen el binario `mcp-server` (`mcp-server.exe` en Windows).
 Distribución: GitHub Releases + `install.sh` que detecta OS/arquitectura (`uname -s` + `uname -m`) y descarga el archive correspondiente. Los nombres canónicos de archive siguen el templating de GoReleaser (`{ProjectName}_{Os}_{Arch}`) y están fijados en [ADR-0014](../architecture/0014-release-and-deploy-workflow.md).
@@ -878,6 +878,7 @@ La gestión operacional de cuentas (admin/staff/owner) se realiza vía un **sub-
 - **Transferir ownership** (`Transfer Ownership`): el owner actual se desactiva (`Deactivate`), después se crea un nuevo owner. Defense-in-depth: trigger SQLite rechaza 2 owners activos. Additionally, the repository layer performs a `SELECT COUNT(*) FROM accounts WHERE role='owner' AND is_active=1` pre-check before `Create` and returns `ErrConflict` if > 0. Defense-in-depth: the trigger catches it as last resort, the repo provides a clean Spanish error message.
 - **Listar cuentas** (`List All`, `List Owners`, `List Admins`, `List Staff`): read-only views.
 - **Audit log view** (opcional): muestra los logs recientes de cambios de cuentas.
+- **Configurar Hermes** (ADR-0017, 2026-09-24): bootstrap del config de Hermes del host — merge de `~/.hermes/config.yaml` (entrada `mcp_servers.mcp-appointments` con endpoint derivado de `MCP_BIND`/`MCP_PORT` y `X-Caller-Id: "<teléfono>"` quoted), snippet fallback si el write no es posible.
 
 **Modelo de roles operacional:**
 
@@ -1322,6 +1323,8 @@ Override con otro caller_id (debug):
 - ✅ **TUI identidad + seed del owner — MVP ENTREGADO (2026-09-16)** (§3.8.8 / RF9 / ADR-0010; alcance en [ADR-0016](../architecture/0016-admin-tui-scope.md)) — entry point `mcp-server admin tui`: el wizard de seed del primer owner crea la fila en `accounts` (teléfono validado + display name) y escribe `~/.config/mcp-appointments-crm/caller-id` (`0600`, override `MCP_CONFIG_DIR`), así que el alta de cuentas ya no requiere SQL manual. Capacidades de ADR-0016 Decision 1 entregadas: Add Staff con picker de profesional, Deactivate (soft delete), listados read-only (todas / por rol), Transfer Ownership y Add Yourself as Client. Presentación Bubble Tea con TTY y flujo de consola equivalente sin TTY (pipe/CI). Non-goal explícito vigente: no edita perfil, servicios ni horarios/agendas (eso es mantenimiento por Hermes, [ADR-0015](../architecture/0015-hermes-operational-maintenance.md)). Deferidos por decisión del owner (2026-09-16): vista de audit log persistido (hoy el audit es solo `slog`) y normalización de day-keys `"1".."7"` vs `0..6` ([ADR-0015](../architecture/0015-hermes-operational-maintenance.md) / follow-up).
 - ✅ **Setup import wizard → DB RESUELTO (2026-09-11)** — `feat-setup-import` (PRs #72/#73/#74, issue #71 cerrado): el servidor siembra `reservas.db` desde los 3 JSONs en el primer arranque (transacción única, guard `name==''`); arranques siguientes son no-op. Archive `openspec/changes/archive/2026-09-11-feat-setup-import/`.
 - ✅ **GoReleaser + releases por CI — ENTREGADO (2026-09-18)** — `.goreleaser.yaml` + `.github/workflows/release.yml` (GoReleaser `v2.18.2`, trigger `push: tags: ['v*']`, `permissions: contents: write`) reemplazan el empaquetado y la publicación manuales: cada tag `vX.Y.Z` cross-compila la matriz de 5 plataformas (`CGO_ENABLED=0`, ldflags sobre `internal/buildinfo.Version`) y publica los 5 archives + `checksums.txt` en GitHub Releases, sin subida manual. El contrato de contenido del asset se mantiene (binario + `scripts/backup.sh` + los 2 templates de servicio) y se verificó localmente con `goreleaser check` + `goreleaser release --snapshot --clean --skip=publish`. El único release armado a mano sigue siendo `v0.3.0` (`Linux_x86_64` + `checksums.txt`; la primera subida manual del 2026-09-10 fue reemplazada ~1 h después).
+- ✅ **TUI Configurar Hermes — ENTREGADO (2026-09-24)** ([ADR-0017](../architecture/0017-hermes-config-tui.md); issue #97, PR #98, merge `c0fdba3`; release v0.6.0) — nueva opción de la TUI (Bubble Tea y consola, opción 7) que bootstrap-ea el config de Hermes sin YAML manual: merge de la entrada `mcp_servers.mcp-appointments` en `~/.hermes/config.yaml` preservando toda clave ajena, header `X-Caller-Id` SIEMPRE entre comillas con `+` (YAML 1.1 parsea `+54…` sin comillas como entero), endpoint derivado de `MCP_BIND`/`MCP_PORT` con validación de bind, teléfono prefillado desde el owner activo, write atómico y snippet de fallback para hosts sin TUI. Depende de `gopkg.in/yaml.v3`. Cierra el hallazgo del smoke de v0.4.0 y el riesgo R5.
+- ✅ **Micro-debt agregado — ENTREGADO (2026-09-23/24)** (PR #96, issue #95; PR #100, issue #99): validación estricta de day keys/HH:MM con mensajes pluralizados, fix de slots que cruzan medianoche, hardening del clasificador FK 1811, telemetría de startup derivada del wiring, cobertura de integración (denegación admin + input inválido por el mux real), plumbing del signal context en la CLI, handler unauth cacheado, bootstrap de Hermes lazy y superficie tipada de `HermesDocument`.
 - **Bot de messenger del negocio — WhatsApp con identidad por emisor (Fase 2+; decisión de producto 2026-09-18)** — el canal de producción es el número de WhatsApp del negocio: el Owner y los clientes escriben a ese número, el bot lee el `from` de cada mensaje y lo inyecta como `X-Caller-Id` (per-sender identity, PRD §3.8.9), y el RBAC existente aplica solo el rol correcto: el Owner (su phone real en `accounts` vía Transfer Ownership) puede pedir cambios al negocio/servicios/horarios; cualquier phone sin fila en `accounts` cae a rol client (self-service de sus reservas). Estado hoy: el canal alternativo es el gateway de Hermes con header estático owner — **cualquiera que escriba al bot actúa como owner** (assumption single-operator vigente). Faltan: la integración del bot de WhatsApp con inyección per-sender, Transfer Ownership del owner demo (`+5491100000000`) al phone real del dueño (paso de TUI, soportado hoy), y actualizar `messenger_platform` a `whatsapp` en el perfil. RBAC server-side ya está entregado y probado (tools owner-only doble enforcement).
 - **Instalación y soporte Windows** (Fase 2+; non-goal declarado en Fase 5) — no existe path de instalación: faltan el script de instalación (`scripts/install.ps1` o equivalente), el flag `mcp-server --register-service`, el template de servicio (Task Scheduler XML o NSSM) y la documentación de soporte. Lo único disponible hoy es la guía manual `setup/service/nssm-install.md` (sin validar en CI). Ver [ADR-0014](../architecture/0014-release-and-deploy-workflow.md) Decision 3.
 - Asimetría de day-keys `business_hours` (`"1"`..`"7"`, lunes=1) vs `schedules.day_of_week` (`0`..`6`, domingo=0) — normalizar en un único punto de traducción, con tests (restricción de diseño, ver [ADR-0016](../architecture/0016-admin-tui-scope.md)).
@@ -1332,7 +1335,7 @@ Override con otro caller_id (debug):
 - ✅ Entry-point fijado (2026-09-13): binario `mcp-server`, invocación `mcp-server admin tui` (y futuro `mcp-server hermes chat`). Docs vivos alineados; ADR-0010/ADR-0016 actualizados.
 - ✅ **RESUELTO** — Cerrar el gap de edición post-install: los tools Hermes de mantenimiento (arriba) cubren los cambios de perfil/servicios/profesionales/horarios, así que ya no requieren SQL manual.
 
-**Orden de ejecución sugerido** (por dependencia): 1º TUI identidad + owner seed — desbloquea el sistema, sin ella cualquier tool MCP responde 401; 2º tools Hermes de mantenimiento de datos operativos; 3º GoReleaser + releases por CI.
+**Orden de ejecución sugerido** (por dependencia): 1º TUI identidad + owner seed ✅ (2026-09-16); 2º tools Hermes de mantenimiento ✅ (2026-09-17); 3º GoReleaser + releases por CI ✅ (2026-09-18); 4º TUI Configurar Hermes ✅ (2026-09-24) — pendiente: smoke from-zero en VM contra v0.6.0 (install → TUI seed → Configurar Hermes → Hermes chat → booking flows), transición a producción y bot WhatsApp per-sender.
 
 **Entregables**:
 - Releases regulares con changelog
@@ -1356,7 +1359,7 @@ Override con otro caller_id (debug):
 | R2 | `modernc.org/sqlite` introduce un overhead de performance vs. `mattn/go-sqlite3` (CGo) | Media | Bajo | Benchmark en Fase 1. Si el overhead es > 30%, reevaluar y considerar migrar a CGo con `CGO_ENABLED=1`. |
 | R3 | El script `curl | bash` es vector de ataque si alguien compromete el repo o el dominio | Baja | Alto | Servir el script siempre por HTTPS desde GitHub. Documentar la verificación de integridad (checksum) en el manual de instalación. |
 | R4 | Concurrencia real (50+ requests simultáneos) genera locks visibles al LLM | Media | Alto | WAL + `busy_timeout=5000` configurado desde Fase 1. Pruebas de carga antes de Fase 3. Mensajes semánticos claros cuando busy_timeout expira. |
-| R5 | El dueño del negocio no sabe cómo configurar Hermes ni apuntarlo al MCP server | Alta | Alto | Documentación de instalación paso a paso + script que imprime la URL final. Soporte anual incluye setup remoto por SSH. |
+| R5 | El dueño del negocio no sabe cómo configurar Hermes ni apuntarlo al MCP server | Alta | Alto | **Mitigación entregada (2026-09-24, ADR-0017)**: la TUI `admin tui` trae la opción 7 "Configurar Hermes" que bootstrap-ea `~/.hermes/config.yaml` automáticamente (merge + snippet fallback + validación de bind). Documentación paso a paso y setup remoto por SSH quedan como respaldo. |
 | R6 | La base de datos SQLite crece sin control con el historial de reservas | Baja | Medio | Política de archivado anual: mover reservas > 2 años a tabla `bookings_archive`. Evaluar en Fase 3. |
 | R7 | Cambios en la API o pricing de OpenAI/Anthropic dejan a Hermes sin LLM funcional | Media | Alto | El sistema MCP es agnóstico del LLM; el cliente puede cambiar de proveedor. Documentar alternativas (modelos locales, otros SaaS) en `docs/`. |
 
@@ -1365,7 +1368,7 @@ Override con otro caller_id (debug):
 | # | Dependencia | Tipo | Estado | Owner |
 |---|-------------|------|--------|-------|
 | D1 | Hermes agent con soporte MCP sobre Streamable HTTP | Bloqueante | Externa, se asume disponible | Cliente |
-| D2 | VPS o PC del cliente con SO soportado — **hoy solo Linux x86_64**; macOS 13+ y Windows 10+ son target pendiente de release multi-plataforma (§7) | Bloqueante | Aprovisionar por el cliente | Cliente |
+| D2 | VPS o PC del cliente con SO soportado — **assets publicados para las 5 plataformas desde v0.4.0** (Linux x86_64/arm64, macOS 13+ amd64/arm64, Windows 10+ amd64); el path de instalación de Windows sigue pendiente (§7) | Bloqueante | Aprovisionar por el cliente | Cliente |
 | D3 | Suscripción a un LLM (OpenAI, Anthropic, etc.) | Bloqueante | Aprovisionar por el cliente | Cliente |
 | D4 | Cuenta de WhatsApp Business / Telegram Bot | Paralela | Configurar por el cliente vía Hermes | Cliente |
 | D5 | Librería MCP para Go (oficial o comunitaria) | Bloqueante para Fase 2 | A evaluar al inicio de Fase 2 | Kike |
@@ -1422,3 +1425,6 @@ Override con otro caller_id (debug):
     | 2026-09-11 | 1.13 | Kike + Gentleman | **Setup import CERRADO (issue #71)** — `feat-setup-import` en 3 PRs chained (#72 loader 1033 LOC, #73 seeder 736 LOC, #74 wiring 11 LOC; sin exception): `internal/config` loader + seeder transaccional + hook en `cmd/mcp-server/main.go`; verify 12/12 REQ 29/29 escenarios, receipts RDD quemados, GGA passed, CI verde. Specs canónicos `setup-loader`/`setup-seeder` nuevos + `business-profile` enmendado; archive `openspec/changes/archive/2026-09-11-feat-setup-import/`. RF1 suma criterio de siembra en primer arranque; backlog Fase N actualizado (quedan TUI+owner seed y GoReleaser). |
 | 2026-09-13 | 1.14 | Kike + Gentleman | **Veracidad de distribución (Windows + release real)** — auditoría del release publicado reveló que v0.3.0 trae **un solo binario** (`mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`), y que los paths Windows documentados (`scripts/install.ps1`, `mcp-server --register-service`, template Task Scheduler) nunca se implementaron: la automatización de Windows fue non-goal declarado de Fase 5 (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004). §3.5: matriz cross-compile con columna "Publicado hoy" y nombres canónicos de archive GoReleaser (antes `mcp-server-linux-amd64`, inexistente); lista de templates sin el XML Windows que no existe; nota de layout Windows como diseñado-no-implementado. §5.1: DoD de Fase 5 separa target de publicado — Linux x86_64 verificado, macOS/Windows marcados pendientes. §6: D2 acota "SO soportado" a Linux x86_64 hoy. §7: nuevo item de backlog "Instalación y soporte Windows" + item GoReleaser precisado con el estado real de distribución. ADR-0014 Decision 3 y `docs/deployment.md` marcados como target no implementado. |
 | 2026-09-17 | 1.15 | Kike + Gentleman | **Tools Hermes de mantenimiento de datos operativos ENTREGADOS (Fase N, [ADR-0015](../architecture/0015-hermes-operational-maintenance.md))** — 8 tools MCP owner-only (`update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`): la superficie MCP pasa de 11 a 19 tools. Hermes ya puede modificar perfil, servicios, profesionales y horarios/agendas post-install, y `update_business_profile` deja de faltar (RF2 completo). RBAC owner-only en el MVP; admin parcial diferido. §5.1: Estado de RF2 actualizado. §7: backlog Fase N — item de mantenimiento y gap de edición post-install marcados resueltos. `README.md`, `docs/installation.md` y `docs/demo-plan.md` alineados (19 tools). |
+| 2026-09-18 | 1.15a | Kike + Gentleman | **GoReleaser + releases por CI ENTREGADO (Fase N)** — `.goreleaser.yaml` + `.github/workflows/release.yml`: cada tag `vX.Y.Z` publica los 5 archives + `checksums.txt` (v0.4.0 primera, v0.5.0 el 2026-09-22). Registro del bot WhatsApp per-sender como item de Fase N (§7, commit e57cbf6). |
+| 2026-09-23 | 1.15b | Kike + Gentleman | **Micro-debt agregado ENTREGADO** (PR #96, issue #95): validación estricta de day keys/HH:MM con mensajes pluralizados, fix de slots que cruzan medianoche, hardening FK 1811, telemetría derivada del wiring, cobertura de integración. |
+| 2026-09-24 | 1.16 | Kike + Gentleman | **TUI Configurar Hermes ENTREGADA (Fase N, [ADR-0017](../architecture/0017-hermes-config-tui.md))** — opción 7 de la TUI (Bubble Tea + consola): bootstrap de `~/.hermes/config.yaml` sin YAML manual (merge preservando claves ajenas, `X-Caller-Id: "<teléfono>"` quoted, endpoint desde `MCP_BIND`/`MCP_PORT` con validación de bind, snippet fallback); dependencia `gopkg.in/yaml.v3`. Además PR #100: higiene de follow-ups (bootstrap lazy, plumbing del signal context, handler cacheado) y desviación documentada del round-trip. Release v0.6.0 (6 assets). §3.8.8, §4 R5/D2, §7 y matriz de distribución actualizados. |

@@ -187,7 +187,7 @@ bash install.sh --version v0.3.0
 >   implements `--version` only.
 > - There is no Task Scheduler template (`setup/service/` ships the systemd unit, the
 >   launchd plist and the manual `nssm-install.md` guide, nothing else).
-> - The only published release (v0.3.0) contains **no Windows asset**: just
+> - At the time of the v0.3.0 demo, the only published release (v0.3.0) contained **no Windows asset**: just
 >   `checksums.txt` and `mcp-appointments-crm_Linux_x86_64.tar.gz` (from the GoReleaser
 >   pipeline onward — Decision 1, implemented 2026-09-18 — every `vX.Y.Z` tag does publish
 >   `mcp-appointments-crm_Windows_x86_64.zip`; the Windows install paths below remain

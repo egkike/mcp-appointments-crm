@@ -2,7 +2,7 @@
 
 > Esta guía lleva un VPS limpio (Ubuntu 22.04+ o macOS) hasta tener el servicio `mcp-appointments-crm` activo y respondiendo en `http://127.0.0.1:3000/mcp`.
 >
-> ⚠️ **Assets publicados**: el único release publicado (v0.3.0, armado a mano) trae **solo** `mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`. El camino macOS de `install.sh` está implementado en el script, pero **falla al descargar** porque aún no hay asset `Darwin`; hasta que salga el pipeline multi-plataforma (PRD §7 Fase N), en macOS hay que compilar desde el código. Windows **no tiene path de instalación** todavía ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3).
+> ⚠️ **Assets publicados**: el release publicado más reciente es **v0.6.0** (2026-09-24); todos los releases desde v0.4.0 salen del pipeline GoReleaser y traen la matriz completa de 5 plataformas (`Darwin_arm64/x86_64`, `Linux_arm64/x86_64`, `Windows_x86_64`) + `checksums.txt`. El camino macOS de `install.sh` está implementado y descarga el asset `Darwin` correspondiente. Windows tiene asset pero **no path de instalación** todavía ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3). `v0.3.0` fue el último armado a mano.
 >
 > El flujo tiene dos partes: (1) configuración inicial interactiva con el wizard (`curl -fsSLO ... && bash install.sh`, requiere TTY) y (2) despliegue pinned del binario con `install.sh --version vX.Y.Z`. Si ya generaste los JSONs de setup en otra máquina, podés saltar directo al despliegue copiando los archivos al directorio de configuración del host destino.
 
@@ -55,17 +55,17 @@ Una vez que los tres JSONs de setup existen, desplegá la versión que quieras. 
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh \
-  | bash -s -- --version v0.3.0
+  | bash -s -- --version v0.6.0
 ```
 
 ### Opción B — Descarga previa del script (recomendada para auditar)
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh
-bash install.sh --version v0.3.0
+bash install.sh --version v0.6.0
 ```
 
-Reemplazá `v0.3.0` por el tag exacto que querés instalar. El formato obligatorio es `vMAJOR.MINOR.PATCH` (por ejemplo `v0.3.0`). No se acepta `latest` ni pre-releases desde el instalador.
+Reemplazá `v0.6.0` por el tag exacto que querés instalar. El formato obligatorio es `vMAJOR.MINOR.PATCH` (por ejemplo `v0.6.0`). No se acepta `latest` ni pre-releases desde el instalador.
 
 ### Qué hace el despliegue
 
@@ -180,7 +180,8 @@ triggers de `accounts` más las validaciones previas del repositorio. Si el
 comando vuelve a correr con un owner activo, no duplica la cuenta: repara el
 archivo `caller-id` si falta y abre el menú de cuentas (Add Staff con picker de
 profesional, desactivación soft delete, listados read-only, transferencia de
-ownership, alta del owner como cliente). Si existen filas de owner
+ownership, alta del owner como cliente, y **Configurar Hermes**, que bootstrap-ea
+`~/.hermes/config.yaml` sin YAML a mano — ver el paso siguiente). Si existen filas de owner
 **desactivadas**, el arranque ofrece reactivar una primero.
 
 **Terminal interactiva:** con TTY en `stdin` y `stdout` el sub-comando abre la
@@ -191,6 +192,16 @@ presentación.
 
 Usá el teléfono que cargaste en el wizard como `X-Caller-Id`; con ese valor el
 handshake del paso siguiente se autentica.
+
+**Configurar Hermes:** con el owner creado, la opción **7 — Configurar Hermes**
+del menú (consola o TUI) bootstrap-ea el config de Hermes del host: lee y
+combina `~/.hermes/config.yaml` (crea la entrada `mcp_servers.mcp-appointments`
+con el endpoint `http://<bind>:<puerto>/mcp` derivado de `MCP_BIND`/`MCP_PORT` y
+el header `X-Caller-Id: "<teléfono>"`, siempre con el valor entre comillas),
+preserva toda clave ajena y escribe el archivo atómicamente. El teléfono va
+prefillado con el del owner activo (editable). Si el archivo no se puede
+escribir, la opción muestra el bloque exacto para copiar a mano
+([ADR-0017](./architecture/0017-hermes-config-tui.md)).
 
 **Archivo `caller-id`:** el teléfono del owner queda en
 `~/.config/mcp-appointments-crm/caller-id` con permisos `0600` (el directorio se

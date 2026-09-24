@@ -146,10 +146,16 @@ En una instalación limpia el comando abre el wizard de seed (teléfono + nombre
 para mostrar), crea la fila del owner y escribe
 `~/.config/mcp-appointments-crm/caller-id` (`0600`, override `MCP_CONFIG_DIR`).
 Después abre el menú de cuentas (Add Staff, Desactivar, Listados, Transferir
-ownership, Agregarme como cliente). Sin TTY (pipe/CI) corre el flujo de consola
+ownership, Agregarme como cliente, Configurar Hermes). Sin TTY (pipe/CI) corre el flujo de consola
 equivalente. Anotá el teléfono elegido: es el `X-Caller-Id` del wire.
 
-Luego configurar Hermes (en la VM) con el endpoint MCP
+Luego, **en la misma TUI, opción 7 — Configurar Hermes** (ADR-0017): la opción
+bootstrap-ea `~/.hermes/config.yaml` sin YAML a mano — crea/combina la entrada
+`mcp_servers.mcp-appointments` con el endpoint `http://<bind>:<puerto>/mcp`
+(derivado de `MCP_BIND`/`MCP_PORT`) y el header `X-Caller-Id: "<teléfono-del-owner>"`
+(entre comillas), preserva toda clave ajena y escribe atómicamente. El teléfono
+va prefillado con el del owner activo. Fallback manual (hosts sin la TUI):
+configurar Hermes con el endpoint MCP
 `http://127.0.0.1:3000/mcp` y header `X-Caller-Id: <teléfono-del-owner>` según su
 documentación de MCP clients. Criterio: una llamada de prueba responde sin
 403 (403 = revisar `accounts` + header).
@@ -163,7 +169,9 @@ documentación de MCP clients. Criterio: una llamada de prueba responde sin
 > (esta doc no incluye el snippet; los INSERTs usados en la corrida 2026-09-10
 > quedan en la bitácora de abajo).
 
-> Nota 2026-09-10 (wire Hermes verificado): `hermes mcp add --auth header`
+> Nota 2026-09-10 (wire Hermes verificado, hoy es el **fallback manual** — desde
+> v0.6.0 la TUI hace este paso con la opción 7, ADR-0017):
+> `hermes mcp add --auth header`
 solo sabe mandar `Authorization: Bearer` y el server lo rechaza (`no se
 proporcionó X-Caller-Id`). La forma soportada es header custom en
 `~/.hermes/config.yaml` (Hermes lo puede escribir desde su propio chat):
@@ -230,6 +238,7 @@ Verificar al día siguiente que apareció `backups/reservas-YYYYMMDD.db.gz`.
 | 2026-09-10 | v0.3.0 | Paso 7 | ✅ timer systemd user de backup activo | Corre diario 00:00 -03 |
 | 2026-09-16 | — | TUI admin (MVP) | ✅ TUI identidad + seed del owner implementada (`mcp-server admin tui`, issue #75; T7 en PR #82) | Wizard de seed del owner + `caller-id` 0600 (TUI Bubble Tea con TTY, fallback de consola sin TTY): Add Staff con picker de profesional, Desactivar (soft delete), Listados, Transferir ownership, Agregarme como cliente. El seed manual del owner quedó retirado del Paso 5. Deferidos: vista de audit log persistido y normalización de day-keys |
 | | | | | |
+| 2026-09-24 | v0.6.0 | Paso 5 (nuevo) | ✅ opción 7 "Configurar Hermes" implementada en la TUI (ADR-0017, issue #97, PR #98, merge `c0fdba3`) | Bootstrap de `~/.hermes/config.yaml` sin YAML a mano: merge de `mcp_servers.mcp-appointments` preservando claves ajenas, `X-Caller-Id` quoted `"+54…"`, snippet fallback; release v0.6.0 con 6 assets |
 
 ## Riesgos y notas
 

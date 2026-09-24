@@ -35,3 +35,4 @@ We use a lightweight ADR format inspired by Michael Nygard's template:
 | [0014](./0014-release-and-deploy-workflow.md) | Release and deploy workflow — GitHub Releases + GoReleaser (5 platforms, checksums, curl\|bash + go install, SmartScreen/publisher trade-offs) | accepted | 2026-08-27 |
 | [0015](./0015-hermes-operational-maintenance.md) | Hermes como mantenedor de datos operativos — tools MCP de perfil/servicios/profesionales/horarios con RBAC owner, sin gestión de cuentas | accepted | 2026-09-12 |
 | [0016](./0016-admin-tui-scope.md) | Alcance del SDD admin-tui — MVP owner seed gateway + gestión de cuentas; edición de datos operativos y `purge-inactive` fuera de alcance | accepted | 2026-09-12 |
+| [0017](./0017-hermes-config-tui.md) | TUI "configurar Hermes" — bootstrap del config de Hermes (merge write + snippet fallback, quoted E.164 X-Caller-Id, bind validation) | accepted | 2026-09-24 |

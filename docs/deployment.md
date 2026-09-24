@@ -256,7 +256,7 @@ Mismo camino `curl | bash` que Linux (detecta `Darwin` vía `uname -s`):
 ```bash
 # pinned (required — the installer resolves no `latest` and rejects pre-releases;
 # a piped invocation without --version needs a real terminal and aborts)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.4.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.6.0
 ```
 
 Service registration uses `launchd`:
