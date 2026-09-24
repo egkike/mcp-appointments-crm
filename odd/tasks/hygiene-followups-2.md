@@ -167,7 +167,21 @@ paquetes.
   aprobado 2026-09-25: commits por work-unit sin gate individual, gate nativo único
   sobre el candidato completo).
 
+### T5 — invariantes (commit fd68be6)
+
+`test(mcp,cmd): pin the method-gate cache invariant and signal-context
+propagation` — 3 archivos +93/−10 (+ doc). GGA PASSED. Árbol limpio.
+
+### Arqueo final del feature (T6)
+
+8/8 findings implementados: R2-01/02/03 + R4-001 (63d3bda), R2-04 + R3-001 +
+reubicación (0f619d2), R3-002 + R3-003 (fd68be6). Disposiciones previas: 2 hallazgos
+desmentidos por el scout (sin código), 2 warnings GGA pre-existentes documentados.
+Branch feat/hygiene-followups-2: 6 commits sobre main @ 3929610.
+
 GGA pendiente de commit (gate en T6).
+
+## Notes
 
 - Routing del gate: default → review nativo (Go code). GGA on commits con patrón
   owner-autorizado.
