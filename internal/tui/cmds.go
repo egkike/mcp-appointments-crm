@@ -360,47 +360,16 @@ func hermesDataCmd(ctx context.Context, deps Deps) tea.Cmd {
 	}
 }
 
-// ApplyHermesConfig runs the full Hermes bootstrap chain against the reviewed
-// core: load the existing config, merge the single mcp_servers.mcp-appointments
-// entry (preserving every other key and server) and write it atomically. On
-// success it returns an empty snippet and a nil error. On failure it returns the
-// semantic error that broke the chain plus the exact YAML snippet the writer
-// would have emitted — empty when the snippet itself cannot be rendered — so the
-// caller degrades to the same manual fallback (ADR-0017 Decision 1).
-//
-// It is the single chain both presentations run (R2-01): the Bubble Tea
-// hermesConfigCmd and the line-based console runConfigureHermesFlow, so the
-// merge, the atomic write and the fallback snippet cannot drift between them.
-// The values arrive as plain data, so neither presentation re-derives the path
-// or the endpoint.
-func ApplyHermesConfig(path, endpointURL, phone string) (snippet string, err error) {
-	doc, err := admin.LoadHermesConfig(path)
-	if err == nil {
-		err = doc.SetHermesServer(endpointURL, phone)
-	}
-	if err == nil {
-		err = admin.WriteHermesConfig(path, doc)
-	}
-	if err == nil {
-		return "", nil
-	}
-
-	snippet, snippetErr := admin.RenderHermesSnippet(endpointURL, phone)
-	if snippetErr != nil {
-		snippet = ""
-	}
-	return snippet, err
-}
-
 // hermesConfigCmd runs the shared Hermes chain and maps its outcome onto the
 // wizard's result message: the written config on success, or the manual snippet
 // plus the semantic failure that forced the fallback. The resolved HermesConfig
 // and the operator's phone arrive as explicit arguments, so the command depends
 // on no model state another handler mutated (R2-03): the caller passes the facts
-// it resolved.
+// it resolved. The chain itself lives in admin.ApplyHermesConfig (R2-01), the
+// same helper the line-based console runs.
 func hermesConfigCmd(hermes HermesConfig, phone string) tea.Cmd {
 	return func() tea.Msg {
-		snippet, err := ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
+		snippet, err := admin.ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
 		if err == nil {
 			return hermesResultMsg{written: true}
 		}

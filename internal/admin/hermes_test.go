@@ -305,6 +305,32 @@ func TestSetHermesServer_NormalizesSurroundingWhitespaceInURL(t *testing.T) {
 	}
 }
 
+// TestHermesDocument_ZeroValueMutationPersists pins the R2-04 invariant: the
+// zero-value document initializes its backing mapping inside storage(), so a
+// mutation through the public surface survives without the caller reassigning
+// d.fields. The pre-fix value-receiver storage() returned a throwaway map for
+// the zero value, so this test failed unless a method remembered the reassign.
+func TestHermesDocument_ZeroValueMutationPersists(t *testing.T) {
+	var doc HermesDocument
+	if err := doc.SetHermesServer(testHermesURL, testHermesPhone); err != nil {
+		t.Fatalf("SetHermesServer() on a zero-value document error = %v", err)
+	}
+
+	// The mutation must be observable through the document itself, not only
+	// through the map returned by the mutating call.
+	servers, ok := doc.storage()[hermesServersSection].(map[string]any)
+	if !ok {
+		t.Fatalf("zero-value document lost its mapping: mcp_servers = %#v", doc.storage()[hermesServersSection])
+	}
+	entry, ok := servers[HermesServerName].(map[string]any)
+	if !ok {
+		t.Fatalf("zero-value document lost the entry: %#v", servers[HermesServerName])
+	}
+	if entry[hermesURLKey] != testHermesURL {
+		t.Errorf("entry url = %v, want %q", entry[hermesURLKey], testHermesURL)
+	}
+}
+
 func TestSetHermesServer_RejectsNonMappingSection(t *testing.T) {
 	doc := HermesDocument{fields: hermesDocument{hermesServersSection: "not-a-map"}}
 

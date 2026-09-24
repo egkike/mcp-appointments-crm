@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -148,5 +149,29 @@ func TestSuccessorCandidatesPropagatesTheQueryError(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("SuccessorCandidates() = %+v, want nil on failure", got)
+	}
+}
+
+// TestApplyHermesConfigWritesTheMergedEntry pins the relocated chain (R2-01,
+// now admin.ApplyHermesConfig): a success returns no fallback snippet and the
+// written file carries the merged section. The message-level fallback behavior
+// stays covered by the Bubble Tea and console flow tests.
+func TestApplyHermesConfigWritesTheMergedEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), HermesConfigFileName)
+
+	snippet, err := ApplyHermesConfig(path, testHermesURL, testHermesPhone)
+	if err != nil {
+		t.Fatalf("ApplyHermesConfig() error = %v", err)
+	}
+	if snippet != "" {
+		t.Errorf("ApplyHermesConfig() snippet = %q, want empty on success", snippet)
+	}
+
+	doc, err := LoadHermesConfig(path)
+	if err != nil {
+		t.Fatalf("LoadHermesConfig() after write error = %v", err)
+	}
+	if _, ok := doc.storage()[hermesServersSection]; !ok {
+		t.Error("ApplyHermesConfig() did not write the mcp_servers section")
 	}
 }

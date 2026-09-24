@@ -37,7 +37,12 @@ Superficie del candidato (diff de PR #100, commit 5694316):
       posteriores). Salida: tabla de candidatos + disposición propuesta por item.
 - [x] **T2 — Disposiciones del owner**: presentar la tabla y decidir por item:
       fix / desmentido (disposition) / defer-documentado.
-- [ ] **T3-T6 — Fixes agrupados**: según disposiciones (superficies a confirmar tras T2).
+- [~] **T3-T6 — Fixes agrupados**: según disposiciones (superficies a confirmar tras T2).
+  - [x] T3 presentación Hermes (R2-01/02/03 + R4-001) — commit `63d3bda`, GGA PASSED
+  - [~] T4 admin core (R2-04 + R3-001 + reubicación ApplyHermesConfig) — worker
+    `mufxz1qw-4-8xxl` en background
+  - [ ] T5 mcp + cmd tests (R3-002 + R3-003)
+  - [~] T6 close-out: pipeline completo, gate nativo (default), issue-first PR
 - [ ] **T7 — Close-out**: pipeline completo (fmt/vet/golangci/build/test -race), gate
       nativo por routing (default → review nativo), issue-first PR, merge por owner.
 
@@ -113,6 +118,32 @@ issues/build OK/test -race 14/14 paquetes.
   `internal/admin` no estaba en la superficie del worker → reubicación a
   `internal/admin/presentation.go` ~20 líneas, plegada al scope de T4; (b) view.go
   sigue leyendo de `m.deps.Hermes` (sin cambio de comportamiento, intencional).
+
+GGA pendiente de commit (gate en T6).
+
+### T4 — admin core (worker mufxz1qw-4-8xxl + verificación orchestrator)
+
+~+114/−74 neto + paquete nuevo (~85). Pipeline completo verde: fmt/vet/golangci 0/build/
+test -race 14/14 (incluye el paquete nuevo).
+
+- **R2-04**: `HermesDocument.storage()` ahora con pointer receiver — la inicialización
+  del storage cero ocurre in-place y `SetHermesServer` ya no necesita la reasignación
+  manual; invariante pinneada por `TestHermesDocument_ZeroValueMutationPersists`.
+- **R3-001**: paquete nuevo `internal/loopback` (solo stdlib, cero deps internas) con
+  `Classify(bind) (net.IP, Reason)` (NotAnIP/Unspecified/NotLoopback/OK, orden
+  load-bearing Unspecified antes de NotLoopback); consumido por
+  `mcp.ValidateLoopback` y `admin.HermesEndpointURL`, que mapean cada Reason a sus
+  mensajes existentes verbatim. Import admin→mcp sigue en cero.
+- **Reubicación**: `ApplyHermesConfig` movida a `internal/admin/presentation.go` (el
+  hogar convencional de helpers compartidos por los dos entry points); call sites en
+  `hermesConfigCmd` y `runConfigureHermesFlow` actualizados; cero residuos de
+  `tui.ApplyHermesConfig` (grep 0).
+- **Corrección del orchestrator sobre el worker**: el mapeo verbatim de Unspecified
+  daba al bind `::` el mensaje wildcard que nombra "MCP_BIND=0.0.0.0" (históricamente
+  `::` recibía el mensaje genérico de no-loopback). Restaurada la fidelidad histórica:
+  solo el literal "0.0.0.0" recibe el mensaje wildcard; `::` hace fallthrough al
+  genérico (mismo accept/reject en todos los casos). Verificado: fmt/vet/lint 0 +
+  test -race mcp/loopback green.
 
 GGA pendiente de commit (gate en T6).
 

@@ -19,6 +19,39 @@ import (
 // each presentation keeps its own option structs and renders the core values in
 // its own way, mapping them at the boundary.
 
+// ApplyHermesConfig runs the full Hermes bootstrap chain against the reviewed
+// core: load the existing config, merge the single mcp_servers.mcp-appointments
+// entry (preserving every other key and server) and write it atomically. On
+// success it returns an empty snippet and a nil error. On failure it returns the
+// semantic error that broke the chain plus the exact YAML snippet the writer
+// would have emitted — empty when the snippet itself cannot be rendered — so the
+// caller degrades to the same manual fallback (ADR-0017 Decision 1).
+//
+// It is the single chain both presentations run (R2-01): the Bubble Tea
+// hermesConfigCmd and the line-based console runConfigureHermesFlow, so the
+// merge, the atomic write and the fallback snippet cannot drift between them.
+// The values arrive as plain data, so neither presentation re-derives the path
+// or the endpoint. It lives next to the Hermes core in this package so the
+// chain and the operations it composes share one home.
+func ApplyHermesConfig(path, endpointURL, phone string) (snippet string, err error) {
+	doc, err := LoadHermesConfig(path)
+	if err == nil {
+		err = doc.SetHermesServer(endpointURL, phone)
+	}
+	if err == nil {
+		err = WriteHermesConfig(path, doc)
+	}
+	if err == nil {
+		return "", nil
+	}
+
+	snippet, snippetErr := RenderHermesSnippet(endpointURL, phone)
+	if snippetErr != nil {
+		snippet = ""
+	}
+	return snippet, err
+}
+
 // AccountLabel renders one account for the operator: the display name the human
 // recognises, plus the role and the phone, the two fields that cannot be guessed
 // from the name.

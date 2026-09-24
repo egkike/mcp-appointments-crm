@@ -1072,8 +1072,8 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner 
 // A failed write chain is never a dead end: the exact YAML snippet the writer
 // would have produced is printed with the target path and the semantic error, so
 // the operator can finish the bootstrap by hand (ADR-0017 Decision 1). The chain
-// itself lives in tui.ApplyHermesConfig, the same helper the Bubble Tea wizard
-// runs (R2-01), so the console never re-derives the path or the endpoint.
+// itself lives in admin.ApplyHermesConfig, the same helper the Bubble Tea
+// wizard runs (R2-01), so the console never re-derives the path or the endpoint.
 func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, hermes tui.HermesConfig) error {
 	owner, err := admin.ActiveOwner(ctx, identity.accounts)
 	if err != nil {
@@ -1098,7 +1098,7 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner 
 		return writeConsole(stdout, "Operación cancelada: no se cambió la configuración de Hermes.\n")
 	}
 
-	snippet, err := tui.ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
+	snippet, err := admin.ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
 	if err == nil {
 		if err := writeConsole(stdout, "Configuración de Hermes actualizada.\n"); err != nil {
 			return err

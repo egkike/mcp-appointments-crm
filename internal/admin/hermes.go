@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/loopback"
 	"gopkg.in/yaml.v3"
 )
 
@@ -96,12 +97,18 @@ type HermesDocument struct {
 // appears in an exported signature.
 type hermesDocument map[string]any
 
-// storage returns the generic mapping backing the document, never nil. It is
-// unexported because the mapping carries `any` and must not cross the package
-// boundary; the package's own tests read through it too.
-func (d HermesDocument) storage() hermesDocument {
+// storage returns the generic mapping backing the document, initializing it in
+// place for the zero value. It is unexported because the mapping carries `any`
+// and must not cross the package boundary; the package's own tests read through
+// it too.
+//
+// The pointer receiver is load-bearing: it makes the zero-value allocation land
+// in d.fields itself, so no mutating method has to remember reassigning it. A
+// value receiver would hand the zero value a throwaway map and silently drop
+// every mutation built on it.
+func (d *HermesDocument) storage() hermesDocument {
 	if d.fields == nil {
-		return hermesDocument{}
+		d.fields = hermesDocument{}
 	}
 	return d.fields
 }
@@ -167,12 +174,11 @@ func ValidateHermesURL(rawURL string) error {
 // the path pinned to HermesMCPPath. The URL is derived from the running server
 // configuration (MCP_BIND/MCP_PORT) and is never hardcoded by callers.
 //
-// The bind is validated here as a literal loopback IP. Hermes consumes this URL
-// as a CLIENT, so a listener-only bind would produce a URL nobody can dial. The
-// server bind is validated the same way at startup (mcp.ValidateLoopback,
-// ADR-0007 §D4); this mirrors that semantic locally instead of importing
-// internal/mcp, because the failure is about the endpoint URL rather than about
-// opening a socket, and admin→mcp imports stay at zero by design.
+// The bind is validated here as a literal loopback IP through the shared
+// loopback.Classify predicate, the same one the server uses at startup
+// (mcp.ValidateLoopback, ADR-0007 §D4); this mirrors that semantic instead of
+// importing internal/mcp, because the failure is about the endpoint URL rather
+// than about opening a socket, and admin→mcp imports stay at zero by design.
 func HermesEndpointURL(bind, port string) (string, error) {
 	bind = strings.TrimSpace(bind)
 	port = strings.TrimSpace(port)
@@ -185,23 +191,20 @@ func HermesEndpointURL(bind, port string) (string, error) {
 
 	// A hostname is not a loopback literal; serve mode rejects it too, so a URL
 	// built from it would advertise an endpoint that never comes up.
-	ip := net.ParseIP(bind)
-	if ip == nil {
-		return "", &domain.SemanticError{
-			Code:    domain.ErrCodeInvalidInput,
-			Message: "la URL del endpoint MCP no es alcanzable: el bind " + bind + " no es una IP loopback literal",
+	_, reason := loopback.Classify(bind)
+	if reason != loopback.OK {
+		var message string
+		switch reason {
+		case loopback.NotAnIP:
+			message = "la URL del endpoint MCP no es alcanzable: el bind " + bind + " no es una IP loopback literal"
+		case loopback.Unspecified:
+			message = "la URL del endpoint MCP no es alcanzable: el bind es la dirección no especificada " + bind
+		default:
+			message = "la URL del endpoint MCP no es alcanzable: el bind " + bind + " no es loopback"
 		}
-	}
-	if ip.IsUnspecified() {
 		return "", &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
-			Message: "la URL del endpoint MCP no es alcanzable: el bind es la dirección no especificada " + bind,
-		}
-	}
-	if !ip.IsLoopback() {
-		return "", &domain.SemanticError{
-			Code:    domain.ErrCodeInvalidInput,
-			Message: "la URL del endpoint MCP no es alcanzable: el bind " + bind + " no es loopback",
+			Message: message,
 		}
 	}
 
@@ -269,7 +272,7 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 // The entry is replaced wholesale, so re-running the flow is idempotent and
 // stale keys inside the previous entry cannot survive. The pointer receiver is
 // required because a zero-value HermesDocument lazily allocates its backing
-// mapping here; an initialized document shares the same map through the value.
+// mapping through storage() in place.
 func (d *HermesDocument) SetHermesServer(rawURL, phone string) error {
 	if err := ValidateHermesURL(rawURL); err != nil {
 		return err
@@ -287,9 +290,6 @@ func (d *HermesDocument) SetHermesServer(rawURL, phone string) error {
 		url:      strings.TrimSpace(rawURL),
 		callerID: phone,
 	}.asMapping()
-	// Persist the mapping for the zero value, whose storage() call allocated a
-	// fresh one; for an initialized document this reassigns the same map.
-	d.fields = fields
 	return nil
 }
 
