@@ -2,7 +2,7 @@
 
 > **Estado**: Aprobado
 > **Owner**: Kike
-> **Versión**: 1.16
+> **Versión**: 1.17
 > **Última actualización**: 2026-09-24
 
 ---
@@ -124,7 +124,7 @@ Un **Servidor MCP en Go con persistencia en SQLite** que se ejecuta en la propia
 > **Target del producto vs publicado hoy**: la matriz completa es el target de distribución y el
 > pipeline de GoReleaser (`.goreleaser.yaml` + `.github/workflows/release.yml`) ya la produce por
 > CI — cada tag `vX.Y.Z` publica los 5 archives + `checksums.txt` (ver §7, Fase N: item entregado).
-> El release publicado más reciente es **v0.6.0** (2026-09-24, con la capacidad TUI Configurar Hermes); el único release armado a mano fue `v0.3.0`, antes del pipeline, que trajo
+> El release publicado más reciente es **v0.6.1** (2026-09-24, patch de higiene interna — PRs #102/#104, cero features); v0.6.0 trajo la capacidad TUI Configurar Hermes; el único release armado a mano fue `v0.3.0`, antes del pipeline, que trajo
 > **solo** `mcp-appointments-crm_Linux_x86_64.tar.gz` + `checksums.txt`.
 
 | Plataforma | Archive de release (target) | Service manager | Publicado hoy |
@@ -1335,7 +1335,7 @@ Override con otro caller_id (debug):
 - ✅ Entry-point fijado (2026-09-13): binario `mcp-server`, invocación `mcp-server admin tui` (y futuro `mcp-server hermes chat`). Docs vivos alineados; ADR-0010/ADR-0016 actualizados.
 - ✅ **RESUELTO** — Cerrar el gap de edición post-install: los tools Hermes de mantenimiento (arriba) cubren los cambios de perfil/servicios/profesionales/horarios, así que ya no requieren SQL manual.
 
-**Orden de ejecución sugerido** (por dependencia): 1º TUI identidad + owner seed ✅ (2026-09-16); 2º tools Hermes de mantenimiento ✅ (2026-09-17); 3º GoReleaser + releases por CI ✅ (2026-09-18); 4º TUI Configurar Hermes ✅ (2026-09-24) — pendiente: smoke from-zero en VM contra v0.6.0 (install → TUI seed → Configurar Hermes → Hermes chat → booking flows), transición a producción y bot WhatsApp per-sender.
+**Orden de ejecución sugerido** (por dependencia): 1º TUI identidad + owner seed ✅ (2026-09-16); 2º tools Hermes de mantenimiento ✅ (2026-09-17); 3º GoReleaser + releases por CI ✅ (2026-09-18); 4º TUI Configurar Hermes ✅ (2026-09-24) — pendiente: smoke from-zero en VM contra v0.6.1 (install → TUI seed → Configurar Hermes → Hermes chat → booking flows), transición a producción y bot WhatsApp per-sender.
 
 **Entregables**:
 - Releases regulares con changelog
@@ -1428,3 +1428,4 @@ Override con otro caller_id (debug):
 | 2026-09-18 | 1.15a | Kike + Gentleman | **GoReleaser + releases por CI ENTREGADO (Fase N)** — `.goreleaser.yaml` + `.github/workflows/release.yml`: cada tag `vX.Y.Z` publica los 5 archives + `checksums.txt` (v0.4.0 primera, v0.5.0 el 2026-09-22). Registro del bot WhatsApp per-sender como item de Fase N (§7, commit e57cbf6). |
 | 2026-09-23 | 1.15b | Kike + Gentleman | **Micro-debt agregado ENTREGADO** (PR #96, issue #95): validación estricta de day keys/HH:MM con mensajes pluralizados, fix de slots que cruzan medianoche, hardening FK 1811, telemetría derivada del wiring, cobertura de integración. |
 | 2026-09-24 | 1.16 | Kike + Gentleman | **TUI Configurar Hermes ENTREGADA (Fase N, [ADR-0017](../architecture/0017-hermes-config-tui.md))** — opción 7 de la TUI (Bubble Tea + consola): bootstrap de `~/.hermes/config.yaml` sin YAML manual (merge preservando claves ajenas, `X-Caller-Id: "<teléfono>"` quoted, endpoint desde `MCP_BIND`/`MCP_PORT` con validación de bind, snippet fallback); dependencia `gopkg.in/yaml.v3`. Además PR #100: higiene de follow-ups (bootstrap lazy, plumbing del signal context, handler cacheado) y desviación documentada del round-trip. Release v0.6.0 (6 assets). §3.8.8, §4 R5/D2, §7 y matriz de distribución actualizados. |
+| 2026-09-24 | 1.17 | Kike + Gentleman | **Higiene completa — cero deuda de hallazgos** — PR #102: disposition de los 8 hallazgos informativos del gate de hermes-config-tui/hygiene (cadena Hermes única `ApplyHermesConfig`, shape único `tui.HermesConfig`, resolver con retry en fallo, `HermesDocument` pointer-receiver, clasificador loopback compartido `internal/loopback.Classify`, handler `/mcp` construido una vez, test de propagación del signal context, `writeConsole` sin `any`); PR #104: disposition de los 5 advisory SUGGESTION del propio gate (home decision documentada, fallthrough legible, `Classify` sin `net.IP` muerto, anclas honestas en 2 tests). Gate nativo APPROVED primera pasada (`review-7b524be75481095e`, receipt quemado) + readback estructural PASS. Release v0.6.1 (6 assets). |

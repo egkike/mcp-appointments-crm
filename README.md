@@ -39,11 +39,11 @@ The MCP server currently exposes 19 tools: `check_availability`, `create_booking
 > **Scope note:** completed phases mean their packs are merged and demo-validated — not that the product has no pending work. Known pending scope (Fase 2+ / Fase N):
 >
 > - ✅ **Admin TUI + owner seed** (`mcp-server admin tui`, PRD §3.8.8 / RF9 / ADR-0010, scope in ADR-0016) — **MVP shipped (2026-09-16)**: the first-boot seed wizard creates the owner and writes the `caller-id` file (`0600`, `MCP_CONFIG_DIR` override), alongside Add Staff, Deactivate, list views, Transfer Ownership, Add-yourself-as-client and **Configure Hermes** (writes/merges `~/.hermes/config.yaml`, ADR-0017, shipped 2026-09-24). Bubble Tea on a TTY, equivalent console fallback without one. Deferred: persisted audit-log view. Account setup no longer needs manual SQL.
-> - ✅ **Multi-platform release assets** — shipped since v0.4.0: the GoReleaser pipeline publishes the 5-platform matrix per tag (latest: v0.6.0). macOS is distributable today; Windows has the asset but no install path.
+> - ✅ **Multi-platform release assets** — shipped since v0.4.0: the GoReleaser pipeline publishes the 5-platform matrix per tag (latest: v0.6.1). macOS is distributable today; Windows has the asset but no install path.
 > - **Windows install** — no supported path: no `install.ps1`, no `--register-service` flag, no Task Scheduler template. The GoReleaser pipeline ships the `Windows_x86_64.zip` asset per tag, but the install automation remains unimplemented. Only the manual guide [`setup/service/nssm-install.md`](./setup/service/nssm-install.md) exists (untested in CI). Declared a non-goal of Phase 5 and tracked as pending scope (PRD §7, ADR-0014).
 > - ✅ **Hermes maintenance tools** (profile/services/professionals/schedules, ADR-0015) — **shipped**: 8 owner-only tools (`update_business_profile`, `create/update/delete_service`, `create/update_professional`, `upsert/delete_schedule`) let Hermes edit install-seeded operation data; manual SQL is no longer required.
 > - ✅ **Setup import wizard → DB done (2026-09-11)** — PRs [#72](https://github.com/egkike/mcp-appointments-crm/pull/72) / [#73](https://github.com/egkike/mcp-appointments-crm/pull/73) / [#74](https://github.com/egkike/mcp-appointments-crm/pull/74) (issue #71 closed): the server seeds `reservas.db` from the 3 setup JSONs on first boot; later boots are no-ops via guard.
-> - ✅ **GoReleaser CI releases (2026-09-18)** — `.goreleaser.yaml` + `.github/workflows/release.yml`: pushing an annotated `vX.Y.Z` tag builds and publishes all 5 platform archives + `checksums.txt` (GoReleaser v2.18.2, no manual upload). Verified with `goreleaser check` + a full local snapshot release; `v0.3.0` remains the only hand-built release (published releases v0.4.0+ all run through the pipeline; latest: v0.6.0, 2026-09-24).
+> - ✅ **GoReleaser CI releases (2026-09-18)** — `.goreleaser.yaml` + `.github/workflows/release.yml`: pushing an annotated `vX.Y.Z` tag builds and publishes all 5 platform archives + `checksums.txt` (GoReleaser v2.18.2, no manual upload). Verified with `goreleaser check` + a full local snapshot release; `v0.3.0` remains the only hand-built release (published releases v0.4.0+ all run through the pipeline; latest: v0.6.1, 2026-09-24).
 
 ## Quickstart
 
@@ -60,7 +60,7 @@ curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/s
 
 ```bash
 # pinned version (required — see note below)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.6.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.6.1
 ```
 
 > The pipe (`curl | bash`) works only for Paso 2; Paso 1 must run in a real terminal. See

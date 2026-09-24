@@ -2,7 +2,7 @@
 
 > Esta guía lleva un VPS limpio (Ubuntu 22.04+ o macOS) hasta tener el servicio `mcp-appointments-crm` activo y respondiendo en `http://127.0.0.1:3000/mcp`.
 >
-> ⚠️ **Assets publicados**: el release publicado más reciente es **v0.6.0** (2026-09-24); todos los releases desde v0.4.0 salen del pipeline GoReleaser y traen la matriz completa de 5 plataformas (`Darwin_arm64/x86_64`, `Linux_arm64/x86_64`, `Windows_x86_64`) + `checksums.txt`. El camino macOS de `install.sh` está implementado y descarga el asset `Darwin` correspondiente. Windows tiene asset pero **no path de instalación** todavía ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3). `v0.3.0` fue el último armado a mano.
+> ⚠️ **Assets publicados**: el release publicado más reciente es **v0.6.1** (2026-09-24, patch de higiene interna; v0.6.0 trajo la capacidad TUI Configurar Hermes); todos los releases desde v0.4.0 salen del pipeline GoReleaser y traen la matriz completa de 5 plataformas (`Darwin_arm64/x86_64`, `Linux_arm64/x86_64`, `Windows_x86_64`) + `checksums.txt`. El camino macOS de `install.sh` está implementado y descarga el asset `Darwin` correspondiente. Windows tiene asset pero **no path de instalación** todavía ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3). `v0.3.0` fue el último armado a mano.
 >
 > El flujo tiene dos partes: (1) configuración inicial interactiva con el wizard (`curl -fsSLO ... && bash install.sh`, requiere TTY) y (2) despliegue pinned del binario con `install.sh --version vX.Y.Z`. Si ya generaste los JSONs de setup en otra máquina, podés saltar directo al despliegue copiando los archivos al directorio de configuración del host destino.
 
@@ -55,17 +55,17 @@ Una vez que los tres JSONs de setup existen, desplegá la versión que quieras. 
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh \
-  | bash -s -- --version v0.6.0
+  | bash -s -- --version v0.6.1
 ```
 
 ### Opción B — Descarga previa del script (recomendada para auditar)
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh
-bash install.sh --version v0.6.0
+bash install.sh --version v0.6.1
 ```
 
-Reemplazá `v0.6.0` por el tag exacto que querés instalar. El formato obligatorio es `vMAJOR.MINOR.PATCH` (por ejemplo `v0.6.0`). No se acepta `latest` ni pre-releases desde el instalador.
+Reemplazá `v0.6.1` por el tag exacto que querés instalar. El formato obligatorio es `vMAJOR.MINOR.PATCH` (por ejemplo `v0.6.1`). No se acepta `latest` ni pre-releases desde el instalador.
 
 ### Qué hace el despliegue
 
