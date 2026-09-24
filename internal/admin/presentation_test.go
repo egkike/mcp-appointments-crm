@@ -171,7 +171,8 @@ func TestApplyHermesConfigWritesTheMergedEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadHermesConfig() after write error = %v", err)
 	}
-	if _, ok := doc.storage()[hermesServersSection]; !ok {
-		t.Error("ApplyHermesConfig() did not write the mcp_servers section")
+	entry := hermesEntryFrom(t, doc)
+	if entry[hermesURLKey] != testHermesURL {
+		t.Errorf("merged entry url = %v, want %q", entry[hermesURLKey], testHermesURL)
 	}
 }
