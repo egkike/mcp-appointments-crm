@@ -71,6 +71,11 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 > Invoked by pipe without `--version`, it falls through to the interactive wizard, which
 > needs a real terminal — a piped invocation has no TTY, so it prints
 > `Error: el modo interactivo requiere una terminal.` and exits 1.
+>
+> **Updating: re-run Paso 2 with the newer tag** (e.g. `--version v0.7.0`). The pinned
+> deploy is idempotent — it swaps the binary and restarts the service while preserving
+> the database, `caller-id`, setup files and the Hermes entry. Paso 1 (wizard) is only
+> needed on a first-time install. *(Idempotent re-run verified 2026-09-26.)*
 
 Installs the prebuilt binary from GitHub Releases, verifies SHA256, registers a
 user-level service (`systemd --user` on Linux, `launchd` on macOS), enables linger
