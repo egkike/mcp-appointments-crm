@@ -71,9 +71,16 @@ An additional product rule resolved during the interview:
       summary; §7 WhatsApp backlog item extended with the owner bot + auto-register
       rule + single-channel PIN; add changelog row (1.19). DONE via second writer
       delegation (+25/-3, tracking-first DIY edits verified).
-- [ ] T3 — Structural readback PASS → awaiting owner confirmation → commit on main
-      (docs lane). Readback: all 0018 links resolve, table pipes intact, no staff
-      multi-user lines remain in PRD, changelog 1.19 present.
+- [x] T3 — Structural readback PASS → owner confirmed ("Dale") → pipeline
+      (fmt/vet/build/test -race/lint all clean) → GGA hook passed (no staged
+      code files — docs-only, expected) → committed a3925df on main, pushed
+      (55d3c42..a3925df). Merge identity recorded here per ODD rule.
+
+## Feature closing
+
+**Status**: COMPLETE (2026-09-27). Commit `a3925df` on `main`, pushed to origin.
+Next: the bot feature spec (per-sender + private owner bot + auto-register +
+F-4 prerequisite) is the consumer of this ADR.
 
 ## Ownership
 
