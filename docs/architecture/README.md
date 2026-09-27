@@ -36,3 +36,4 @@ We use a lightweight ADR format inspired by Michael Nygard's template:
 | [0015](./0015-hermes-operational-maintenance.md) | Hermes como mantenedor de datos operativos — tools MCP de perfil/servicios/profesionales/horarios con RBAC owner, sin gestión de cuentas | accepted | 2026-09-12 |
 | [0016](./0016-admin-tui-scope.md) | Alcance del SDD admin-tui — MVP owner seed gateway + gestión de cuentas; edición de datos operativos y `purge-inactive` fuera de alcance | accepted | 2026-09-12 |
 | [0017](./0017-hermes-config-tui.md) | TUI "configurar Hermes" — bootstrap del config de Hermes (merge write + snippet fallback, quoted E.164 X-Caller-Id, bind validation) | accepted | 2026-09-24 |
+| [0018](./0018-communication-channels.md) | Modelo de canales de comunicación — un solo canal del negocio (WhatsApp/Telegram), identidad per-sender vía gateway, canales owner-only fuera del número (SSH chat + bot privado Telegram); multi-user de ADR-0012 retirado | accepted | 2026-09-27 |

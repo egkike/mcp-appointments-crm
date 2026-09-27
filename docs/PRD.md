@@ -944,6 +944,8 @@ Esto permite que el owner (o admin, o staff) use el mismo `X-Caller-Id` para:
 
 Además del bot de WhatsApp/Telegram (que recibe mensajes de **todos** los usuarios — clientes, staff, admin, owner), existe un **segundo canal de comunicación**: el **Chat nativo de Hermes**. Es la interfaz local del LLM agent (terminal, IDE, OpenCode Chat, etc.) que el owner usa directamente sin pasar por el bot.
 
+> Modelo de canales completo en [ADR-0018](../architecture/0018-communication-channels.md). Multi-user de este canal retirado 2026-09-27.
+
 **Diferencia con el bot:**
 
 | Aspecto | Bot (WhatsApp/Telegram) | Chat de Hermes (local) |
@@ -951,7 +953,7 @@ Además del bot de WhatsApp/Telegram (que recibe mensajes de **todos** los usuar
 | Quién escribe | Cualquier persona con acceso al bot | Solo el owner (single-user assumption en la VPS) |
 | Cómo se inyecta el `X-Caller-Id` | El bot lee el `from` del mensaje | El Chat lee `MCP_CALLER_ID` env var o `~/.config/mcp-appointments-crm/caller-id` |
 | Gatekeeper | El bot messenger (cualquiera puede escribir) | El admin del OS (SSH a la VPS) |
-| Multi-user | Sí (cualquier cliente puede escribir) | No (single-user por default) |
+| Multi-user | Sí (cualquier cliente puede escribir) | No (owner-only, ADR-0018) |
 | Loopback enforcement | El bot habla con el MCP server en loopback | El Chat también (no expone el MCP al exterior) |
 
 **Mecanismo del Chat de Hermes:**
@@ -959,7 +961,7 @@ Además del bot de WhatsApp/Telegram (que recibe mensajes de **todos** los usuar
 - **El TUI menú configura el caller_id del owner** durante la primera configuración (RF9, Fase 2). El `X-Caller-Id` del owner se guarda en `~/.config/mcp-appointments-crm/caller-id` cuando el operador ejecuta `mcp-server admin tui` y confirma el phone del dueño. La fila del owner en `accounts` se crea en el mismo paso vía TUI menú.
 - **El Chat de Hermes es un sub-comando del binario** (`mcp-server hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000`, e inyecta el `X-Caller-Id` en cada tool call.
 - **Override con env var**: el owner puede exportar `MCP_CALLER_ID=+5491100001111 mcp-server hermes chat` para simular ser un cliente (debug, testing, o simular la perspectiva de un cliente).
-- **Multi-user via override**: el staff puede hacer SSH a la VPS y correr `MCP_CALLER_ID=+5491100002222 mcp-server hermes chat` con su propio caller_id.
+- **Single-user (owner-only, ADR-0018)**: solo el owner usa el Chat. El staff se comunica únicamente por el canal del negocio. `MCP_CALLER_ID` queda como override de debug local del owner (simular un cliente), no como acceso de staff.
 
 **Salida del TUI menú operacional (extensión de RF9):**
 
@@ -968,7 +970,7 @@ Además del bot de WhatsApp/Telegram (que recibe mensajes de **todos** los usuar
 Tu caller_id (admin del sistema): +5491100000000
 Para usar el Chat de Hermes, ejecuta:
   mcp-server hermes chat
-Override con otro caller_id (debug):
+Override de debug (owner-only, simular un cliente):
   MCP_CALLER_ID=+5491100001111 mcp-server hermes chat
 ```
 
@@ -983,6 +985,24 @@ Override con otro caller_id (debug):
 - *Hermes local en la laptop del owner* (sin SSH a la VPS): requeriría exponer el MCP al exterior o un SSH tunnel; viola loopback. **Rechazado**.
 - *Single-user mode con caller_id hardcodeado* (sin override): inflexible, no soporta debug/testing. **Rechazado**.
 - *El Chat pregunta el caller_id al iniciar* (sin config): fricción cada vez que abre el Chat. **Rechazado** (la config se hace una vez en el TUI menú).
+
+### 3.8.10 Modelo de canales de comunicación (ADR-0018)
+
+Modelo de canales **congelado el 2026-09-27**; las decisiones completas viven en [ADR-0018](../architecture/0018-communication-channels.md). El canal no otorga rol: el rol siempre sale de `accounts`/`clients`.
+
+| # | Canal | Alcance | Identidad de emisor |
+|---|-------|---------|---------------------|
+| 1 | **Canal del negocio** (un único número; WhatsApp primario, Telegram alternativo — `CHECK` ya vigente en schema) | Clientes, profesionales y owner escriben **al número del negocio** desde su propio teléfono y leen la misma conversación | Per-sender: el gateway lee el `from` → inyecta `X-Caller-Id` → `CallerResolver` resuelve `accounts → clients → desconocido` y aplica el rol |
+| 2 | **SSH + `mcp-server hermes chat`** | **Owner-only**; el gatekeeper es el login del OS (SSH) | Prefill de `X-Caller-Id` desde la TUI (ADR-0017); `MCP_CALLER_ID` es solo override de debug local del owner |
+| 3 | **Bot privado de Telegram (owner-only)** | **Owner-only** por allowlist limitada al chat del owner; emisores fuera de la allowlist se rechazan **en el gateway**, antes de llegar al server | Inyección **estática** del teléfono real del owner desde la config del server — Telegram no expone teléfonos a bots (solo user id anónimo), así que no hay resolución per-sender |
+
+**Reglas:**
+
+- **Auto-registro de desconocido**: un teléfono que escribe por primera vez al canal del negocio se auto-registra como `client` vía `get_or_create_client` (self-service). Hoy el server responde **401** a teléfonos desconocidos: el gap es requisito explícito del change del bot.
+- **Staff sin canales no-mensajería**: el **multi-user staff de ADR-0012 queda retirado**; el staff se comunica únicamente por el canal del negocio.
+- **Loopback invariante**: todos los canales hablan con el MCP server estrictamente por `127.0.0.1:3000`.
+
+Referencia completa: [ADR-0018](../architecture/0018-communication-channels.md).
 
 ---
 
@@ -1334,6 +1354,7 @@ Override con otro caller_id (debug):
   - Opcional del design: aceptar **`geo:` URI** (RFC 5870, `geo:lat,long`) como input alternativo de `update_business_profile` — estándar con parseo trivial, cómodo para el agent.
   - Prerrequisito: **F-4** — `update_business_profile` hoy no puede des-cargar campos (`lat/long: null` → "no se proporcionaron campos para actualizar", handler confunde ausente con null explícito); sin clear, el owner no puede corregir un pin malo cargado por error (solo sobreescribir).
   Estado hoy: el canal alternativo es el gateway de Hermes con header estático owner — **cualquiera que escriba al bot actúa como owner** (assumption single-operator vigente). Faltan: la integración del bot de WhatsApp con inyección per-sender, Transfer Ownership del owner demo (`+5491100000000`) al phone real del dueño (paso de TUI, soportado hoy), y actualizar `messenger_platform` a `whatsapp` en el perfil. RBAC server-side ya está entregado y probado (tools owner-only doble enforcement).
+  **Modelo de canales congelado (2026-09-27, ADR-0018)**: un único número del negocio (WhatsApp primario, Telegram alternativo; escenarios A/B + self-chat arriba); identidad per-sender por el número del negocio para clientes, profesionales y owner; fuera del número del negocio solo el owner tiene canales: SSH hermes chat (single-user; multi-user staff de ADR-0012 retirado) y bot privado de Telegram owner-only (allowlist del chat del owner, inyección estática del teléfono real del owner desde la config del server — Telegram no expone teléfonos a bots). Requisitos nuevos que el spec del bot debe cerrar: auto-registro del desconocido como client vía get_or_create_client (hoy el server responde 401 a teléfonos desconocidos) y request_contact en Telegram para resolver el emisor (sin teléfono expuesto). Ver ADR-0018 para la cadena de resolución completa.
 - **Instalación y soporte Windows** (Fase 2+; non-goal declarado en Fase 5) — no existe path de instalación: faltan el script de instalación (`scripts/install.ps1` o equivalente), el flag `mcp-server --register-service`, el template de servicio (Task Scheduler XML o NSSM) y la documentación de soporte. Lo único disponible hoy es la guía manual `setup/service/nssm-install.md` (sin validar en CI). Ver [ADR-0014](../architecture/0014-release-and-deploy-workflow.md) Decision 3.
 - **Desinstalación limpia — `scripts/uninstall.sh`** (Fase 2+; detectado 2026-09-24 preparando el smoke from-zero de v0.6.1) — hoy no existe camino de desinstalación: quitar la prueba vieja de la VM es una limpieza manual guiada (servicio systemd/launchd, binario, DB `-wal/-shm` + JSONs de `setup/`, entrada `mcp_servers.mcp-appointments` en `~/.hermes/config.yaml`, salidas de `backup.sh`, timers residuales). El script debe revertir lo que `install.sh` siembra (servicio + binario + datos + setup + entrada de Hermes) con `--dry-run` por defecto, verificación de ausencia al terminar, y preservación por defecto de los backups del operador. Necesario para soporte del cliente y para repetir smokes from-zero; el espejo Windows queda en el ítem de arriba.
 - Asimetría de day-keys `business_hours` (`"1"`..`"7"`, lunes=1) vs `schedules.day_of_week` (`0`..`6`, domingo=0) — normalizar en un único punto de traducción, con tests (restricción de diseño, ver [ADR-0016](../architecture/0016-admin-tui-scope.md)).
@@ -1439,3 +1460,4 @@ Override con otro caller_id (debug):
 | 2026-09-24 | 1.16 | Kike + Gentleman | **TUI Configurar Hermes ENTREGADA (Fase N, [ADR-0017](../architecture/0017-hermes-config-tui.md))** — opción 7 de la TUI (Bubble Tea + consola): bootstrap de `~/.hermes/config.yaml` sin YAML manual (merge preservando claves ajenas, `X-Caller-Id: "<teléfono>"` quoted, endpoint desde `MCP_BIND`/`MCP_PORT` con validación de bind, snippet fallback); dependencia `gopkg.in/yaml.v3`. Además PR #100: higiene de follow-ups (bootstrap lazy, plumbing del signal context, handler cacheado) y desviación documentada del round-trip. Release v0.6.0 (6 assets). §3.8.8, §4 R5/D2, §7 y matriz de distribución actualizados. |
 | 2026-09-24 | 1.17 | Kike + Gentleman | **Higiene completa — cero deuda de hallazgos** — PR #102: disposition de los 8 hallazgos informativos del gate de hermes-config-tui/hygiene (cadena Hermes única `ApplyHermesConfig`, shape único `tui.HermesConfig`, resolver con retry en fallo, `HermesDocument` pointer-receiver, clasificador loopback compartido `internal/loopback.Classify`, handler `/mcp` construido una vez, test de propagación del signal context, `writeConsole` sin `any`); PR #104: disposition de los 5 advisory SUGGESTION del propio gate (home decision documentada, fallthrough legible, `Classify` sin `net.IP` muerto, anclas honestas en 2 tests). Gate nativo APPROVED primera pasada (`review-7b524be75481095e`, receipt quemado) + readback estructural PASS. Release v0.6.1 (6 assets). |
 | 2026-09-26 | 1.18 | Kike + Gentleman | **Smoke from-zero v0.6.1 ENTREGADO** en VM tras limpieza manual (bitácora demo-plan, F-1/F-2/F-3) y **refinamiento del backlog WhatsApp per-sender** (§7): sesión SIEMPRE con el número del negocio (`messenger_id`); escenarios A (owner ≠ negocio, resolución simétrica por JID) y B (owner = negocio, **self-chat soportado por decisión de producto** como canal owner); cadena de resolución por emisor accounts → `clients.phone` → desconocido común a ambos. Mismo día: **contrato de ubicación registrado** (map→texto por el gateway con fallback textual; texto→mapa vía `maps_url` derivado en `get_business_profile`; `geo:` URI opcional; F-4 clear-null como prerrequisito) y **idempotencia del deploy verificada con re-run vivo** (README: update = re-run Paso 2 con tag más nuevo). |
+| 2026-09-27 | 1.19 | Kike + Gentleman | **Modelo de canales de comunicación congelado (ADR-0018)** — un solo canal del negocio (WhatsApp primario / Telegram alternativo), identidad per-sender por el número del negocio, canales owner-only fuera de él (SSH hermes chat + bot privado Telegram con inyección estática); multi-user staff de ADR-0012 retirado; §3.8.9 actualizada, §3.8.10 nueva; requisitos nuevos para el spec del bot: auto-registro de desconocidos como client y request_contact en Telegram. |
