@@ -125,10 +125,18 @@ Wait for user confirmation before proceeding.
 
 1. Create feature branch from `main`
 2. Commit following Conventional Commits
-3. Push and create PR via gh
+3. Push and create PR via `gh`
 4. CI checks must pass
 5. Code review approval required
 6. Squash and merge after approval
+
+### Post-Merge CI Sequencing
+
+After any merge to `main`, wait for the merge commit's CI run to finish green **before making the next push to `main`** (including the docs/tracking follow-up commit).
+
+- `ci.yml` uses concurrency with cancel-in-progress: consecutive pushes cancel the older run, leaving a red/cancelled badge on the merge commit.
+- A merge commit whose CI was cancelled provides no CI evidence for that exact SHA — and the merge commit is a potential release baseline (DoD: "CI pasa en cada release").
+- If a run is still cancelled for this reason, do not push again until it is green or re-run the superseded run (`gh run rerun <id>`) and observe it to completion.
 
 ---
 
