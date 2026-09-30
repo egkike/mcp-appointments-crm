@@ -32,6 +32,33 @@ You are developing a high-performance, self-hosted, lightweight MCP (Model Conte
 * **Semantic Error Messages:** Go tools must return detailed, natural-language error strings on business logic failures (e.g., *"Error: Selected staff member does not work on Sundays"*). Do not return raw system dumps to the LLM.
 * **Bubble Tea TUI Architecture:** Follow the strict Model-View-Update (MVU) pattern. Implement robust string/regex validations for every terminal input field before allowing the user to proceed.
 
+## Project Architecture — Clean & Hexagonal (Enforcement Contract)
+
+The project follows Clean Architecture with a Hexagonal / Ports-and-Adapters shape. ADR-0013 (`docs/architecture/0013-*.md`) is the canonical architecture record; this section is the enforcement summary — ADRs always win over this text.
+
+**Dependency rule:** dependencies point inward only. `cmd/mcp-server` (composition root) → `internal/mcp` / `internal/tui` (transport adapters) → `internal/application` (use cases) → `internal/domain` (entities, ports, errors). `internal/domain` imports nothing from outer layers. Cycles are forbidden.
+
+**Layer map:**
+
+| Layer | Location | Holds |
+|---|---|---|
+| Domain (center) | `internal/domain/entity`, `/repository`, `/service`, `errors.go` | Entities + invariants (`Validate`), repository/service ports (interfaces), `SemanticError` + error codes. No wire tags, no SQL |
+| Application | `internal/application/usecase`, `/dto` | Orchestration, RBAC re-assert (`auth.RequireRole`), partial-merge semantics, semantic error strings (Spanish), DTO carriers (cross-layer doc comments) |
+| Transport adapters | `internal/mcp` | MCP tool handlers, typed input/DTO structs with JSON tags, wire schemas, error sanitization boundary (`internal/mcp/errors.go`) |
+| Persistence adapters | `internal/repository` (+ `internal/db`) | SQLite adapters implementing domain ports; prepared statements only; canonical DDL + pragmas in `internal/db` |
+| UI adapter | `internal/tui` (+ `internal/admin`) | Bubble Tea admin TUI / console flows |
+| Shared edges | `internal/auth`, `internal/validation`, `internal/config` | RBAC helpers (`RequireCaller`/`RequireRole`), input validation, app setup |
+| Composition root | `cmd/mcp-server` | Wiring/DI, RBAC tool map, CLI entrypoints (`mcp-server`, `admin tui`, `hermes chat`). No business rules |
+
+**Boundary contracts (no exceptions):**
+
+1. Business logic lives in use cases and entities. Transport adapters only map DTOs → call the use case. **Double RBAC enforcement**: permission map at the composition root + in-usecase `auth.RequireRole`.
+2. Only `*domain.SemanticError` messages reach the client/LLM; every other error collapses to a generic `-32603` — never leak internals through `internal/mcp/errors.go`.
+3. SQL only in `internal/repository` adapters; prepared statements (`?`); schema changes only via `internal/db/schema.go` canonical DDL.
+4. Wire shapes (JSON tags, `omitempty`) stay in `internal/mcp` structs; entities stay wire-free; DTOs bridge layers and carry cross-layer contracts in doc comments.
+
+**New feature flow:** domain ports/entities (if needed) → use case (RBAC + semantics + merge) → transport adapter (typed tool) → composition root wiring (RBAC map + DI) → tests on all three layers (handler/mux, usecase, repo/integration) → docs/specs updates.
+
 ## Pre-Flight Git & GitHub Rules
 Before staging, committing, or pushing any code to the repository, you **MUST** execute and pass the following verification pipeline. 
 
@@ -246,6 +273,7 @@ Before every commit, verify:
 □ `golangci-lint run ./...` clean
 □ `go build -o /dev/null ./...` passes
 □ `go test -v -race ./...` passes
+□ No layering violations: business logic in use cases/entities only; SQL only in repository adapters; wire JSON tags only in transport adapters; dependencies point inward (`internal/domain` imports nothing outer)
 ```
 
 ---
