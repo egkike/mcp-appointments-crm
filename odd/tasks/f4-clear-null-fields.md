@@ -1,65 +1,45 @@
 # Feature: F-4 — clear-null fields in `update_business_profile` (lat/long)
 
 - **Created**: 2026-09-30
-- **Status**: implemented + verified — pending T7 (commit decision del owner + gate)
-- **Backlog refs**: PRD §7 Fase N / §3.8.9 location contract (F-4 registered as WhatsApp-bot prerequisite, commit 55d3c42); `docs/demo-plan.md` smoke v0.6.1 hallazgos; scout map task `muofg6sx-1-5kc0` (gentle-ai-explore, COMPLETE).
-- **Route**: delegated ODD (scout → worker → verify → native review). No SDD selected.
+- **Status**: COMPLETE — DELIVERED y MERGED (squash `3b86db9`, 2026-09-30, PR #105; issue #106 auto-closed). Siguientes: change `feat-whatsapp-bot` (spec SDD, ADR-0018) y `scripts/uninstall.sh`.
+- **Backlog refs**: PRD §7 Fase N / §3.8.9 (commit 55d3c42); demo-plan smoke v0.6.1; scout task `muofg6sx-1-5kc0`; issue de tracking **#106** (creado 2026-09-30, linkeado con `Closes #106` desde el PR #105).
 
 ## Goal
 
-Un pin cargado por error queda atrapado: `update_business_profile` hoy solo sobreescribe. Con go-sdk v1.7.0 los args llegan como struct tipado decodificado, y el campo puntero (`*float64`) colapsa `ausente` y `null` explícito al mismo `nil`, por lo que `{"latitude": null}` terminaba en «no se proporcionaron campos para actualizar».
-
-**Comportamiento implementado**: `null` explícito en `latitude`/`longitude` limpia el campo (escribe `SQL NULL`); key ausente conserva la semántica vigente «dejar el valor almacenado»; payload null-only es un update válido (deja de disparar el guard de payload vacío). Alcance limitado a esos dos campos de ubicación: ningún otro campo pasa a ser clearable.
+`null` explícito en `latitude`/`longitude` de `update_business_profile` limpia la coordenada (SQL NULL); key ausente = keep stored; payload null-only es update válido. Alcance limitado a lat/long.
 
 ## Out of scope
 
-- `maps_url` derivado en `get_business_profile` (consumidor: change del bot WhatsApp). ADR-0018 no lo menciona.
-- Auto-registro de desconocidos vía `get_or_create_client`.
-- `mcp-server hermes chat` (stub vigente).
-- Cambios de repositorio o de schema (el `UPDATE` full-row preparado ya persiste `NULL`; lat/long son `REAL` nullables sin CHECK).
+`maps_url` (consumidor: change del bot), auto-registro de desconocidos vía `get_or_create_client`, `mcp-server hermes chat`, cambios repo/schema.
 
-## Contracts (del scout, verificados a la hora de editar)
+## Implementación (T1–T3 COMPLETE — writer task `muofnym9-2-5lan`)
 
-- Args llegan por `internaljson.Unmarshal` del SDK tras validar contra el schema inferido; la distinción presencia/clear se captura en Go, no en el schema.
-- `UnmarshalJSON` custom con tipo alias anti-recursión + `map[string]json.RawMessage` de presencia; marcadores unexported → wire schema sin cambios (pinned por test).
-- Mensajes semánticos user-facing en español; code comments en inglés; sin DI/decoradores; prepared statements.
+- `internal/mcp/tools_maintenance.go`: `UnmarshalJSON` custom (alias anti-recursión + marcadores unexported `latitudeProvided`/`longitudeProvided`; wire schema sin cambios, probe-pinned) + mapper provided&&nil → flags. Cláusula de discovery ES en la descripción del tool (aceptada por el parent: sin ella la capability es invisible para Hermes; revertible con revert de 1 línea).
+- `internal/application/dto/maintenance.go`: flags `ClearLatitude`/`ClearLongitude` (`json:"-"`).
+- `internal/application/usecase/update_business_profile.go`: guard cuenta las señales de clear (payload null-only válido; mensaje español exacto intacto para `{}`); merge clear-primero → entidad `nil`.
+- Tests 3 capas: `TestToolUpdateBusinessProfileNullLocationClears`, `TestToolUpdateBusinessProfilePresenceMarkersStayOutOfSchema`, `TestUpdateBusinessProfileUseCase_ClearLocation`, `TestIntegrationMaintenanceBusinessProfileClearLocation` (SQL NULL verificado con `sql.NullFloat64`; `{}` → `-32002`).
 
-## Tasks
+## Verificación (T4–T6 COMPLETE)
 
-- [x] **T1** — DTO + usecase: flags `ClearLatitude`/`ClearLongitude` con doc comment del contrato; `hasProfileUpdates` cuenta los flags (payload null-only válido, mensaje español intacto para payload genuinamente vacío); `applyProfileReferenceUpdates` chequea clear-primero y setea `nil`. Test: `TestUpdateBusinessProfileUseCase_ClearLocation` (5 casos: clear both/lat/long, payload sin flags sigue rechazando, nil sin flags keep-stored). Table partial-merge existente intacta y verde.
-- [x] **T2** — MCP handler: `UnmarshalJSON` custom (`updateBusinessProfileInAlias` + marcadores `latitudeProvided`/`longitudeProvided`); mapper setea flags en provided&&nil. Tests: `TestToolUpdateBusinessProfileNullLocationClears` (5 casos) y `TestToolUpdateBusinessProfilePresenceMarkersStayOutOfSchema` (probe `additionalProperties:false` — los marcadores nunca se filtran al wire schema).
-- [x] **T3** — Integración mux (`TestIntegrationMaintenanceBusinessProfileClearLocation`): seed SQL con coords → omit-key update preserva → `null` limpia → `get_business_profile` sin lat/long → columnas `SQL NULL` (`sql.NullFloat64`) → repeat null aceptado → `{}` sigue rechazando con `-32002` y el mensaje español exacto.
-- [x] **T4** — Verificación writer: `go build -o /dev/null ./...`: OK; `go test -race -count=1 ./internal/mcp/ ./internal/application/...`: ok (mcp 9.552s, dto 1.026s, usecase 1.027s); `gofmt -l .`: vacío (1 fix de formato aplicado durante la corrida).
-- [x] **T5** — Docs parent: PRD §3.8.9 bullet F-4 → «RESUELTO (2026-09-30)»; changelog row 1.20; header PRD version 1.18 residual → 1.20. demo-plan no tiene refs a F-4 (nada que disponer ahí). `openspec/specs/mcp-transport/spec.md` fila `update_business_profile` NO editada: es no-contradictoria (no niega el clear); la formalización de la semántica null en specs canónicas queda para el change del bot (OpenSpec discipline).
-- [x] **T6** — Pipeline pre-commit: `gofmt -l .` vacío; `go vet ./...` ok; `go build -o /dev/null ./...` ok; `golangci-lint run ./...` → `0 issues`; `go test -race -count=1 ./...` → sin fallas (15 packages ok); spot check del parent: re-run del comando focused del writer → ok (mcp 8.598s, dto 1.014s, usecase 1.020s).
-- [ ] **T7** — Gate: commit del work-unit en `feat/f4-clear-null` (decisión del owner) + review nativo (RDD on, routing default) + PR a main.
+- Writer: `go build` OK; `go test -race` focused ok; `gofmt -l` vacío.
+- Parent pipeline: `gofmt`/`go vet`/`golangci-lint 0 issues`/`go build` ok; `go test -race -count=1 ./...` 15/15 packages ok; spot check (re-run focused del writer) ok.
+- Verificador independiente (task `muog7idw-3-qn2a`): 8/8 comandos exit 0, árbol limpio antes/después, cartilla confirmada, cero cambios repo/schema, observación no-bloqueante (doble decode del payload — costo despreciable).
 
-## Acceptance cartilla (estado)
+## Gate (T7)
 
-- `{"latitude":null}` limpia lat ✅ (tests handler/usecase/integración)
-- `{"latitude":null,"longitude":null}` limpia ambas ✅
-- Payload null-only no dispara «no se proporcionaron campos para actualizar» ✅ (usecase, mensaje español exacto intacto para `{}`)
-- Key ausente = keep stored ✅ (handler existing test intacto + integración omit-key)
-- Marcadores de presencia no fugan al wire schema ✅ (probe `additionalProperties:false`)
+- Assessment nativo: **risk high** (hot path update en `update_business_profile.go`); 401 lines, correction budget 200; outcome nativo `unknown`.
+- Review nativo: lineage `review-aa28c86d3b625bed` (tier high, lentes risk/resilience/readability/reliability) queda **reviewing sin cerrar** — el relay del reviewer produjo 3 veces `reviewer-empty-output (stopReason: length)` para `review-risk` (~173/188/200 s; 0 prepared/0 submitted; sin mutación; la STATUS reofrece el mismo set con revision/generation idéntico).
+- **Defecto upstream reportado**: plasma en Gentleman-Programming/gentle-ai#3991 (comentario confirmado `#issuecomment-5917681979`, consentimiento report_and_continue del owner; lookup open+closed: equivalente causal identificado, sin fix publicado — v3.7.0 es el release más nuevo y la build instalada). Sin labels tocados.
+- Fallback risk-gated aplicado y satisfecho (assess con `nativeReviewOutcome: unavailable`, `outcome_source: explicit`): self-verificación del writer + verificador independiente + spot check del parent.
+- Work-unit commits: `684e9c5` (feat mcp, 326+/5-) y `e6d6e3c` (docs prd, 68+/2-); GGA PASSED en ambos. Incidente intermedio diagnosticado y resuelto: cache-tree del índice corrupto por gc concurrente durante los primeros intentos de commit (fix: `git reset` + rebuild; fsck limpio tras).
+- Entrega: **PR #105 MERGED** (squash **`3b86db9`** en `main`, 2026-09-30T19:04:35Z) — CI pass; issue #106 auto-closed. Branch `feat/f4-clear-null` borrada (local y remota).
+- openspec/specs/mcp-transport fila `update_business_profile`: NO editada (no-contradictoria); formalización de la semántica null en specs canónicas deferida al change del bot.
 
-## Routes + evidence
+## Notas
 
-| Work | Trigger | Route |
-|---|---|---|
-| Mapa F-4 | 4+ files | delegated — `gentle-ai-explore` (task `muofg6sx-1-5kc0`, COMPLETE) |
-| T1–T3 implementación | write 2+ non-trivial files | delegated — `gentle-ai-worker` (task `muofnym9-2-5lan`, COMPLETE) |
-| T4 spot check + T6 pipeline | verification | parent inline ( RDD on: writer report = verification of record; re-run conforme) |
-| T7 gate | RDD on | native review sobre el work-unit commit |
-
-## Notas de scope (aceptadas/compradas)
-
-1. **Cláusula de discovery en la descripción del tool (ES)** — añadida por el writer fuera del design delegado (1 línea): «Enviar latitude o longitude como null borra la coordenada almacenada; omitir la clave la deja como está.». **ACEPTADA por el parent**: sin ella la capability es invisible para Hermes (contrato de ubicación pedía exactamente esa corrección por chat); string user-facing consistente con las descripciones existentes; revertible con revert de la línea sola si el owner la decline.
-2. **Diffstat 331 LOC** (326+5): ~80 sobre el forecast 150-250, dentro del budget de slice única (<400). Motivo: probes extra en tests (fuga de schema, `{}` guard, repeat-clear) — valor real de regresión, no padding.
-
-## Delivery strategy
-
-`ask-on-risk`(default), slice única, estrategia `single-pr` (branch `feat/f4-clear-null` → PR a main). **TDD**: off (source: AGENTS.md — tests obligatorios, RED-first solo SDD; runner `go test -race ./...`).
+- Diffstat 331 LOC (326+5) vs forecast 150–250: probes de tests extra; dentro del budget de slice única (<400). Delivery: ask-on-risk, single-pr, branch `feat/f4-clear-null`. TDD off (source AGENTS.md).
+- Updated docs held en el work unit (comitados en `e6d6e3c`); los updates del tracking T7 de hoy quedan sin commit hasta decisión del owner (placeholder: se push-an por docs lane después o van al merge).
 
 ## Next step
 
-T7 sobre el work-unit commit; luego push + PR (requiere decisión del owner).
+Change `feat-whatsapp-bot` (spec SDD con ADR-0018) — con F-4 desbloqueado. Residuales del gate: lineage `review-aa28c86d3b625bed` queda `reviewing` (retry posible cuando el defecto del relay reviewer tenga fix publicado en gentle-ai#3991; si el owner lo decide, abandon/dispose). Los updates T7 de este doc se registran en el commit docs-lane a `main` de este mismo día.
