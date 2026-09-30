@@ -421,6 +421,80 @@ func TestIntegrationMaintenanceBusinessProfileMerge(t *testing.T) {
 	}
 }
 
+// TestIntegrationMaintenanceBusinessProfileClearLocation proves the explicit-null
+// roundtrip against real SQLite: a stored coordinate is cleared by sending null
+// through update_business_profile, the cleared value is SQL NULL (not 0) and the
+// read tool reports it absent; an update that omits the location keys keeps the
+// stored coordinates, and a genuinely empty payload still rejects.
+func TestIntegrationMaintenanceBusinessProfileClearLocation(t *testing.T) {
+	mux, conn := newIntegrationMuxWithDB(t)
+
+	// Seed the stored coordinates directly: the behavior under test is the
+	// clear, not the value write (covered by the merge test above and by the
+	// handler tests).
+	if _, err := conn.ExecContext(context.Background(),
+		`UPDATE business_profile SET latitude = ?, longitude = ? WHERE id = 'singleton'`,
+		-34.6037, -58.3816,
+	); err != nil {
+		t.Fatalf("seed coordinates: %v", err)
+	}
+	seeded := getBusinessProfile(t, mux, "owner-1")
+	if seeded.Latitude == nil || *seeded.Latitude != -34.6037 ||
+		seeded.Longitude == nil || *seeded.Longitude != -58.3816 {
+		t.Fatalf("seeded coordinates = %v/%v; want -34.6037/-58.3816", seeded.Latitude, seeded.Longitude)
+	}
+
+	// (1) An update that omits both keys keeps the stored coordinates.
+	result := mustCallTool(t, mux, "owner-1", "update_business_profile",
+		`{"general_description":"sin tocar la ubicación"}`)
+	var omitted businessProfileOut
+	decodeToolStructured(t, result, &omitted)
+	if omitted.Latitude == nil || *omitted.Latitude != -34.6037 ||
+		omitted.Longitude == nil || *omitted.Longitude != -58.3816 {
+		t.Fatalf("omitting the keys changed the coordinates: %v/%v", omitted.Latitude, omitted.Longitude)
+	}
+	if read := getBusinessProfile(t, mux, "owner-1"); read.Latitude == nil || read.Longitude == nil {
+		t.Fatalf("read-back lost the preserved coordinates: %v/%v", read.Latitude, read.Longitude)
+	}
+
+	// (2) Explicit null clears both coordinates and nothing else.
+	result = mustCallTool(t, mux, "owner-1", "update_business_profile", `{"latitude":null,"longitude":null}`)
+	var cleared businessProfileOut
+	decodeToolStructured(t, result, &cleared)
+	if cleared.Latitude != nil || cleared.Longitude != nil {
+		t.Errorf("cleared coordinates = %v/%v; want nil/nil", cleared.Latitude, cleared.Longitude)
+	}
+	if cleared.GeneralDescription == nil || *cleared.GeneralDescription != "sin tocar la ubicación" {
+		t.Errorf("null-only update clobbered general_description: %v; want it preserved", cleared.GeneralDescription)
+	}
+	readBack := getBusinessProfile(t, mux, "owner-1")
+	if readBack.Latitude != nil || readBack.Longitude != nil {
+		t.Fatalf("read-back coordinates = %v/%v; want both cleared", readBack.Latitude, readBack.Longitude)
+	}
+
+	// The column really holds NULL: a stored 0 would be a wrong pin location,
+	// and only the explicit clear writes NULL rather than the Go zero value.
+	var storedLat, storedLong sql.NullFloat64
+	if err := conn.QueryRowContext(context.Background(),
+		`SELECT latitude, longitude FROM business_profile WHERE id = 'singleton'`,
+	).Scan(&storedLat, &storedLong); err != nil {
+		t.Fatalf("read stored coordinates: %v", err)
+	}
+	if storedLat.Valid || storedLong.Valid {
+		t.Errorf("stored coordinates = %v/%v; want SQL NULL for both", storedLat, storedLong)
+	}
+
+	// (3) The clear is idempotent through the guard: repeating the null-only
+	// payload is still a valid update, not an empty one.
+	mustCallTool(t, mux, "owner-1", "update_business_profile", `{"latitude":null,"longitude":null}`)
+
+	// (4) A genuinely empty payload keeps rejecting with the semantic message.
+	_, code, msg := callMCPTool(t, mux, "owner-1", "update_business_profile", `{}`)
+	if code != -32002 || msg != "no se proporcionaron campos para actualizar" {
+		t.Errorf("empty payload: code=%d msg=%q; want -32002 %q", code, msg, "no se proporcionaron campos para actualizar")
+	}
+}
+
 // TestIntegrationMaintenanceServiceLifecycle proves create → read → partial
 // update → read → delete against real SQLite and the real FTS read tool.
 func TestIntegrationMaintenanceServiceLifecycle(t *testing.T) {

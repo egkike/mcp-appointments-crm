@@ -57,6 +57,12 @@ var errNilMaintenanceEntity = errors.New("maintenance tool: use case returned no
 // untouched" and the LLM can correct a single column without round-tripping the
 // whole aggregate. id/created_at/updated_at are intentionally absent — they are
 // not writable.
+//
+// latitude and longitude are the documented exception (PRD §3.8.9 location
+// contract): an explicit JSON null clears the stored coordinate while an
+// omitted key keeps it. A *float64 alone cannot express that — omitted and null
+// both decode to nil — so UnmarshalJSON records which of the two keys the raw
+// payload actually carried.
 type updateBusinessProfileIn struct {
 	Name                   *string  `json:"name,omitempty"`
 	Industry               *string  `json:"industry,omitempty"`
@@ -77,10 +83,48 @@ type updateBusinessProfileIn struct {
 	Timezone               *string  `json:"timezone,omitempty"`
 	SlotIntervalMinutes    *int     `json:"slot_interval_minutes,omitempty"`
 	BusinessHours          *string  `json:"business_hours,omitempty"`
+
+	// latitudeProvided / longitudeProvided report whether the raw payload
+	// carried the key at all (null or a number), which is exactly what
+	// separates "clear the stored coordinate" from "leave it untouched".
+	// Both are unexported on purpose: the SDK's schema inference only walks
+	// exported fields, so the wire input schema stays unchanged.
+	latitudeProvided  bool
+	longitudeProvided bool
+}
+
+// updateBusinessProfileInAlias is updateBusinessProfileIn without its methods:
+// decoding through it is a plain struct decode, which is what keeps
+// UnmarshalJSON from recursing into itself.
+type updateBusinessProfileInAlias updateBusinessProfileIn
+
+// UnmarshalJSON decodes the payload twice on purpose: once into the typed
+// fields (through the method-less alias) and once into a raw key map, because
+// the typed decode cannot distinguish an omitted location key from an explicit
+// JSON null. The map is consulted only for those two keys; every other field is
+// served by the typed decode, so the mapping stays in one place.
+func (in *updateBusinessProfileIn) UnmarshalJSON(data []byte) error {
+	var decoded updateBusinessProfileInAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*in = updateBusinessProfileIn(decoded)
+	_, in.latitudeProvided = raw["latitude"]
+	_, in.longitudeProvided = raw["longitude"]
+	return nil
 }
 
 // toUpdateBusinessProfileInput maps the tool payload onto the use case input,
-// injecting the authenticated caller.
+// injecting the authenticated caller. A provided location key whose value
+// decoded to nil was an explicit JSON null, so it travels on as a clear signal;
+// a non-nil value keeps the plain partial-merge assignment, and an absent key
+// leaves both the pointer and the flag untouched (keep the stored coordinate).
 func toUpdateBusinessProfileInput(in updateBusinessProfileIn, caller auth.Caller) dto.UpdateBusinessProfileInput {
 	return dto.UpdateBusinessProfileInput{
 		Caller:                 caller,
@@ -90,6 +134,8 @@ func toUpdateBusinessProfileInput(in updateBusinessProfileIn, caller auth.Caller
 		Address:                in.Address,
 		Latitude:               in.Latitude,
 		Longitude:              in.Longitude,
+		ClearLatitude:          in.latitudeProvided && in.Latitude == nil,
+		ClearLongitude:         in.longitudeProvided && in.Longitude == nil,
 		CoverPhotoURL:          in.CoverPhotoURL,
 		PublicPhone:            in.PublicPhone,
 		MessengerPlatform:      in.MessengerPlatform,
@@ -281,7 +327,7 @@ func (s *Server) registerBusinessProfileWriteTools() {
 	if s.cfg.UpdateBusinessProfile == nil {
 		return
 	}
-	mcp.AddTool(s.impl, s.mcpTool("update_business_profile", "Actualiza parcialmente el perfil del negocio: solo los campos enviados se modifican (business_hours se reemplaza completo, no se fusiona). Solo disponible para owner"),
+	mcp.AddTool(s.impl, s.mcpTool("update_business_profile", "Actualiza parcialmente el perfil del negocio: solo los campos enviados se modifican (business_hours se reemplaza completo, no se fusiona). Enviar latitude o longitude como null borra la coordenada almacenada; omitir la clave la deja como está. Solo disponible para owner"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in updateBusinessProfileIn) (*mcp.CallToolResult, businessProfileOut, error) {
 			caller, err := auth.RequireCaller(ctx)
 			if err != nil {
