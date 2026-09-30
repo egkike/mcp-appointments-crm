@@ -231,6 +231,97 @@ func TestToolUpdateBusinessProfileMapsEveryField(t *testing.T) {
 	}
 }
 
+// TestToolUpdateBusinessProfileNullLocationClears pins the explicit-null
+// contract of the two location columns against the raw JSON payload: a key sent
+// as null becomes a clear signal (nil pointer + flag), a real number keeps the
+// plain assignment (non-nil pointer, no flag), and an omitted key stays nil
+// with no flag — the "leave the stored value untouched" path the existing
+// partial-merge tests assert.
+func TestToolUpdateBusinessProfileNullLocationClears(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          string
+		wantLatitude  *float64
+		wantLongitude *float64
+		wantClearLat  bool
+		wantClearLong bool
+	}{
+		{
+			name:          "explicit null on both coordinates",
+			args:          `{"latitude":null,"longitude":null}`,
+			wantClearLat:  true,
+			wantClearLong: true,
+		},
+		{
+			name:         "explicit null on latitude only",
+			args:         `{"latitude":null}`,
+			wantClearLat: true,
+		},
+		{
+			name:          "explicit null on longitude only",
+			args:          `{"longitude":null}`,
+			wantClearLong: true,
+		},
+		{
+			// A real value still travels as a value, never as a clear signal.
+			name:          "real coordinates keep the assignment path",
+			args:          `{"latitude":-34.6,"longitude":-58.4}`,
+			wantLatitude:  f64Ptr(-34.6),
+			wantLongitude: f64Ptr(-58.4),
+		},
+		{
+			name: "omitted coordinates keep the stored value",
+			args: `{"name":"Solo el nombre"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, ports := newToolServer(t)
+			var got dto.UpdateBusinessProfileInput
+			called := false
+			ports.updateProfile.executeFn = func(_ context.Context, in dto.UpdateBusinessProfileInput) (*entity.BusinessProfile, error) {
+				got, called = in, true
+				return &entity.BusinessProfile{ID: "singleton", Name: "Mi Negocio"}, nil
+			}
+
+			resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "update_business_profile", tt.args))
+			wantStructured(t, resp)
+			if !called {
+				t.Fatal("the use case port was never called: the payload did not reach the handler")
+			}
+
+			if mustJSON(t, got.Latitude) != mustJSON(t, tt.wantLatitude) {
+				t.Errorf("input.Latitude = %v; want %v", got.Latitude, tt.wantLatitude)
+			}
+			if mustJSON(t, got.Longitude) != mustJSON(t, tt.wantLongitude) {
+				t.Errorf("input.Longitude = %v; want %v", got.Longitude, tt.wantLongitude)
+			}
+			if got.ClearLatitude != tt.wantClearLat {
+				t.Errorf("input.ClearLatitude = %t; want %t", got.ClearLatitude, tt.wantClearLat)
+			}
+			if got.ClearLongitude != tt.wantClearLong {
+				t.Errorf("input.ClearLongitude = %t; want %t", got.ClearLongitude, tt.wantClearLong)
+			}
+		})
+	}
+}
+
+// TestToolUpdateBusinessProfilePresenceMarkersStayOutOfSchema pins the wire
+// invariant the explicit-null implementation relies on: the two presence markers
+// are unexported, so the SDK schema inference must not turn them into input
+// properties (the wire contract does not change). Struct inputs infer
+// additionalProperties:false, so a payload naming a marker is rejected before
+// the handler runs — while an undeclared-but-accepted property would mean the
+// marker leaked into the schema.
+func TestToolUpdateBusinessProfilePresenceMarkersStayOutOfSchema(t *testing.T) {
+	srv, ports := newToolServer(t)
+	stubMaintenancePortsFail(ports, errors.New("port must not be called"))
+
+	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "update_business_profile", `{"latitudeProvided":true}`))
+	wantToolError(t, resp, "")
+}
+
 // ── create_service ──
 
 func TestToolCreateService(t *testing.T) {

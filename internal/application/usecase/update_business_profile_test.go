@@ -1,12 +1,14 @@
 package usecase
 
 import (
+	"context"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
@@ -169,6 +171,89 @@ func TestApplyProfileUpdates_PartialMerge(t *testing.T) {
 				}
 			}
 			t.Errorf("column %q missing from the merged profile", tc.column)
+		})
+	}
+}
+
+// ─── Explicit-null clear of the location columns (F-4) ─────────────────────
+
+// TestUpdateBusinessProfileUseCase_ClearLocation pins the explicit-null
+// contract at the use-case boundary: a clear flag is a real update, so it passes
+// the empty-update guard, writes nil on the entity (SQL NULL on the full-row
+// repository Update) and leaves every other column untouched. The same table
+// pins the two neighboring rules: a flagless empty payload still rejects with
+// the semantic message, and a nil location pointer without its flag still means
+// "keep the stored coordinate".
+func TestUpdateBusinessProfileUseCase_ClearLocation(t *testing.T) {
+	seed := mergedColumns(mergeSeed())
+
+	tests := []struct {
+		name        string
+		input       dto.UpdateBusinessProfileInput
+		wantErr     bool
+		wantChanged []string
+	}{
+		{
+			name:        "clear both coordinates",
+			input:       dto.UpdateBusinessProfileInput{Caller: ownerCaller(), ClearLatitude: true, ClearLongitude: true},
+			wantChanged: []string{"latitude", "longitude"},
+		},
+		{
+			name:        "clear latitude only",
+			input:       dto.UpdateBusinessProfileInput{Caller: ownerCaller(), ClearLatitude: true},
+			wantChanged: []string{"latitude"},
+		},
+		{
+			name:        "clear longitude only",
+			input:       dto.UpdateBusinessProfileInput{Caller: ownerCaller(), ClearLongitude: true},
+			wantChanged: []string{"longitude"},
+		},
+		{
+			name:    "flagless empty payload still rejects",
+			input:   dto.UpdateBusinessProfileInput{Caller: ownerCaller()},
+			wantErr: true,
+		},
+		{
+			// The pre-F-4 rule must survive: a nil pointer on its own is an
+			// absent field, not a clear.
+			name:        "nil coordinates without flags keep the stored values",
+			input:       dto.UpdateBusinessProfileInput{Caller: ownerCaller(), Name: ptr("Peluquería Nueva")},
+			wantChanged: []string{"name"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var saved *entity.BusinessProfile
+			repo := &mockBusinessProfileRepo{
+				GetFn: func(context.Context) (*entity.BusinessProfile, error) { return mergeSeed(), nil },
+				UpdateFn: func(_ context.Context, p *entity.BusinessProfile) error {
+					saved = p
+					return nil
+				},
+			}
+			uc := NewUpdateBusinessProfileUseCase(repo, nil)
+
+			result, err := uc.Execute(context.Background(), tc.input)
+			if tc.wantErr {
+				if saved != nil {
+					t.Fatal("Update must not be called for a payload that carries no updates")
+				}
+				assertSemanticError(t, err, domain.ErrCodeInvalidInput, "no se proporcionaron campos para actualizar")
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if saved == nil {
+				t.Fatal("Update was not called")
+			}
+			if result != saved {
+				t.Error("result is not the merged entity that was persisted")
+			}
+			if diff := changedColumns(seed, mergedColumns(saved)); !slices.Equal(diff, tc.wantChanged) {
+				t.Fatalf("changed columns = %v, want %v (merged profile: %v)", diff, tc.wantChanged, mergedColumns(saved))
+			}
 		})
 	}
 }

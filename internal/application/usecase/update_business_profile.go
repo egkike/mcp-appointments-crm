@@ -29,6 +29,9 @@ func NewUpdateBusinessProfileUseCase(profiles domainrepo.BusinessProfileRepo, lo
 
 // Execute merges the provided fields onto the stored profile and persists it.
 //
+// An absent field keeps the stored value; ClearLatitude/ClearLongitude are the
+// explicit-null signal for the two location columns and write NULL instead.
+//
 // The returned value is the merged entity — the same read shape
 // get_business_profile exposes (that use case also returns the entity), so the
 // transport layer maps the profile to JSON in exactly one place.
@@ -79,7 +82,9 @@ func (uc *UpdateBusinessProfileUseCase) Execute(ctx context.Context, input dto.U
 
 // hasProfileUpdates reports whether the partial-merge payload carries at least
 // one updatable field. Identity and read-only columns (id, created_at,
-// updated_at) are not part of the input by design.
+// updated_at) are not part of the input by design. The two clear flags count as
+// an update: an explicit null on latitude/longitude is a real mutation, so a
+// null-only payload must not be rejected by the empty-update guard.
 func hasProfileUpdates(in dto.UpdateBusinessProfileInput) bool {
 	return in.Name != nil ||
 		in.Industry != nil ||
@@ -87,6 +92,8 @@ func hasProfileUpdates(in dto.UpdateBusinessProfileInput) bool {
 		in.Address != nil ||
 		in.Latitude != nil ||
 		in.Longitude != nil ||
+		in.ClearLatitude ||
+		in.ClearLongitude ||
 		in.CoverPhotoURL != nil ||
 		in.PublicPhone != nil ||
 		in.MessengerPlatform != nil ||
@@ -146,6 +153,11 @@ func applyProfileScalarUpdates(p *entity.BusinessProfile, in dto.UpdateBusinessP
 // entity and the DTO: a non-nil pointer is copied verbatim (pointer and pointee
 // alike), a nil pointer keeps the stored reference. Its fields are disjoint from
 // applyProfileScalarUpdates, so calling either helper alone is safe.
+//
+// Latitude and Longitude are the two reference columns that also support an
+// explicit clear: ClearLatitude/ClearLongitude are checked first and write nil
+// (SQL NULL on the next full-row Update), while a nil pointer without its flag
+// still means "keep the stored coordinate".
 func applyProfileReferenceUpdates(p *entity.BusinessProfile, in dto.UpdateBusinessProfileInput) {
 	if in.Industry != nil {
 		p.Industry = in.Industry
@@ -156,10 +168,14 @@ func applyProfileReferenceUpdates(p *entity.BusinessProfile, in dto.UpdateBusine
 	if in.Address != nil {
 		p.Address = in.Address
 	}
-	if in.Latitude != nil {
+	if in.ClearLatitude {
+		p.Latitude = nil
+	} else if in.Latitude != nil {
 		p.Latitude = in.Latitude
 	}
-	if in.Longitude != nil {
+	if in.ClearLongitude {
+		p.Longitude = nil
+	} else if in.Longitude != nil {
 		p.Longitude = in.Longitude
 	}
 	if in.CoverPhotoURL != nil {

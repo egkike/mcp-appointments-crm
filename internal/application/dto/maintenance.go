@@ -16,6 +16,13 @@ import "github.com/egkike/mcp-appointments-crm/internal/auth"
 // update_business_profile. Every updatable business_profile column is present
 // and optional; identity and read-only columns (id, created_at, updated_at) are
 // intentionally absent because they cannot be updated.
+//
+// The partial-merge rule is "absent = keep the stored value; a non-nil pointer =
+// overwrite" for every field, with one documented exception: the two location
+// columns also accept an explicit clear. ClearLatitude/ClearLongitude carry
+// that signal, because a *float64 alone cannot tell an absent latitude key from
+// an explicit JSON null (both decode to nil). ClearLatitude/ClearLongitude are
+// transport-to-application markers only and are never serialized.
 type UpdateBusinessProfileInput struct {
 	Caller                 auth.Caller `json:"-"`
 	Name                   *string     `json:"name,omitempty"`
@@ -24,6 +31,8 @@ type UpdateBusinessProfileInput struct {
 	Address                *string     `json:"address,omitempty"`
 	Latitude               *float64    `json:"latitude,omitempty"`
 	Longitude              *float64    `json:"longitude,omitempty"`
+	ClearLatitude          bool        `json:"-"`
+	ClearLongitude         bool        `json:"-"`
 	CoverPhotoURL          *string     `json:"cover_photo_url,omitempty"`
 	PublicPhone            *string     `json:"public_phone,omitempty"`
 	MessengerPlatform      *string     `json:"messenger_platform,omitempty"`
