@@ -40,6 +40,10 @@
 - Diffstat 331 LOC (326+5) vs forecast 150–250: probes de tests extra; dentro del budget de slice única (<400). Delivery: ask-on-risk, single-pr, branch `feat/f4-clear-null`. TDD off (source AGENTS.md).
 - Updated docs held en el work unit (comitados en `e6d6e3c`); los updates del tracking T7 de hoy quedan sin commit hasta decisión del owner (placeholder: se push-an por docs lane después o van al merge).
 
-## Next step
+## Next step — decisión del owner (2026-09-30, cierre)
 
-Change `feat-whatsapp-bot` (spec SDD con ADR-0018) — con F-4 desbloqueado. Residuales del gate: lineage `review-aa28c86d3b625bed` queda `reviewing` (retry posible cuando el defecto del relay reviewer tenga fix publicado en gentle-ai#3991; si el owner lo decide, abandon/dispose). Los updates T7 de este doc se registran en el commit docs-lane a `main` de este mismo día.
+**RDD: esperar fix upstream antes de seguir con features.** El owner decidió NO aplicar mitigaciones locales (thinking low en las lentes descartado como remedio parcial: no arregla la mitad truncation de #4937) y esperar que gentle-ai publique release con el fix del relay reviewer (vigilar #3991 + #4937 + releases > v3.7.0; ambos issues abiertos, #3991 triageado priority:high con root cause confirmado por terceros: reasoning tokens consumen el budget de output de 16k → contenido vacío con effort high; y el modo truncation del transporte por separado).
+
+- Lineage `review-aa28c86d3b625bed`: queda `reviewing` intacto (sin mutaciones). Al haber release con fix: retry del collect (fresh STATUS → slots en orden); si el relay sigue roto o el owner lo prefiere, abandon con envelope nativo.
+- Modo de verificación operativo mientras tanto: fallback a prueba de fallo (pipeline completo + writer self-verify + verificador independiente + GGA) — validado end-to-end en esta feature.
+- Después del fix: change `feat-whatsapp-bot` (spec SDD con ADR-0018) — desbloqueado por F-4; `scripts/uninstall.sh` sigue en el backlog.
