@@ -47,3 +47,13 @@
 - Lineage `review-aa28c86d3b625bed`: queda `reviewing` intacto (sin mutaciones). Al haber release con fix: retry del collect (fresh STATUS → slots en orden); si el relay sigue roto o el owner lo prefiere, abandon con envelope nativo.
 - Modo de verificación operativo mientras tanto: fallback a prueba de fallo (pipeline completo + writer self-verify + verificador independiente + GGA) — validado end-to-end en esta feature.
 - Después del fix: change `feat-whatsapp-bot` (spec SDD con ADR-0018) — desbloqueado por F-4; `scripts/uninstall.sh` sigue en el backlog.
+
+## Addendum — Verificación RDD 2026-10-03 (post-migración v4.0.0)
+
+Stack local: gentle-ai v4.0.0 (go module v4, vcs `ff77164d`; migración cerrada 2026-10-02), gentle-pi 4.0.0, pi 1.0.0 (npm).
+
+- **Upstream al 03-10**: #3991 y #4937 siguen **OPEN**, sin respuesta del equipo desde el 30-09 y sin fix PR. Release v4.0.0 (2026-10-01, "SDD Retires, ODD Leads") no menciona fix del transporte `pi_host_relay` (el trabajo de relay de la nota es OpenCode V2, otra pata).
+- **Canary de verificación en 4.0.0** (consentimiento owner, opción "retry empírico slot 0"): STATUS fresco del lineage `review-aa28c86d3b625bed` confirma que sobrevivió a la migración intacto (`reviewing`, revision `sha256:e4c4824f...`) y reofrece los 4 slots (risk 0, resilience 1, readability 2, reliability 3) con las mismas firmas. Canary único del slot 0 (`review-risk`, order 0, forecast de 1 corrida reconocida): **`pi-host-relay-transport-failure` / `reviewer-empty-output`, `stopReason: "length"`, 172055 ms** (timeout del envelope 942355 ms, `timed_out: false`) — clase EXACTA a la de 3.7.0 y en el mismo perfil de timing (173/188/200 s), lejos del timeout: budget starvation, no un timeout. `mutation_performed: false`; el lineage sigue reviewing con los 4 slots reofrecidos. Costo: 1 corrida de reviewer.
+- **Comentario upstream** (consentimiento owner): #3991 (issuecomment-5970978258, 2026-10-03) reporta el repro en 4.0.0 con protocolo + envelope; autor egkike. #4937 intocado (la clase truncation ya está reportada ahí). Post-sync 4.0.0, la lente sigue routando `command-code/z-ai/glm-5.3-flash` con `thinking: high`.
+- **Estado posterior**: sin fix publicado; **gate operativo = fallback a prueba de fallo** (writer self-verify + verificador independiente + GGA). Mitigación thinking low sigue descartada (no arregla la clase truncation de #4937). Vigilancia: releases > v4.0.0 y respuesta en #3991; al haber fix, retry del collect (STATUS fresco → slots en orden).
+- **Próximo (owner decide)**: arrancar spec `feat-whatsapp-bot` (ODD, consumidor de ADR-0018) o seguir en standby; `scripts/uninstall.sh` ya está en el backlog.
