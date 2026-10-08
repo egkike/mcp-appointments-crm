@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"regexp"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -30,12 +29,6 @@ import (
 // business_hours JSON, specialty existence, day range, open<close) stays in
 // entity.Validate / the use case / the repository, so the MCP surface and the
 // admin TUI cannot drift.
-
-// maintenanceHHMM mirrors the zero-padded 24-hour HH:MM shape enforced by
-// entity.BusinessProfile and repository.SchedulesRepo. The transport keeps its
-// own copy so it never imports repository/domain policy (same reasoning as
-// maxFTSQueryLen in tools_search.go).
-var maintenanceHHMM = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 
 // Day-of-week bounds of the Go time.Weekday encoding exposed to Hermes
 // (0=Sunday..6=Saturday), matching repository.SchedulesRepo.
@@ -84,6 +77,12 @@ type updateBusinessProfileIn struct {
 	SlotIntervalMinutes    *int     `json:"slot_interval_minutes,omitempty"`
 	BusinessHours          *string  `json:"business_hours,omitempty"`
 
+	// LocationURI is the RFC 5870 `geo:lat,long` alternative to the numeric
+	// latitude/longitude pair (feat-whatsapp-bot D4). It is a transport-level
+	// alias only: the handler parses it and fills Latitude/Longitude before the
+	// use case runs, so the use case keeps receiving normalized numbers.
+	LocationURI *string `json:"location_uri,omitempty"`
+
 	// latitudeProvided / longitudeProvided report whether the raw payload
 	// carried the key at all (null or a number), which is exactly what
 	// separates "clear the stored coordinate" from "leave it untouched".
@@ -120,12 +119,40 @@ func (in *updateBusinessProfileIn) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// resolveLocationURI folds a supplied `geo:` URI into the numeric fields of
+// the payload before the partial-merge mapping runs. It fails closed on the two
+// contradictory combinations — the URI plus the numeric pair, and the URI plus
+// the F-4 clear flags — leaving the decoded value untouched so no partial write
+// can happen. A nil URI means "not supplied" and is a no-op.
+func (in *updateBusinessProfileIn) resolveLocationURI() error {
+	if in.LocationURI == nil {
+		return nil
+	}
+	if in.Latitude != nil || in.Longitude != nil {
+		return &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: msgLocationURIMixed}
+	}
+	if in.latitudeProvided || in.longitudeProvided {
+		return &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: msgLocationURIClear}
+	}
+	latitude, longitude, err := parseGeoURI(*in.LocationURI)
+	if err != nil {
+		return err
+	}
+	in.Latitude = &latitude
+	in.Longitude = &longitude
+	return nil
+}
+
 // toUpdateBusinessProfileInput maps the tool payload onto the use case input,
-// injecting the authenticated caller. A provided location key whose value
-// decoded to nil was an explicit JSON null, so it travels on as a clear signal;
-// a non-nil value keeps the plain partial-merge assignment, and an absent key
-// leaves both the pointer and the flag untouched (keep the stored coordinate).
-func toUpdateBusinessProfileInput(in updateBusinessProfileIn, caller auth.Caller) dto.UpdateBusinessProfileInput {
+// injecting the authenticated caller. A supplied `geo:` URI is resolved into
+// the numeric pair first; a provided location key whose value decoded to nil
+// was an explicit JSON null, so it travels on as a clear signal; a non-nil
+// value keeps the plain partial-merge assignment, and an absent key leaves both
+// the pointer and the flag untouched (keep the stored coordinate).
+func toUpdateBusinessProfileInput(in updateBusinessProfileIn, caller auth.Caller) (dto.UpdateBusinessProfileInput, error) {
+	if err := in.resolveLocationURI(); err != nil {
+		return dto.UpdateBusinessProfileInput{}, err
+	}
 	return dto.UpdateBusinessProfileInput{
 		Caller:                 caller,
 		Name:                   in.Name,
@@ -149,7 +176,7 @@ func toUpdateBusinessProfileInput(in updateBusinessProfileIn, caller auth.Caller
 		Timezone:               in.Timezone,
 		SlotIntervalMinutes:    in.SlotIntervalMinutes,
 		BusinessHours:          in.BusinessHours,
-	}
+	}, nil
 }
 
 // createServiceIn is the input of create_service: the full service payload.
@@ -333,7 +360,11 @@ func (s *Server) registerBusinessProfileWriteTools() {
 			if err != nil {
 				return nil, businessProfileOut{}, toMCPError(err)
 			}
-			profile, err := s.cfg.UpdateBusinessProfile.Execute(ctx, toUpdateBusinessProfileInput(in, *caller))
+			input, err := toUpdateBusinessProfileInput(in, *caller)
+			if err != nil {
+				return nil, businessProfileOut{}, toMCPError(err)
+			}
+			profile, err := s.cfg.UpdateBusinessProfile.Execute(ctx, input)
 			if err != nil {
 				return nil, businessProfileOut{}, toMCPError(err)
 			}
@@ -500,13 +531,16 @@ func (s *Server) registerScheduleWriteTools() {
 				if err := validateDayOfWeek(in.DayOfWeek); err != nil {
 					return nil, scheduleOut{}, toMCPError(err)
 				}
-				if !maintenanceHHMM.MatchString(in.StartTime) {
+				// entity.ValidHHMM is the documented single HH:MM format gate (see
+				// internal/domain/entity/business_profile.go); the transport reuses it
+				// so the edge check and the persisted shape can never drift.
+				if !entity.ValidHHMM(in.StartTime) {
 					return nil, scheduleOut{}, toMCPError(&domain.SemanticError{
 						Code:    domain.ErrCodeInvalidInput,
 						Message: "start_time debe tener formato HH:MM en 24h (ej. 09:30)",
 					})
 				}
-				if !maintenanceHHMM.MatchString(in.EndTime) {
+				if !entity.ValidHHMM(in.EndTime) {
 					return nil, scheduleOut{}, toMCPError(&domain.SemanticError{
 						Code:    domain.ErrCodeInvalidInput,
 						Message: "end_time debe tener formato HH:MM en 24h (ej. 18:00)",

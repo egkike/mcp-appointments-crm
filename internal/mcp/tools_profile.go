@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
@@ -46,6 +47,26 @@ type businessProfileOut struct {
 	BusinessHours          string   `json:"business_hours"`
 	CreatedAt              string   `json:"created_at"`
 	UpdatedAt              string   `json:"updated_at"`
+	// MapsURL is a derived, wire-only field (feat-whatsapp-bot D4): it is
+	// present only when both coordinates are set, so the omitempty tag keeps
+	// the key absent otherwise. It never round-trips into the entity.
+	MapsURL *string `json:"maps_url,omitempty"`
+}
+
+// mapsURL renders the Google Maps link derived from a profile's coordinates.
+// It returns nil when either coordinate is absent, so the omitempty tag drops
+// the key instead of emitting a partial link. strconv 'f' with precision -1 is
+// the shortest decimal that round-trips and never produces scientific
+// notation: a URL query carrying an exponent would be a broken link (design
+// §2).
+func mapsURL(latitude, longitude *float64) *string {
+	if latitude == nil || longitude == nil {
+		return nil
+	}
+	url := "https://maps.google.com/?q=" +
+		strconv.FormatFloat(*latitude, 'f', -1, 64) + "," +
+		strconv.FormatFloat(*longitude, 'f', -1, 64)
+	return &url
 }
 
 // toBusinessProfileOut maps the entity profile to the pinned output contract.
@@ -73,6 +94,7 @@ func toBusinessProfileOut(p *entity.BusinessProfile) businessProfileOut {
 		BusinessHours:          p.BusinessHours,
 		CreatedAt:              p.CreatedAt,
 		UpdatedAt:              p.UpdatedAt,
+		MapsURL:                mapsURL(p.Latitude, p.Longitude),
 	}
 }
 

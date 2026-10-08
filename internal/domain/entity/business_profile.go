@@ -140,6 +140,25 @@ func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error
 // Optional fields (MessengerPlatform, AcceptedPaymentMethods, BusinessHours, Timezone)
 // are only validated when non-empty.
 func (bp *BusinessProfile) Validate() error {
+	// latitude/longitude must be nil or inside their WGS-84 bounds. The transport
+	// `geo:` parser rejects out-of-range decimals, but a raw numeric
+	// {"latitude": 200} bypasses it in favor of the derived maps_url; the domain
+	// is the authoritative gate so every write path (MCP, TUI, seeder) is covered.
+	if bp.Latitude != nil && (*bp.Latitude < -90 || *bp.Latitude > 90) {
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "la latitud debe estar entre -90 y 90",
+			Cause:   domain.ErrInvalidInput,
+		}
+	}
+	if bp.Longitude != nil && (*bp.Longitude < -180 || *bp.Longitude > 180) {
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "la longitud debe estar entre -180 y 180",
+			Cause:   domain.ErrInvalidInput,
+		}
+	}
+
 	// messenger_platform must be nil, "whatsapp", or "telegram".
 	if bp.MessengerPlatform != nil {
 		v := *bp.MessengerPlatform

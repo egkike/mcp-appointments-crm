@@ -496,6 +496,59 @@ func TestIntegrationMaintenanceBusinessProfileClearLocation(t *testing.T) {
 	}
 }
 
+// TestIntegrationMaintenanceBusinessProfileCoordinateRangeGate proves the
+// domain latitude/longitude range invariant fires through the real update chain
+// (real SQLite → repo → entity.Validate → use case → tool): a raw numeric
+// {"latitude":200} is rejected with -32002 and the SPECIFIC Spanish
+// latitude-range message (not the generic invalid-input collapse), the stored
+// row keeps SQL NULL coordinates (no write, so get_business_profile derives no
+// maps_url), and an in-range update through the same chain succeeds and yields
+// the derived link. The entity table test pins the boundaries; this test pins
+// the wiring.
+func TestIntegrationMaintenanceBusinessProfileCoordinateRangeGate(t *testing.T) {
+	mux, conn := newIntegrationMuxWithDB(t)
+
+	// (1) Out-of-range numeric latitude → domain gate rejects with the specific
+	// semantic message.
+	_, code, msg := callMCPTool(t, mux, "owner-1", "update_business_profile", `{"latitude":200}`)
+	if code != -32002 || msg != "la latitud debe estar entre -90 y 90" {
+		t.Fatalf("out-of-range latitude: code=%d msg=%q; want -32002 %q", code, msg, "la latitud debe estar entre -90 y 90")
+	}
+
+	// (2) Nothing was written: the row keeps SQL NULL latitude and the read tool
+	// therefore omits maps_url entirely.
+	var storedLat sql.NullFloat64
+	if err := conn.QueryRowContext(context.Background(),
+		`SELECT latitude FROM business_profile WHERE id = 'singleton'`,
+	).Scan(&storedLat); err != nil {
+		t.Fatalf("read stored latitude: %v", err)
+	}
+	if storedLat.Valid {
+		t.Errorf("stored latitude = %v; want SQL NULL after a rejected update", storedLat.Float64)
+	}
+	var rejectedOut map[string]json.RawMessage
+	decodeToolStructured(t, mustCallTool(t, mux, "owner-1", "get_business_profile", `{}`), &rejectedOut)
+	if _, ok := rejectedOut["maps_url"]; ok {
+		t.Errorf("maps_url present after a rejected coordinate update; want the key omitted")
+	}
+
+	// (3) An in-range update succeeds through the same chain and the derived
+	// link appears with the stored latitude.
+	result := mustCallTool(t, mux, "owner-1", "update_business_profile", `{"latitude":-34.6037,"longitude":-58.3816}`)
+	var updated businessProfileOut
+	decodeToolStructured(t, result, &updated)
+	if updated.MapsURL == nil || *updated.MapsURL != "https://maps.google.com/?q=-34.6037,-58.3816" {
+		t.Fatalf("maps_url after in-range update = %v; want the derived link", updated.MapsURL)
+	}
+	readBack := getBusinessProfile(t, mux, "owner-1")
+	if readBack.Latitude == nil || *readBack.Latitude != -34.6037 {
+		t.Errorf("read-back latitude = %v; want -34.6037", readBack.Latitude)
+	}
+	if readBack.MapsURL == nil || *readBack.MapsURL != "https://maps.google.com/?q=-34.6037,-58.3816" {
+		t.Errorf("read-back maps_url = %v; want the derived link", readBack.MapsURL)
+	}
+}
+
 // TestIntegrationMaintenanceServiceLifecycle proves create → read → partial
 // update → read → delete against real SQLite and the real FTS read tool.
 func TestIntegrationMaintenanceServiceLifecycle(t *testing.T) {

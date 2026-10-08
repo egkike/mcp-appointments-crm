@@ -113,22 +113,22 @@ Each work unit below is sized to fit a ≤ ~100-line review slice; a unit that g
 
 ## Phase 4 — Location contract (PR3)
 
-### TASK-4.1 — RED: `maps_url` tests
+### ✅ TASK-4.1 — RED: `maps_url` tests
 
 - [ ] Failing tests: both coordinates → exact URL; either missing → key absent; tiny value → no scientific notation; existing `lat`/`long` unchanged
 - [ ] Record the observed failure output
 
-### TASK-4.2 — GREEN: `maps_url` in the wire output
+### ✅ TASK-4.2 — GREEN: `maps_url` in the wire output
 
 - [ ] Add the derived field in `internal/mcp/tools_profile.go` only (no domain/repo change), with `strconv.FormatFloat(v, 'f', -1, 64)`
 - [ ] Run TASK-4.1 green
 
-### TASK-4.3 — RED: `geo:` parsing tests
+### ✅ TASK-4.3 — RED: `geo:` parsing tests
 
 - [ ] Failing table tests: valid `geo:lat,long`; optional signs; out-of-range lat/long; `;u=` parameter; whitespace; non-numeric; mixed with numeric coordinates; mixed with clear flags
 - [ ] Record the observed failure output
 
-### TASK-4.4 — GREEN: `location_uri` parsing in the transport adapter
+### ✅ TASK-4.4 — GREEN: `location_uri` parsing in the transport adapter
 
 - [ ] Add `location_uri *string` to the `update_business_profile` input DTO and parse it before the use case call, populating the numeric fields (F-4 precedent)
 - [ ] Add the conflict/range semantic Spanish errors; use case and repository untouched

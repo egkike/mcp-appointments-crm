@@ -313,6 +313,55 @@ func TestBusinessProfile_validateBusinessHoursJSON(t *testing.T) {
 	}
 }
 
+// coordPtr returns a *float64 for the coordinate-validation table. Nil-coordinate
+// cases pass nil explicitly.
+func coordPtr(v float64) *float64 { return &v }
+
+// TestBusinessProfile_ValidateCoordinates pins the WGS-84 range invariant of
+// the singleton profile: the domain is the authoritative gate, so an
+// out-of-range numeric coordinate must be rejected even when it bypasses the
+// `geo:` URI parser (e.g. a raw {"latitude": 200} tool call). Exact boundaries
+// are inclusive; nil means "not set" and is always allowed.
+func TestBusinessProfile_ValidateCoordinates(t *testing.T) {
+	tests := []struct {
+		name    string
+		lat     *float64
+		long    *float64
+		wantErr bool
+		wantSub string
+	}{
+		{name: "nil coordinates are allowed"},
+		{name: "in-range coordinates are allowed", lat: coordPtr(-34.6037), long: coordPtr(-58.3816)},
+		{name: "latitude 90.000001 is rejected", lat: coordPtr(90.000001), wantErr: true, wantSub: "latitud"},
+		{name: "latitude -90.000001 is rejected", lat: coordPtr(-90.000001), wantErr: true, wantSub: "latitud"},
+		{name: "longitude 180.000001 is rejected", long: coordPtr(180.000001), wantErr: true, wantSub: "longitud"},
+		{name: "longitude -180.000001 is rejected", long: coordPtr(-180.000001), wantErr: true, wantSub: "longitud"},
+		{name: "latitude 200 is rejected", lat: coordPtr(200), wantErr: true, wantSub: "latitud"},
+		{name: "exact latitude -90 is allowed", lat: coordPtr(-90)},
+		{name: "exact latitude 90 is allowed", lat: coordPtr(90)},
+		{name: "exact longitude -180 is allowed", long: coordPtr(-180)},
+		{name: "exact longitude 180 is allowed", long: coordPtr(180)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bp := &BusinessProfile{Latitude: tt.lat, Longitude: tt.long}
+			err := bp.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				return
+			}
+			if !errors.Is(err, domain.ErrInvalidInput) {
+				t.Errorf("Validate() error = %v, want wrapping domain.ErrInvalidInput", err)
+			}
+			if !strings.Contains(err.Error(), tt.wantSub) {
+				t.Errorf("Validate() error = %q, want it to mention %q", err, tt.wantSub)
+			}
+		})
+	}
+}
+
 func TestBusinessProfile_Validate(t *testing.T) {
 	whatsapp := "whatsapp"
 	telegram := "telegram"
