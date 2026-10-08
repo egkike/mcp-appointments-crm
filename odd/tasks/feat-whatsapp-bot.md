@@ -29,7 +29,7 @@
 - [x] A4 — Spec deltas (6): NEW `client-registration`, NEW `hermes-config-tui`, NEW `clients` (port method), MODIFIED `business-profile`, MODIFIED `auth-middleware` (precedence empty-header → allowlist → resolution), MODIFIED `mcp-transport` (19→20 tools, maps_url, location_uri).
 - [x] A5 — `tasks.md`: implementation phases with Review Workload Forecast + chained-PR strategy; work units ≤ ~100 lines (RDD band rule, obs 1105/1170).
 - [x] A6a — Verification loop: first writer run failed (over-reading, no writes) → relaunched with bounded-reading discipline → structural readback by verifier (1 CRITICAL: missing mcp-transport delta; 5 WARNING; 4 SUGGESTION) → surgical fix pass F1–F7 (7/7) → orchestrator spot-checks PASS (mcp-transport delta verbatim except named reqs; auth-middleware precedence contradiction resolved; 15-digit cap scoped to registration path). client-registration at 131 lines accepted over the soft 120 writer cap (generation discipline, not a repo rule).
-- [ ] A6b — Owner review + commit on feature branch `feat/feat-whatsapp-bot-spec` (Conventional Commit; GGA hook must pass; ff-merge to main after approval).
+- [x] A6b — Owner review + commit on feature branch `feat/feat-whatsapp-bot-spec` (Conventional Commit; GGA hook must pass; ff-merge to main after approval).
 
 ## Operational rules
 
@@ -39,5 +39,6 @@
 
 ## Evidence
 
-- (spec commits will be recorded here)
+- **Spec commit `841e55d` on main (2026-10-08)** — 11 files, +1269; branch `feat/feat-whatsapp-bot-spec` ff-merged and deleted; GGA no issues (docs-only); CI run **success** on 841e55d; owner approved commit + full docs flow.
 - Verification chain 2026-10-08: scout (gentle-ai-explore) → writer run 1 failed → writer run 2 complete (8 artifacts) → verifier readback (findings above) → writer fix pass F1–F7 → spot-checks PASS. Two owner-facing additions to flag: D2a (accounts-collision rejection) and registration-path 15-digit cap — both conservative security guards, vetable.
+- **Status: SPEC PHASE COMPLETE.** Next: implementation phase via `openspec/changes/feat-whatsapp-bot/tasks.md` (work units ≤ ~100 lines, RDD band; test-first for Go code). Three apply-phase confirmations pending: `location_uri` naming, rate-limit config shape, Telegram MCP_* key spellings.
