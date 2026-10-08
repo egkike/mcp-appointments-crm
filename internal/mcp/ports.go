@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
+	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
@@ -81,6 +82,23 @@ type MarkAlertAsSentPort interface {
 // ToolRBAC entry: owner/admin only because rows expose phone PII.
 type GetLoyaltyReportPort interface {
 	Execute(context.Context, dto.GetLoyaltyReportInput) (*dto.GetLoyaltyReportResult, error)
+}
+
+// ── Anonymous registration port (feat-whatsapp-bot D2) ──
+//
+// This is the ONE port whose identity is a bare header value: the method takes
+// the phone and the optional display name and there is deliberately no
+// caller/role parameter, so the transport cannot pass a role into the
+// registration path (compile-time guarantee; client-registration "the seam
+// grants no role"). The result carrier is the application layer's
+// usecase.GetOrCreateClientResult — a DTO designed to cross to the transport,
+// exactly like the dto.* carriers above.
+
+// RegisterClientPort resolves or creates the client row identified by the
+// anonymous caller phone. Roles: none — reachable ONLY through the anonymous
+// allowlist in AuthMiddleware (no ToolRBAC entry in either layer).
+type RegisterClientPort interface {
+	Execute(ctx context.Context, callerID, displayName string) (*usecase.GetOrCreateClientResult, error)
 }
 
 // ── Maintenance WRITE ports (ADR-0015, T3) ──

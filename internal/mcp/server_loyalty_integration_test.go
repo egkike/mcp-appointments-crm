@@ -78,8 +78,8 @@ func TestIntegrationLoyaltyReport(t *testing.T) {
 		if err := json.Unmarshal(result, &list); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-		if len(list.Tools) != 19 {
-			t.Errorf("tools = %d; want 19", len(list.Tools))
+		if len(list.Tools) != expectedToolCount {
+			t.Errorf("tools = %d; want %d", len(list.Tools), expectedToolCount)
 		}
 		found := false
 		for _, tool := range list.Tools {

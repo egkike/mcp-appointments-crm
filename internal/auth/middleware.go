@@ -25,6 +25,25 @@ type CallerRoleRecorder interface {
 	RecordCallerRole(role string)
 }
 
+// anonymousAllowedTools is the static, code-owned allowlist of MCP tool paths
+// that may be reached WITHOUT caller resolution. Keys are the effective tool
+// path: jsonrpcAuthTranslator rewrites r.URL.Path to the raw tool name for
+// tools/call requests before this middleware runs (internal/mcp/auth_translator.go),
+// so the entry is "register_client", not "/tools/register_client".
+//
+// It is deliberately a source-owned literal: it cannot be read from
+// configuration, environment variables, request headers or the database, and
+// nothing at runtime can add or remove entries (the map is unexported and never
+// handed to a callee that could mutate it). It contains exactly one entry — the
+// client self-registration tool whose real guards are the accounts-collision
+// rejection and the per-phone rate limit inside the use case, not a role check
+// — so a first-time phone can register while every other tool still answers 401
+// for unknown phones (client-registration spec: "register_client is the only
+// anonymous-allowlisted tool"; design.md §1.1).
+var anonymousAllowedTools = map[string]struct{}{
+	"register_client": {},
+}
+
 // AuthMiddleware wraps an http.Handler with authentication and authorization.
 type AuthMiddleware struct {
 	resolver *CallerResolver
@@ -56,13 +75,17 @@ func NewAuthMiddleware(resolver *CallerResolver, rbac ToolRBAC, logger *slog.Log
 //
 // Flow:
 //  1. Read X-Caller-Id (case-insensitive per RFC 7230).
-//  2. If missing/empty → 401.
-//  3. Resolve caller via CallerResolver; if ErrUnauthenticated → 401.
-//  4. Annotate the resolved role on the recorder (REQ-MT-011), BEFORE the
+//  2. If missing/empty → 401 (universal, runs for EVERY path including
+//     allowlisted ones — precedence, REQ-AM-WIRED-002).
+//  3. Anonymous allowlist seam: if the effective tool path is allowlisted
+//     (register_client), mark the context anonymous, skip resolution and
+//     RBAC/audit entirely, and call next.
+//  4. Resolve caller via CallerResolver; if ErrUnauthenticated → 401.
+//  5. Annotate the resolved role on the recorder (REQ-MT-011), BEFORE the
 //     RBAC gate: a 403 denial must log the caller's REAL role, not "none".
-//  5. RBAC check (BEFORE next.ServeHTTP): if tool requires roles and caller lacks them → 403.
-//  6. If caller.Role is admin or owner → emit audit log.
-//  7. Inject caller into context and call next.ServeHTTP.
+//  6. RBAC check (BEFORE next.ServeHTTP): if tool requires roles and caller lacks them → 403.
+//  7. If caller.Role is admin or owner → emit audit log.
+//  8. Inject caller into context and call next.ServeHTTP.
 //
 // RBAC precondition: authorization keys on r.URL.Path, which MUST already
 // carry the tool name when this middleware guards the /mcp route — the outer
@@ -79,7 +102,23 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		// Step 2: resolve caller
+		tool := r.URL.Path
+
+		// Step 3: anonymous allowlist seam (design.md §1.1). For the
+		// allowlisted registration path we skip resolution entirely: no
+		// accounts/clients query, no fabricated Caller with a role, and no
+		// RBAC/audit. The RBAC map check is bypassed ONLY here; the
+		// register_client authorization is enforced by the use case plus the
+		// narrow tool wiring (client-registration spec), not by a role. The
+		// context is marked anonymous so the handler can tell this apart from
+		// a missing caller. Precedence: the empty-header check above already
+		// ran, so a missing/empty header can never be traded for anonymity.
+		if _, anonymous := anonymousAllowedTools[tool]; anonymous {
+			next.ServeHTTP(w, r.WithContext(MarkAnonymous(r.Context())))
+			return
+		}
+
+		// Step 4: resolve caller
 		caller, err := m.resolver.Resolve(r.Context(), id)
 		if err != nil {
 			if errors.Is(err, domain.ErrUnauthenticated) {
@@ -97,7 +136,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
-		// Step 3: annotate the caller's role on the recorder for the request
+		// Step 5: annotate the caller's role on the recorder for the request
 		// log (REQ-MT-011), BEFORE the RBAC gate: the caller is injected on a
 		// request COPY that never propagates back to the outer logging
 		// middleware, so the role travels through the recorder chain instead.
@@ -108,8 +147,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			rr.RecordCallerRole(caller.Role)
 		}
 
-		// Step 4: RBAC check BEFORE calling next
-		tool := r.URL.Path
+		// Step 6: RBAC check BEFORE calling next
 		if roles, ok := m.rbac[tool]; ok && len(roles) > 0 {
 			if !roleAllowed(caller.Role, roles) {
 				http.Error(w, "no tienes permiso para realizar esta acción", http.StatusForbidden)
@@ -117,7 +155,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			}
 		}
 
-		// Step 5: audit log for privileged callers (hashed ID — no PII in logs)
+		// Step 7: audit log for privileged callers (hashed ID — no PII in logs)
 		if caller.Role == RoleAdmin || caller.Role == RoleOwner {
 			m.logger.Info("privileged access",
 				"caller_hash", hashCallerID(caller.ID),
@@ -125,7 +163,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			)
 		}
 
-		// Step 6: inject caller into context and call next
+		// Step 8: inject caller into context and call next
 		ctx := WithCaller(r.Context(), caller)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

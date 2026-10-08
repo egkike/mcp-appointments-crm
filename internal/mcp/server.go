@@ -63,6 +63,7 @@ func (s *Server) registerTools() {
 	s.registerAlertTools()
 	s.registerLoyaltyTools()
 	s.registerMaintenanceTools()
+	s.registerClientTool()
 }
 
 // ToolCount returns how many MCP tools this server registered, derived from

@@ -41,6 +41,12 @@ type Config struct {
 	MarkAlertAsSent        MarkAlertAsSentPort
 	GetLoyaltyReport       GetLoyaltyReportPort
 
+	// RegisterClient is the anonymous self-registration port (feat-whatsapp-bot
+	// D2). It is the only port reached without a resolved caller: its tool has no
+	// ToolRBAC entry and the use case takes no caller, so the phone travels as an
+	// explicit argument sourced from the X-Caller-Id header.
+	RegisterClient RegisterClientPort
+
 	// Maintenance WRITE ports (ADR-0015): owner-only in the composition root.
 	UpdateBusinessProfile UpdateBusinessProfilePort
 	CreateService         CreateServicePort
