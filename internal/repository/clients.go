@@ -113,12 +113,25 @@ func (r *ClientsRepo) Save(ctx context.Context, c *entity.Client) error {
 	if strings.TrimSpace(c.Phone) == "" {
 		return fmt.Errorf("guardar cliente: el teléfono no puede estar vacío: %w", domain.ErrInvalidInput)
 	}
+	// UPSERT by id — never INSERT OR REPLACE: REPLACE deletes the conflicting
+	// row, which with foreign_keys=ON fires ON DELETE CASCADE and would wipe
+	// every booking of an existing client (and reset created_at). DO UPDATE
+	// keeps the row (and its created_at) in place.
 	_, err := r.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO clients (id, name, phone, email, preferences, updated_at)
-		 VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+		`INSERT INTO clients (id, name, phone, email, preferences, updated_at)
+		 VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+		 ON CONFLICT(id) DO UPDATE SET
+			name        = excluded.name,
+			phone       = excluded.phone,
+			email       = excluded.email,
+			preferences = excluded.preferences,
+			updated_at  = excluded.updated_at`,
 		c.ID, c.Name, c.Phone, c.Email, c.Preferences,
 	)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("guardar cliente: el teléfono ya está registrado: %w", domain.ErrConflict)
+		}
 		return fmt.Errorf("guardar cliente: %w", err)
 	}
 	return nil

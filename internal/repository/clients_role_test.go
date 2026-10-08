@@ -31,7 +31,7 @@ func TestClientsRepo_Writes_RequireAdminOrOwner(t *testing.T) {
 				db, mock := newMockDB(t)
 				repo := NewClientsRepo(db)
 				if tc.want == nil {
-					mock.ExpectExec(`INSERT OR REPLACE INTO clients`).
+					mock.ExpectExec(`INSERT INTO clients \(id, name, phone, email, preferences, updated_at\) VALUES .*ON CONFLICT\(id\) DO UPDATE`).
 						WithArgs("cli-1", "Juan", "+5491112345678", nil, nil).
 						WillReturnResult(sqlmock.NewResult(0, 1))
 				}
