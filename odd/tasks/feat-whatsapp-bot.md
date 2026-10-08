@@ -1,8 +1,8 @@
-# Feature: feat-whatsapp-bot — IMPLEMENTATION IN PROGRESS (spec phase COMPLETE)
+# Feature: feat-whatsapp-bot — COMPLETE
 
-**Status:** IMPLEMENTATION — PR1 #107 MERGED (squash `5a5335f`, CI green) · PR2 Phase 3 complete on branch `feat/feat-whatsapp-bot-registration-tool`, pending commit/PR
-**Change dir:** `openspec/changes/feat-whatsapp-bot/` (tasks.md = apply plan: 5 PRs stacked-to-main, 7 phases)
-**Insumos frozen:** ADR-0018 (`docs/architecture/0018-communication-channels.md`, NO re-discutir), PRD §3.8.9 / §3.8.10 / §7 Fase N (changelog 1.20), F-4 clear-null resolved (merge `3b86db9`).
+**Status:** COMPLETE (Phases 1–6 merged + archived 2026-10-08)
+**Change dir:** `openspec/changes/archive/2026-10-08-feat-whatsapp-bot/`
+**Insumos frozen:** ADR-0018 (`docs/architecture/0018-communication-channels.md`, NO re-discutir), PRD §3.8.9 / §3.8.10 / §7 Fase N (changelog 1.21), F-4 clear-null resolved (merge `3b86db9`).
 
 ## Product decisions confirmed with owner (2026-10-08, this session)
 
@@ -38,6 +38,12 @@
 - RDD gate for this spec phase: structural readback (documentation). Native review applies to future implementation work units (≤ ~100 lines per slice while relay defect #3991/#5226 is unfixed).
 
 ## Evidence
+
+- **MERGE CHAIN (all squash, all CI green):** #107 → `5a5335f` (Phase 1+2) · #108 → `cfb9f7b` (Phase 3) · #109 → `bd4b894` (Phase 4) · #110 → `b80741d` (Phase 5) · #111 → `0da5c27` (Phase 6 docs). Commits within PRs: 3a0d0fd (Save UPSERT fix), 391847f (Phase 1), 5947bff (Phase 2), aa98dd7 (Phase 3), ca67ea2 (Phase 4), 799a0ea (admin core), 6e0b551 (TUI), 5850828 (lint fix), b0efcee (docs).
+- **Delivered**: anonymous registration (seam + register_client + get_or_create_client + rate limit + 5 masked audit events), location contract (maps_url + geo: URI + domain range invariant), TUI option 7 Telegram owner-bot config, gateway contract docs + operator runbook, PRD 1.21.
+- **Gate-review catches (substantive, fixed at the correct layer)**: coordinate range invariant moved to entity.Validate; SetHermesServer env-preservation (silent data-loss path); E.164 cap in the domain (doc made true); maintenanceHHMM dedupe; orphaned doc + length caps.
+- **Remaining operator/production steps (documented in docs/gateway-contract.md §7, not code)**: Transfer Ownership to the real phone, messenger_platform → whatsapp, Hermes gateway implementation per the contract.
+- **Follow-ups recorded**: message-prefix convention unification; businessHoursDay JSON tags relocation; live token textinput echo; FindClientByPhoneAny data-minimization; FTS invalid-input message translation (search use case); geo: for other tools; phone normalization; internal/validation stub.
 
 - **Spec commit `841e55d` on main (2026-10-08)** — 11 files, +1269; branch `feat/feat-whatsapp-bot-spec` ff-merged and deleted; GGA no issues (docs-only); CI run **success** on 841e55d; owner approved commit + full docs flow.
 - **Implementation PR1 (branch `feat/feat-whatsapp-bot-registration`)**: Phase 1 RED→GREEN by writer (port `GetOrCreateByPhone` +17, adapter +68 with BEGIN IMMEDIATE/dedicated conn/RowsAffected-created, test file 117 lines, mock compile-fix +12/-4). Full pipeline green (fmt/vet/lint 0/build/test -race, 18 packages).
