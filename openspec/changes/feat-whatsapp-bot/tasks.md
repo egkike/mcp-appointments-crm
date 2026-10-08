@@ -161,16 +161,16 @@ Each work unit below is sized to fit a ≤ ~100-line review slice; a unit that g
 
 > Documentation only; no executable verification. **Prepared here, not executed in the spec phase.**
 
-### TASK-6.1 — Gateway contract document
+### ✅ TASK-6.1 — Gateway contract document
 
 - [ ] Document per-sender `X-Caller-Id` injection, the `401 → ask name (optional) → register_client → retry once` loop, the Telegram `request_contact` step, and the scenario table (A, B + WhatsApp self-chat, first-time client) per `client-registration` requirement "Gateway registration contract is documented"
 
-### TASK-6.2 — Operator/ops documentation (documented, not automated)
+### ✅ TASK-6.2 — Operator/ops documentation (documented, not automated)
 
 - [ ] Document Transfer Ownership of the demo owner phone to the real phone and the `messenger_platform` transition to `whatsapp` as operator steps (non-goals here)
 - [ ] Document the new config setting (registration rate limit) and the Telegram owner-bot fields
 
-### TASK-6.3 — PRD status and cross-references
+### ✅ TASK-6.3 — PRD status and cross-references
 
 - [ ] Update PRD §7 Fase N status for this item and cross-reference ADR-0018 from the affected docs
 - [ ] **Gate:** structural readback (docs gate) — no test execution
