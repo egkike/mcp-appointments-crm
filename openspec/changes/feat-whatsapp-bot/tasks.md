@@ -81,29 +81,29 @@ Each work unit below is sized to fit a ≤ ~100-line review slice; a unit that g
 
 > This phase changes external behavior for unknown phones. Order matters: seam first, then tool, then the RBAC map entry.
 
-### TASK-3.1 — RED: middleware seam tests
+### ✅ TASK-3.1 — RED: middleware seam tests
 
 - [ ] Failing tests in `internal/auth`: allowlisted path reaches the handler with **no** `accounts`/`clients` query and no role in context; every other path with an unknown id still answers `401`; a missing or empty header on the allowlisted path yields the universal `401` **before** the seam (same order as any other path); the allowlist has exactly one entry and cannot be extended (table test over the whole tool path surface)
 - [ ] Record the observed failure output
 
-### TASK-3.2 — GREEN: seam implementation
+### ✅ TASK-3.2 — GREEN: seam implementation
 
 - [ ] Add the static code-owned allowlist + anonymous context marker in `internal/auth/middleware.go`, evaluated before resolution (`design.md` §1.1)
 - [ ] No DB access, no config read, no header influence in the seam
 - [ ] Run TASK-3.1 green
 
-### TASK-3.3 — RED: transport tests for `register_client`
+### ✅ TASK-3.3 — RED: transport tests for `register_client`
 
 - [ ] Failing tests in `internal/mcp`: strict decoding rejects a body `phone`/unknown key; `display_name` optional; output shape `{client_id, display_name, created}`; each semantic error passes through `errors.go`
 - [ ] Record the observed failure output
 
-### TASK-3.4 — GREEN: handler, DTO, RBAC map entry and mux wiring
+### ✅ TASK-3.4 — GREEN: handler, DTO, RBAC map entry and mux wiring
 
 - [ ] Create `internal/mcp/tools_client_registration.go` (typed input DTO with JSON tags, `display_name *string` only) and the handler that calls the use case with the header phone
 - [ ] Add the `register_client` entry to the RBAC map (`cmd/mcp-server/main.go:396-414`) as anonymous-allowed and register it in the mux
 - [ ] Run TASK-3.3 green
 
-### TASK-3.5 — Integration test through the real mux
+### ✅ TASK-3.5 — Integration test through the real mux
 
 - [ ] Add the end-to-end test: unknown phone → `register_client` → row created with `id == phone` → same header resolves `role = client` on a client-role tool
 - [ ] Add the negative case: owner/admin phone rejected; rate limit exhausted over the mux

@@ -28,6 +28,8 @@ The server MUST expose a tool named `register_client` reachable without a resolv
 
 The input MUST carry an optional `display_name` and MUST NOT carry any field that sets the phone or caller identity. Decoding MUST be strict: a phone-like key (`phone`, `caller_id`, `id`) or any unknown key MUST fail with a semantic error instead of being silently ignored.
 
+> **Implementation note (apply, 2026-10-08):** the strict rejection is enforced by the SDK schema (`additionalProperties: false` inferred from the single-field input struct), so an unknown key fails as the SDK's tool-error envelope naming the key (protocol-layer validation, in English), never as a silent accept — consistent with the transport's existing protocol-validation precedent (REQ-MT-006 unknown tool → `-32601`; SDK arg validation → `-32602`). Business/semantic failures of the registration flow itself remain `-32002` Spanish (`SemanticError`).
+
 #### Scenario: Body cannot set the phone
 
 - GIVEN a request with `X-Caller-Id: +5491100999999` and body `{"display_name":"Ana","phone":"+5491100000000"}`

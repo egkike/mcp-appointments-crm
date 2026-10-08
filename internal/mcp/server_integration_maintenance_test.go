@@ -178,7 +178,8 @@ func countScheduleRows(t *testing.T, conn *sql.DB, professionalID string, day in
 
 // TestIntegrationMaintenanceToolsRegistered proves the eight maintenance tools
 // are live in the production composition (not just the mock-port server): the
-// harness injects all eight ports, so tools/list must expose 19 tools.
+// harness injects all nine non-maintenance ports too, so tools/list must expose
+// expectedToolCount tools.
 func TestIntegrationMaintenanceToolsRegistered(t *testing.T) {
 	mux := newIntegrationMux(t)
 

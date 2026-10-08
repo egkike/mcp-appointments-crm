@@ -14,12 +14,22 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/config"
 	"github.com/egkike/mcp-appointments-crm/internal/db"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/service"
 	"github.com/egkike/mcp-appointments-crm/internal/repository"
 )
 
 // ── Integration: the production composition against a real SQLite file ──
+
+// integrationOptions parameterizes the shared production composition the
+// integration suite runs (newIntegrationMuxWithOptions).
+type integrationOptions struct {
+	// registrationLimit is the per-phone auto-registration cap the composition
+	// root reads from MCP_REGISTRATION_RATE_LIMIT. 0 disables auto-registration
+	// entirely (fail closed, design §1.5).
+	registrationLimit int
+}
 
 // newIntegrationMux assembles the exact production composition (main.go
 // order) on a temp-file SQLite database: repositories → use cases → tools →
@@ -34,6 +44,23 @@ func newIntegrationMux(t *testing.T) http.Handler {
 // newIntegrationMuxWithDB is like newIntegrationMux but also returns the
 // underlying database connection so tests can seed extra state.
 func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
+	t.Helper()
+	return newIntegrationMuxWithOptions(t, integrationOptions{
+		registrationLimit: config.DefaultRegistrationRateLimit,
+	})
+}
+
+// newIntegrationMuxWithRegistrationLimit is like newIntegrationMux but wires the
+// anonymous registration use case with a test-chosen per-phone limit (0 =
+// auto-registration disabled) and returns the connection for the row assertions.
+func newIntegrationMuxWithRegistrationLimit(t *testing.T, limit int) (http.Handler, *sql.DB) {
+	t.Helper()
+	return newIntegrationMuxWithOptions(t, integrationOptions{registrationLimit: limit})
+}
+
+// newIntegrationMuxWithOptions is the parameterized composition behind the two
+// helpers above: same wiring as the composition root, at the HTTP layer.
+func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.Handler, *sql.DB) {
 	t.Helper()
 	dir := t.TempDir()
 	database, err := db.NewDatabase(context.Background(), filepath.Join(dir, "test.db"))
@@ -50,6 +77,7 @@ func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
 	schedulesRepo := repository.NewSchedulesRepo(database.Conn)
 	servicesRepo := repository.NewServicesRepo(database.Conn)
 	clientsRepo := repository.NewClientsRepo(database.Conn)
+	accountsRepo := repository.NewAccountsRepo(database.Conn, discardLogger())
 	pendingAlertsRepo := repository.NewPendingAlertsRepo(database.Conn)
 	bookingValidator := service.NewBookingValidator()
 	alertStore := usecase.NewEnsurePendingAlertsRepo(pendingAlertsRepo)
@@ -73,6 +101,17 @@ func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
 	}
 	checkAvailabilityUC := usecase.NewCheckAvailabilityUseCase(availabilityChecker, availabilityDeps)
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
+
+	// Anonymous self-registration (feat-whatsapp-bot): the same auth-free
+	// RegistrationLookup adapter and per-phone limiter the composition root
+	// wires, with the limit chosen by the test harness.
+	registerClientUC := usecase.NewGetOrCreateClientUseCase(
+		clientsRepo,
+		repository.NewRegistrationLookup(accountsRepo, clientsRepo),
+		usecase.NewRegistrationRateLimiter(opts.registrationLimit),
+		discardLogger(),
+	)
+
 	searchClientsAdvancedUC := usecase.NewSearchClientsAdvancedUseCase(clientsRepo)
 	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)
 	getPendingAlertsUC := usecase.NewGetPendingAlertsUseCase(pendingAlertsRepo)
@@ -105,6 +144,7 @@ func newIntegrationMuxWithDB(t *testing.T) (http.Handler, *sql.DB) {
 		GetPendingAlerts:       getPendingAlertsUC,
 		MarkAlertAsSent:        markAlertAsSentUC,
 		GetLoyaltyReport:       getLoyaltyReportUC,
+		RegisterClient:         registerClientUC,
 
 		UpdateBusinessProfile: updateBusinessProfileUC,
 		CreateService:         createServiceUC,
@@ -230,8 +270,8 @@ func TestIntegrationHappyPath(t *testing.T) {
 		t.Errorf("protocolVersion = %q; want 2025-11-25", init.ProtocolVersion)
 	}
 
-	// tools/list exposes the nineteen registered tools (8 original + 2 alerts +
-	// 1 loyalty + 8 maintenance writes).
+	// tools/list exposes the twenty registered tools (8 original + 2 alerts +
+	// 1 loyalty + 8 maintenance writes + register_client).
 	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	result, code, msg = decodeRPCEnvelope(t, rec)
 	if code != 0 {

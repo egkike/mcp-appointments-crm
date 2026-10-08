@@ -121,7 +121,7 @@ func ownerCallerPtr() *auth.Caller {
 	return &c
 }
 
-// newToolServer builds a Server with all nineteen ports mocked and returns its
+// newToolServer builds a Server with all twenty ports mocked and returns its
 // unauthenticated Handler (unit level: caller is injected via the request
 // context, exactly as AuthMiddleware would).
 func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
@@ -141,6 +141,7 @@ func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
 		GetPendingAlerts:       ports.getPendingAlerts,
 		MarkAlertAsSent:        ports.markAlertAsSent,
 		GetLoyaltyReport:       ports.loyalty,
+		RegisterClient:         ports.registerClient,
 		UpdateBusinessProfile:  ports.updateProfile,
 		CreateService:          ports.createService,
 		UpdateService:          ports.updateService,
@@ -165,6 +166,7 @@ type mockToolPorts struct {
 	getPendingAlerts *mockGetPendingAlertsPort
 	markAlertAsSent  *mockMarkAlertAsSentPort
 	loyalty          *mockGetLoyaltyReportPort
+	registerClient   *mockRegisterClientPort
 
 	updateProfile      *mockUpdateBusinessProfilePort
 	createService      *mockCreateServicePort
@@ -189,6 +191,7 @@ func newMockPorts() *mockToolPorts {
 		getPendingAlerts: &mockGetPendingAlertsPort{},
 		markAlertAsSent:  &mockMarkAlertAsSentPort{},
 		loyalty:          &mockGetLoyaltyReportPort{},
+		registerClient:   &mockRegisterClientPort{},
 
 		updateProfile:      &mockUpdateBusinessProfilePort{},
 		createService:      &mockCreateServicePort{},
@@ -311,10 +314,10 @@ func fixedTime() time.Time {
 	return time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 }
 
-// ── tools/list exposes exactly the nineteen registered tools
-// (8 + 2 alerts + 1 loyalty + 8 maintenance) ──
+// ── tools/list exposes exactly the twenty registered tools
+// (8 + 2 alerts + 1 loyalty + 8 maintenance + register_client) ──
 
-func TestToolsListNineteenTools(t *testing.T) {
+func TestToolsListTwentyTools(t *testing.T) {
 	srv, _ := newToolServer(t)
 	rec := callMethod(srv.Handler(), "tools/list", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 
@@ -328,7 +331,7 @@ func TestToolsListNineteenTools(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
 	}
-	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent", "get_loyalty_report", "update_business_profile", "create_service", "update_service", "delete_service", "create_professional", "update_professional", "upsert_schedule", "delete_schedule"}
+	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent", "get_loyalty_report", "update_business_profile", "create_service", "update_service", "delete_service", "create_professional", "update_professional", "upsert_schedule", "delete_schedule", "register_client"}
 	if len(resp.Result.Tools) != len(want) {
 		t.Fatalf("tools/list returned %d tools; want %d: %s", len(resp.Result.Tools), len(want), mustJSON(t, resp.Result.Tools))
 	}

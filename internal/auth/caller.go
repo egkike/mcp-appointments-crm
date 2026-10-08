@@ -35,3 +35,21 @@ func FromContext(ctx context.Context) (Caller, bool) {
 	caller, ok := ctx.Value(callerKey{}).(Caller)
 	return caller, ok
 }
+
+// anonymousKey is the private context key marking a request admitted through
+// the static anonymous allowlist (the register_client seam, design.md §1.1).
+type anonymousKey struct{}
+
+// MarkAnonymous returns a context marked as an anonymous allowlisted request.
+// Such a context carries NO Caller with a role: downstream handlers must read
+// the identity from the X-Caller-Id header and use IsAnonymous to distinguish
+// this deliberate-anonymity case from a missing or invalid caller.
+func MarkAnonymous(ctx context.Context) context.Context {
+	return context.WithValue(ctx, anonymousKey{}, true)
+}
+
+// IsAnonymous reports whether ctx was marked anonymous by the middleware seam.
+func IsAnonymous(ctx context.Context) bool {
+	marked, ok := ctx.Value(anonymousKey{}).(bool)
+	return ok && marked
+}

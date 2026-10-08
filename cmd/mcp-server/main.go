@@ -355,17 +355,18 @@ func run(ctx context.Context) error {
 	// 6th use case (Q3): get_business_profile wraps the singleton profile repo.
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
 
-	// feat-whatsapp-bot (Phase 2B): anonymous client self-registration. The
-	// constructor is wired here so the composition root owns its DI shape. It
-	// receives the auth-free RegistrationLookup adapter (accounts existence +
-	// phone lookup over the same handles), never the guarded repo interfaces:
-	// registration runs before any Caller is resolved. The per-phone limiter is
-	// built from config (MCP_REGISTRATION_RATE_LIMIT, default 10/hour, 0 =
-	// disabled/fail-closed) and the process logger carries the masked-phone
-	// audit trail. No tool calls it yet — the register_client transport and the
-	// anonymous auth seam land in later tasks — so the value is intentionally
-	// discarded until then rather than left unused (Go rejects unused locals).
-	_ = usecase.NewGetOrCreateClientUseCase(
+	// feat-whatsapp-bot (Phase 3): anonymous client self-registration, consumed by
+	// the register_client transport. The constructor is wired here so the
+	// composition root owns its DI shape. It receives the auth-free
+	// RegistrationLookup adapter (accounts existence + phone lookup over the same
+	// handles), never the guarded repo interfaces: registration runs before any
+	// Caller is resolved. The per-phone limiter is built from config
+	// (MCP_REGISTRATION_RATE_LIMIT, default 10/hour, 0 = disabled/fail-closed) and
+	// the process logger carries the masked-phone audit trail. The tool is the
+	// only one reached through the anonymous allowlist seam, so it deliberately
+	// has NO ToolRBAC entry below: its guards are the accounts-collision
+	// rejection and the per-phone rate limit inside the use case.
+	registerClientUC := usecase.NewGetOrCreateClientUseCase(
 		clientsRepo,
 		repository.NewRegistrationLookup(identity.accounts, clientsRepo),
 		usecase.NewRegistrationRateLimiter(config.RegistrationRateLimit()),
@@ -404,7 +405,10 @@ func run(ctx context.Context) error {
 	//   - check_availability       → any authenticated caller
 	//   - search_clients_advanced  → row scope by caller role (repository/clients.go)
 	//   - search_services_advanced → auth.RequireRole(RoleOwner, RoleAdmin) in the use case
-	// Every other tool is gated by the map below. RBAC keys on r.URL.Path, so
+	// register_client also has NO entry, for a different reason: it is reached
+	// through the anonymous allowlist seam before resolution and carries no role in
+	// either layer (its guards are the accounts collision and the rate limit inside
+	// the use case). Every other tool is gated by the map below. RBAC keys on r.URL.Path, so
 	// the JSON-RPC auth translator rewrites the path to the tool name for
 	// tools/call requests. The eight maintenance tools are owner-only
 	// (ADR-0015 Decision 2): the partial admin scope stays deferred, so no
@@ -451,6 +455,7 @@ func run(ctx context.Context) error {
 		GetPendingAlerts:       getPendingAlertsUC,
 		MarkAlertAsSent:        markAlertAsSentUC,
 		GetLoyaltyReport:       getLoyaltyReportUC,
+		RegisterClient:         registerClientUC,
 
 		UpdateBusinessProfile: updateBusinessProfileUC,
 		CreateService:         createServiceUC,
