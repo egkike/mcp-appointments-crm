@@ -164,10 +164,11 @@ func (m *mockServicesRepo) SearchFTS(ctx context.Context, query string) ([]*enti
 // --- mockClientsRepo ---
 
 type mockClientsRepo struct {
-	FindByIDFn    func(ctx context.Context, id string) (*entity.Client, error)
-	FindByPhoneFn func(ctx context.Context, phone string) (*entity.Client, error)
-	SaveFn        func(ctx context.Context, c *entity.Client) error
-	SearchFTSFn   func(ctx context.Context, query string) ([]*entity.Client, error)
+	FindByIDFn           func(ctx context.Context, id string) (*entity.Client, error)
+	FindByPhoneFn        func(ctx context.Context, phone string) (*entity.Client, error)
+	SaveFn               func(ctx context.Context, c *entity.Client) error
+	SearchFTSFn          func(ctx context.Context, query string) ([]*entity.Client, error)
+	GetOrCreateByPhoneFn func(ctx context.Context, phone, displayName string) (entity.Client, bool, error)
 }
 
 func (m *mockClientsRepo) FindByID(ctx context.Context, id string) (*entity.Client, error) {
@@ -196,6 +197,13 @@ func (m *mockClientsRepo) SearchFTS(ctx context.Context, query string) ([]*entit
 		panic("mockClientsRepo.SearchFTSFn not set")
 	}
 	return m.SearchFTSFn(ctx, query)
+}
+
+func (m *mockClientsRepo) GetOrCreateByPhone(ctx context.Context, phone, displayName string) (entity.Client, bool, error) {
+	if m.GetOrCreateByPhoneFn == nil {
+		panic("mockClientsRepo.GetOrCreateByPhoneFn not set")
+	}
+	return m.GetOrCreateByPhoneFn(ctx, phone, displayName)
 }
 
 // --- mockAvailabilityChecker ---
