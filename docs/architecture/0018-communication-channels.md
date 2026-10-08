@@ -82,6 +82,10 @@ Se retira la sección multi-user de [ADR-0012](./0012-hermes-chat-local.md) y su
   El archivo de configuración **transporta el identificador, nunca el rol**; un config
   manipulado no puede escalar privilegios, solo cambiar a otra identidad ya autorizada.
 - **Reglas de producto pendientes para el spec del bot futuro** (hoy no implementadas):
+  > **ADDENDUM 2026-10-08 — RESUELTO por `feat-whatsapp-bot`** (PRs #107–#110): el
+  > auto-registro vía `register_client` y el contrato del gateway están entregados y
+  > documentados en [docs/gateway-contract.md](../gateway-contract.md). El texto original
+  > se conserva como registro histórico de la decisión.
   - **Auto-registro de desconocido**: un teléfono que escribe por primera vez al canal del
     negocio se auto-registra como cliente vía `get_or_create_client` (rol client,
     self-service). Hoy el server responde **401**; el gap es requisito explícito del change

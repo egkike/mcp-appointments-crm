@@ -19,12 +19,15 @@ Windows support is pending (see the scope note below).
 next up: Fase N (support & improvements, ongoing). See the
 [implementation roadmap](./docs/PRD.md#8-roadmap-por-fases) in the PRD.
 
-The MCP server currently exposes 19 tools: `check_availability`, `create_booking`,
+The MCP server currently exposes 20 tools: `check_availability`, `create_booking`,
 `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`,
 `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`,
 `mark_alert_as_sent`, `get_loyalty_report`, plus the owner-only maintenance tools
 `update_business_profile`, `create_service`, `update_service`, `delete_service`,
-`create_professional`, `update_professional`, `upsert_schedule` and `delete_schedule`
+`create_professional`, `update_professional`, `upsert_schedule` and `delete_schedule`,
+and the anonymous self-registration tool `register_client` (unknown phones
+self-register through the business channel — see the
+[gateway contract](./docs/gateway-contract.md))
 (auth via `X-Caller-Id` header + RBAC, repository layer 10/10 repos with `auth.Caller` wiring — see PR #50).
 
 | Phase | Description | Status |
