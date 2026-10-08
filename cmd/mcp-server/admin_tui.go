@@ -1058,13 +1058,16 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner 
 	return writeConsole(stdout, "Ya podés operar como cliente con este teléfono.\n")
 }
 
-// runConfigureHermesFlow drives the "Configurar Hermes" capability (ADR-0017):
-// it prefills the phone from the ACTIVE owner, validates it through the single
-// phone validator, shows the three facts of the bootstrap (endpoint, phone and
-// target file), asks for an explicit confirmation and then merges and writes the
-// mcp_servers.mcp-appointments entry. It mirrors the Bubble Tea wizard 1:1; the
-// resolved Hermes facts arrive through the menu closure, so the console never
-// re-derives the path or the endpoint.
+// runConfigureHermesFlow drives the "Configurar Hermes" capability (ADR-0017,
+// ADR-0018 Decision 3b): it prefills the server phone from the ACTIVE owner,
+// collects the Telegram owner-bot field group (bot token, allowlist chat id and
+// owner phone) with the same admin validators the Bubble Tea wizard uses, shows
+// the bootstrap facts with the token masked, asks for an explicit confirmation
+// and then merges and writes the mcp_servers.mcp-appointments entry. The server
+// entry and the Telegram env block are merged in one atomic write through the
+// shared tui.ApplyHermesConfigWithTelegram chain. It mirrors the Bubble Tea
+// wizard 1:1; the resolved Hermes facts arrive through the menu closure, so the
+// console never re-derives the path or the endpoint.
 //
 // Without an ACTIVE owner the flow has nothing to prefill and no owner id Hermes
 // could send, so it reports the semantic failure and the menu reopens.
@@ -1072,8 +1075,8 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner 
 // A failed write chain is never a dead end: the exact YAML snippet the writer
 // would have produced is printed with the target path and the semantic error, so
 // the operator can finish the bootstrap by hand (ADR-0017 Decision 1). The chain
-// itself lives in admin.ApplyHermesConfig, the same helper the Bubble Tea
-// wizard runs (R2-01), so the console never re-derives the path or the endpoint.
+// itself lives in tui.ApplyHermesConfigWithTelegram, the same helper the Bubble
+// Tea wizard runs, so the console never re-derives the path or the endpoint.
 func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, hermes tui.HermesConfig) error {
 	owner, err := admin.ActiveOwner(ctx, identity.accounts)
 	if err != nil {
@@ -1085,7 +1088,21 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner 
 		return err
 	}
 
-	if err := writeHermesFacts(stdout, hermes, phone); err != nil {
+	token, err := promptValidated(scanner, stdout, "Token del bot de Telegram (formato <id>:<hash>)", "", admin.ValidateTelegramBotToken)
+	if err != nil {
+		return err
+	}
+	chatID, err := promptValidated(scanner, stdout, "Chat id de la allowlist de Telegram (ej. 987654321)", "", admin.ValidateTelegramChatID)
+	if err != nil {
+		return err
+	}
+	telegramPhone, err := promptValidated(scanner, stdout, "Teléfono del owner para Telegram (X-Caller-Id)", owner.ID, admin.ValidatePhone)
+	if err != nil {
+		return err
+	}
+	telegram := tui.NewTelegramFields(token, chatID, telegramPhone)
+
+	if err := writeHermesFacts(stdout, hermes, phone, telegram); err != nil {
 		return err
 	}
 
@@ -1098,24 +1115,29 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner 
 		return writeConsole(stdout, "Operación cancelada: no se cambió la configuración de Hermes.\n")
 	}
 
-	snippet, err := admin.ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
+	snippet, err := tui.ApplyHermesConfigWithTelegram(hermes, phone, telegram)
 	if err == nil {
 		if err := writeConsole(stdout, "Configuración de Hermes actualizada.\n"); err != nil {
 			return err
 		}
-		return writeHermesFacts(stdout, hermes, phone)
+		return writeHermesFacts(stdout, hermes, phone, telegram)
 	}
 	return writeHermesSnippetFallback(stdout, hermes, snippet, err)
 }
 
-// writeHermesFacts renders the three facts of the bootstrap — endpoint, phone
-// and target file — in the same order and wording as the Bubble Tea confirmation
-// and success screens, so the two presentations report the same contract.
-func writeHermesFacts(stdout io.Writer, hermes tui.HermesConfig, phone string) error {
+// writeHermesFacts renders the facts of the bootstrap — endpoint, server phone,
+// the masked Telegram owner-bot summary and target file — in the same order and
+// wording as the Bubble Tea confirmation and success screens, so the two
+// presentations report the same contract. The token is masked through the
+// shared tui.TelegramFields.Summary, so it is never echoed.
+func writeHermesFacts(stdout io.Writer, hermes tui.HermesConfig, phone string, telegram tui.TelegramFields) error {
 	if err := writeConsole(stdout, fmt.Sprintf("Endpoint: %s\n", hermes.EndpointURL)); err != nil {
 		return err
 	}
 	if err := writeConsole(stdout, fmt.Sprintf("Teléfono (X-Caller-Id): %s\n", phone)); err != nil {
+		return err
+	}
+	if err := writeConsole(stdout, fmt.Sprintf("Telegram: %s\n", telegram.Summary())); err != nil {
 		return err
 	}
 	return writeConsole(stdout, fmt.Sprintf("Archivo: %s\n", hermes.Path))

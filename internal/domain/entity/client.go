@@ -19,18 +19,17 @@ func (c *Client) IsActive() bool {
 }
 
 // HasValidPhone reports whether the phone number is in a valid format.
-// Accepts an optional leading '+' followed by 4–15 digits (E.164 subset).
+// Accepts an optional leading '+' followed by 4–15 digits (E.164 subset): the
+// 15-digit maximum IS enforced here — the doc and the implementation agree.
 func (c *Client) HasValidPhone() bool {
 	phone := c.Phone
-	if len(phone) < 4 {
-		return false
-	}
 	start := 0
-	if phone[0] == '+' {
-		if len(phone) < 5 {
-			return false
-		}
+	if len(phone) > 0 && phone[0] == '+' {
 		start = 1
+	}
+	digitCount := len(phone) - start
+	if digitCount < 4 || digitCount > 15 {
+		return false
 	}
 	for i := start; i < len(phone); i++ {
 		if phone[i] < '0' || phone[i] > '9' {

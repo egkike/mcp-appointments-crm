@@ -164,11 +164,13 @@ type AppModel struct {
 	transferDraft  admin.TransferSuccessor
 	confirm        confirmState
 
-	// hermesDraft is the phone and the fallback snippet of the "Configurar
-	// Hermes" flow (ADR-0017). The endpoint and the target file come from the
+	// hermesDraft is the phone of the server entry, the Telegram owner-bot field
+	// group and the fallback snippet of the "Configurar Hermes" flow (ADR-0017,
+	// ADR-0018 Decision 3b). The endpoint and the target file come from the
 	// composition root through deps.Hermes and are never derived here.
-	hermesPhone   string
-	hermesSnippet string
+	hermesPhone    string
+	hermesTelegram TelegramFields
+	hermesSnippet  string
 }
 
 // NewAppModel builds the initial model. ctx is propagated into every core call
@@ -420,7 +422,7 @@ func (m AppModel) runConfirmed() (tea.Model, tea.Cmd) {
 	case confirmTransfer:
 		return m.started(transferCmd(m.ctx, m.deps, m.owner.ID, m.transferDraft))
 	case confirmHermesConfig:
-		return m.started(hermesConfigCmd(m.deps.Hermes.HermesConfig, m.hermesPhone))
+		return m.started(hermesConfigCmd(m.deps.Hermes.HermesConfig, m.hermesPhone, m.hermesTelegram))
 	default:
 		return m.menuScreen(""), nil
 	}
@@ -476,6 +478,7 @@ func (m AppModel) runForm() (tea.Model, tea.Cmd) {
 
 	case screenHermesForm:
 		m.hermesPhone = m.form.value(0)
+		m.hermesTelegram = NewTelegramFields(m.form.value(1), m.form.value(2), m.form.value(3))
 		return m.askConfirm(confirmState{
 			action:   confirmHermesConfig,
 			title:    confirmHermesTitle,
@@ -483,6 +486,7 @@ func (m AppModel) runForm() (tea.Model, tea.Cmd) {
 			details: []string{
 				"Endpoint: " + m.deps.Hermes.EndpointURL,
 				"Teléfono (X-Caller-Id): " + m.hermesPhone,
+				"Telegram: " + m.hermesTelegram.Summary(),
 				"Archivo: " + m.deps.Hermes.Path,
 			},
 		}), nil
@@ -778,6 +782,7 @@ func (m AppModel) onHermesResult(msg hermesResultMsg) (tea.Model, tea.Cmd) {
 			"Configuración de Hermes actualizada.",
 			"Endpoint: "+m.deps.Hermes.EndpointURL,
 			"Teléfono (X-Caller-Id): "+m.hermesPhone,
+			"Telegram: "+m.hermesTelegram.Summary(),
 			"Archivo: "+m.deps.Hermes.Path,
 		), nil
 	}
@@ -871,6 +876,7 @@ func (m AppModel) menuScreen(notice string) AppModel {
 	m.successor = transferOption{}
 	m.transferDraft = admin.TransferSuccessor{}
 	m.hermesPhone = ""
+	m.hermesTelegram = TelegramFields{}
 	m.hermesSnippet = ""
 	return m
 }

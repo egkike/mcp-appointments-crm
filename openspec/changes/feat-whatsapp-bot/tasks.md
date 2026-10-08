@@ -139,17 +139,17 @@ Each work unit below is sized to fit a ≤ ~100-line review slice; a unit that g
 
 ## Phase 5 — TUI option 7 extension (PR4)
 
-### TASK-5.1 — RED: validation + merge tests
+### ✅ TASK-5.1 — RED: validation + merge tests
 
 - [ ] Failing tests in `internal/tui`: token/chat-id/phone validation table; merge preserves foreign keys; phone written quoted; atomic write against `t.TempDir()`; token absent from output; cancel leaves the file byte-identical
 - [ ] Record the observed failure output
 
-### TASK-5.2 — GREEN: field model + validators
+### ✅ TASK-5.2 — GREEN: field model + validators
 
 - [ ] Add the Telegram owner-bot field group to the option 7 model with per-field validation (MVU; one component per field) and owner-phone prefill from `accounts`
 - [ ] Non-TTY console parity for the same fields and validators
 
-### TASK-5.3 — GREEN: node-level merge + atomic write
+### ✅ TASK-5.3 — GREEN: node-level merge + atomic write
 
 - [ ] Extend the existing option 7 writer: `yaml.Node` merge into `mcp_servers.mcp-appointments`, temp sibling file `0600` + flush + `os.Rename`, masked summary output
 - [ ] Run TASK-5.1 green

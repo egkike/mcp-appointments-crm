@@ -1395,6 +1395,13 @@ func prepareHermesConsole(t *testing.T) (hermesPath string) {
 	return filepath.Join(home, ".hermes", admin.HermesConfigFileName)
 }
 
+// Telegram owner-bot fixtures for the console path. They mirror the admin core
+// fixtures so the flow is driven with valid values.
+const (
+	telegramTestToken  = "123456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-4s"
+	telegramTestChatID = "987654321"
+)
+
 // consoleHermesEndpoint returns the endpoint URL the console resolves for the
 // bind/port pinned by prepareHermesConsole, so the tests assert the same value
 // the flow reports instead of a hand-copied string.
@@ -1461,9 +1468,10 @@ func TestRunAdminTUIFlow_ConfigureHermesWritesMergedConfig(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	// Menu -> Configure Hermes -> accept the prefilled owner phone (blank line)
-	// -> confirm -> quit.
-	stdin := strings.NewReader("7\n\ns\nq\n")
+	// Menu -> Configure Hermes -> accept the prefilled server phone (blank line)
+	// -> token -> chat id -> accept the prefilled Telegram owner phone -> confirm
+	// -> quit.
+	stdin := strings.NewReader("7\n\n" + telegramTestToken + "\n" + telegramTestChatID + "\n\ns\nq\n")
 
 	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
@@ -1473,12 +1481,16 @@ func TestRunAdminTUIFlow_ConfigureHermesWritesMergedConfig(t *testing.T) {
 		"Configurar Hermes",
 		"Endpoint: " + consoleHermesEndpoint(t),
 		"Teléfono (X-Caller-Id): " + ownerPhone,
+		"Telegram: token 123456789:*** · chat " + telegramTestChatID + " · teléfono " + ownerPhone,
 		"Archivo: " + hermesPath,
 		"Configuración de Hermes actualizada.",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output = %q, want it to contain %q", out.String(), want)
 		}
+	}
+	if strings.Contains(out.String(), telegramTestToken) {
+		t.Errorf("output = %q, must never echo the full bot token", out.String())
 	}
 
 	// #nosec G304 -- hermesPath is under a throwaway t.TempDir() home.
@@ -1491,6 +1503,9 @@ func TestRunAdminTUIFlow_ConfigureHermesWritesMergedConfig(t *testing.T) {
 		"openai",
 		admin.HermesServerName,
 		`X-Caller-Id: "` + ownerPhone + `"`,
+		"MCP_TELEGRAM_BOT_TOKEN",
+		"MCP_TELEGRAM_ALLOWED_CHAT_ID",
+		"MCP_TELEGRAM_OWNER_PHONE",
 	} {
 		if !strings.Contains(string(content), want) {
 			t.Errorf("written Hermes config missing %q\n%s", want, content)
@@ -1597,7 +1612,7 @@ func TestRunConfigureHermesFlow_FallsBackToSnippetWhenWriteFails(t *testing.T) {
 	// An empty path is the degenerate "there is nowhere to write" case: the load
 	// treats the missing file as empty and the write fails with a semantic error
 	// instead of a raw driver failure.
-	stdin := bufio.NewScanner(strings.NewReader("\ns\n"))
+	stdin := bufio.NewScanner(strings.NewReader("\n" + telegramTestToken + "\n" + telegramTestChatID + "\n\ns\n"))
 
 	err := runConfigureHermesFlow(context.Background(), identity, stdin, &out,
 		tui.HermesConfig{EndpointURL: consoleHermesEndpoint(t)})

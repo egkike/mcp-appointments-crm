@@ -53,6 +53,24 @@ const (
 	hermesURLKey     = "url"
 	hermesHeadersKey = "headers"
 
+	// hermesEnvKey is the entry key holding the environment block the Telegram
+	// owner-bot values live in (feat-whatsapp-bot, D1/ADR-0018 Decision 3b).
+	hermesEnvKey = "env"
+
+	// Telegram owner-bot env keys (D1). The values are consumed by the Hermes
+	// Telegram gateway; the exact consumer spelling is reconciled by the
+	// gateway-contract docs (Phase 6), so these constants are the single place
+	// to adjust if it differs.
+	hermesTelegramTokenKey  = "MCP_TELEGRAM_BOT_TOKEN" // #nosec G101 -- env-var KEY name, never a credential value
+	hermesTelegramChatIDKey = "MCP_TELEGRAM_ALLOWED_CHAT_ID"
+	hermesTelegramPhoneKey  = "MCP_TELEGRAM_OWNER_PHONE"
+
+	// Length caps for the Telegram inputs (input-validation "length" dimension):
+	// generous ceilings far above real values, so hostile or pasted-garbage
+	// input cannot bloat the persisted Hermes config.
+	hermesTelegramChatIDMaxDigits = 20
+	hermesTelegramTokenMaxLen     = 128
+
 	// hermesDirMode and hermesFileMode restrict the Hermes config we create to
 	// the OS user that owns the installation: the file carries identity
 	// material (the owner phone), not shared configuration. They are applied
@@ -73,6 +91,16 @@ const (
 // settings) while no exported signature carries `any`. We do not control
 // Hermes's schema; only the leaf values this flow sets are concrete (strings
 // plus a *yaml.Node for the quoted phone).
+//
+// RECORDED DECISION (ADR-0017 accepted deviation, reaffirmed 2026-10-08 during
+// feat-whatsapp-bot): the schema-less document is deliberately modeled as a
+// generic map[string]any instead of a typed struct + yaml.Node inline maps.
+// Rationale: Hermes's schema is not owned by this repo, the only leaves this
+// flow writes are concrete, and a typed model with `yaml:",inline"` catch-alls
+// was evaluated and rejected for regression risk against the reviewed
+// foreign-key preservation semantics. The `any` here is confined to unexported
+// storage and never crosses an exported signature. Revisit only if Hermes's
+// config schema becomes owned by this repo.
 //
 // Construct it with LoadHermesConfig or the zero value and mutate it through
 // the typed methods below. The generic mapping never crosses the package
@@ -267,7 +295,9 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 //
 // It validates the URL and the phone before touching the document. The phone is
 // validated through ValidatePhone — the single phone validation point of the
-// codebase — never a copy.
+// codebase — never a copy. A pre-existing Telegram env block owned by
+// SetHermesTelegramOwnerBot is preserved, so the two flows compose in either
+// order.
 //
 // The entry is replaced wholesale, so re-running the flow is idempotent and
 // stale keys inside the previous entry cannot survive. The pointer receiver is
@@ -286,10 +316,21 @@ func (d *HermesDocument) SetHermesServer(rawURL, phone string) error {
 	if err != nil {
 		return err
 	}
-	servers[HermesServerName] = hermesServerEntry{
+	entry := hermesServerEntry{
 		url:      strings.TrimSpace(rawURL),
 		callerID: phone,
 	}.asMapping()
+	// The Telegram owner-bot env block (SetHermesTelegramOwnerBot) is owned by
+	// a different flow of the same entry: replacing the whole mapping here
+	// would silently drop it when the operator re-runs the server flow after
+	// the Telegram flow. Preserve it; everything else in the entry is replaced
+	// (wholesale idempotency applies to the keys this flow owns).
+	if prev, ok := servers[HermesServerName].(map[string]any); ok {
+		if env, ok := prev[hermesEnvKey]; ok {
+			entry[hermesEnvKey] = env
+		}
+	}
+	servers[HermesServerName] = entry
 	return nil
 }
 
@@ -319,6 +360,159 @@ func RenderHermesSnippet(rawURL, phone string) (string, error) {
 		return "", err
 	}
 	return string(data), nil
+}
+
+// SetHermesTelegramOwnerBot merges the private Telegram owner-bot values
+// (ADR-0018 Decision 3b) into the mcp_servers.<HermesServerName> entry env
+// block WITHOUT touching url/headers or any foreign key: the two flows
+// compose in either order — SetHermesServer preserves this env block when it
+// replaces the entry (see there), and this merge leaves url/headers alone.
+//
+// All three values are validated before the document is touched — a validation
+// failure leaves the document byte-identical. The phone goes through
+// ValidatePhone (the single phone validation point) plus the 15-digit
+// registration-cap convention of this change. Every env value is written as a
+// double-quoted *yaml.Node: the phone for the YAML 1.1 +54 integer trap, and
+// the token because its "123456:hash" shape would otherwise parse as a mapping.
+func (d *HermesDocument) SetHermesTelegramOwnerBot(token, chatID, phone string) error {
+	if err := ValidateTelegramBotToken(token); err != nil {
+		return err
+	}
+	if err := ValidateTelegramChatID(chatID); err != nil {
+		return err
+	}
+	if err := ValidatePhone(phone); err != nil {
+		return err
+	}
+	// The 15-digit E.164 maximum is enforced by entity.HasValidPhone itself
+	// (the domain owns the invariant); ValidatePhone inherits it, so every
+	// admin flow applies the same bound with no adapter-side compensation.
+
+	fields := d.storage()
+	servers, err := hermesMapping(fields, hermesServersSection)
+	if err != nil {
+		return err
+	}
+	entryRaw, ok := servers[HermesServerName]
+	if !ok || entryRaw == nil {
+		servers[HermesServerName] = map[string]any{}
+		entryRaw = servers[HermesServerName]
+	}
+	entry, ok := entryRaw.(map[string]any)
+	if !ok {
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "la entrada " + HermesServerName + " de la configuración de Hermes no es un mapa; no se puede combinar sin perder datos",
+		}
+	}
+	env, err := hermesMapping(entry, hermesEnvKey)
+	if err != nil {
+		return err
+	}
+	env[hermesTelegramTokenKey] = hermesQuotedScalar(token)
+	env[hermesTelegramChatIDKey] = hermesQuotedScalar(chatID)
+	env[hermesTelegramPhoneKey] = hermesQuotedScalar(phone)
+	return nil
+}
+
+// ValidateTelegramBotToken validates the Telegram bot token shape
+// "<bot-id digits>:<hash>". It is deliberately a shape check, not a liveness
+// check: whether the token is accepted by Telegram is only knowable at gateway
+// runtime, outside this process.
+func ValidateTelegramBotToken(token string) error {
+	if len(strings.TrimSpace(token)) > hermesTelegramTokenMaxLen {
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "el token del bot de Telegram excede la longitud máxima permitida",
+			Cause:   domain.ErrInvalidInput,
+		}
+	}
+	botID, hash, ok := splitBotToken(token)
+	if !ok {
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "el token del bot de Telegram debe tener la forma <id>:<hash> (por ejemplo 123456789:AAEh...)",
+			Cause:   domain.ErrInvalidInput,
+		}
+	}
+	for _, r := range botID {
+		if r < '0' || r > '9' {
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeInvalidInput,
+				Message: "el token del bot de Telegram debe empezar con el id numérico del bot antes de ':'",
+				Cause:   domain.ErrInvalidInput,
+			}
+		}
+	}
+	for _, r := range hash {
+		valid := (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-'
+		if !valid {
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeInvalidInput,
+				Message: "el hash del token del bot de Telegram solo acepta letras, dígitos, '_' y '-'",
+				Cause:   domain.ErrInvalidInput,
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateTelegramChatID validates the owner-chat allowlist id: an optionally
+// negative integer string (Telegram private chats are positive; groups are
+// negative, so the shape accepts both and the allowlist semantics decide).
+// The value is length-capped (Telegram ids are far shorter) so hostile or
+// pasted-garbage input cannot bloat the persisted Hermes config.
+func ValidateTelegramChatID(chatID string) error {
+	trimmed := strings.TrimSpace(chatID)
+	if trimmed == "" {
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "el chat id de la allowlist de Telegram no puede estar vacío",
+		}
+	}
+	digits := strings.TrimPrefix(trimmed, "-")
+	if digits == "" || len(digits) > hermesTelegramChatIDMaxDigits {
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "el chat id de la allowlist de Telegram debe ser numérico y de longitud razonable",
+		}
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeInvalidInput,
+				Message: "el chat id de la allowlist de Telegram debe ser numérico",
+			}
+		}
+	}
+	return nil
+}
+
+// MaskTelegramToken renders the operator-safe summary form of a bot token: the
+// bot id stays visible (it is not the secret), the hash collapses to "***". A
+// malformed token collapses entirely — the mask must never echo an input it
+// could not parse.
+func MaskTelegramToken(token string) string {
+	botID, _, ok := splitBotToken(token)
+	if !ok {
+		return "***"
+	}
+	return botID + ":***"
+}
+
+// splitBotToken cuts a bot token into its numeric bot id and hash, trimming
+// surrounding whitespace first. ok is false when the shape does not hold.
+func splitBotToken(token string) (botID, hash string, ok bool) {
+	botID, hash, ok = strings.Cut(strings.TrimSpace(token), ":")
+	if !ok || botID == "" || hash == "" {
+		return "", "", false
+	}
+	for _, r := range botID {
+		if r < '0' || r > '9' {
+			return "", "", false
+		}
+	}
+	return botID, hash, true
 }
 
 // WriteHermesConfig writes doc to path atomically: a temp file in the same
