@@ -550,12 +550,15 @@ func TestToolGetBusinessProfileOutputKeysPinned(t *testing.T) {
 
 	// The REQ-MT-015 output contract: exactly this snake_case key set,
 	// independent of entity.BusinessProfile's Go field names (JD fix B-3).
+	// maps_url joins the set (feat-whatsapp-bot D4); this fixture populates
+	// both coordinates, so the derived key is present alongside lat/long.
 	wantKeys := []string{
 		"id", "name", "industry", "country", "address", "latitude", "longitude",
 		"cover_photo_url", "public_phone", "messenger_platform", "messenger_id",
 		"contact_email", "website_url", "general_description", "currency_code",
 		"currency_symbol", "accepted_payment_methods", "timezone",
 		"slot_interval_minutes", "business_hours", "created_at", "updated_at",
+		"maps_url",
 	}
 	if len(out) != len(wantKeys) {
 		t.Fatalf("output has %d keys; want exactly %d: %s", len(out), len(wantKeys), mustJSON(t, out))
@@ -570,6 +573,103 @@ func TestToolGetBusinessProfileOutputKeysPinned(t *testing.T) {
 func strPtr(s string) *string { return &s }
 
 func f64Ptr(f float64) *float64 { return &f }
+
+// ── get_business_profile derived maps_url (feat-whatsapp-bot D4) ──
+
+// TestToolGetBusinessProfileDerivesMapsURL pins the derivation rule: with both
+// coordinates set the wire output carries the Google Maps link built from the
+// plain-decimal rendering of each value, and the numeric fields themselves are
+// unchanged by the derivation.
+func TestToolGetBusinessProfileDerivesMapsURL(t *testing.T) {
+	srv, ports := newToolServer(t)
+	ports.profile.executeFn = func(context.Context) (*entity.BusinessProfile, error) {
+		return &entity.BusinessProfile{
+			ID: "singleton", Name: "Mi Negocio",
+			Latitude: f64Ptr(-34.6037), Longitude: f64Ptr(-58.3816),
+		}, nil
+	}
+
+	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_business_profile", `{}`))
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+
+	var got string
+	if err := json.Unmarshal(out["maps_url"], &got); err != nil {
+		t.Fatalf("maps_url missing or not a string: %v; output=%s", err, mustJSON(t, out))
+	}
+	if want := "https://maps.google.com/?q=-34.6037,-58.3816"; got != want {
+		t.Errorf("maps_url = %q; want %q", got, want)
+	}
+	// Additive change: the numeric fields stay exactly as stored.
+	if string(out["latitude"]) != "-34.6037" || string(out["longitude"]) != "-58.3816" {
+		t.Errorf("lat/long changed by the derivation: %s/%s", out["latitude"], out["longitude"])
+	}
+}
+
+// TestToolGetBusinessProfileOmitsMapsURL pins the omitempty half of the rule: a
+// missing coordinate (absent profile, or only one of the two set) must leave the
+// key out entirely, never emit a partial or zeroed link.
+func TestToolGetBusinessProfileOmitsMapsURL(t *testing.T) {
+	tests := []struct {
+		name string
+		lat  *float64
+		long *float64
+	}{
+		{name: "no coordinates"},
+		{name: "latitude only", lat: f64Ptr(-34.6037)},
+		{name: "longitude only", long: f64Ptr(-58.3816)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, ports := newToolServer(t)
+			ports.profile.executeFn = func(context.Context) (*entity.BusinessProfile, error) {
+				return &entity.BusinessProfile{
+					ID: "singleton", Name: "Mi Negocio",
+					Latitude: tt.lat, Longitude: tt.long,
+				}, nil
+			}
+
+			resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_business_profile", `{}`))
+			var out map[string]json.RawMessage
+			if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
+				t.Fatalf("unmarshal output: %v", err)
+			}
+			if _, ok := out["maps_url"]; ok {
+				t.Errorf("maps_url present with lat=%v long=%v; want the key omitted", tt.lat, tt.long)
+			}
+		})
+	}
+}
+
+// TestToolGetBusinessProfileMapsURLNoScientificNotation pins the formatter: a
+// tiny value must render as plain decimal, because an exponent inside the URL
+// query would be a broken link (strconv 'f' verb, design §2).
+func TestToolGetBusinessProfileMapsURLNoScientificNotation(t *testing.T) {
+	srv, ports := newToolServer(t)
+	ports.profile.executeFn = func(context.Context) (*entity.BusinessProfile, error) {
+		return &entity.BusinessProfile{
+			ID: "singleton", Name: "Mi Negocio",
+			Latitude: f64Ptr(0.0000001), Longitude: f64Ptr(0),
+		}, nil
+	}
+
+	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_business_profile", `{}`))
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+
+	var got string
+	if err := json.Unmarshal(out["maps_url"], &got); err != nil {
+		t.Fatalf("maps_url missing or not a string: %v; output=%s", err, mustJSON(t, out))
+	}
+	if want := "https://maps.google.com/?q=0.0000001,0"; got != want {
+		t.Errorf("maps_url = %q; want %q (plain decimal, no exponent)", got, want)
+	}
+}
 
 // ── get_business_profile input contract (GGA W-1 closure) ──
 

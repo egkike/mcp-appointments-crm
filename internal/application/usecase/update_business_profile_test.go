@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -254,6 +255,54 @@ func TestUpdateBusinessProfileUseCase_ClearLocation(t *testing.T) {
 			if diff := changedColumns(seed, mergedColumns(saved)); !slices.Equal(diff, tc.wantChanged) {
 				t.Fatalf("changed columns = %v, want %v (merged profile: %v)", diff, tc.wantChanged, mergedColumns(saved))
 			}
+		})
+	}
+}
+
+// TestUpdateBusinessProfileUseCase_InvalidInputMessageMapping pins the error
+// mapping split introduced with the coordinate range guards: a
+// *domain.SemanticError raised by the repository (wrapped by it, as production
+// does) reaches the caller with its own LLM-facing Spanish message, while a
+// generic domain.ErrInvalidInput failure — the pre-existing business_hours,
+// timezone, payment-method and messenger-platform rules — keeps the shared
+// collapse. The generic half proves the pass-through did not regress them.
+func TestUpdateBusinessProfileUseCase_InvalidInputMessageMapping(t *testing.T) {
+	coordinateErr := &domain.SemanticError{
+		Code:    domain.ErrCodeInvalidInput,
+		Message: "la latitud debe estar entre -90 y 90",
+		Cause:   domain.ErrInvalidInput,
+	}
+
+	tests := []struct {
+		name        string
+		repoErr     error
+		wantMessage string
+	}{
+		{
+			name:        "coordinate semantic error passes through verbatim",
+			repoErr:     fmt.Errorf("actualizar perfil de negocio: %w", coordinateErr),
+			wantMessage: "la latitud debe estar entre -90 y 90",
+		},
+		{
+			name:        "generic invalid input still collapses to the shared message",
+			repoErr:     fmt.Errorf("actualizar perfil de negocio: %w", domain.ErrInvalidInput),
+			wantMessage: "los datos del perfil no son válidos: revisá los horarios, la zona horaria, los métodos de pago y la plataforma de mensajería",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &mockBusinessProfileRepo{
+				GetFn:    func(context.Context) (*entity.BusinessProfile, error) { return mergeSeed(), nil },
+				UpdateFn: func(context.Context, *entity.BusinessProfile) error { return tt.repoErr },
+			}
+			uc := NewUpdateBusinessProfileUseCase(repo, nil)
+
+			_, err := uc.Execute(context.Background(), dto.UpdateBusinessProfileInput{
+				Caller:   ownerCaller(),
+				Latitude: f64(200),
+			})
+			assertSemanticError(t, err, domain.ErrCodeInvalidInput, tt.wantMessage)
 		})
 	}
 }

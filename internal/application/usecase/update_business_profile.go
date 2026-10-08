@@ -36,9 +36,13 @@ func NewUpdateBusinessProfileUseCase(profiles domainrepo.BusinessProfileRepo, lo
 // get_business_profile exposes (that use case also returns the entity), so the
 // transport layer maps the profile to JSON in exactly one place.
 //
-// Business rules (business_hours JSON, payment-method JSON, timezone, and the
-// messenger platform enum) are enforced by entity.BusinessProfile.Validate()
-// inside the repository; this use case only assembles the merged entity.
+// Business rules (business_hours JSON, payment-method JSON, timezone, the
+// messenger platform enum, and the latitude/longitude ranges) are enforced by
+// entity.BusinessProfile.Validate() inside the repository; this use case only
+// assembles the merged entity. A *domain.SemanticError raised there is returned
+// verbatim (its specific Spanish message reaches the caller); only the generic
+// domain.ErrInvalidInput failures are collapsed to the shared invalid-input
+// message.
 func (uc *UpdateBusinessProfileUseCase) Execute(ctx context.Context, input dto.UpdateBusinessProfileInput) (*entity.BusinessProfile, error) {
 	ctx = auth.WithCaller(ctx, input.Caller)
 	caller, err := auth.RequireRole(ctx, auth.RoleOwner)
@@ -61,6 +65,15 @@ func (uc *UpdateBusinessProfileUseCase) Execute(ctx context.Context, input dto.U
 	applyProfileUpdates(profile, input)
 
 	if err := uc.profiles.Update(ctx, profile); err != nil {
+		// Client-shaped semantic errors carry their own LLM-facing Spanish
+		// message (today the coordinate range guards of entity.Validate); pass
+		// them through untouched so the caller sees the specific reason. Every
+		// other domain.ErrInvalidInput failure (business_hours, timezone,
+		// payment methods, messenger platform) keeps the generic collapse below.
+		var sem *domain.SemanticError
+		if errors.As(err, &sem) {
+			return nil, sem
+		}
 		switch {
 		case errors.Is(err, domain.ErrInvalidInput):
 			return nil, &domain.SemanticError{
