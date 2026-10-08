@@ -445,7 +445,7 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 		uc := NewGetOrCreateClientUseCase(clients, lookup, newRegistrationRateLimiter(0, time.Now), slog.New(slog.DiscardHandler))
 
 		_, err := uc.Execute(context.Background(), validPhone, "")
-		requireSemanticError(t, err, domain.ErrCodeConflict)
+		_ = requireSemanticError(t, err, domain.ErrCodeConflict)
 		if inserted {
 			t.Error("limit 0 must fail closed before any write")
 		}
