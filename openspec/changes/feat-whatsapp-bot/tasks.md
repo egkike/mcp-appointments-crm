@@ -45,6 +45,8 @@ Each work unit below is sized to fit a ≤ ~100-line review slice; a unit that g
 
 ## Phase 2 — Use case `get_or_create_client` (PR1 cont.)
 
+> **Legacy-row edge (independent verifier, 2026-10-08):** a pre-existing `clients` row with `phone == p` but `id == UUID` (inserted by the legacy `GetOrCreate`) makes `INSERT OR IGNORE` a no-op and the id read-back miss → internal semantic error. TASK-2.2 must decide the semantics (read-by-phone fallback vs explicit conflict Spanish error) before shipping the use case; the adapter stays per REQ-CL-PORT-001.
+
 ### TASK-2.1 — RED: use-case tests (validation + collision + placeholder)
 
 - [ ] Failing tests in `internal/application/usecase`: invalid phone rejected; **phone longer than 15 digits rejected and a 15-digit phone accepted (registration path only)**; phone present in `accounts` (active and inactive) rejected; placeholder `Cliente {phone}` stored when no name; name trimmed; name longer than 80 runes handled deterministically

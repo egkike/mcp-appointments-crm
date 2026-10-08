@@ -105,7 +105,7 @@ The server MUST enforce a configurable per-phone limit with a conservative defau
 
 ### Requirement: Registration is audited without exposing full phone numbers
 
-Every outcome (created, no-op, account rejection, rate-limit rejection) MUST emit an audit event whose phone value is masked to its last 4 digits. Audit events MUST NOT contain the full phone number and MUST NOT log secrets.
+Every outcome (created, no-op, account rejection, legacy-id rejection, rate-limit rejection) MUST emit an audit event whose phone value is masked to its last 4 digits. Audit events MUST NOT contain the full phone number and MUST NOT log secrets.
 
 #### Scenario: Successful registration is audited
 

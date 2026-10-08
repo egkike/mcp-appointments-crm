@@ -355,6 +355,23 @@ func run(ctx context.Context) error {
 	// 6th use case (Q3): get_business_profile wraps the singleton profile repo.
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
 
+	// feat-whatsapp-bot (Phase 2B): anonymous client self-registration. The
+	// constructor is wired here so the composition root owns its DI shape. It
+	// receives the auth-free RegistrationLookup adapter (accounts existence +
+	// phone lookup over the same handles), never the guarded repo interfaces:
+	// registration runs before any Caller is resolved. The per-phone limiter is
+	// built from config (MCP_REGISTRATION_RATE_LIMIT, default 10/hour, 0 =
+	// disabled/fail-closed) and the process logger carries the masked-phone
+	// audit trail. No tool calls it yet — the register_client transport and the
+	// anonymous auth seam land in later tasks — so the value is intentionally
+	// discarded until then rather than left unused (Go rejects unused locals).
+	_ = usecase.NewGetOrCreateClientUseCase(
+		clientsRepo,
+		repository.NewRegistrationLookup(identity.accounts, clientsRepo),
+		usecase.NewRegistrationRateLimiter(config.RegistrationRateLimit()),
+		logger,
+	)
+
 	// PR 1 (Phase 1): caller-scoped FTS search use cases.
 	searchClientsAdvancedUC := usecase.NewSearchClientsAdvancedUseCase(clientsRepo)
 	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)

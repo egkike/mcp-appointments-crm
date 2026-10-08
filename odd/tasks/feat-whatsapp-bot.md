@@ -1,7 +1,7 @@
-# Feature: feat-whatsapp-bot — Spec phase
+# Feature: feat-whatsapp-bot — IMPLEMENTATION IN PROGRESS (spec phase COMPLETE)
 
-**Status:** SPEC IN PROGRESS (started 2026-10-08)
-**Change dir:** `openspec/changes/feat-whatsapp-bot/`
+**Status:** IMPLEMENTATION — PR1 #107 (Phase 1 pushed ✅ CI green; Phase 2 complete on branch, pending commit)
+**Change dir:** `openspec/changes/feat-whatsapp-bot/` (tasks.md = apply plan: 5 PRs stacked-to-main, 7 phases)
 **Insumos frozen:** ADR-0018 (`docs/architecture/0018-communication-channels.md`, NO re-discutir), PRD §3.8.9 / §3.8.10 / §7 Fase N (changelog 1.20), F-4 clear-null resolved (merge `3b86db9`).
 
 ## Product decisions confirmed with owner (2026-10-08, this session)
@@ -40,5 +40,8 @@
 ## Evidence
 
 - **Spec commit `841e55d` on main (2026-10-08)** — 11 files, +1269; branch `feat/feat-whatsapp-bot-spec` ff-merged and deleted; GGA no issues (docs-only); CI run **success** on 841e55d; owner approved commit + full docs flow.
-- Verification chain 2026-10-08: scout (gentle-ai-explore) → writer run 1 failed → writer run 2 complete (8 artifacts) → verifier readback (findings above) → writer fix pass F1–F7 → spot-checks PASS. Two owner-facing additions to flag: D2a (accounts-collision rejection) and registration-path 15-digit cap — both conservative security guards, vetable.
-- **Status: SPEC PHASE COMPLETE.** Next: implementation phase via `openspec/changes/feat-whatsapp-bot/tasks.md` (work units ≤ ~100 lines, RDD band; test-first for Go code). Three apply-phase confirmations pending: `location_uri` naming, rate-limit config shape, Telegram MCP_* key spellings.
+- **Implementation PR1 (branch `feat/feat-whatsapp-bot-registration`)**: Phase 1 RED→GREEN by writer (port `GetOrCreateByPhone` +17, adapter +68 with BEGIN IMMEDIATE/dedicated conn/RowsAffected-created, test file 117 lines, mock compile-fix +12/-4). Full pipeline green (fmt/vet/lint 0/build/test -race, 18 packages).
+- **Native review attempt (canary) FAILED as predicted**: lineage `review-afab2cbc89fa6de9` created (medium tier, lens review-reliability, 224 changed lines, correction budget 112); capture forecast 1 model run via `pi_host_relay`; run died `reviewer-empty-output` / `stopReason: length` at ~49 s (no timeout — budget starvation). Consistent with #5226 band data (226 lines died ×2). Per owner policy: NO retry until upstream fix; lineage left open; fallback gate active (independent verifier + GGA + CI + PR human review).
+- **Phase 2 (2026-10-08, branch)**: 2A use case `get_or_create_client` (RED→GREEN, 9→10 subtests) + auth-free `RegistrationLookup` port/adapter (HIGH-risk gap found by writer: FindByID/FindByPhone enforce RBAC; fixed following the `ClientsSelfService` precedent; guards untouched) + 2B per-phone fixed-window rate limiter (injected clock, default 10/h, 0=fail-closed, `MCP_REGISTRATION_RATE_LIMIT`) + 4+1 masked-phone audit events (`***9999`; 5th event `registration_rejected_legacy_id` added by orchestrator to close the spec's every-outcome audit requirement for the legacy branch) + DI wiring. Full suite green.
+- **GGA upstream**: defect confirmed as known issue [#113](https://github.com/Gentleman-Programming/gentleman-guardian-angel/issues/113) (owner had prior confirmation there); addendum posted with owner consent (comment 6067254147): run-to-run nondeterminism, code anchors, fix direction, `OPENCODE_VARIANT`/`--variant` breakage noted. Phase-2 commits require the same owner-authorized workaround.
+- **Status: IMPLEMENTATION — PR1 (Phase 1 complete under fallback gate).** Apply plan: `openspec/changes/feat-whatsapp-bot/tasks.md` (work units ≤ ~100 lines; test-first for Go). Pending: TASK-2.2 legacy-row edge decision (verifier WARNING 2026-10-08); three at-apply confirmations (`location_uri` naming, rate-limit config shape, Telegram MCP_* key spellings).

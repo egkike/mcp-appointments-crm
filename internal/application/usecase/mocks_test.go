@@ -164,10 +164,11 @@ func (m *mockServicesRepo) SearchFTS(ctx context.Context, query string) ([]*enti
 // --- mockClientsRepo ---
 
 type mockClientsRepo struct {
-	FindByIDFn    func(ctx context.Context, id string) (*entity.Client, error)
-	FindByPhoneFn func(ctx context.Context, phone string) (*entity.Client, error)
-	SaveFn        func(ctx context.Context, c *entity.Client) error
-	SearchFTSFn   func(ctx context.Context, query string) ([]*entity.Client, error)
+	FindByIDFn           func(ctx context.Context, id string) (*entity.Client, error)
+	FindByPhoneFn        func(ctx context.Context, phone string) (*entity.Client, error)
+	SaveFn               func(ctx context.Context, c *entity.Client) error
+	SearchFTSFn          func(ctx context.Context, query string) ([]*entity.Client, error)
+	GetOrCreateByPhoneFn func(ctx context.Context, phone, displayName string) (entity.Client, bool, error)
 }
 
 func (m *mockClientsRepo) FindByID(ctx context.Context, id string) (*entity.Client, error) {
@@ -196,6 +197,38 @@ func (m *mockClientsRepo) SearchFTS(ctx context.Context, query string) ([]*entit
 		panic("mockClientsRepo.SearchFTSFn not set")
 	}
 	return m.SearchFTSFn(ctx, query)
+}
+
+func (m *mockClientsRepo) GetOrCreateByPhone(ctx context.Context, phone, displayName string) (entity.Client, bool, error) {
+	if m.GetOrCreateByPhoneFn == nil {
+		panic("mockClientsRepo.GetOrCreateByPhoneFn not set")
+	}
+	return m.GetOrCreateByPhoneFn(ctx, phone, displayName)
+}
+
+// --- mockRegistrationLookup (anonymous registration reads) ---
+
+// mockRegistrationLookup is a function-table mock for
+// repository.RegistrationLookup, the auth-free read port the anonymous
+// registration use case consumes. Each method panics if its Fn field is nil so
+// an unexpected dependency path fails fast.
+type mockRegistrationLookup struct {
+	AccountExistsByIDFn    func(ctx context.Context, id string) (bool, error)
+	FindClientByPhoneAnyFn func(ctx context.Context, phone string) (*entity.Client, error)
+}
+
+func (m *mockRegistrationLookup) AccountExistsByID(ctx context.Context, id string) (bool, error) {
+	if m.AccountExistsByIDFn == nil {
+		panic("mockRegistrationLookup.AccountExistsByIDFn not set")
+	}
+	return m.AccountExistsByIDFn(ctx, id)
+}
+
+func (m *mockRegistrationLookup) FindClientByPhoneAny(ctx context.Context, phone string) (*entity.Client, error) {
+	if m.FindClientByPhoneAnyFn == nil {
+		panic("mockRegistrationLookup.FindClientByPhoneAnyFn not set")
+	}
+	return m.FindClientByPhoneAnyFn(ctx, phone)
 }
 
 // --- mockAvailabilityChecker ---
