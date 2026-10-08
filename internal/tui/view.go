@@ -43,6 +43,9 @@ const (
 
 	hermesTitle           = "Configurar Hermes"
 	hermesPhoneLabel      = "Teléfono del owner (X-Caller-Id)"
+	hermesTokenLabel      = "Token del bot de Telegram (formato <id>:<hash>)" // #nosec G101 -- operator-facing field label, never a credential value
+	hermesChatIDLabel     = "Chat id de la allowlist de Telegram (ej. 987654321)"
+	hermesOwnerPhoneLabel = "Teléfono del owner para Telegram (X-Caller-Id)"
 	confirmHermesTitle    = "Confirmar configuración de Hermes"
 	confirmHermesQuestion = "Se escribirá la entrada mcp-appointments en el config de Hermes. ¿Confirmar?"
 	hermesSnippetTitle    = "Configuración manual de Hermes"
@@ -123,13 +126,18 @@ func transferSteps() []formStep {
 	}
 }
 
-// hermesSteps is the single-field Hermes questionnaire: the owner phone that
-// Hermes sends as X-Caller-Id, prefilled from the active owner and validated by
-// admin.ValidatePhone — the same single validation point the core re-applies
-// before writing.
+// hermesSteps is the Hermes questionnaire: the server entry's owner phone and
+// the Telegram owner-bot field group (token, allowlist chat id and owner phone).
+// The two phone steps are prefilled from the active owner and validated by
+// admin.ValidatePhone; the token and the chat id use the admin Telegram
+// validators. The validators are the single validation point the reviewed core
+// re-applies before writing.
 func hermesSteps(defaultPhone string) []formStep {
 	return []formStep{
 		{label: hermesPhoneLabel, defaultValue: defaultPhone, validate: admin.ValidatePhone},
+		{label: hermesTokenLabel, validate: admin.ValidateTelegramBotToken},
+		{label: hermesChatIDLabel, validate: admin.ValidateTelegramChatID},
+		{label: hermesOwnerPhoneLabel, defaultValue: defaultPhone, validate: admin.ValidatePhone},
 	}
 }
 

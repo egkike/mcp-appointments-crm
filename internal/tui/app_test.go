@@ -1172,6 +1172,29 @@ func TestAppModelAddSelfAsClientIsIdempotent(t *testing.T) {
 
 // ── Configurar Hermes (ADR-0017) ────────────────────────────────────────
 
+// driveToHermesConfirm opens option 7, completes the server phone and the
+// Telegram owner-bot field group (accepting both prefilled phones) and stops on
+// the Hermes confirmation, so the multi-step wizard is driven the way an
+// operator would.
+func driveToHermesConfirm(t *testing.T, d *driver) {
+	t.Helper()
+	d.press("7")
+	if d.model.screen != screenHermesForm {
+		t.Fatalf("screen = %v, want the Hermes wizard", d.model.screen)
+	}
+	d.press("enter") // accept the prefilled server phone
+	d.typeText(telegramToken)
+	d.press("enter")
+	d.typeText(telegramChatID)
+	d.press("enter")
+	d.press("enter") // accept the prefilled Telegram owner phone
+
+	if d.model.screen != screenConfirm || d.model.confirm.action != confirmHermesConfig {
+		t.Fatalf("screen = %v action = %v, want the Hermes confirmation",
+			d.model.screen, d.model.confirm.action)
+	}
+}
+
 func TestAppModelHermesConfigWritesTheMergedConfig(t *testing.T) {
 	f := newFixture(t)
 	f.seedOwner(t, ownerPhone, ownerName)
@@ -1196,17 +1219,34 @@ func TestAppModelHermesConfigWritesTheMergedConfig(t *testing.T) {
 		t.Errorf("prefilled phone = %q, want the active owner phone %q", got, ownerPhone)
 	}
 
-	d.press("enter") // accept the prefilled phone
+	// Accepting the prefilled server phone advances to the Telegram token field.
+	d.press("enter")
+	if d.model.form.index != 1 || d.model.form.steps[1].label != hermesTokenLabel {
+		t.Fatalf("step after the phone = %d, want the Telegram token field", d.model.form.index)
+	}
+	d.typeText(telegramToken)
+	d.press("enter")
+	d.typeText(telegramChatID)
+	d.press("enter")
+	// The Telegram owner phone is prefilled from the active owner.
+	if got := d.model.form.input.Value(); got != ownerPhone {
+		t.Errorf("prefilled Telegram owner phone = %q, want %q", got, ownerPhone)
+	}
+	d.press("enter")
+
 	if d.model.screen != screenConfirm || d.model.confirm.action != confirmHermesConfig {
 		t.Fatalf("screen = %v action = %v, want the Hermes confirmation",
 			d.model.screen, d.model.confirm.action)
 	}
 
 	confirmView := d.view()
-	for _, want := range []string{f.hermes.EndpointURL, ownerPhone, f.hermesPath} {
+	for _, want := range []string{f.hermes.EndpointURL, ownerPhone, f.hermesPath, "123456789:***"} {
 		if !strings.Contains(confirmView, want) {
 			t.Errorf("confirmation view missing %q\n%s", want, confirmView)
 		}
+	}
+	if strings.Contains(confirmView, telegramToken) {
+		t.Errorf("confirmation view leaks the full token\n%s", confirmView)
 	}
 
 	d.press("s")
@@ -1214,8 +1254,12 @@ func TestAppModelHermesConfigWritesTheMergedConfig(t *testing.T) {
 	if d.model.screen != screenInfo || d.model.infoKind != infoSuccess {
 		t.Fatalf("screen = %v kind = %v, want the success info screen", d.model.screen, d.model.infoKind)
 	}
-	if view := d.view(); !strings.Contains(view, "Configuración de Hermes actualizada") {
+	view := d.view()
+	if !strings.Contains(view, "Configuración de Hermes actualizada") {
 		t.Errorf("view = %q, want the success summary", view)
+	}
+	if !strings.Contains(view, "123456789:***") || strings.Contains(view, telegramToken) {
+		t.Errorf("view = %q, want the masked token and never the full secret", view)
 	}
 
 	content := f.hermesFile(t)
@@ -1225,6 +1269,9 @@ func TestAppModelHermesConfigWritesTheMergedConfig(t *testing.T) {
 		admin.HermesServerName,
 		f.hermes.EndpointURL,
 		`X-Caller-Id: "` + ownerPhone + `"`,
+		"MCP_TELEGRAM_BOT_TOKEN",
+		"MCP_TELEGRAM_ALLOWED_CHAT_ID",
+		"MCP_TELEGRAM_OWNER_PHONE",
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("written Hermes config missing %q\n%s", want, content)
@@ -1258,6 +1305,86 @@ func TestAppModelHermesConfigRejectsAnInvalidPhone(t *testing.T) {
 	}
 }
 
+// TestAppModelHermesConfigRejectsAnInvalidTelegramField locks the field-level
+// delegation: an invalid token or chat id keeps the wizard on its step with the
+// semantic admin message and never reaches the write.
+func TestAppModelHermesConfigRejectsAnInvalidTelegramField(t *testing.T) {
+	cases := []struct {
+		name     string
+		step     int
+		value    string
+		wantCopy string
+	}{
+		{name: "token", step: 1, value: "not-a-token", wantCopy: "token del bot de Telegram"},
+		{name: "chat id", step: 2, value: "abc", wantCopy: "chat id"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.seedOwner(t, ownerPhone, ownerName)
+
+			d := newDriver(t, f)
+			d.press("7")
+			d.press("enter") // accept the prefilled server phone
+
+			if tc.step == 2 {
+				d.typeText(telegramToken)
+				d.press("enter")
+			}
+			d.typeText(tc.value)
+			d.press("enter")
+
+			if d.model.screen != screenHermesForm || d.model.form.index != tc.step {
+				t.Fatalf("screen = %v index = %d, want the wizard still on step %d",
+					d.model.screen, d.model.form.index, tc.step)
+			}
+			if view := d.view(); !strings.Contains(view, tc.wantCopy) {
+				t.Errorf("view = %q, want the semantic error naming the field", view)
+			}
+			if _, err := os.Stat(f.hermesPath); err == nil {
+				t.Error("an invalid Telegram field wrote the Hermes config")
+			}
+		})
+	}
+}
+
+// TestAppModelHermesConfigCancelLeavesTheFileUntouched locks the spec
+// requirement: cancelling the final confirmation never modifies the config,
+// byte-identical included.
+func TestAppModelHermesConfigCancelLeavesTheFileUntouched(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+
+	if err := os.MkdirAll(filepath.Dir(f.hermesPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	seed := []byte("model: hermes-default\nmcp_servers:\n  openai:\n    url: https://api.example/mcp\n")
+	if err := os.WriteFile(f.hermesPath, seed, 0o600); err != nil {
+		t.Fatalf("seed hermes config: %v", err)
+	}
+
+	d := newDriver(t, f)
+	driveToHermesConfirm(t, d)
+	d.press("n")
+
+	if d.model.screen != screenMenu {
+		t.Fatalf("screen = %v, want the menu after cancelling", d.model.screen)
+	}
+	if !strings.Contains(d.view(), "no se cambió la configuración de Hermes") {
+		t.Errorf("view = %q, want the cancellation notice", d.view())
+	}
+
+	// #nosec G304 -- hermesPath is under a throwaway t.TempDir().
+	content, err := os.ReadFile(f.hermesPath)
+	if err != nil {
+		t.Fatalf("read hermes config: %v", err)
+	}
+	if string(content) != string(seed) {
+		t.Errorf("hermes config changed on cancel\n got: %q\nwant: %q", content, seed)
+	}
+}
+
 func TestAppModelHermesConfigFallsBackToTheSnippetWhenTheWriteIsImpossible(t *testing.T) {
 	f := newFixture(t)
 	f.seedOwner(t, ownerPhone, ownerName)
@@ -1269,8 +1396,7 @@ func TestAppModelHermesConfigFallsBackToTheSnippetWhenTheWriteIsImpossible(t *te
 	f.hermes.Path = ""
 
 	d := newDriver(t, f)
-	d.press("7")
-	d.press("enter") // accept the prefilled phone
+	driveToHermesConfirm(t, d)
 	d.press("s")
 
 	if d.model.screen != screenHermesSnippet {

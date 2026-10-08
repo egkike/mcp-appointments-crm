@@ -362,14 +362,14 @@ func hermesDataCmd(ctx context.Context, deps Deps) tea.Cmd {
 
 // hermesConfigCmd runs the shared Hermes chain and maps its outcome onto the
 // wizard's result message: the written config on success, or the manual snippet
-// plus the semantic failure that forced the fallback. The resolved HermesConfig
-// and the operator's phone arrive as explicit arguments, so the command depends
-// on no model state another handler mutated (R2-03): the caller passes the facts
-// it resolved. The chain itself lives in admin.ApplyHermesConfig (R2-01), the
-// same helper the line-based console runs.
-func hermesConfigCmd(hermes HermesConfig, phone string) tea.Cmd {
+// plus the semantic failure that forced the fallback. The resolved HermesConfig,
+// the server phone and the Telegram field group arrive as explicit arguments, so
+// the command depends on no model state another handler mutated (R2-03): the
+// caller passes the facts it collected. The chain itself lives in
+// ApplyHermesConfigWithTelegram, the same helper the line-based console runs.
+func hermesConfigCmd(hermes HermesConfig, serverPhone string, telegram TelegramFields) tea.Cmd {
 	return func() tea.Msg {
-		snippet, err := admin.ApplyHermesConfig(hermes.Path, hermes.EndpointURL, phone)
+		snippet, err := ApplyHermesConfigWithTelegram(hermes, serverPhone, telegram)
 		if err == nil {
 			return hermesResultMsg{written: true}
 		}
