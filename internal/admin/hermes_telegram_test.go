@@ -15,7 +15,7 @@ import (
 // Telegram bot the OWNER uses outside the business channel (ADR-0018 Decision
 // 3b). The three values live in the mcp_servers.mcp-appointments env block.
 const (
-	validTelegramToken  = "123456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-4s"
+	validTelegramToken  = "123456789:short-fake-token"
 	validTelegramChatID = "987654321"
 	validOwnerPhone     = "+5491100000001"
 )
@@ -47,9 +47,9 @@ func TestValidateTelegramBotToken(t *testing.T) {
 	}{
 		{"valid token", validTelegramToken, false},
 		{"missing hash part", "123456789:", true},
-		{"missing bot id", ":AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-4s", true},
-		{"no colon", "123456789AAEhBOweik6ad9rQXMENQjcrGbqCr4K4s", true},
-		{"non-digit bot id", "12a456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-4s", true},
+		{"missing bot id", ":short-fake-token", true},
+		{"no colon", "123456789AAEhBOweikshort-fake", true},
+		{"non-digit bot id", "12a456789:short-fake-token", true},
 		{"hash with invalid charset", "123456789:AAEh BOweik6ad9r", true},
 		{"empty", "", true},
 		{"whitespace only", "   ", true},

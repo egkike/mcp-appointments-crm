@@ -8,7 +8,7 @@ import (
 // Telegram owner-bot fixtures. They mirror the admin core fixtures: a valid
 // token / chat id pair and the owner phone.
 const (
-	telegramToken  = "123456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-4s"
+	telegramToken  = "123456789:short-fake-token"
 	telegramChatID = "987654321"
 	telegramPhone  = "+5491100000001"
 )

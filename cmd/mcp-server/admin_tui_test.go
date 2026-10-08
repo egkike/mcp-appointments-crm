@@ -1398,7 +1398,7 @@ func prepareHermesConsole(t *testing.T) (hermesPath string) {
 // Telegram owner-bot fixtures for the console path. They mirror the admin core
 // fixtures so the flow is driven with valid values.
 const (
-	telegramTestToken  = "123456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-4s"
+	telegramTestToken  = "123456789:short-fake-token"
 	telegramTestChatID = "987654321"
 )
 
