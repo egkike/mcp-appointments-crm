@@ -206,6 +206,31 @@ func (m *mockClientsRepo) GetOrCreateByPhone(ctx context.Context, phone, display
 	return m.GetOrCreateByPhoneFn(ctx, phone, displayName)
 }
 
+// --- mockRegistrationLookup (anonymous registration reads) ---
+
+// mockRegistrationLookup is a function-table mock for
+// repository.RegistrationLookup, the auth-free read port the anonymous
+// registration use case consumes. Each method panics if its Fn field is nil so
+// an unexpected dependency path fails fast.
+type mockRegistrationLookup struct {
+	AccountExistsByIDFn    func(ctx context.Context, id string) (bool, error)
+	FindClientByPhoneAnyFn func(ctx context.Context, phone string) (*entity.Client, error)
+}
+
+func (m *mockRegistrationLookup) AccountExistsByID(ctx context.Context, id string) (bool, error) {
+	if m.AccountExistsByIDFn == nil {
+		panic("mockRegistrationLookup.AccountExistsByIDFn not set")
+	}
+	return m.AccountExistsByIDFn(ctx, id)
+}
+
+func (m *mockRegistrationLookup) FindClientByPhoneAny(ctx context.Context, phone string) (*entity.Client, error) {
+	if m.FindClientByPhoneAnyFn == nil {
+		panic("mockRegistrationLookup.FindClientByPhoneAnyFn not set")
+	}
+	return m.FindClientByPhoneAnyFn(ctx, phone)
+}
+
 // --- mockAvailabilityChecker ---
 
 type mockAvailabilityChecker struct {

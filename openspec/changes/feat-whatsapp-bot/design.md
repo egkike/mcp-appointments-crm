@@ -105,6 +105,8 @@ COMMIT
 - All values bound with `?`; no concatenation; `context.Context` propagated; transaction rolled back on any error.
 - **Explicitly rejected:** reusing `ClientsRepo.GetOrCreate` (`internal/repository/clients.go:223`) — its generated UUID id can never resolve (see `exploration.md` §2).
 
+**Auth-free registration reads.** Registration runs before any `Caller` exists, so `AccountsRepo.FindByID` (authenticated) and `ClientsRepo.FindByPhone` (admin/owner) fail at runtime. A narrow port `RegistrationLookup` (`AccountExistsByID`, `FindClientByPhoneAny`) carries only those two reads, delegates to the same tables, and is wired ONLY into `get_or_create_client`; no existing guard is weakened. Same chicken-and-egg escape as the TUI's `ClientsSelfService`. Phase 3 integration must assert the anonymous path end-to-end through the real mux.
+
 ### 1.5 Rate limiter
 
 | Aspect | Decision |

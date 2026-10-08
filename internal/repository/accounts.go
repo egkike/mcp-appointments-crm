@@ -124,6 +124,30 @@ func (r *AccountsRepo) FindByID(ctx context.Context, id string) (*entity.Account
 	return scanAccount(row)
 }
 
+// AccountExistsByID reports whether an accounts row with the given id exists.
+//
+// Auth-free by design: it backs RegistrationLookup for the anonymous client
+// registration path, which runs before any Caller can be resolved. It answers
+// existence only — role and is_active are irrelevant because a phone owned by
+// ANY account (active or inactive) must be rejected by registration. Unlike
+// FindByID it never runs a role/caller check and a missing row is (false, nil),
+// not domain.ErrNotFound.
+//
+// The composition root wires this method ONLY into the registration use case
+// (through the RegistrationLookup adapter); it is deliberately absent from the
+// AccountsRepo interface, so no authenticated flow can reach it by accident.
+func (r *AccountsRepo) AccountExistsByID(ctx context.Context, id string) (bool, error) {
+	var exists int
+	err := r.db.QueryRowContext(ctx, `SELECT 1 FROM accounts WHERE id = ?`, id).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("verificar existencia de cuenta: %w", err)
+	}
+	return true, nil
+}
+
 // GetByRole returns all accounts matching the given role, ordered by created_at ASC.
 // Returns domain.ErrInvalidInput for unrecognized roles. Returns empty slice (not nil) when no rows match.
 // Requires an authenticated caller.
