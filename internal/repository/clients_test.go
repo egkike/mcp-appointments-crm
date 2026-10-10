@@ -500,6 +500,7 @@ func TestClientsRepo_SearchFTS(t *testing.T) {
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty query, got %v", err)
 		}
+		assertSemanticInvalidInput(t, err)
 	})
 
 	t.Run("query with forbidden chars returns domain.ErrInvalidInput", func(t *testing.T) {
@@ -510,6 +511,7 @@ func TestClientsRepo_SearchFTS(t *testing.T) {
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for query with *, got %v", err)
 		}
+		assertSemanticInvalidInput(t, err)
 	})
 
 	t.Run("DB error propagates", func(t *testing.T) {

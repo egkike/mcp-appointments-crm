@@ -5,10 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	"github.com/egkike/mcp-appointments-crm/internal/repository"
 )
 
 func TestSearchClientsAdvancedUseCase(t *testing.T) {
@@ -78,4 +80,32 @@ func TestSearchClientsAdvancedUseCase(t *testing.T) {
 			t.Errorf("got %v, want ErrInvalidInput", err)
 		}
 	})
+}
+
+// TestSearchClientsAdvancedBadFTSInputIsSemantic wires the real repository
+// adapter, so a disallowed FTS character is rejected by the adapter validation
+// and must surface at the use-case boundary as *domain.SemanticError with
+// ErrCodeInvalidInput and a clean Spanish message (F2). Before the fix the
+// adapter returned plain fmt.Errorf wraps, which collapsed to -32603 at the
+// transport. sqlmock only supplies the *sql.DB handle: validation short-circuits
+// before any statement is prepared, so an unexpected query fails the test.
+// Test-only import of the persistence adapter mirrors
+// internal/mcp/server_integration_test.go; production edges stay inward.
+func TestSearchClientsAdvancedBadFTSInputIsSemantic(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	uc := NewSearchClientsAdvancedUseCase(repository.NewClientsRepo(db))
+	_, err = uc.Execute(context.Background(), dto.SearchClientsAdvancedInput{
+		Caller:    auth.Caller{ID: "admin-1", Role: auth.RoleAdmin},
+		QueryText: "juan*",
+	})
+
+	assertSemanticError(t, err, domain.ErrCodeInvalidInput, "la consulta de búsqueda contiene caracteres no permitidos.")
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("sentinel lost: %v", err)
+	}
 }

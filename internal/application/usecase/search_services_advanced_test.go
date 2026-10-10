@@ -5,10 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	"github.com/egkike/mcp-appointments-crm/internal/repository"
 )
 
 func TestSearchServicesAdvancedUseCase(t *testing.T) {
@@ -67,4 +69,28 @@ func TestSearchServicesAdvancedUseCase(t *testing.T) {
 			t.Errorf("got %v, want ErrUnauthenticated", err)
 		}
 	})
+}
+
+// TestSearchServicesAdvancedBadFTSInputIsSemantic wires the real repository
+// adapter, so a disallowed FTS character is rejected by the adapter validation
+// and must surface at the use-case boundary as *domain.SemanticError with
+// ErrCodeInvalidInput and a clean Spanish message (F2). Test-only import of the
+// persistence adapter, same shape as internal/mcp/server_integration_test.go.
+func TestSearchServicesAdvancedBadFTSInputIsSemantic(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("create sqlmock: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	uc := NewSearchServicesAdvancedUseCase(repository.NewServicesRepo(db))
+	_, err = uc.Execute(context.Background(), dto.SearchServicesAdvancedInput{
+		Caller:    auth.Caller{ID: "owner-1", Role: auth.RoleOwner},
+		QueryText: "corte*",
+	})
+
+	assertSemanticError(t, err, domain.ErrCodeInvalidInput, "la consulta de búsqueda contiene caracteres no permitidos.")
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("sentinel lost: %v", err)
+	}
 }

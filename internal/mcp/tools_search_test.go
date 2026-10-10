@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
@@ -128,5 +129,36 @@ func TestMaxFTSQueryLenMatchesRepository(t *testing.T) {
 	}
 	if repository.MaxFTSQueryLen != 200 {
 		t.Errorf("repository.MaxFTSQueryLen = %d; want 200", repository.MaxFTSQueryLen)
+	}
+}
+
+// TestIntegrationSearchBadFTSQueryIsSemantic proves the F2 contract end to end
+// through the real mux: a query that passes the transport's own checks but is
+// rejected by the repository FTS validation reaches the LLM as JSON-RPC -32002
+// with the Spanish invalid-input message, not the generic -32603. Before the
+// fix the repository returned plain fmt.Errorf wraps, so the client saw
+// -32603 "error interno del servidor".
+func TestIntegrationSearchBadFTSQueryIsSemantic(t *testing.T) {
+	mux := newIntegrationMux(t)
+
+	const wantMsg = "la consulta de búsqueda contiene caracteres no permitidos."
+	tests := []struct {
+		name string
+		tool string
+	}{
+		{"clients", "search_clients_advanced"},
+		{"services", "search_services_advanced"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":%q,"arguments":{"query_text":"juan*"}}}`, tt.tool)
+			_, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, "owner-1", body))
+			if code != -32002 {
+				t.Errorf("code = %d; want -32002 (msg=%q)", code, msg)
+			}
+			if msg != wantMsg {
+				t.Errorf("message = %q; want %q", msg, wantMsg)
+			}
+		})
 	}
 }
