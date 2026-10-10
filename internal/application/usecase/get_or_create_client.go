@@ -12,11 +12,6 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
 
-// registrationMaxDigits is the E.164 upper bound the registration path applies
-// on top of entity.Client.HasValidPhone. The entity validator has no upper
-// bound (design §1.3 step 1), so the registration use case owns the cap.
-const registrationMaxDigits = 15
-
 // registrationMaxNameRunes caps the stored display name. design §1.2 pins the
 // wire maximum at 80 runes; design §1.3 does not specify a use-case behavior,
 // so the use case re-applies the cap deterministically by truncation (defense
@@ -75,7 +70,8 @@ func NewGetOrCreateClientUseCase(clients repository.ClientsRepo, lookup reposito
 //
 // Order of operations (design §1.3, fail closed: no write happens before every
 // check passes):
-//  1. phone validation, including the 15-digit registration cap;
+//  1. phone validation via the entity-owned E.164 subset rule (optional '+',
+//     4–15 digits);
 //  2. accounts collision check (read-only; active and inactive accounts);
 //  3. existing-client short-circuit (id == phone) and legacy-row conflict
 //     (id != phone) — the pinned legacy-row decision for this change;
@@ -85,7 +81,8 @@ func NewGetOrCreateClientUseCase(clients repository.ClientsRepo, lookup reposito
 //  7. audit event client_registered / client_registration_noop;
 //  8. return the result DTO.
 func (uc *GetOrCreateClientUseCase) Execute(ctx context.Context, callerID, displayName string) (*GetOrCreateClientResult, error) {
-	// 1. Validation: non-empty, at most 15 digits, and a valid entity format.
+	// 1. Validation: the entity-owned E.164 subset rule (optional '+', 4–15
+	// digits) is the single source of truth for the registration format.
 	if !validRegistrationPhone(callerID) {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
@@ -110,13 +107,13 @@ func (uc *GetOrCreateClientUseCase) Execute(ctx context.Context, callerID, displ
 	}
 
 	// 3. Existing-client short-circuit / legacy-row conflict.
-	existing, err := uc.lookup.FindClientByPhoneAny(ctx, callerID)
+	identity, err := uc.lookup.FindClientByPhoneAny(ctx, callerID)
 	switch {
 	case err == nil:
-		if existing.ID == callerID {
+		if identity.ID == callerID {
 			// Idempotent registration: no insert, report created=false.
 			logRegistrationEvent(uc.logger, registrationEventNoop, callerID)
-			return &GetOrCreateClientResult{ClientID: existing.ID, DisplayName: existing.Name, Created: false}, nil
+			return &GetOrCreateClientResult{ClientID: identity.ID, DisplayName: identity.Name, Created: false}, nil
 		}
 		// Legacy row: its id is a UUID, but the resolver chain matches
 		// clients.id == phone, so that row could never be resolved again.
@@ -168,25 +165,12 @@ func (uc *GetOrCreateClientUseCase) Execute(ctx context.Context, callerID, displ
 	return &GetOrCreateClientResult{ClientID: client.ID, DisplayName: client.Name, Created: created}, nil
 }
 
-// validRegistrationPhone reports whether phone satisfies both the entity
-// format rule (optional leading '+', at least 4 digits) and the registration
-// path's 15-digit cap. Digits are counted independently of the '+', so the
-// optional sign never consumes the budget.
+// validRegistrationPhone reports whether phone satisfies the registration
+// format rule. That rule IS the entity-owned E.164 subset rule (optional
+// leading '+', 4–15 digits), single-sourced in the domain via
+// entity.Client.HasValidPhone; this wrapper only documents the registration
+// path's intent.
 func validRegistrationPhone(phone string) bool {
-	if phone == "" || countDigits(phone) > registrationMaxDigits {
-		return false
-	}
 	c := entity.Client{Phone: phone}
 	return c.HasValidPhone()
-}
-
-// countDigits counts ASCII digits in s.
-func countDigits(s string) int {
-	n := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] >= '0' && s[i] <= '9' {
-			n++
-		}
-	}
-	return n
 }
