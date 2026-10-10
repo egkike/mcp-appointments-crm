@@ -231,43 +231,43 @@ func (r *ClientsRepo) FindByPhone(ctx context.Context, phone string) (*entity.Cl
 	return c, nil
 }
 
-// FindClientByPhoneAny returns the client whose phone column equals phone,
-// WHATEVER its id, or domain.ErrNotFound when no row matches.
+// FindClientByPhoneAny returns the identity (id + name) of the client whose
+// phone column equals phone, WHATEVER its id, or domain.ErrNotFound when no row
+// matches.
 //
 // It differs from FindByPhone in two deliberate ways: it performs no
 // role/caller check and it does not assume the row's id equals its phone. It
 // backs RegistrationLookup for the anonymous registration path, which must
 // distinguish an existing id == phone row (idempotent no-op) from a legacy
-// id != phone row (explicit conflict) — so returning the row as-is, rather
-// than filtering by id, is the contract. Error mapping matches FindByPhone
-// (domain.ErrNotFound on a miss, internal semantic error otherwise).
+// id != phone row (explicit conflict). Because the caller only needs id and
+// name, the query reads no PII (email, preferences) or audit columns. Error
+// mapping matches FindByPhone (domain.ErrNotFound on a miss, internal semantic
+// error otherwise).
 //
 // This method is auth-free by design: the registration path runs before any
 // Caller can be resolved. It is deliberately absent from the ClientsRepo
 // interface and is wired ONLY into the registration use case through the
 // RegistrationLookup adapter, so no authenticated flow can reach it.
-func (r *ClientsRepo) FindClientByPhoneAny(ctx context.Context, phone string) (*entity.Client, error) {
-	c := &entity.Client{Active: true}
+func (r *ClientsRepo) FindClientByPhoneAny(ctx context.Context, phone string) (domainrepo.ClientIdentity, error) {
+	var identity domainrepo.ClientIdentity
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, phone, email, preferences, created_at, updated_at
-		 FROM clients WHERE phone = ?`, phone,
-	).Scan(&c.ID, &c.Name, &c.Phone, &c.Email, &c.Preferences,
-		&c.CreatedAt, &c.UpdatedAt)
+		`SELECT id, name FROM clients WHERE phone = ?`, phone,
+	).Scan(&identity.ID, &identity.Name)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, &domain.SemanticError{
+			return domainrepo.ClientIdentity{}, &domain.SemanticError{
 				Code:    domain.ErrCodeNotFound,
 				Message: "Cliente no encontrado",
 				Cause:   domain.ErrNotFound,
 			}
 		}
-		return nil, &domain.SemanticError{
+		return domainrepo.ClientIdentity{}, &domain.SemanticError{
 			Code:    domain.ErrCodeInternal,
 			Message: "Error interno al buscar el cliente",
 			Cause:   err,
 		}
 	}
-	return c, nil
+	return identity, nil
 }
 
 // GetOrCreate inserts a new client if the phone does not exist, or returns

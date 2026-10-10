@@ -214,7 +214,7 @@ func (m *mockClientsRepo) GetOrCreateByPhone(ctx context.Context, phone, display
 // an unexpected dependency path fails fast.
 type mockRegistrationLookup struct {
 	AccountExistsByIDFn    func(ctx context.Context, id string) (bool, error)
-	FindClientByPhoneAnyFn func(ctx context.Context, phone string) (*entity.Client, error)
+	FindClientByPhoneAnyFn func(ctx context.Context, phone string) (domainrepo.ClientIdentity, error)
 }
 
 func (m *mockRegistrationLookup) AccountExistsByID(ctx context.Context, id string) (bool, error) {
@@ -224,7 +224,7 @@ func (m *mockRegistrationLookup) AccountExistsByID(ctx context.Context, id strin
 	return m.AccountExistsByIDFn(ctx, id)
 }
 
-func (m *mockRegistrationLookup) FindClientByPhoneAny(ctx context.Context, phone string) (*entity.Client, error) {
+func (m *mockRegistrationLookup) FindClientByPhoneAny(ctx context.Context, phone string) (domainrepo.ClientIdentity, error) {
 	if m.FindClientByPhoneAnyFn == nil {
 		panic("mockRegistrationLookup.FindClientByPhoneAnyFn not set")
 	}

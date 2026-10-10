@@ -11,6 +11,7 @@ import (
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
 
 // Registration fixtures. validPhone carries 13 digits; maxPhone is the E.164
@@ -29,8 +30,8 @@ func newMissingRegistrations() *mockRegistrationLookup {
 		AccountExistsByIDFn: func(context.Context, string) (bool, error) {
 			return false, nil
 		},
-		FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) {
-			return nil, domain.ErrNotFound
+		FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
+			return domainrepo.ClientIdentity{}, domain.ErrNotFound
 		},
 	}
 }
@@ -93,9 +94,9 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 					touched = true
 					return false, nil
 				},
-				FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) {
+				FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
 					touched = true
-					return nil, domain.ErrNotFound
+					return domainrepo.ClientIdentity{}, domain.ErrNotFound
 				},
 			}
 			uc := newTestUsecase(clients, lookup)
@@ -124,9 +125,9 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 				touched = true
 				return false, nil
 			},
-			FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) {
+			FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
 				touched = true
-				return nil, domain.ErrNotFound
+				return domainrepo.ClientIdentity{}, domain.ErrNotFound
 			},
 		}
 		rejectUC := newTestUsecase(rejectClients, rejectLookup)
@@ -160,9 +161,9 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 			AccountExistsByIDFn: func(context.Context, string) (bool, error) {
 				return true, nil
 			},
-			FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) {
+			FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
 				clientTouched = true
-				return nil, domain.ErrNotFound
+				return domainrepo.ClientIdentity{}, domain.ErrNotFound
 			},
 		}
 		clients := &mockClientsRepo{
@@ -194,8 +195,8 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 			AccountExistsByIDFn: func(context.Context, string) (bool, error) {
 				return false, boom
 			},
-			FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) {
-				return nil, domain.ErrNotFound
+			FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
+				return domainrepo.ClientIdentity{}, domain.ErrNotFound
 			},
 		}
 		uc := newTestUsecase(clients, lookup)
@@ -211,8 +212,8 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 			AccountExistsByIDFn: func(context.Context, string) (bool, error) {
 				return false, nil
 			},
-			FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) {
-				return &entity.Client{ID: validPhone, Name: "Ana", Phone: validPhone}, nil
+			FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
+				return domainrepo.ClientIdentity{ID: validPhone, Name: "Ana"}, nil
 			},
 		}
 		clients := &mockClientsRepo{
@@ -244,8 +245,8 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 			AccountExistsByIDFn: func(context.Context, string) (bool, error) {
 				return false, nil
 			},
-			FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) {
-				return &entity.Client{ID: "550e8400-e29b-41d4-a716-446655440000", Name: "Legacy", Phone: validPhone}, nil
+			FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
+				return domainrepo.ClientIdentity{ID: "550e8400-e29b-41d4-a716-446655440000", Name: "Legacy"}, nil
 			},
 		}
 		clients := &mockClientsRepo{
@@ -369,8 +370,8 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 		lookup := &mockRegistrationLookup{
 			AccountExistsByIDFn: func(context.Context, string) (bool, error) { return false, nil },
-			FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) {
-				return &entity.Client{ID: validPhone, Name: "Ana", Phone: validPhone}, nil
+			FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
+				return domainrepo.ClientIdentity{ID: validPhone, Name: "Ana"}, nil
 			},
 		}
 		uc := NewGetOrCreateClientUseCase(&mockClientsRepo{}, lookup, newRegistrationRateLimiter(10, time.Now), logger)
@@ -391,8 +392,10 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 		var buf bytes.Buffer
 		logger := slog.New(slog.NewTextHandler(&buf, nil))
 		lookup := &mockRegistrationLookup{
-			AccountExistsByIDFn:    func(context.Context, string) (bool, error) { return true, nil },
-			FindClientByPhoneAnyFn: func(context.Context, string) (*entity.Client, error) { return nil, domain.ErrNotFound },
+			AccountExistsByIDFn: func(context.Context, string) (bool, error) { return true, nil },
+			FindClientByPhoneAnyFn: func(context.Context, string) (domainrepo.ClientIdentity, error) {
+				return domainrepo.ClientIdentity{}, domain.ErrNotFound
+			},
 		}
 		uc := NewGetOrCreateClientUseCase(&mockClientsRepo{}, lookup, newRegistrationRateLimiter(10, time.Now), logger)
 

@@ -97,8 +97,8 @@ func TestRegistrationLookupFindClientByPhoneAny(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FindClientByPhoneAny: %v", err)
 		}
-		if got.ID != legacy || got.Phone != phone {
-			t.Errorf("got (id, phone) = (%q, %q), want (%q, %q)", got.ID, got.Phone, legacy, phone)
+		if got.ID != legacy || got.Name != "Legacy" {
+			t.Errorf("got (id, name) = (%q, %q), want (%q, %q)", got.ID, got.Name, legacy, "Legacy")
 		}
 	})
 
