@@ -1,30 +1,24 @@
-// Package validation provides reusable input-format validators for the project.
+// Package validation is an intentionally empty, doc-only package for now.
 //
-// This package is responsible for input-format validation only:
-//   - ValidateEmail(s string) error
-//   - ValidatePhone(s string) error
-//   - ValidateTime(s, format string) error
-//   - ValidateLatitude(f float64) error
-//   - ValidateLongitude(f float64) error
-//   - ValidateRFC3339(s string) error
-//   - ValidateHHMM(s string) error
-//   - ValidateISO8601UTC(s string) error    // YYYY-MM-DDTHH:MM:SS.000Z (storage format)
-//   - etc.
+// Decision (D3, odd/tasks/code-hardening-followups.md): the data-access spec
+// forbids internal/repository from importing this package, phone validation is
+// single-sourced in internal/domain/entity (entity.Client.HasValidPhone, the
+// E.164 subset rule), and no duplicated logic remains to promote — so forcing
+// content here would be a premature abstraction (AGENTS.md). The package earns
+// validators only when a genuinely cross-cutting rule appears that no single
+// domain entity, use case, or adapter owns.
 //
-// Business-domain semantic errors (e.g., "el profesional no trabaja los domingos")
-// live in internal/repository/errors.go as SemanticError{Code, Message, Cause}.
-// This package does NOT own those error types.
-//
-// Consumers of this package:
-//   - The config-wizard TUI (internal/tui) to validate user input field-by-field
-//   - The MCP handlers (internal/mcp) to validate tool arguments from Hermes
-//
-// This is a leaf package — it has no dependency on internal/repository.
-// For the full error contract (sentinels + SemanticError), see the data-access spec.
-//
-// Error messages are written in neutral Spanish to match the project's
-// documentation language and to provide clear, actionable feedback to end
-// users. Stack traces are NEVER included in the message sent to the LLM.
-// Server-side logs may include the full wrapped error via
-// fmt.Errorf("...: %w", err).
+// When it earns content:
+//   - Validators belong here only if they are shared across layers (the
+//     "shared edges" row of the layer map). Single-use rules stay next to
+//     their caller — see the header of internal/repository/validation.go for
+//     the ratified rationale and its spec constraints.
+//   - Error contract: business-domain semantic errors are
+//     *domain.SemanticError{Code, Message, Cause} defined in
+//     internal/domain/errors.go. This package does NOT own error types and
+//     must stay a leaf package with no imports from other internal packages.
+//   - Error messages are written in neutral Spanish, actionable for end
+//     users. Stack traces are NEVER included in the message sent to the LLM;
+//     server-side logs may include the full wrapped error via
+//     fmt.Errorf("...: %w", err).
 package validation

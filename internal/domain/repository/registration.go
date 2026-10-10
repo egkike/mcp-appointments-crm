@@ -2,9 +2,16 @@ package repository
 
 import (
 	"context"
-
-	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
+
+// ClientIdentity is the minimal client identity the anonymous registration
+// path consumes: just the row id and display name. It is deliberately not an
+// *entity.Client: the registration lookup must not materialize PII (email,
+// preferences) or audit columns that no caller reads.
+type ClientIdentity struct {
+	ID   string
+	Name string
+}
 
 // RegistrationLookup is the narrow, auth-free read port the anonymous
 // registration use case (get_or_create_client) consumes before any caller
@@ -34,10 +41,11 @@ type RegistrationLookup interface {
 	// A missing row is (false, nil), never domain.ErrNotFound.
 	AccountExistsByID(ctx context.Context, id string) (bool, error)
 
-	// FindClientByPhoneAny returns the client whose phone column equals phone,
-	// whatever its id: the registration use case distinguishes an existing
-	// id == phone row (idempotent no-op) from a legacy id != phone row
-	// (explicit conflict). A missing row returns domain.ErrNotFound, matching
-	// ClientsRepo.FindByPhone semantics.
-	FindClientByPhoneAny(ctx context.Context, phone string) (*entity.Client, error)
+	// FindClientByPhoneAny returns the identity of the client whose phone
+	// column equals phone, whatever its id: the registration use case
+	// distinguishes an existing id == phone row (idempotent no-op) from a
+	// legacy id != phone row (explicit conflict). Only the id and name are
+	// read (data minimization); a missing row returns domain.ErrNotFound,
+	// matching ClientsRepo.FindByPhone semantics.
+	FindClientByPhoneAny(ctx context.Context, phone string) (ClientIdentity, error)
 }

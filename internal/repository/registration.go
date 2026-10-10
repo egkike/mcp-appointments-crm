@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 
-	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
 
@@ -39,7 +38,7 @@ func (r *RegistrationLookup) AccountExistsByID(ctx context.Context, id string) (
 }
 
 // FindClientByPhoneAny delegates to the auth-free phone lookup that returns the
-// row whatever its id.
-func (r *RegistrationLookup) FindClientByPhoneAny(ctx context.Context, phone string) (*entity.Client, error) {
+// row's minimal identity (id + name) whatever its id.
+func (r *RegistrationLookup) FindClientByPhoneAny(ctx context.Context, phone string) (domainrepo.ClientIdentity, error) {
 	return r.clients.FindClientByPhoneAny(ctx, phone)
 }
