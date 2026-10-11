@@ -32,8 +32,10 @@ func NewUpdateProfessionalUseCase(professionals domainrepo.ProfessionalsRepo, lo
 // persists it.
 //
 // The read-first flow separates "the professional does not exist" (mapped here)
-// from the domain.ErrNotFound the repository raises when a specialty references
-// a service that does not exist. Name/status rules stay in
+// from the errors the repository raises on the write: domain.ErrRowGone when the
+// row vanished between the read and the write (concurrent delete), and
+// domain.ErrNotFound when a specialty references a service that does not exist.
+// Name/status rules stay in
 // entity.Professional.Validate(); specialty existence stays in
 // validateSpecialtiesExist (both invoked by the repository).
 func (uc *UpdateProfessionalUseCase) Execute(ctx context.Context, input dto.UpdateProfessionalInput) (*entity.Professional, error) {
@@ -82,10 +84,18 @@ func (uc *UpdateProfessionalUseCase) Execute(ctx context.Context, input dto.Upda
 				Message: "los datos del profesional no son válidos: revisá el nombre y el estado (active o inactive)",
 				Cause:   err,
 			}
+		case errors.Is(err, domain.ErrRowGone):
+			// The row was deleted between FindByID and Update. The pre-UPDATE
+			// specialty check already ran, so RowsAffected==0 can only mean the
+			// professional is gone.
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeNotFound,
+				Message: "el profesional indicado no existe.",
+				Cause:   err,
+			}
 		case errors.Is(err, domain.ErrNotFound):
 			// Reached when a specialty references a service that does not
-			// exist; a concurrent deletion of the professional would surface
-			// with the same code.
+			// exist.
 			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeNotFound,
 				Message: "uno de los servicios indicados en las especialidades no existe",

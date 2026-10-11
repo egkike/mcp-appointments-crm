@@ -153,7 +153,8 @@ func (r *ProfessionalsRepo) FindActive(ctx context.Context) ([]*entity.Professio
 }
 
 // Update updates an existing professional. Returns domain.ErrInvalidInput for invalid
-// fields, domain.ErrNotFound if no row matches or if a specialty references a non-existent service.
+// fields, domain.ErrNotFound if a specialty references a non-existent service, and
+// domain.ErrRowGone when the row disappears between a read and this write.
 // Requires admin or owner role.
 func (r *ProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
@@ -192,7 +193,7 @@ func (r *ProfessionalsRepo) Update(ctx context.Context, p *entity.Professional) 
 		return fmt.Errorf("actualizar profesional: filas afectadas: %w", err)
 	}
 	if n == 0 {
-		return fmt.Errorf("actualizar profesional: %w", domain.ErrNotFound)
+		return fmt.Errorf("actualizar profesional: la fila desapareció durante la operación: %w", domain.ErrRowGone)
 	}
 	return nil
 }

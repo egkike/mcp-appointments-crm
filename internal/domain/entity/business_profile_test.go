@@ -443,3 +443,34 @@ func TestBusinessProfile_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestBusinessProfile_validateBusinessHoursJSON_deterministicFirstError(t *testing.T) {
+	// Two invalid days in randomized map order: key "9" fails the day-key rule
+	// ("clave de día"), key "2" fails the HH:MM rule. The sorted-first key ("2")
+	// must be reported every run — a key-order regression would surface the
+	// "clave de día" error instead.
+	bp := &BusinessProfile{BusinessHours: `{"9":{"open":"09:00","close":"18:00"},"2":{"open":"25:00","close":"18:00"}}`}
+	err := bp.validateBusinessHoursJSON()
+	if err == nil {
+		t.Fatal("validateBusinessHoursJSON() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "día 2") || !strings.Contains(err.Error(), "HH:MM") {
+		t.Errorf("validateBusinessHoursJSON() error = %q, want the sorted-first day (\"2\") HH:MM error", err)
+	}
+	if strings.Contains(err.Error(), "clave de día") {
+		t.Errorf("validateBusinessHoursJSON() error = %q, want the day-2 HH:MM error, not the key-9 rule", err)
+	}
+}
+
+func TestBusinessProfile_parseBusinessHours_deterministicFirstError(t *testing.T) {
+	// Two invalid day keys ("9" and "8"): the sorted-first key ("8") must be
+	// reported every run.
+	bp := &BusinessProfile{BusinessHours: `{"9":{"open":"09:00","close":"18:00"},"8":{"open":"09:00","close":"18:00"}}`}
+	_, err := bp.parseBusinessHours()
+	if err == nil {
+		t.Fatal("parseBusinessHours() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), `"8"`) {
+		t.Errorf("parseBusinessHours() error = %q, want the sorted-first key (\"8\") error", err)
+	}
+}

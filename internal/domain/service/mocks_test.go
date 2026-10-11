@@ -47,7 +47,9 @@ type mockBusinessProfileRepo struct {
 func (m *mockBusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile, error) {
 	return m.OnGet(ctx)
 }
-func (m *mockBusinessProfileRepo) Update(context.Context, *entity.BusinessProfile) error { return nil }
+func (m *mockBusinessProfileRepo) Update(context.Context, *entity.BusinessProfile) (*entity.BusinessProfile, error) {
+	return nil, nil
+}
 
 type mockBusinessHoursExceptionRepo struct {
 	OnGet func(context.Context, time.Time) (*entity.BusinessHoursException, error)
@@ -71,8 +73,10 @@ type mockSchedulesRepo struct {
 func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, pid string, day int) (*entity.Schedule, error) {
 	return m.OnFindByProfessionalAndDay(ctx, pid, day)
 }
-func (m *mockSchedulesRepo) Upsert(context.Context, *entity.Schedule) error { return nil }
-func (m *mockSchedulesRepo) Delete(context.Context, string, int) error      { return nil }
+func (m *mockSchedulesRepo) Upsert(context.Context, *entity.Schedule) (*entity.Schedule, error) {
+	return nil, nil
+}
+func (m *mockSchedulesRepo) Delete(context.Context, string, int) error { return nil }
 
 type mockBookingsRepo struct {
 	OnFindOverlapping func(context.Context, string, time.Time, time.Time) ([]*entity.Booking, error)

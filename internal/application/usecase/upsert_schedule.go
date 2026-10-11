@@ -30,9 +30,12 @@ func NewUpsertScheduleUseCase(schedules domainrepo.SchedulesRepo, logger *slog.L
 // Execute writes the day slot and returns the row as stored.
 //
 // Day range (0=Sunday..6=Saturday), the HH:MM format and start<end are enforced
-// by SchedulesRepo.Upsert; this use case only assembles the entity. The stored
-// row is read back because the schedules primary key is assigned by SQLite, so
-// the in-memory entity would come back without its ID.
+// by SchedulesRepo.Upsert; this use case only assembles the entity. Upsert
+// returns the persisted row from the write itself (the schedules primary key is
+// assigned by SQLite, so the in-memory entity would come back without its ID),
+// so this use case issues no second read: a separate, non-transactional
+// FindByProfessionalAndDay could observe a concurrent upsert and answer with
+// another writer's row.
 //
 // Foreign key: schedules.professional_id references professionals(id)
 // (internal/db/schema.go). SchedulesRepo.Upsert classifies the resulting
@@ -53,7 +56,8 @@ func (uc *UpsertScheduleUseCase) Execute(ctx context.Context, input dto.UpsertSc
 		EndTime:        input.EndTime,
 	}
 
-	if err := uc.schedules.Upsert(ctx, schedule); err != nil {
+	stored, err := uc.schedules.Upsert(ctx, schedule)
+	if err != nil {
 		switch {
 		case errors.Is(err, domain.ErrInvalidInput):
 			return nil, &domain.SemanticError{
@@ -70,11 +74,6 @@ func (uc *UpsertScheduleUseCase) Execute(ctx context.Context, input dto.UpsertSc
 			return nil, &domain.SemanticError{Code: domain.ErrCodeNotFound, Message: "el profesional indicado no existe", Cause: err}
 		}
 		return nil, fmt.Errorf("upsert_schedule: %w", err)
-	}
-
-	stored, err := uc.schedules.FindByProfessionalAndDay(ctx, input.ProfessionalID, input.DayOfWeek)
-	if err != nil {
-		return nil, fmt.Errorf("upsert_schedule: leer horario guardado: %w", err)
 	}
 
 	logMaintenanceMutation(uc.logger, caller, "upsert_schedule", "schedule", maintenanceScheduleID(input.ProfessionalID, input.DayOfWeek), "upsert")

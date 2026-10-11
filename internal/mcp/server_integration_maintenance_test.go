@@ -709,7 +709,7 @@ func TestIntegrationMaintenanceScheduleLifecycle(t *testing.T) {
 	var created scheduleOut
 	decodeToolStructured(t, result, &created)
 	if created.ID == 0 {
-		t.Fatal("upsert_schedule returned schedule id 0; the stored row was not read back")
+		t.Fatal("upsert_schedule returned schedule id 0; the adapter must return the row written by the upsert")
 	}
 	if created.ProfessionalID != "p1" || created.DayOfWeek != 3 {
 		t.Errorf("created = %+v; want professional p1 / day 3", created)
