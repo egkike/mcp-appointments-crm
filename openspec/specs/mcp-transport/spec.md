@@ -57,21 +57,25 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 - WHEN `initialize` is called
 - THEN response includes `protocolVersion`, `serverInfo.name`, `serverInfo.version`, and `capabilities.tools`
 
-### REQ-MT-005 — tools/list returns 20 tools
+### REQ-MT-005 — tools/list returns 23 tools
 
-`tools/list` MUST return exactly 20 tool descriptors (see REQ-MT-015 for names and schemas).
+`tools/list` MUST return exactly 23 tool descriptors (see REQ-MT-015 for names and schemas).
 
-(Previously: 19 tools — `feat-whatsapp-bot` adds `register_client`, the anonymous registration tool of D2; backported from `openspec/changes/archive/2026-10-08-feat-whatsapp-bot/specs/mcp-transport/spec.md`.)
+(Previously: 20 tools — `feat-whatsapp-bot` adds `register_client` (19 → 20); that delta was backported into the base spec as a pre-step of this change; owner decision 2026-10-11.)
 
-(Previously: 6 tools — this change adds `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`.)
+(Previously: 19 tools — ADR-0015 adds the 8 owner-only maintenance tools `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`.)
 
-(Previously: 11 tools — ADR-0015 adds the 8 owner-only maintenance tools `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`.)
+(Previously: 11 tools — `feat-mcp-server-advanced` adds `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`.)
+
+(Previously: 6 tools — `feat-mcp-transport` baseline.)
+
+This change adds `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions` (20 → 23).
 
 #### Scenario: List returns all tools
 
 - GIVEN a connected client
 - WHEN `tools/list` is called
-- THEN the response MUST contain 20 tools: `check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`
+- THEN the response MUST contain 23 tools: `check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`
 ### REQ-MT-006 — tools/call dispatch
 
 `tools/call` MUST dispatch to the registered handler and return a JSON-RPC 2.0 result or error.
@@ -203,6 +207,9 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 | `upsert_schedule` | owner (ADR-0015) | `{professional_id, day_of_week (0=domingo..6=sábado), start_time, end_time}` HH:MM | Schedule as stored (id stable across re-upsert) |
 | `delete_schedule` | owner (ADR-0015) | `{professional_id, day_of_week}` | `{professional_id, day_of_week, status: "deleted"}` |
 | `register_client` | anonymous — no RBAC role entry; reachable ONLY through the static path allowlist evaluated before caller resolution, which requires a non-empty `X-Caller-Id` (see `auth-middleware` and `client-registration`) | `{display_name?}` — no field may set the phone; unknown fields are rejected | `{client_id, display_name, created}` (`client_id` is the header phone; `created = false` for an existing row) |
+| `create_hours_exception` | owner (ADR-0015) | `{exception_date (YYYY-MM-DD), is_closed (bool), open_time? (HH:MM), close_time? (HH:MM), reason?}` — `open_time`/`close_time` are required when `is_closed=false` and forbidden when `true`; `open_time < close_time` | `HoursExceptionOut` — `{id, exception_date, is_closed, open_time?, close_time?, reason?}` (the stored row, read back so `id` is known; timestamps hidden per PRD §513, mirroring `serviceOut`) |
+| `delete_hours_exception` | owner (ADR-0015) | `{exception_id (int)}` | `{exception_id, status: "deleted"}` |
+| `list_hours_exceptions` | owner (ADR-0015) | `{from (YYYY-MM-DD), to (YYYY-MM-DD)}` — both required, range inclusive | `[]HoursExceptionOut` ordered by `exception_date` ASC; empty range ⇒ `[]`, never an error |
 
 > **get_booking role semantics** (RDD R3-001): clients MAY retrieve their own bookings — the RBAC entry admits all four roles and `auth.AuthorizeBookingAccess` inside the use case enforces cross-tenant isolation (client → own bookings only; staff → linked professional's calendar; admin/owner → any).
 
@@ -213,6 +220,12 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 > **register_client role semantics** (feat-whatsapp-bot D2): the tool is the only one reachable without a resolved caller. It carries NO RBAC role entry in either layer and derives NO role from configuration, headers or the body; the only identity signal is the non-empty `X-Caller-Id` header, and the use case accepts no role parameter. Its guards are the `accounts` collision rejection and the per-phone rate limit (`client-registration`), not role checks.
 
 > **Location contract fields** (feat-whatsapp-bot D4): `get_business_profile` gains the derived output field `maps_url`, present if and only if both `latitude` and `longitude` are set (value `https://maps.google.com/?q=<lat>,<long>`, plain decimal notation; omitted otherwise). `update_business_profile` gains the optional input `location_uri`, the `geo:lat,long` alternative to the numeric pair; the transport adapter parses it into the numeric fields so the use case keeps receiving normalized numbers only. Both are additive: without them the previous wire shapes stay valid. Full behavior is pinned in `business-profile`.
+
+> **Exception-tools role semantics** (ADR-0015, feat-hours-exception-tool D5): the 3 tools are owner-only at BOTH layers — the `ToolRBAC` row `{auth.RoleOwner}` in the composition root **and** `auth.RequireRole(ctx, auth.RoleOwner)` inside each use case (AGENTS.md double enforcement). The repository's own `Create`/`Delete` guard remains `RequireRole(admin, owner)` and is NOT modified, so the layered guards are, from outer to inner: ToolRBAC `{owner}` → use-case `RequireRole(owner)` → repository `RequireRole(admin, owner)` → SQL `UNIQUE(exception_date)`. Admin is never granted through MCP (ADR-0015 Decision 2 keeps the partial admin scope deferred).
+>
+> **Exception-tools semantics** (feat-hours-exception-tool D1–D10): exceptions are **business-wide**, keyed by `exception_date` with no professional scoping (PRD §3.7.3; the table has no `professional_id`). There is **no update tool**: the repository documents exceptions as immutable and mandates delete + create to change a date (`internal/repository/business_hours_exception.go:19-22`, D3). Validation (date format/calendar validity, `is_closed`↔times consistency, `HH:MM`, `open < close`, uniqueness) stays in the repository and is **not** duplicated at the transport (ADR-0015 drift mitigation; D8). Semantic errors are LLM-facing Spanish `-32002`. The three tools take effect on the read path with **no read-path change**, because `check_availability` and `create_booking`/`reschedule_booking` already consume `BusinessHoursExceptionRepo.Get`.
+>
+> **`list_hours_exceptions` read scope note:** `REQ-BHE-AUTH-002` (capability `business-hours-exception`) keeps `Get`/`List` open to all authenticated callers at the **repository** layer because they sit on the availability hot path; the **MCP tool** `list_hours_exceptions` is nevertheless owner-only (maintenance surface). Both statements hold: the repository requirement is unchanged, only the transport surface is narrowed.
 
 #### Scenario: Tool input validated
 
@@ -262,11 +275,33 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 - WHEN `get_pending_alerts`, `mark_alert_as_sent` or `get_loyalty_report` is called
 - THEN the response MUST be a JSON-RPC error with code `-32001` and message `"no tienes permiso para realizar esta acción"` (REQ-MT-008)
 
+#### Scenario: RBAC enforced on the hours-exception tools
+
+- GIVEN an admin, staff or client caller
+- WHEN `create_hours_exception`, `delete_hours_exception` or `list_hours_exceptions` is called
+- THEN the response MUST be a JSON-RPC error with code `-32001` and message `"no tienes permiso para realizar esta acción"`
+- AND no exception row MUST be created, deleted or returned
+
 #### Scenario: Search tools admit any authenticated caller at the transport (Fase 3)
 
 - GIVEN any authenticated caller (owner, admin, staff or client)
 - WHEN `search_clients_advanced` or `search_services_advanced` is called
 - THEN the transport MUST NOT reject on role; the result or the semantic scoping error comes from the use case layer
+
+#### Scenario: Hours-exception input validated
+
+- GIVEN a `create_hours_exception` call missing `exception_date` or `is_closed`
+- WHEN dispatched
+- THEN response MUST contain a JSON-RPC error indicating invalid input
+- GIVEN an `is_closed: false` call without `open_time` or `close_time`, or with `open_time >= close_time`
+- WHEN dispatched
+- THEN the response MUST be a JSON-RPC error with code `-32002` and a semantic Spanish message, and no row MUST be written
+- GIVEN a `delete_hours_exception` call missing `exception_id`
+- WHEN dispatched
+- THEN response MUST contain a JSON-RPC error indicating invalid input
+- GIVEN a `list_hours_exceptions` call missing `from` or `to`
+- WHEN dispatched
+- THEN response MUST contain a JSON-RPC error indicating invalid input
 ### REQ-MT-016 — Spanish semantic errors for all tools
 
 All tools MUST return `*domain.SemanticError` Spanish messages for business-rule failures (overlap, not-working-day, etc.).
