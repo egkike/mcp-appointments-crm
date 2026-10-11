@@ -38,3 +38,11 @@ Resolved from repository/PRD evidence while drafting `openspec/changes/feat-hour
 ## Process
 
 Spec phase first (proposal/design/spec deltas under `openspec/changes/feat-hours-exception-tool/`), owner review, ff-merge per docs flow; then implementation phases with work units ≤ ~100 lines, chained PRs if over budget. Fallback gate (no native review retry while #3991/#5226 unfixed).
+
+## Spec phase commit (2026-10-11)
+
+- `4835418` — base mcp-transport spec reconciled 19→20 (backport of the feat-whatsapp-bot delta; pre-step for the 20→23 chain).
+- `5c9fc39` — change dir committed: proposal (D1–D10 + 5 OQs resolved per owner decisions), design, tasks (4 phases / 9 WUs ≤100 lines), deltas (REQ-MT-005/015 20→23 + REQ-BHE-MCP-001..007, created_at hidden from wire, singular capability dir).
+- **Owner review**: 'Dale procede' 2026-10-11 — implementation authorized.
+- **NEXT**: phase 1 (TASK-1.1..1.4, PR1) → gate → owner commit approval → PR1 merge → phase 2 (PR2) → phase 3 (PR3). Per tasks.md: OQ-1/OQ-2 resolved (23 tools; singular dir).
+- **GGA exception (owner override 2026-10-11)**: the phase-1 commit landed with --no-verify after 3 consecutive STRICT_MODE ambiguous blocks (underlying verdict visibly PASSED in all three). This overrides the tasks.md Phase-4 'never --no-verify' rule BY EXPLICIT OWNER DECISION for this commit only; the review content ran and passed each time. Upstream suggestion recorded: relax the exactly-one-STATUS-line parser (first-STATUS-wins or strip tool-echo lines).
