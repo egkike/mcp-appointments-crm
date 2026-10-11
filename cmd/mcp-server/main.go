@@ -398,6 +398,15 @@ func run(ctx context.Context) error {
 	upsertScheduleUC := usecase.NewUpsertScheduleUseCase(schedulesRepo, logger)
 	deleteScheduleUC := usecase.NewDeleteScheduleUseCase(schedulesRepo, logger)
 
+	// feat-hours-exception-tool (PR2): the three owner-only exception use cases
+	// over the SAME BusinessHoursExceptionRepo the availability read path already
+	// consumes (no repository, schema or read-path change). The owner-only gate
+	// is enforced twice, exactly like the maintenance writes above: the ToolRBAC
+	// rows below and auth.RequireRole(RoleOwner) inside each use case.
+	createHoursExceptionUC := usecase.NewCreateHoursExceptionUseCase(bizHoursExRepo, logger)
+	deleteHoursExceptionUC := usecase.NewDeleteHoursExceptionUseCase(bizHoursExRepo, logger)
+	listHoursExceptionsUC := usecase.NewListHoursExceptionsUseCase(bizHoursExRepo)
+
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
 	// Every /mcp request must carry X-Caller-Id. Three tools deliberately have
@@ -433,6 +442,12 @@ func run(ctx context.Context) error {
 		"update_professional":     {auth.RoleOwner},
 		"upsert_schedule":         {auth.RoleOwner},
 		"delete_schedule":         {auth.RoleOwner},
+
+		// Business-hours exception tools (feat-hours-exception-tool, D5):
+		// owner-only, mirroring the maintenance rows above.
+		"create_hours_exception": {auth.RoleOwner},
+		"delete_hours_exception": {auth.RoleOwner},
+		"list_hours_exceptions":  {auth.RoleOwner},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
 
@@ -465,6 +480,10 @@ func run(ctx context.Context) error {
 		UpdateProfessional:    updateProfessionalUC,
 		UpsertSchedule:        upsertScheduleUC,
 		DeleteSchedule:        deleteScheduleUC,
+
+		CreateHoursException: createHoursExceptionUC,
+		DeleteHoursException: deleteHoursExceptionUC,
+		ListHoursExceptions:  listHoursExceptionsUC,
 	})
 
 	mux := http.NewServeMux()
