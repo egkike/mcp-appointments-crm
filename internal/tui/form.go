@@ -24,6 +24,10 @@ type formStep struct {
 	label        string
 	defaultValue string
 	validate     func(string) error
+	// sensitive marks a step whose value is a credential (the Telegram bot
+	// token). The wizard masks it while focused; every other step echoes
+	// normally.
+	sensitive bool
 }
 
 // formResult is the outcome of submitting one step of a wizard.
@@ -80,7 +84,18 @@ func newForm(title string, steps []formStep) formModel {
 
 // focus loads the current step into the input component and clears the step
 // error, so a rejected answer is never rendered against the next question.
+//
+// The input component is shared by every step, so the echo mode is reset on
+// each activation: a sensitive step masks with a bullet, every other step
+// restores plain echo. Leaving EchoPassword set would corrupt the display of
+// the following steps.
 func (f *formModel) focus() {
+	if f.steps[f.index].sensitive {
+		f.input.EchoMode = textinput.EchoPassword
+		f.input.EchoCharacter = '•'
+	} else {
+		f.input.EchoMode = textinput.EchoNormal
+	}
 	f.input.SetValue(f.steps[f.index].defaultValue)
 	f.input.CursorEnd()
 	f.input.Focus()

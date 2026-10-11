@@ -10,7 +10,6 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
-	"github.com/egkike/mcp-appointments-crm/internal/repository"
 )
 
 func TestToolSearchClientsAdvanced(t *testing.T) {
@@ -35,12 +34,20 @@ func TestToolSearchClientsAdvanced(t *testing.T) {
 	}
 }
 
+// TestToolSearchClientsAdvancedRejectsEmptyQuery runs the real mux (real SQLite
+// repository): the empty query reaches the repository FTS validator — the single
+// source of truth since PR #113 — and its semantic error must surface to the LLM
+// as JSON-RPC -32002 with the repository message. The transport no longer
+// pre-validates, so this pins the repository message, not a transport mirror.
 func TestToolSearchClientsAdvancedRejectsEmptyQuery(t *testing.T) {
-	srv, _ := newToolServer(t)
-	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "search_clients_advanced", `{"query_text":""}`))
-	wantErrorCode(t, resp, -32002)
-	if resp.Error.Message != msgQueryTextRequired {
-		t.Errorf("error.message = %q, want %q", resp.Error.Message, msgQueryTextRequired)
+	mux := newIntegrationMux(t)
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_clients_advanced","arguments":{"query_text":""}}}`
+	_, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, "owner-1", body))
+	if code != -32002 {
+		t.Errorf("code = %d; want -32002 (msg=%q)", code, msg)
+	}
+	if msg != "la consulta de búsqueda está vacía." {
+		t.Errorf("message = %q; want the repository empty-query message", msg)
 	}
 }
 
@@ -80,12 +87,19 @@ func TestToolSearchServicesAdvanced(t *testing.T) {
 	}
 }
 
+// TestToolSearchServicesAdvancedRejectsEmptyQuery mirrors the clients case on
+// the real mux: services_search_advanced's RBAC passes for owner, the empty
+// query reaches the repository validator, and the repository message surfaces as
+// -32002.
 func TestToolSearchServicesAdvancedRejectsEmptyQuery(t *testing.T) {
-	srv, _ := newToolServer(t)
-	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "search_services_advanced", `{"query_text":""}`))
-	wantErrorCode(t, resp, -32002)
-	if resp.Error.Message != msgQueryTextRequired {
-		t.Errorf("error.message = %q, want %q", resp.Error.Message, msgQueryTextRequired)
+	mux := newIntegrationMux(t)
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_services_advanced","arguments":{"query_text":""}}}`
+	_, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, "owner-1", body))
+	if code != -32002 {
+		t.Errorf("code = %d; want -32002 (msg=%q)", code, msg)
+	}
+	if msg != "la consulta de búsqueda está vacía." {
+		t.Errorf("message = %q; want the repository empty-query message", msg)
 	}
 }
 
@@ -120,24 +134,11 @@ func TestSearchToolsUseCaseErrorPropagates(t *testing.T) {
 	wantErrorCode(t, resp, -32603)
 }
 
-func TestMaxFTSQueryLenMatchesRepository(t *testing.T) {
-	if maxFTSQueryLen != repository.MaxFTSQueryLen {
-		t.Errorf("mcp.maxFTSQueryLen (%d) != repository.MaxFTSQueryLen (%d); keep transport and repository limits in sync", maxFTSQueryLen, repository.MaxFTSQueryLen)
-	}
-	if maxFTSQueryLen != 200 {
-		t.Errorf("mcp.maxFTSQueryLen = %d; want 200", maxFTSQueryLen)
-	}
-	if repository.MaxFTSQueryLen != 200 {
-		t.Errorf("repository.MaxFTSQueryLen = %d; want 200", repository.MaxFTSQueryLen)
-	}
-}
-
 // TestIntegrationSearchBadFTSQueryIsSemantic proves the F2 contract end to end
-// through the real mux: a query that passes the transport's own checks but is
-// rejected by the repository FTS validation reaches the LLM as JSON-RPC -32002
-// with the Spanish invalid-input message, not the generic -32603. Before the
-// fix the repository returned plain fmt.Errorf wraps, so the client saw
-// -32603 "error interno del servidor".
+// through the real mux: a query rejected by the repository FTS validation
+// reaches the LLM as JSON-RPC -32002 with the Spanish invalid-input message, not
+// the generic -32603. Before the fix the repository returned plain fmt.Errorf
+// wraps, so the client saw -32603 "error interno del servidor".
 func TestIntegrationSearchBadFTSQueryIsSemantic(t *testing.T) {
 	mux := newIntegrationMux(t)
 

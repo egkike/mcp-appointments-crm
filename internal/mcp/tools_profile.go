@@ -112,16 +112,16 @@ func (s *Server) registerProfileTool() {
 	mcp.AddTool(s.impl, s.mcpTool("get_business_profile", "Obtiene el perfil del negocio (nombre, descripción, horario y zona horaria)"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, _ getBusinessProfileIn) (*mcp.CallToolResult, businessProfileOut, error) {
 			if _, err := auth.RequireCaller(ctx); err != nil {
-				return nil, businessProfileOut{}, toMCPError(err)
+				return nil, businessProfileOut{}, s.toMCPError(err)
 			}
 			profile, err := s.cfg.GetBusinessProfile.Execute(ctx)
 			if err != nil {
-				return nil, businessProfileOut{}, toMCPError(err)
+				return nil, businessProfileOut{}, s.toMCPError(err)
 			}
 			if profile == nil {
 				// Fail closed: the port documents no non-nil contract; a
 				// (nil, nil) return is treated as not-found (GGA S-1).
-				return nil, businessProfileOut{}, toMCPError(&domain.SemanticError{
+				return nil, businessProfileOut{}, s.toMCPError(&domain.SemanticError{
 					Code:    domain.ErrCodeNotFound,
 					Message: "perfil del negocio no encontrado",
 				})

@@ -358,18 +358,18 @@ func (s *Server) registerBusinessProfileWriteTools() {
 		func(ctx context.Context, _ *mcp.CallToolRequest, in updateBusinessProfileIn) (*mcp.CallToolResult, businessProfileOut, error) {
 			caller, err := auth.RequireCaller(ctx)
 			if err != nil {
-				return nil, businessProfileOut{}, toMCPError(err)
+				return nil, businessProfileOut{}, s.toMCPError(err)
 			}
 			input, err := toUpdateBusinessProfileInput(in, *caller)
 			if err != nil {
-				return nil, businessProfileOut{}, toMCPError(err)
+				return nil, businessProfileOut{}, s.toMCPError(err)
 			}
 			profile, err := s.cfg.UpdateBusinessProfile.Execute(ctx, input)
 			if err != nil {
-				return nil, businessProfileOut{}, toMCPError(err)
+				return nil, businessProfileOut{}, s.toMCPError(err)
 			}
 			if profile == nil {
-				return nil, businessProfileOut{}, toMCPError(errNilMaintenanceEntity)
+				return nil, businessProfileOut{}, s.toMCPError(errNilMaintenanceEntity)
 			}
 			return nil, toBusinessProfileOut(profile), nil
 		})
@@ -386,7 +386,7 @@ func (s *Server) registerServiceWriteTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in createServiceIn) (*mcp.CallToolResult, serviceOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, serviceOut{}, toMCPError(err)
+					return nil, serviceOut{}, s.toMCPError(err)
 				}
 				service, err := s.cfg.CreateService.Execute(ctx, dto.CreateServiceInput{
 					Caller:          *caller,
@@ -397,10 +397,10 @@ func (s *Server) registerServiceWriteTools() {
 					Active:          in.Active,
 				})
 				if err != nil {
-					return nil, serviceOut{}, toMCPError(err)
+					return nil, serviceOut{}, s.toMCPError(err)
 				}
 				if service == nil {
-					return nil, serviceOut{}, toMCPError(errNilMaintenanceEntity)
+					return nil, serviceOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
 				return nil, toServiceOut(service), nil
 			})
@@ -412,7 +412,7 @@ func (s *Server) registerServiceWriteTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in updateServiceIn) (*mcp.CallToolResult, serviceOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, serviceOut{}, toMCPError(err)
+					return nil, serviceOut{}, s.toMCPError(err)
 				}
 				service, err := s.cfg.UpdateService.Execute(ctx, dto.UpdateServiceInput{
 					Caller:          *caller,
@@ -424,10 +424,10 @@ func (s *Server) registerServiceWriteTools() {
 					Active:          in.Active,
 				})
 				if err != nil {
-					return nil, serviceOut{}, toMCPError(err)
+					return nil, serviceOut{}, s.toMCPError(err)
 				}
 				if service == nil {
-					return nil, serviceOut{}, toMCPError(errNilMaintenanceEntity)
+					return nil, serviceOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
 				return nil, toServiceOut(service), nil
 			})
@@ -439,17 +439,17 @@ func (s *Server) registerServiceWriteTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteServiceIn) (*mcp.CallToolResult, dto.DeleteServiceResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.DeleteServiceResult{}, toMCPError(err)
+					return nil, dto.DeleteServiceResult{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.DeleteService.Execute(ctx, dto.DeleteServiceInput{
 					Caller:    *caller,
 					ServiceID: in.ServiceID,
 				})
 				if err != nil {
-					return nil, dto.DeleteServiceResult{}, toMCPError(err)
+					return nil, dto.DeleteServiceResult{}, s.toMCPError(err)
 				}
 				if result == nil {
-					return nil, dto.DeleteServiceResult{}, toMCPError(errNilMaintenanceEntity)
+					return nil, dto.DeleteServiceResult{}, s.toMCPError(errNilMaintenanceEntity)
 				}
 				return nil, *result, nil
 			})
@@ -466,7 +466,7 @@ func (s *Server) registerProfessionalWriteTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in createProfessionalIn) (*mcp.CallToolResult, professionalOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, professionalOut{}, toMCPError(err)
+					return nil, professionalOut{}, s.toMCPError(err)
 				}
 				professional, err := s.cfg.CreateProfessional.Execute(ctx, dto.CreateProfessionalInput{
 					Caller:        *caller,
@@ -478,10 +478,10 @@ func (s *Server) registerProfessionalWriteTools() {
 					Status:        in.Status,
 				})
 				if err != nil {
-					return nil, professionalOut{}, toMCPError(err)
+					return nil, professionalOut{}, s.toMCPError(err)
 				}
 				if professional == nil {
-					return nil, professionalOut{}, toMCPError(errNilMaintenanceEntity)
+					return nil, professionalOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
 				return nil, toProfessionalOut(professional), nil
 			})
@@ -493,7 +493,7 @@ func (s *Server) registerProfessionalWriteTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in updateProfessionalIn) (*mcp.CallToolResult, professionalOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, professionalOut{}, toMCPError(err)
+					return nil, professionalOut{}, s.toMCPError(err)
 				}
 				professional, err := s.cfg.UpdateProfessional.Execute(ctx, dto.UpdateProfessionalInput{
 					Caller:         *caller,
@@ -506,10 +506,10 @@ func (s *Server) registerProfessionalWriteTools() {
 					Status:         in.Status,
 				})
 				if err != nil {
-					return nil, professionalOut{}, toMCPError(err)
+					return nil, professionalOut{}, s.toMCPError(err)
 				}
 				if professional == nil {
-					return nil, professionalOut{}, toMCPError(errNilMaintenanceEntity)
+					return nil, professionalOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
 				return nil, toProfessionalOut(professional), nil
 			})
@@ -526,22 +526,22 @@ func (s *Server) registerScheduleWriteTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in upsertScheduleIn) (*mcp.CallToolResult, scheduleOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, scheduleOut{}, toMCPError(err)
+					return nil, scheduleOut{}, s.toMCPError(err)
 				}
 				if err := validateDayOfWeek(in.DayOfWeek); err != nil {
-					return nil, scheduleOut{}, toMCPError(err)
+					return nil, scheduleOut{}, s.toMCPError(err)
 				}
 				// entity.ValidHHMM is the documented single HH:MM format gate (see
 				// internal/domain/entity/business_profile.go); the transport reuses it
 				// so the edge check and the persisted shape can never drift.
 				if !entity.ValidHHMM(in.StartTime) {
-					return nil, scheduleOut{}, toMCPError(&domain.SemanticError{
+					return nil, scheduleOut{}, s.toMCPError(&domain.SemanticError{
 						Code:    domain.ErrCodeInvalidInput,
 						Message: "start_time debe tener formato HH:MM en 24h (ej. 09:30)",
 					})
 				}
 				if !entity.ValidHHMM(in.EndTime) {
-					return nil, scheduleOut{}, toMCPError(&domain.SemanticError{
+					return nil, scheduleOut{}, s.toMCPError(&domain.SemanticError{
 						Code:    domain.ErrCodeInvalidInput,
 						Message: "end_time debe tener formato HH:MM en 24h (ej. 18:00)",
 					})
@@ -554,10 +554,10 @@ func (s *Server) registerScheduleWriteTools() {
 					EndTime:        in.EndTime,
 				})
 				if err != nil {
-					return nil, scheduleOut{}, toMCPError(err)
+					return nil, scheduleOut{}, s.toMCPError(err)
 				}
 				if schedule == nil {
-					return nil, scheduleOut{}, toMCPError(errNilMaintenanceEntity)
+					return nil, scheduleOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
 				return nil, toScheduleOut(schedule), nil
 			})
@@ -569,10 +569,10 @@ func (s *Server) registerScheduleWriteTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteScheduleIn) (*mcp.CallToolResult, dto.DeleteScheduleResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.DeleteScheduleResult{}, toMCPError(err)
+					return nil, dto.DeleteScheduleResult{}, s.toMCPError(err)
 				}
 				if err := validateDayOfWeek(in.DayOfWeek); err != nil {
-					return nil, dto.DeleteScheduleResult{}, toMCPError(err)
+					return nil, dto.DeleteScheduleResult{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.DeleteSchedule.Execute(ctx, dto.DeleteScheduleInput{
 					Caller:         *caller,
@@ -580,10 +580,10 @@ func (s *Server) registerScheduleWriteTools() {
 					DayOfWeek:      in.DayOfWeek,
 				})
 				if err != nil {
-					return nil, dto.DeleteScheduleResult{}, toMCPError(err)
+					return nil, dto.DeleteScheduleResult{}, s.toMCPError(err)
 				}
 				if result == nil {
-					return nil, dto.DeleteScheduleResult{}, toMCPError(errNilMaintenanceEntity)
+					return nil, dto.DeleteScheduleResult{}, s.toMCPError(errNilMaintenanceEntity)
 				}
 				return nil, *result, nil
 			})

@@ -24,7 +24,7 @@ func (s *Server) registerLoyaltyTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in getLoyaltyReportIn) (*mcp.CallToolResult, dto.GetLoyaltyReportResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.GetLoyaltyReportResult{}, toMCPError(err)
+					return nil, dto.GetLoyaltyReportResult{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.GetLoyaltyReport.Execute(ctx, dto.GetLoyaltyReportInput{
 					Caller: *caller,
@@ -32,7 +32,7 @@ func (s *Server) registerLoyaltyTools() {
 					TopN:   in.TopN,
 				})
 				if err != nil {
-					return nil, dto.GetLoyaltyReportResult{}, toMCPError(err)
+					return nil, dto.GetLoyaltyReportResult{}, s.toMCPError(err)
 				}
 				if result == nil {
 					return nil, dto.GetLoyaltyReportResult{Results: []dto.LoyaltyReportEntry{}}, nil

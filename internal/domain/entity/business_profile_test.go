@@ -108,7 +108,10 @@ func TestBusinessProfile_GetOpenClose(t *testing.T) {
 	bp := &BusinessProfile{BusinessHours: bh}
 
 	t.Run("existing day returns hours", func(t *testing.T) {
-		open, close, ok := bp.GetOpenClose(1)
+		open, close, ok, err := bp.GetOpenClose(1)
+		if err != nil {
+			t.Fatalf("GetOpenClose(1) error = %v, want nil", err)
+		}
 		if !ok {
 			t.Fatal("GetOpenClose(1) returned ok=false, want true")
 		}
@@ -121,7 +124,10 @@ func TestBusinessProfile_GetOpenClose(t *testing.T) {
 	})
 
 	t.Run("saturday hours", func(t *testing.T) {
-		open, close, ok := bp.GetOpenClose(6)
+		open, close, ok, err := bp.GetOpenClose(6)
+		if err != nil {
+			t.Fatalf("GetOpenClose(6) error = %v, want nil", err)
+		}
 		if !ok {
 			t.Fatal("GetOpenClose(6) returned ok=false, want true")
 		}
@@ -133,28 +139,34 @@ func TestBusinessProfile_GetOpenClose(t *testing.T) {
 		}
 	})
 
-	t.Run("non-existing day returns false", func(t *testing.T) {
-		_, _, ok := bp.GetOpenClose(3)
+	t.Run("non-existing day returns false without error", func(t *testing.T) {
+		_, _, ok, err := bp.GetOpenClose(3)
 		if ok {
 			t.Error("GetOpenClose(3) returned ok=true, want false")
 		}
+		if err != nil {
+			t.Errorf("GetOpenClose(3) error = %v, want nil (legitimately closed)", err)
+		}
 	})
 
-	t.Run("invalid JSON returns false", func(t *testing.T) {
+	t.Run("invalid JSON returns false with the parse error", func(t *testing.T) {
 		bpBad := &BusinessProfile{BusinessHours: `{broken`}
-		_, _, ok := bpBad.GetOpenClose(1)
+		_, _, ok, err := bpBad.GetOpenClose(1)
 		if ok {
 			t.Error("GetOpenClose with invalid JSON returned ok=true, want false")
+		}
+		if err == nil {
+			t.Error("GetOpenClose with invalid JSON returned nil error, want the parse error")
 		}
 	})
 
 	t.Run("legacy zero-padded day keys normalize", func(t *testing.T) {
 		legacy := &BusinessProfile{BusinessHours: `{"01":{"open":"09:00","close":"18:00"},"007":{"open":"10:00","close":"14:00"}}`}
-		if _, _, ok := legacy.GetOpenClose(1); !ok {
-			t.Error(`GetOpenClose(1) = not ok; want legacy key "01" normalized to day 1`)
+		if _, _, ok, err := legacy.GetOpenClose(1); !ok || err != nil {
+			t.Errorf(`GetOpenClose(1) = ok=%v err=%v; want legacy key "01" normalized to day 1`, ok, err)
 		}
-		if _, _, ok := legacy.GetOpenClose(7); !ok {
-			t.Error(`GetOpenClose(7) = not ok; want legacy key "007" normalized to day 7`)
+		if _, _, ok, err := legacy.GetOpenClose(7); !ok || err != nil {
+			t.Errorf(`GetOpenClose(7) = ok=%v err=%v; want legacy key "007" normalized to day 7`, ok, err)
 		}
 	})
 }

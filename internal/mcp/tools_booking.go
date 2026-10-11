@@ -72,7 +72,7 @@ func (s *Server) registerBookingTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in checkAvailabilityIn) (*mcp.CallToolResult, dto.CheckAvailabilityResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.CheckAvailabilityResult{}, toMCPError(err)
+					return nil, dto.CheckAvailabilityResult{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.CheckAvailability.Execute(ctx, dto.CheckAvailabilityInput{
 					Caller:         *caller,
@@ -81,7 +81,7 @@ func (s *Server) registerBookingTools() {
 					StartDatetime:  in.StartDatetime,
 				})
 				if err != nil {
-					return nil, dto.CheckAvailabilityResult{}, toMCPError(err)
+					return nil, dto.CheckAvailabilityResult{}, s.toMCPError(err)
 				}
 				return nil, *result, nil
 			})
@@ -93,10 +93,10 @@ func (s *Server) registerBookingTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in createBookingIn) (*mcp.CallToolResult, dto.CreateBookingResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.CreateBookingResult{}, toMCPError(err)
+					return nil, dto.CreateBookingResult{}, s.toMCPError(err)
 				}
 				if in.Notes != nil && len(*in.Notes) > maxNotesLen {
-					return nil, dto.CreateBookingResult{}, toMCPError(&domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "Notas excede el largo máximo"})
+					return nil, dto.CreateBookingResult{}, s.toMCPError(&domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "Notas excede el largo máximo"})
 				}
 				result, err := s.cfg.CreateBooking.Execute(ctx, dto.CreateBookingInput{
 					Caller:         *caller,
@@ -107,7 +107,7 @@ func (s *Server) registerBookingTools() {
 					Notes:          in.Notes,
 				})
 				if err != nil {
-					return nil, dto.CreateBookingResult{}, toMCPError(err)
+					return nil, dto.CreateBookingResult{}, s.toMCPError(err)
 				}
 				return nil, *result, nil
 			})
@@ -119,14 +119,14 @@ func (s *Server) registerBookingTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in getBookingIn) (*mcp.CallToolResult, dto.GetBookingResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.GetBookingResult{}, toMCPError(err)
+					return nil, dto.GetBookingResult{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.GetBooking.Execute(ctx, dto.GetBookingInput{
 					Caller:    *caller,
 					BookingID: in.BookingID,
 				})
 				if err != nil {
-					return nil, dto.GetBookingResult{}, toMCPError(err)
+					return nil, dto.GetBookingResult{}, s.toMCPError(err)
 				}
 				return nil, *result, nil
 			})
@@ -138,14 +138,14 @@ func (s *Server) registerBookingTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in cancelBookingIn) (*mcp.CallToolResult, dto.CancelBookingResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.CancelBookingResult{}, toMCPError(err)
+					return nil, dto.CancelBookingResult{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.CancelBooking.Execute(ctx, dto.CancelBookingInput{
 					Caller:    *caller,
 					BookingID: in.BookingID,
 				})
 				if err != nil {
-					return nil, dto.CancelBookingResult{}, toMCPError(err)
+					return nil, dto.CancelBookingResult{}, s.toMCPError(err)
 				}
 				return nil, *result, nil
 			})
@@ -157,7 +157,7 @@ func (s *Server) registerBookingTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in rescheduleBookingIn) (*mcp.CallToolResult, dto.RescheduleBookingResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.RescheduleBookingResult{}, toMCPError(err)
+					return nil, dto.RescheduleBookingResult{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.RescheduleBooking.Execute(ctx, dto.RescheduleBookingInput{
 					Caller:       *caller,
@@ -165,7 +165,7 @@ func (s *Server) registerBookingTools() {
 					NewStartTime: in.NewStartDatetime,
 				})
 				if err != nil {
-					return nil, dto.RescheduleBookingResult{}, toMCPError(err)
+					return nil, dto.RescheduleBookingResult{}, s.toMCPError(err)
 				}
 				return nil, *result, nil
 			})

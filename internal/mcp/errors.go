@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
@@ -28,16 +29,26 @@ const codeBusinessError = -32002
 // toMCPError maps a tool-handler error to a JSON-RPC protocol error
 // (REQ-MT-015). Returning *jsonrpc.Error from a typed SDK handler makes the
 // SDK emit a JSON-RPC error object instead of packing the error into
-// CallToolResult.Content:
+// CallToolResult.Content. The contract has two halves — a generic message on
+// the wire AND a detailed server-side log for infrastructure failures:
 //
 //   - *domain.SemanticError (or any error wrapping one) → -32002 with the
-//     semantic Spanish message; the LLM client can act on it directly.
-//   - anything else → -32603 "error interno del servidor": infrastructure
-//     failures never leak internals to the client.
+//     semantic Spanish message; the LLM client can act on it directly, so it
+//     is an expected business outcome and is never logged as an error.
+//   - anything else → -32603 "error interno del servidor" PLUS a server-side
+//     Error log carrying the raw error. The client gets no internals, but an
+//     infra failure (SQLite disk I/O, corrupted WAL, ...) leaves a forensic
+//     trace instead of vanishing into an opaque envelope.
 //
-// A nil error stays nil (handlers call this only when err != nil, but the
-// guard is free).
-func toMCPError(err error) *jsonrpc.Error {
+// Only SemanticError.Message is serialized to the LLM (the -32002 payload).
+// SemanticError.Cause is for server-side logs only: it may embed raw caller
+// input (e.g. the %q echoes in validateExceptionDate), so it must never be
+// serialized to the client.
+//
+// It is a Server method so the collapse branch can reach the configured
+// logger. A nil error stays nil (handlers call this only when err != nil, but
+// the guard is free).
+func (s *Server) toMCPError(err error) *jsonrpc.Error {
 	if err == nil {
 		return nil
 	}
@@ -45,6 +56,11 @@ func toMCPError(err error) *jsonrpc.Error {
 	if errors.As(err, &sem) {
 		return &jsonrpc.Error{Code: codeBusinessError, Message: sem.Message}
 	}
+	logger := s.cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Error("tool handler failed", "err", err)
 	return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: msgInternal}
 }
 
@@ -116,9 +132,11 @@ func writeParseError(w http.ResponseWriter) {
 // statuses, deliberately:
 //
 //   - Protocol violations (malformed JSON, oversized body) → native HTTP
-//     400/413 plus a best-effort JSON-RPC envelope. This is the MCP-spec
-//     behavior for malformed requests; the envelope is a debugging aid for
-//     non-SDK clients, and SDK clients report the native status correctly.
+//     400/413. Malformed JSON carries a best-effort JSON-RPC -32700 envelope
+//     (writeParseError); an oversized body is a plain-text 413 by design
+//     today (http.Error, no JSON-RPC envelope). This is the MCP-spec behavior
+//     for malformed requests; the 400 envelope is a debugging aid for non-SDK
+//     clients, and SDK clients report the native status correctly.
 //   - Authorization failures (401/403/500) → HTTP 200 with a JSON-RPC error
 //     envelope. The go-sdk client treats any non-200 response as a transport
 //     failure and never parses the body; without the 200 envelope the LLM

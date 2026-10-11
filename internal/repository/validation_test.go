@@ -201,6 +201,64 @@ func TestValidateFTSQuery(t *testing.T) {
 	}
 }
 
+// TestValidateFTSQuery_ShapeContract pins every rejected FTS5 query shape in
+// one table (GGA request) and complements TestValidateFTSQuery without
+// replacing it. Rejections assert the full -32002 contract (F1/F2); the rule
+// column records which guard fires, so a future reorder of the checks is
+// visible in the test name/table rather than silently reassigning a shape.
+func TestValidateFTSQuery_ShapeContract(t *testing.T) {
+	tests := []struct {
+		name    string
+		query   string
+		rule    string // guard expected to reject; empty for accepted shapes
+		wantErr bool
+	}{
+		{"empty", "", "empty", true},
+		{"whitespace only", "   ", "empty", true},
+		{"length 201", strings.Repeat("a", MaxFTSQueryLen+1), "max length", true},
+		{"charset asterisk", "juan*", "charset", true},
+		{"charset plus", "a+b", "charset", true},
+		{"charset quotes", `"quoted"`, "charset", true},
+		{"term-boundary hyphen at end", "geo-", "term-boundary hyphen", true},
+		{"term-boundary hyphen before space", "a- b", "term-boundary hyphen", true},
+		{"term-boundary hyphen at start", "-geo", "term-boundary hyphen", true},
+		{"spaced hyphen operator", "a - b", "term-boundary hyphen", true},
+		{"paired hyphen operator", "a--b", "operator", true},
+		{"word AND", "foo AND bar", "operator", true},
+		{"word NOT at start", "NOT foo", "operator", true},
+		{"lowercase or at start", "or algo", "operator", true},
+		{"accepted hyphen interior", "geo-local", "", false},
+		{"accepted alphanumeric", "b2b", "", false},
+		{"accepted accented", "ÁÉÍ María", "", false},
+		{"accepted NEAR keyword", "a near b", "", false},
+		{"accepted length 200", strings.Repeat("a", MaxFTSQueryLen), "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateFTSQuery(tt.query)
+			if !tt.wantErr {
+				if err != nil {
+					t.Errorf("validateFTSQuery(%q) unexpected error: %v", tt.query, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validateFTSQuery(%q) expected rejection via %s, got nil", tt.query, tt.rule)
+			}
+			if !errors.Is(err, domain.ErrInvalidInput) {
+				t.Errorf("validateFTSQuery(%q) sentinel lost: %v", tt.query, err)
+			}
+			var sem *domain.SemanticError
+			if !errors.As(err, &sem) {
+				t.Fatalf("validateFTSQuery(%q) = %v (%T); want *domain.SemanticError", tt.query, err, err)
+			}
+			if sem.Code != domain.ErrCodeInvalidInput {
+				t.Errorf("validateFTSQuery(%q) Code = %q; want %q", tt.query, sem.Code, domain.ErrCodeInvalidInput)
+			}
+		})
+	}
+}
+
 // TestValidateFTSQuerySemanticMessages pins the four user-facing Spanish
 // messages (F2): SemanticError.Message is what reaches the LLM, so it must be
 // the clean message with no wrapped sentinel/error tail.

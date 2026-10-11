@@ -9,14 +9,16 @@ import (
 )
 
 // Location-contract semantic messages (feat-whatsapp-bot D4). The malformed and
-// mixed-numeric strings are pinned verbatim by design.md §3; the range and
-// clear-flag rows have no pinned wording, so they follow the same "Error: "
-// LLM-facing convention as the other semantic errors of this change.
+// mixed-numeric strings derive from the wording pinned by design.md §3; the
+// range and clear-flag rows have no pinned wording. All four stay unprefixed,
+// like every other LLM-facing semantic message of the server: the JSON-RPC
+// -32002 envelope already signals the failure, so the redundant "Error: "
+// prefix was removed to follow the dominant convention (owner decision, WU-C).
 const (
-	msgLocationURIMalformed = "Error: la ubicación no tiene un formato válido. Usá geo:lat,long (por ejemplo geo:-34.6037,-58.3816)."
-	msgLocationURIRange     = "Error: las coordenadas de la ubicación están fuera de rango (latitud -90..90, longitud -180..180)."
-	msgLocationURIMixed     = "Error: no puedo combinar una ubicación geo: con latitude/longitude numéricas."
-	msgLocationURIClear     = "Error: no puedo combinar una ubicación geo: con el borrado de latitude/longitude."
+	msgLocationURIMalformed = "la ubicación no tiene un formato válido. Usá geo:lat,long (por ejemplo geo:-34.6037,-58.3816)."
+	msgLocationURIRange     = "las coordenadas de la ubicación están fuera de rango (latitud -90..90, longitud -180..180)."
+	msgLocationURIMixed     = "no puedo combinar una ubicación geo: con latitude/longitude numéricas."
+	msgLocationURIClear     = "no puedo combinar una ubicación geo: con el borrado de latitude/longitude."
 )
 
 // geoCoordinatePattern is the strict numeric shape accepted inside a `geo:`

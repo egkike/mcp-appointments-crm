@@ -135,7 +135,7 @@ func transferSteps() []formStep {
 func hermesSteps(defaultPhone string) []formStep {
 	return []formStep{
 		{label: hermesPhoneLabel, defaultValue: defaultPhone, validate: admin.ValidatePhone},
-		{label: hermesTokenLabel, validate: admin.ValidateTelegramBotToken},
+		{label: hermesTokenLabel, validate: admin.ValidateTelegramBotToken, sensitive: true},
 		{label: hermesChatIDLabel, validate: admin.ValidateTelegramChatID},
 		{label: hermesOwnerPhoneLabel, defaultValue: defaultPhone, validate: admin.ValidatePhone},
 	}
