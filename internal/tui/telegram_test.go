@@ -75,6 +75,40 @@ func TestTelegramFieldsSummaryMasksTheToken(t *testing.T) {
 	}
 }
 
+// TestHermesWizardMasksTheTokenWhileTyping locks the token echo masking: the
+// Telegram bot token is a credential, so the wizard must render the password
+// mask while its step is focused and never the typed characters. The same
+// textinput is reused by every step, so the test also pins that the next step
+// goes back to plain echo (a stale EchoPassword would corrupt the chat id
+// display).
+func TestHermesWizardMasksTheTokenWhileTyping(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+
+	d := newDriver(t, f)
+	d.press("7")
+	d.press("enter") // accept the prefilled server phone
+
+	if d.model.form.index != 1 || d.model.form.steps[1].label != hermesTokenLabel {
+		t.Fatalf("step = %d, want the Telegram token field", d.model.form.index)
+	}
+
+	d.typeText(telegramToken)
+	tokenView := d.view()
+	if strings.Contains(tokenView, telegramToken) {
+		t.Errorf("token step leaks the typed secret\n%s", tokenView)
+	}
+	if !strings.Contains(tokenView, "•") {
+		t.Errorf("token step = %q, want the password echo character", tokenView)
+	}
+
+	d.press("enter")
+	d.typeText(telegramChatID)
+	if chatView := d.view(); !strings.Contains(chatView, telegramChatID) {
+		t.Errorf("chat id step = %q, want plain echo (the mask must not leak into the next step)", chatView)
+	}
+}
+
 func TestTelegramFieldsSummaryNeverEchoesAMalformedToken(t *testing.T) {
 	fields := NewTelegramFields("whatever", telegramChatID, telegramPhone)
 
