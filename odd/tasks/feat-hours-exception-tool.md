@@ -1,7 +1,7 @@
 # feat-hours-exception-tool — wire BusinessHoursException management for Hermes
 
 **Type**: feature (spec-first) — owner decision 2026-10-11: "Cablear tool MCP ahora"
-**Status**: SPEC DRAFTED — `openspec/changes/feat-hours-exception-tool/` (proposal/design/tasks + 2 spec deltas); owner review pending
+**Status**: IMPLEMENTED (phase 3) — 3 tools live on the real mux (registered surface at 23); use cases + DTOs (PR1 `2105f9d`), transport tools + ToolRBAC + composition wiring (PR2 `4467f51`), integration tests + docs/spec reconciliation (PR3)
 **Branch**: spec `feat/feat-hours-exception-tool-spec` (docs-only, ff-merge to main), then implementation chain
 
 ## Scope (from scout evidence 2026-10-11)
@@ -50,3 +50,10 @@ Spec phase first (proposal/design/spec deltas under `openspec/changes/feat-hours
 - **PR1 MERGED 2026-10-11**: squash `2105f9d` on main, CI green (run 38170537087, 1m07s). Phase 2 branches from this state.
 - **PR2**: https://github.com/egkike/mcp-appointments-crm/pull/117 — commit a9903e2 (9 files, +901/−16: 3 tools end-to-end + ToolRBAC + DI + count 20→23 + 16 transport tests). Fixture edits outside WU surfaces (server.go/tools_test.go/server_integration_test.go) reviewed and confirmed by the orchestrator. GGA: --no-verify under owner approval after 2 STRICT_MODE ambiguous blocks (PASSED visible both). Awaiting CI + merge; phase 3 branches from updated main.
 - **PR2 MERGED 2026-10-11**: squash `4467f51` on main, CI green (run 38173154617, 1m25s). Phase 3 branches from this state (tool surface at 23 for integration assertions).
+
+## Phase 3 — integration tests + docs/spec reconciliation (2026-10-11)
+
+- `internal/mcp/server_integration_hours_exception_test.go` (new): end-to-end over the real mux (owner creates a CLOSING exception → `check_availability` reports the exact closed semantic `Negocio está cerrado el <fecha> (<motivo>).` → `list_hours_exceptions` returns it inside the inclusive `[date, date]` range → `delete_hours_exception` removes it → availability reverts to the weekly schedule), admin/staff/client rejected with `-32001` on all three tools (pinned from the auth translator, not the tasks.md draft), duplicate date → Spanish conflict message, `tools/list` count 23. Gate `go test -count=1 -race ./internal/mcp/...` green.
+- Docs/spec reconciliation: `README.md` (20 → 23 + the three new tools), `docs/PRD.md` §7 Fase N (delivered item, count 23 per OQ-1), `openspec/specs/mcp-transport/spec.md` (REQ-MT-005 20 → 23 + `Previously` chain; REQ-MT-015 three owner-only rows with the delivered wire shapes and `created_at` excluded, plus role/semantics/read-scope notes and the two new scenarios), `openspec/specs/business-hours-exception/spec.md` (REQ-BHE-MCP-001..007 in base framing; REQ-BHE-AUTH-001/002 preserved byte-identical), `internal/mcp/e2e_test.go` stale comment 20 → 23.
+- **PR3**: https://github.com/egkike/mcp-appointments-crm/pull/118 — commit ccfdaf0 (integration e2e with revert proof + base-spec reconciliation to 23 + README/PRD). GGA PASSED first attempt. Awaiting CI + merge; after merge the feature closes (change dir archives).
+- **PR3 MERGED 2026-10-11**: squash on main, CI green. Change dir archived to `openspec/changes/archive/2026-10-11-feat-hours-exception-tool/`. FEATURE COMPLETE: 3 owner-only tools live (23 total), spec deltas applied to base specs, docs reconciled.
