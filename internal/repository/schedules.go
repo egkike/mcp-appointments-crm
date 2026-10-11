@@ -35,12 +35,14 @@ func validateDayOfWeek(day int) error {
 }
 
 // validateScheduleTimes checks that start_time and end_time are valid HH:MM format
-// and that start_time is strictly before end_time.
+// and that start_time is strictly before end_time. The format gate is
+// entity.ValidHHMM, the single source of truth shared with the config loader and
+// the availability service, so the repository path cannot drift from it.
 func validateScheduleTimes(startTime, endTime string) error {
-	if !timeHHMMRe.MatchString(startTime) {
+	if !entity.ValidHHMM(startTime) {
 		return fmt.Errorf("start_time %q no tiene formato HH:MM válido: %w", startTime, domain.ErrInvalidInput)
 	}
-	if !timeHHMMRe.MatchString(endTime) {
+	if !entity.ValidHHMM(endTime) {
 		return fmt.Errorf("end_time %q no tiene formato HH:MM válido: %w", endTime, domain.ErrInvalidInput)
 	}
 	if startTime >= endTime {
@@ -90,61 +92,77 @@ func (r *SchedulesRepo) FindByProfessionalAndDay(ctx context.Context, profession
 	return s, nil
 }
 
+// scheduleReturningColumns is the read-back projection shared by both upsert
+// branches, so the INSERT and UPDATE paths always scan the same shape.
+const scheduleReturningColumns = ` RETURNING id, professional_id, day_of_week, start_time, end_time`
+
+// scanStoredSchedule scans the row produced by scheduleReturningColumns.
+func scanStoredSchedule(row *sql.Row) (*entity.Schedule, error) {
+	stored := &entity.Schedule{}
+	if err := row.Scan(&stored.ID, &stored.ProfessionalID, &stored.DayOfWeek, &stored.StartTime, &stored.EndTime); err != nil {
+		return nil, err
+	}
+	return stored, nil
+}
+
 // Upsert inserts or updates a schedule. If a schedule already exists for the
 // (professional_id, day_of_week) combination, it updates the times; otherwise
-// it inserts a new row.
+// it inserts a new row. It returns the row as written by this call.
 // Returns domain.ErrInvalidInput if day_of_week is out of range or times are invalid.
 // Returns domain.ErrConflict if professional_id has no matching row in
 // professionals (schema.go, schedules.professional_id foreign key).
+// Returns domain.ErrNotFound if the matched row disappears before the update lands.
 // Requires admin or owner role.
-func (r *SchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) error {
+//
+// Both branches use INSERT/UPDATE ... RETURNING, a single atomic statement, so
+// the row returned is the one this call wrote. That closes the write/read race
+// the previous implementation had: it wrote with Exec and the use case then
+// issued a separate FindByProfessionalAndDay, which could observe a concurrent
+// upsert instead of this one.
+func (r *SchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) (*entity.Schedule, error) {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
-		return fmt.Errorf("upsert horario: %w", err)
+		return nil, fmt.Errorf("upsert horario: %w", err)
 	}
 
 	if err := validateDayOfWeek(s.DayOfWeek); err != nil {
-		return fmt.Errorf("upsert horario: %w", err)
+		return nil, fmt.Errorf("upsert horario: %w", err)
 	}
 	if err := validateScheduleTimes(s.StartTime, s.EndTime); err != nil {
-		return fmt.Errorf("upsert horario: %w", err)
+		return nil, fmt.Errorf("upsert horario: %w", err)
 	}
 
 	// Try INSERT first
-	_, err := r.db.ExecContext(ctx,
+	stored, err := scanStoredSchedule(r.db.QueryRowContext(ctx,
 		`INSERT INTO schedules (professional_id, day_of_week, start_time, end_time)
-		 VALUES (?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?)`+scheduleReturningColumns,
 		s.ProfessionalID, s.DayOfWeek, s.StartTime, s.EndTime,
-	)
+	))
 	if err == nil {
-		return nil
+		return stored, nil
 	}
 
 	// If UNIQUE constraint violation, UPDATE instead
 	if isUniqueViolation(err) {
-		result, updateErr := r.db.ExecContext(ctx,
+		stored, updateErr := scanStoredSchedule(r.db.QueryRowContext(ctx,
 			`UPDATE schedules SET start_time = ?, end_time = ?
-			 WHERE professional_id = ? AND day_of_week = ?`,
+			 WHERE professional_id = ? AND day_of_week = ?`+scheduleReturningColumns,
 			s.StartTime, s.EndTime, s.ProfessionalID, s.DayOfWeek,
-		)
+		))
 		if updateErr != nil {
-			return fmt.Errorf("upsert horario: actualizar: %w", updateErr)
+			if errors.Is(updateErr, sql.ErrNoRows) {
+				return nil, fmt.Errorf("upsert horario: profesional %s día %d no encontrado: %w",
+					s.ProfessionalID, s.DayOfWeek, domain.ErrNotFound)
+			}
+			return nil, fmt.Errorf("upsert horario: actualizar: %w", updateErr)
 		}
-		n, rowsErr := result.RowsAffected()
-		if rowsErr != nil {
-			return fmt.Errorf("upsert horario: filas afectadas: %w", rowsErr)
-		}
-		if n == 0 {
-			return fmt.Errorf("upsert horario: profesional %s día %d no encontrado: %w",
-				s.ProfessionalID, s.DayOfWeek, domain.ErrNotFound)
-		}
-		return nil
+		return stored, nil
 	}
 
 	// Not a duplicate key: the only other constraint on this INSERT is the
 	// schedules.professional_id foreign key (schema.go), so a slot for a
 	// professional that does not exist lands here. Translate it so the use case
 	// can answer with a semantic error instead of leaking an internal one.
-	return fmt.Errorf("upsert horario: %w", classifyForeignKeyViolation(err))
+	return nil, fmt.Errorf("upsert horario: %w", classifyForeignKeyViolation(err))
 }
 
 // Delete removes a schedule for a professional on a specific day.

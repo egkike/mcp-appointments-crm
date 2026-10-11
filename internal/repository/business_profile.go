@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -67,17 +68,50 @@ func (r *BusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile,
 	return p, nil
 }
 
-// Update replaces the singleton row. Returns domain.ErrNotFound if
-// no row matches (should not happen in practice due to lazy-init).
-// Requires admin or owner role.
-func (r *BusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) error {
+// businessProfileReturningColumns is the read-back projection of an UPDATE, in
+// the same scan order as Get. RETURNING makes the write and the read a single
+// atomic statement, so the returned row carries the server-side updated_at and
+// cannot observe another writer.
+const businessProfileReturningColumns = ` RETURNING id, name, industry, country, address, latitude, longitude,
+		cover_photo_url, public_phone, messenger_platform, messenger_id,
+		contact_email, website_url, general_description,
+		currency_code, currency_symbol, accepted_payment_methods,
+		timezone, slot_interval_minutes, business_hours,
+		created_at, updated_at`
+
+// scanStoredBusinessProfile scans the row produced by
+// businessProfileReturningColumns.
+func scanStoredBusinessProfile(row *sql.Row) (*entity.BusinessProfile, error) {
+	p := &entity.BusinessProfile{}
+	if err := row.Scan(
+		&p.ID, &p.Name, &p.Industry, &p.Country, &p.Address,
+		&p.Latitude, &p.Longitude, &p.CoverPhotoURL, &p.PublicPhone,
+		&p.MessengerPlatform, &p.MessengerID, &p.ContactEmail,
+		&p.WebsiteURL, &p.GeneralDescription,
+		&p.CurrencyCode, &p.CurrencySymbol, &p.AcceptedPaymentMethods,
+		&p.Timezone, &p.SlotIntervalMinutes, &p.BusinessHours,
+		&p.CreatedAt, &p.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// Update replaces the singleton row and returns it as written by this call
+// (single atomic UPDATE ... RETURNING), so the response carries the server-set
+// updated_at instead of a stale pre-update value. Execute always Gets first,
+// which lazily inserts the singleton row, so a zero-row match can only be the
+// singleton row vanishing between that read and this write: that race returns
+// domain.ErrRowGone (not ErrNotFound), following the concurrent-delete
+// precedent. Requires admin or owner role.
+func (r *BusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) (*entity.BusinessProfile, error) {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
-		return fmt.Errorf("actualizar perfil del negocio: %w", err)
+		return nil, fmt.Errorf("actualizar perfil del negocio: %w", err)
 	}
 	if err := p.Validate(); err != nil {
-		return fmt.Errorf("actualizar perfil de negocio: %w", err)
+		return nil, fmt.Errorf("actualizar perfil de negocio: %w", err)
 	}
-	result, err := r.db.ExecContext(ctx,
+	stored, err := scanStoredBusinessProfile(r.db.QueryRowContext(ctx,
 		`UPDATE business_profile SET
 			name=?, industry=?, country=?, address=?, latitude=?,
 			longitude=?, cover_photo_url=?, public_phone=?,
@@ -86,7 +120,7 @@ func (r *BusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProf
 			currency_symbol=?, accepted_payment_methods=?, timezone=?,
 			slot_interval_minutes=?, business_hours=?,
 			updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-		WHERE id = ?`,
+		WHERE id = ?`+businessProfileReturningColumns,
 		p.Name, p.Industry, p.Country, p.Address, p.Latitude,
 		p.Longitude, p.CoverPhotoURL, p.PublicPhone,
 		p.MessengerPlatform, p.MessengerID, p.ContactEmail,
@@ -94,16 +128,12 @@ func (r *BusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProf
 		p.CurrencySymbol, p.AcceptedPaymentMethods, p.Timezone,
 		p.SlotIntervalMinutes, p.BusinessHours,
 		singletonID,
-	)
+	))
 	if err != nil {
-		return fmt.Errorf("actualizar perfil del negocio: %w", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("actualizar perfil del negocio: la fila desapareció durante la operación: %w", domain.ErrRowGone)
+		}
+		return nil, fmt.Errorf("actualizar perfil del negocio: %w", err)
 	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("actualizar perfil del negocio: filas afectadas: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("actualizar perfil del negocio: %w", domain.ErrNotFound)
-	}
-	return nil
+	return stored, nil
 }

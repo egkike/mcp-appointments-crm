@@ -377,7 +377,7 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 		}
 	})
 
-	t.Run("not found returns domain.ErrNotFound", func(t *testing.T) {
+	t.Run("vanished row returns domain.ErrRowGone", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
 
@@ -387,8 +387,13 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 
 		p := &entity.Professional{ID: "missing", Name: "Ghost", Status: "active"}
 		err := repo.Update(adminCtx(), p)
-		if !errors.Is(err, domain.ErrNotFound) {
-			t.Errorf("expected domain.ErrNotFound, got %v", err)
+		if !errors.Is(err, domain.ErrRowGone) {
+			t.Errorf("expected domain.ErrRowGone, got %v", err)
+		}
+		// The race must stay distinguishable from the dangling-specialty sentinel
+		// so the use case can pick the right message.
+		if errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("vanished row must not report domain.ErrNotFound: %v", err)
 		}
 	})
 

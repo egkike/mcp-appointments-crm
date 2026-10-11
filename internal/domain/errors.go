@@ -47,6 +47,11 @@ var (
 	// ErrInvalidInput indicates the input failed application-level validation.
 	ErrInvalidInput = errors.New("invalid input")
 
+	// ErrRowGone indicates a row vanished between a read and a subsequent write
+	// (concurrent delete): the UPDATE matched zero rows. Distinct from ErrNotFound
+	// so callers can map the race to the right user-facing error.
+	ErrRowGone = errors.New("row gone")
+
 	// ErrUnauthenticated is the canonical sentinel for authentication failures.
 	// Consolidated from repository/auth_helpers.go ("caller not authenticated")
 	// and auth/resolver.go ("unauthenticated"). The canonical message is

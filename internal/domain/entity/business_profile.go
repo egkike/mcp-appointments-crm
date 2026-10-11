@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -126,12 +127,18 @@ func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error
 		return nil, err
 	}
 	result := make(map[int]businessHoursDay, len(raw))
-	for k, v := range raw {
+	// Deterministic first-error: same rationale as validateBusinessHoursJSON.
+	keys := make([]string, 0, len(raw))
+	for k := range raw {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
 		day, err := parseBusinessHoursDayKey(k)
 		if err != nil {
 			return nil, err
 		}
-		result[day] = v
+		result[day] = raw[k]
 	}
 	return result, nil
 }
@@ -199,18 +206,27 @@ func (bp *BusinessProfile) validateBusinessHoursJSON() error {
 	if s == "" {
 		return nil
 	}
-	if !json.Valid([]byte(s)) {
-		return fmt.Errorf("el campo business_hours debe ser JSON válido: %w", domain.ErrInvalidInput)
-	}
 	trimmed := strings.TrimSpace(s)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return fmt.Errorf("el campo business_hours debe ser un objeto JSON: %w", domain.ErrInvalidInput)
 	}
 	var hours map[string]businessHoursDay
 	if err := json.Unmarshal([]byte(s), &hours); err != nil {
-		return fmt.Errorf("el campo business_hours debe ser un objeto JSON: %w", domain.ErrInvalidInput)
+		// Reached only when the payload starts with '{' but is broken JSON: the
+		// leading-'{' check above already rejected valid non-object JSON, so this
+		// is exactly the shape the former json.Valid pre-check caught — same
+		// message, one parse instead of two.
+		return fmt.Errorf("el campo business_hours debe ser JSON válido: %w", domain.ErrInvalidInput)
 	}
-	for key, day := range hours {
+	// Deterministic first-error: Go map iteration is randomized, so multiple
+	// invalid days would otherwise make the reported day vary run to run.
+	keys := make([]string, 0, len(hours))
+	for key := range hours {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		day := hours[key]
 		if _, err := parseBusinessHoursDayKey(key); err != nil {
 			return err
 		}

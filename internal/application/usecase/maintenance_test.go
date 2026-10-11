@@ -140,17 +140,28 @@ func storedProfile() *entity.BusinessProfile {
 func TestUpdateBusinessProfileUseCase_HappyPath(t *testing.T) {
 	logger, buf := captureAuditLogger()
 	var saved *entity.BusinessProfile
+	newName := "Peluquería Nueva"
+	newHours := `{"2":{"open":"10:00","close":"19:00"}}`
+	// The repository is the authority for updated_at: Update returns the stored
+	// row, and the use case must surface exactly that row — never the stale
+	// pre-update entity it read at the top of Execute.
+	stored := &entity.BusinessProfile{
+		ID:            "singleton",
+		Name:          newName,
+		Timezone:      "UTC",
+		CurrencyCode:  "ARS",
+		BusinessHours: newHours,
+		UpdatedAt:     "2026-01-02T00:00:00.000Z",
+	}
 	repo := &mockBusinessProfileRepo{
 		GetFn: func(context.Context) (*entity.BusinessProfile, error) { return storedProfile(), nil },
-		UpdateFn: func(_ context.Context, p *entity.BusinessProfile) error {
+		UpdateFn: func(_ context.Context, p *entity.BusinessProfile) (*entity.BusinessProfile, error) {
 			saved = p
-			return nil
+			return stored, nil
 		},
 	}
 	uc := NewUpdateBusinessProfileUseCase(repo, logger)
 
-	newName := "Peluquería Nueva"
-	newHours := `{"2":{"open":"10:00","close":"19:00"}}`
 	result, err := uc.Execute(context.Background(), dto.UpdateBusinessProfileInput{
 		Caller:        ownerCaller(),
 		Name:          &newName,
@@ -178,24 +189,34 @@ func TestUpdateBusinessProfileUseCase_HappyPath(t *testing.T) {
 	if saved.CurrencyCode != "ARS" {
 		t.Errorf("CurrencyCode = %q, want untouched %q", saved.CurrencyCode, "ARS")
 	}
-	if result != saved {
-		t.Error("result is not the merged entity that was persisted")
+	if result != stored {
+		t.Error("result is not the row returned by the repository (a stale pre-update value leaked)")
+	}
+	if result.UpdatedAt != "2026-01-02T00:00:00.000Z" {
+		t.Errorf("result.UpdatedAt = %q; want the repository-provided post-write stamp", result.UpdatedAt)
 	}
 	assertMaintenanceAudit(t, buf, "update_business_profile", "business_profile", "singleton", "update")
 }
 
 func TestUpdateBusinessProfileUseCase_RejectsEmptyUpdate(t *testing.T) {
+	getCalls := 0
 	repo := &mockBusinessProfileRepo{
-		GetFn: func(context.Context) (*entity.BusinessProfile, error) { return storedProfile(), nil },
-		UpdateFn: func(context.Context, *entity.BusinessProfile) error {
+		GetFn: func(context.Context) (*entity.BusinessProfile, error) {
+			getCalls++
+			return storedProfile(), nil
+		},
+		UpdateFn: func(context.Context, *entity.BusinessProfile) (*entity.BusinessProfile, error) {
 			t.Fatal("Update must not be called for an empty update")
-			return nil
+			return nil, nil
 		},
 	}
 	uc := NewUpdateBusinessProfileUseCase(repo, nil)
 
 	_, err := uc.Execute(context.Background(), dto.UpdateBusinessProfileInput{Caller: ownerCaller()})
 	assertSemanticError(t, err, domain.ErrCodeInvalidInput, "no se proporcionaron campos para actualizar")
+	if getCalls != 0 {
+		t.Errorf("Get calls = %d, want 0: the empty-update guard must reject before the write-capable lazy-init read", getCalls)
+	}
 }
 
 func TestUpdateBusinessProfileUseCase_NotFound(t *testing.T) {
@@ -211,8 +232,10 @@ func TestUpdateBusinessProfileUseCase_NotFound(t *testing.T) {
 
 func TestUpdateBusinessProfileUseCase_InvalidInput(t *testing.T) {
 	repo := &mockBusinessProfileRepo{
-		GetFn:    func(context.Context) (*entity.BusinessProfile, error) { return storedProfile(), nil },
-		UpdateFn: func(context.Context, *entity.BusinessProfile) error { return domain.ErrInvalidInput },
+		GetFn: func(context.Context) (*entity.BusinessProfile, error) { return storedProfile(), nil },
+		UpdateFn: func(context.Context, *entity.BusinessProfile) (*entity.BusinessProfile, error) {
+			return nil, domain.ErrInvalidInput
+		},
 	}
 	uc := NewUpdateBusinessProfileUseCase(repo, nil)
 
@@ -233,8 +256,10 @@ func TestUpdateBusinessProfileUseCase_InvalidInput(t *testing.T) {
 
 func TestUpdateBusinessProfileUseCase_Conflict(t *testing.T) {
 	repo := &mockBusinessProfileRepo{
-		GetFn:    func(context.Context) (*entity.BusinessProfile, error) { return storedProfile(), nil },
-		UpdateFn: func(context.Context, *entity.BusinessProfile) error { return domain.ErrConflict },
+		GetFn: func(context.Context) (*entity.BusinessProfile, error) { return storedProfile(), nil },
+		UpdateFn: func(context.Context, *entity.BusinessProfile) (*entity.BusinessProfile, error) {
+			return nil, domain.ErrConflict
+		},
 	}
 	uc := NewUpdateBusinessProfileUseCase(repo, nil)
 
@@ -247,8 +272,11 @@ func TestUpdateBusinessProfileUseCase_Forbidden(t *testing.T) {
 	logger, buf := captureAuditLogger()
 	called := false
 	repo := &mockBusinessProfileRepo{
-		GetFn:    func(context.Context) (*entity.BusinessProfile, error) { called = true; return storedProfile(), nil },
-		UpdateFn: func(context.Context, *entity.BusinessProfile) error { called = true; return nil },
+		GetFn: func(context.Context) (*entity.BusinessProfile, error) { called = true; return storedProfile(), nil },
+		UpdateFn: func(context.Context, *entity.BusinessProfile) (*entity.BusinessProfile, error) {
+			called = true
+			return nil, nil
+		},
 	}
 	uc := NewUpdateBusinessProfileUseCase(repo, logger)
 
@@ -792,6 +820,23 @@ func TestUpdateProfessionalUseCase_MissingSpecialtyService(t *testing.T) {
 	assertSemanticError(t, err, domain.ErrCodeNotFound, "uno de los servicios indicados en las especialidades no existe")
 }
 
+func TestUpdateProfessionalUseCase_RowGoneConcurrentDelete(t *testing.T) {
+	repo := &mockProfessionalsRepo{
+		FindByIDFn: func(context.Context, string) (*entity.Professional, error) {
+			return &entity.Professional{ID: "p1", Name: "Ana", Status: "active"}, nil
+		},
+		// The row is deleted between FindByID and Update: the adapter reports the
+		// vanished row with ErrRowGone, not ErrNotFound (the dangling-specialty
+		// pre-check already ran, so RowsAffected==0 can only mean row-gone).
+		UpdateFn: func(context.Context, *entity.Professional) error { return domain.ErrRowGone },
+	}
+	uc := NewUpdateProfessionalUseCase(repo, nil)
+
+	name := "Ana"
+	_, err := uc.Execute(context.Background(), dto.UpdateProfessionalInput{Caller: ownerCaller(), ProfessionalID: "p1", Name: &name})
+	assertSemanticError(t, err, domain.ErrCodeNotFound, "el profesional indicado no existe.")
+}
+
 func TestUpdateProfessionalUseCase_Conflict(t *testing.T) {
 	repo := &mockProfessionalsRepo{
 		FindByIDFn: func(context.Context, string) (*entity.Professional, error) {
@@ -831,12 +876,12 @@ func TestUpsertScheduleUseCase_HappyPath(t *testing.T) {
 	logger, buf := captureAuditLogger()
 	var upserted *entity.Schedule
 	repo := &mockSchedulesRepo{
-		UpsertFn: func(_ context.Context, s *entity.Schedule) error {
+		UpsertFn: func(_ context.Context, s *entity.Schedule) (*entity.Schedule, error) {
 			upserted = s
-			return nil
-		},
-		FindByProfessionalAndDayFn: func(_ context.Context, professionalID string, day int) (*entity.Schedule, error) {
-			return &entity.Schedule{ID: 7, ProfessionalID: professionalID, DayOfWeek: day, StartTime: "09:00", EndTime: "13:00"}, nil
+			// The store assigns the surrogate key; the adapter returns the row it wrote.
+			stored := *s
+			stored.ID = 7
+			return &stored, nil
 		},
 	}
 	uc := NewUpsertScheduleUseCase(repo, logger)
@@ -857,16 +902,54 @@ func TestUpsertScheduleUseCase_HappyPath(t *testing.T) {
 	if upserted.ProfessionalID != "p1" || upserted.DayOfWeek != 3 || upserted.StartTime != "09:00" || upserted.EndTime != "13:00" {
 		t.Errorf("unexpected upserted slot: %+v", upserted)
 	}
-	// The store assigns the surrogate key, so the result must be the read-back.
-	if result == nil || result.ID != 7 {
-		t.Errorf("result = %+v, want the stored row (ID 7)", result)
+	// The store assigns the surrogate key, so the result must be the row the
+	// adapter returned from the write.
+	if result == nil || result.ID != 7 || result.StartTime != "09:00" || result.EndTime != "13:00" {
+		t.Errorf("result = %+v, want the stored row (ID 7, 09:00-13:00)", result)
 	}
 	assertMaintenanceAudit(t, buf, "upsert_schedule", "schedule", "p1:3", "upsert")
 }
 
+// TestUpsertScheduleUseCase_ReturnsTheRowWrittenByTheAdapter pins the port
+// contract: Upsert returns the row it wrote, so the use case must return that
+// row and must NOT fall back to a second, non-transactional FindByProfessionalAndDay
+// round-trip (that read could observe a concurrent upsert: TOCTOU).
+func TestUpsertScheduleUseCase_ReturnsTheRowWrittenByTheAdapter(t *testing.T) {
+	readBackCalled := false
+	repo := &mockSchedulesRepo{
+		UpsertFn: func(_ context.Context, s *entity.Schedule) (*entity.Schedule, error) {
+			stored := *s
+			stored.ID = 7
+			return &stored, nil
+		},
+		FindByProfessionalAndDayFn: func(context.Context, string, int) (*entity.Schedule, error) {
+			readBackCalled = true
+			return &entity.Schedule{ID: 99, StartTime: "00:00", EndTime: "00:01"}, nil
+		},
+	}
+	uc := NewUpsertScheduleUseCase(repo, nil)
+
+	result, err := uc.Execute(context.Background(), dto.UpsertScheduleInput{
+		Caller:         ownerCaller(),
+		ProfessionalID: "p1",
+		DayOfWeek:      3,
+		StartTime:      "09:00",
+		EndTime:        "13:00",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if readBackCalled {
+		t.Error("the use case issued a second read-back; Upsert already returns the stored row")
+	}
+	if result == nil || result.ID != 7 || result.StartTime != "09:00" || result.EndTime != "13:00" {
+		t.Errorf("result = %+v, want the row written by Upsert (ID 7, 09:00-13:00)", result)
+	}
+}
+
 func TestUpsertScheduleUseCase_InvalidInput(t *testing.T) {
 	repo := &mockSchedulesRepo{
-		UpsertFn: func(context.Context, *entity.Schedule) error { return domain.ErrInvalidInput },
+		UpsertFn: func(context.Context, *entity.Schedule) (*entity.Schedule, error) { return nil, domain.ErrInvalidInput },
 	}
 	uc := NewUpsertScheduleUseCase(repo, nil)
 
@@ -882,7 +965,7 @@ func TestUpsertScheduleUseCase_InvalidInput(t *testing.T) {
 
 func TestUpsertScheduleUseCase_ProfessionalNotFound(t *testing.T) {
 	repo := &mockSchedulesRepo{
-		UpsertFn: func(context.Context, *entity.Schedule) error { return domain.ErrNotFound },
+		UpsertFn: func(context.Context, *entity.Schedule) (*entity.Schedule, error) { return nil, domain.ErrNotFound },
 	}
 	uc := NewUpsertScheduleUseCase(repo, nil)
 
@@ -904,9 +987,9 @@ func TestUpsertScheduleUseCase_ProfessionalNotFound(t *testing.T) {
 // and stays free of SQL internals.
 func TestUpsertScheduleUseCase_ForeignKeyConflict(t *testing.T) {
 	repo := &mockSchedulesRepo{
-		UpsertFn: func(context.Context, *entity.Schedule) error {
+		UpsertFn: func(context.Context, *entity.Schedule) (*entity.Schedule, error) {
 			// Same shape the repository produces once the classifier is wired.
-			return fmt.Errorf("upsert horario: %w", domain.ErrConflict)
+			return nil, fmt.Errorf("upsert horario: %w", domain.ErrConflict)
 		},
 	}
 	uc := NewUpsertScheduleUseCase(repo, nil)
@@ -935,8 +1018,7 @@ func TestUpsertScheduleUseCase_Forbidden(t *testing.T) {
 	logger, buf := captureAuditLogger()
 	called := false
 	repo := &mockSchedulesRepo{
-		UpsertFn:                   func(context.Context, *entity.Schedule) error { called = true; return nil },
-		FindByProfessionalAndDayFn: func(context.Context, string, int) (*entity.Schedule, error) { called = true; return nil, nil },
+		UpsertFn: func(context.Context, *entity.Schedule) (*entity.Schedule, error) { called = true; return nil, nil },
 	}
 	uc := NewUpsertScheduleUseCase(repo, logger)
 

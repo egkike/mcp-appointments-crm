@@ -301,7 +301,7 @@ func (m *mockProfessionalsRepo) Update(ctx context.Context, p *entity.Profession
 
 type mockBusinessProfileRepo struct {
 	GetFn    func(ctx context.Context) (*entity.BusinessProfile, error)
-	UpdateFn func(ctx context.Context, p *entity.BusinessProfile) error
+	UpdateFn func(ctx context.Context, p *entity.BusinessProfile) (*entity.BusinessProfile, error)
 }
 
 func (m *mockBusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile, error) {
@@ -311,7 +311,7 @@ func (m *mockBusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProf
 	return m.GetFn(ctx)
 }
 
-func (m *mockBusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) error {
+func (m *mockBusinessProfileRepo) Update(ctx context.Context, p *entity.BusinessProfile) (*entity.BusinessProfile, error) {
 	if m.UpdateFn == nil {
 		panic("mockBusinessProfileRepo.UpdateFn not set")
 	}
@@ -348,7 +348,7 @@ func (m *mockBusinessHoursExceptionRepo) Delete(ctx context.Context, id int) err
 
 type mockSchedulesRepo struct {
 	FindByProfessionalAndDayFn func(ctx context.Context, professionalID string, day int) (*entity.Schedule, error)
-	UpsertFn                   func(ctx context.Context, s *entity.Schedule) error
+	UpsertFn                   func(ctx context.Context, s *entity.Schedule) (*entity.Schedule, error)
 	DeleteFn                   func(ctx context.Context, professionalID string, day int) error
 }
 
@@ -359,7 +359,7 @@ func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, profes
 	return m.FindByProfessionalAndDayFn(ctx, professionalID, day)
 }
 
-func (m *mockSchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) error {
+func (m *mockSchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) (*entity.Schedule, error) {
 	if m.UpsertFn == nil {
 		panic("mockSchedulesRepo.UpsertFn not set")
 	}

@@ -32,9 +32,11 @@ func NewUpdateBusinessProfileUseCase(profiles domainrepo.BusinessProfileRepo, lo
 // An absent field keeps the stored value; ClearLatitude/ClearLongitude are the
 // explicit-null signal for the two location columns and write NULL instead.
 //
-// The returned value is the merged entity — the same read shape
-// get_business_profile exposes (that use case also returns the entity), so the
-// transport layer maps the profile to JSON in exactly one place.
+// The returned value is the profile as persisted by this call — the repository
+// returns the stored row (including the server-side updated_at), which is the
+// same read shape get_business_profile exposes, so the transport layer maps the
+// profile to JSON in exactly one place and no stale pre-update timestamp
+// reaches the LLM.
 //
 // Business rules (business_hours JSON, payment-method JSON, timezone, the
 // messenger platform enum, and the latitude/longitude ranges) are enforced by
@@ -50,6 +52,14 @@ func (uc *UpdateBusinessProfileUseCase) Execute(ctx context.Context, input dto.U
 		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "no tienes permiso para realizar esta acción", Cause: domain.ErrForbidden}
 	}
 
+	// The empty-update guard inspects only the input DTO (it never reads stored
+	// state), so it runs before Get. Get lazy-inits the singleton row via
+	// INSERT OR IGNORE, so rejecting first keeps a never-persisted no-op payload
+	// from writing DB state.
+	if !hasProfileUpdates(input) {
+		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "no se proporcionaron campos para actualizar"}
+	}
+
 	profile, err := uc.profiles.Get(ctx)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
@@ -58,13 +68,10 @@ func (uc *UpdateBusinessProfileUseCase) Execute(ctx context.Context, input dto.U
 		return nil, fmt.Errorf("update_business_profile: %w", err)
 	}
 
-	if !hasProfileUpdates(input) {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: "no se proporcionaron campos para actualizar"}
-	}
-
 	applyProfileUpdates(profile, input)
 
-	if err := uc.profiles.Update(ctx, profile); err != nil {
+	stored, err := uc.profiles.Update(ctx, profile)
+	if err != nil {
 		// Client-shaped semantic errors carry their own LLM-facing Spanish
 		// message (today the coordinate range guards of entity.Validate); pass
 		// them through untouched so the caller sees the specific reason. Every
@@ -81,7 +88,10 @@ func (uc *UpdateBusinessProfileUseCase) Execute(ctx context.Context, input dto.U
 				Message: "los datos del perfil no son válidos: revisá los horarios, la zona horaria, los métodos de pago y la plataforma de mensajería",
 				Cause:   err,
 			}
-		case errors.Is(err, domain.ErrNotFound):
+		case errors.Is(err, domain.ErrNotFound), errors.Is(err, domain.ErrRowGone):
+			// ErrNotFound covers a not-found raised in the repository; ErrRowGone
+			// is the concurrent-delete race (the singleton row vanished between
+			// the Get above and this UPDATE). Both answer the same semantic error.
 			return nil, &domain.SemanticError{Code: domain.ErrCodeNotFound, Message: "el perfil del negocio no existe", Cause: err}
 		case errors.Is(err, domain.ErrConflict):
 			return nil, &domain.SemanticError{Code: domain.ErrCodeConflict, Message: "conflicto al actualizar el perfil del negocio", Cause: err}
@@ -89,8 +99,8 @@ func (uc *UpdateBusinessProfileUseCase) Execute(ctx context.Context, input dto.U
 		return nil, fmt.Errorf("update_business_profile: %w", err)
 	}
 
-	logMaintenanceMutation(uc.logger, caller, "update_business_profile", "business_profile", profile.ID, "update")
-	return profile, nil
+	logMaintenanceMutation(uc.logger, caller, "update_business_profile", "business_profile", stored.ID, "update")
+	return stored, nil
 }
 
 // hasProfileUpdates reports whether the partial-merge payload carries at least

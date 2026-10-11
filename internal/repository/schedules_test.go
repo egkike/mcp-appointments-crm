@@ -153,9 +153,14 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		mock.ExpectExec(`INSERT INTO schedules`).
+		// INSERT ... RETURNING: the write and the read-back are one statement, so
+		// the row scanned is the one this call wrote.
+		rows := sqlmock.NewRows([]string{
+			"id", "professional_id", "day_of_week", "start_time", "end_time",
+		}).AddRow(1, "pro-1", 1, "09:00", "18:00")
+		mock.ExpectQuery(`INSERT INTO schedules`).
 			WithArgs("pro-1", 1, "09:00", "18:00").
-			WillReturnResult(sqlmock.NewResult(1, 1))
+			WillReturnRows(rows)
 
 		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
@@ -163,9 +168,15 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			StartTime:      "09:00",
 			EndTime:        "18:00",
 		}
-		err := repo.Upsert(adminCtx(), schedule)
+		stored, err := repo.Upsert(adminCtx(), schedule)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		// Pins the port contract: the adapter returns the persisted row (times as
+		// passed in), not a bare error the caller would have to read back itself.
+		if stored == nil || stored.ID != 1 || stored.ProfessionalID != "pro-1" ||
+			stored.DayOfWeek != 1 || stored.StartTime != "09:00" || stored.EndTime != "18:00" {
+			t.Errorf("stored = %+v; want the row returned by INSERT ... RETURNING", stored)
 		}
 	})
 
@@ -174,14 +185,17 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		repo := NewSchedulesRepo(db)
 
 		// INSERT fails with UNIQUE violation
-		mock.ExpectExec(`INSERT INTO schedules`).
+		mock.ExpectQuery(`INSERT INTO schedules`).
 			WithArgs("pro-1", 1, "10:00", "19:00").
 			WillReturnError(errors.New("UNIQUE constraint failed: schedules.professional_id, schedules.day_of_week"))
 
-		// Then UPDATE succeeds
-		mock.ExpectExec(`UPDATE schedules SET`).
+		// Then UPDATE succeeds; its RETURNING clause returns the updated row.
+		rows := sqlmock.NewRows([]string{
+			"id", "professional_id", "day_of_week", "start_time", "end_time",
+		}).AddRow(1, "pro-1", 1, "10:00", "19:00")
+		mock.ExpectQuery(`UPDATE schedules SET`).
 			WithArgs("10:00", "19:00", "pro-1", 1).
-			WillReturnResult(sqlmock.NewResult(0, 1))
+			WillReturnRows(rows)
 
 		schedule := &entity.Schedule{
 			ProfessionalID: "pro-1",
@@ -189,9 +203,38 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			StartTime:      "10:00",
 			EndTime:        "19:00",
 		}
-		err := repo.Upsert(adminCtx(), schedule)
+		stored, err := repo.Upsert(adminCtx(), schedule)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if stored == nil || stored.ID != 1 || stored.StartTime != "10:00" || stored.EndTime != "19:00" {
+			t.Errorf("stored = %+v; want the row returned by UPDATE ... RETURNING", stored)
+		}
+	})
+
+	t.Run("update on a row that vanished returns domain.ErrNotFound", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		mock.ExpectQuery(`INSERT INTO schedules`).
+			WithArgs("pro-1", 1, "10:00", "19:00").
+			WillReturnError(errors.New("UNIQUE constraint failed: schedules.professional_id, schedules.day_of_week"))
+		// UPDATE ... RETURNING matches no row -> sql.ErrNoRows (concurrent delete).
+		mock.ExpectQuery(`UPDATE schedules SET`).
+			WithArgs("10:00", "19:00", "pro-1", 1).
+			WillReturnError(sql.ErrNoRows)
+
+		stored, err := repo.Upsert(adminCtx(), &entity.Schedule{
+			ProfessionalID: "pro-1",
+			DayOfWeek:      1,
+			StartTime:      "10:00",
+			EndTime:        "19:00",
+		})
+		if stored != nil {
+			t.Errorf("stored = %+v; want nil on a vanished row", stored)
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
 		}
 	})
 
@@ -203,11 +246,11 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		// slot for a professional that does not exist fails on INSERT. sqlmock
 		// cannot build a *sqlite.Error, so this pins the message fallback of the
 		// classifier.
-		mock.ExpectExec(`INSERT INTO schedules`).
+		mock.ExpectQuery(`INSERT INTO schedules`).
 			WithArgs("ghost", 1, "09:00", "13:00").
 			WillReturnError(errors.New("FOREIGN KEY constraint failed"))
 
-		err := repo.Upsert(adminCtx(), &entity.Schedule{
+		_, err := repo.Upsert(adminCtx(), &entity.Schedule{
 			ProfessionalID: "ghost",
 			DayOfWeek:      1,
 			StartTime:      "09:00",
@@ -222,11 +265,11 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		mock.ExpectExec(`INSERT INTO schedules`).
+		mock.ExpectQuery(`INSERT INTO schedules`).
 			WithArgs("pro-1", 1, "09:00", "18:00").
 			WillReturnError(errors.New("connection lost"))
 
-		err := repo.Upsert(adminCtx(), &entity.Schedule{
+		_, err := repo.Upsert(adminCtx(), &entity.Schedule{
 			ProfessionalID: "pro-1",
 			DayOfWeek:      1,
 			StartTime:      "09:00",
@@ -250,7 +293,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			StartTime:      "09:00",
 			EndTime:        "18:00",
 		}
-		err := repo.Upsert(adminCtx(), schedule)
+		_, err := repo.Upsert(adminCtx(), schedule)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput, got %v", err)
 		}
@@ -266,7 +309,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			StartTime:      "9:00 AM",
 			EndTime:        "18:00",
 		}
-		err := repo.Upsert(adminCtx(), schedule)
+		_, err := repo.Upsert(adminCtx(), schedule)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for malformed time, got %v", err)
 		}
@@ -282,7 +325,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			StartTime:      "18:00",
 			EndTime:        "09:00",
 		}
-		err := repo.Upsert(adminCtx(), schedule)
+		_, err := repo.Upsert(adminCtx(), schedule)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput when start >= end, got %v", err)
 		}
@@ -298,7 +341,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			StartTime:      "09:00",
 			EndTime:        "18:00",
 		}
-		err := repo.Upsert(context.Background(), schedule)
+		_, err := repo.Upsert(context.Background(), schedule)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
@@ -318,7 +361,7 @@ func TestSchedulesRepo_Upsert(t *testing.T) {
 			StartTime:      "09:00",
 			EndTime:        "18:00",
 		}
-		err := repo.Upsert(clientCtx("c-1"), schedule)
+		_, err := repo.Upsert(clientCtx("c-1"), schedule)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)

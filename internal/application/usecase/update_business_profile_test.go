@@ -228,9 +228,9 @@ func TestUpdateBusinessProfileUseCase_ClearLocation(t *testing.T) {
 			var saved *entity.BusinessProfile
 			repo := &mockBusinessProfileRepo{
 				GetFn: func(context.Context) (*entity.BusinessProfile, error) { return mergeSeed(), nil },
-				UpdateFn: func(_ context.Context, p *entity.BusinessProfile) error {
+				UpdateFn: func(_ context.Context, p *entity.BusinessProfile) (*entity.BusinessProfile, error) {
 					saved = p
-					return nil
+					return p, nil
 				},
 			}
 			uc := NewUpdateBusinessProfileUseCase(repo, nil)
@@ -293,8 +293,10 @@ func TestUpdateBusinessProfileUseCase_InvalidInputMessageMapping(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &mockBusinessProfileRepo{
-				GetFn:    func(context.Context) (*entity.BusinessProfile, error) { return mergeSeed(), nil },
-				UpdateFn: func(context.Context, *entity.BusinessProfile) error { return tt.repoErr },
+				GetFn: func(context.Context) (*entity.BusinessProfile, error) { return mergeSeed(), nil },
+				UpdateFn: func(context.Context, *entity.BusinessProfile) (*entity.BusinessProfile, error) {
+					return nil, tt.repoErr
+				},
 			}
 			uc := NewUpdateBusinessProfileUseCase(repo, nil)
 
