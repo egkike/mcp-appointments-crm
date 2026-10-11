@@ -82,7 +82,7 @@ func (s *Server) registerClientTool() {
 			// handler. Without its marker the request did not pass the static
 			// allowlist — a wiring bug, not a client call to serve.
 			if !auth.IsAnonymous(ctx) {
-				return nil, registerClientOut{}, toMCPError(errRegistrationOutsideSeam)
+				return nil, registerClientOut{}, s.toMCPError(errRegistrationOutsideSeam)
 			}
 
 			displayName := ""
@@ -92,10 +92,10 @@ func (s *Server) registerClientTool() {
 
 			result, err := s.cfg.RegisterClient.Execute(ctx, callerPhoneFromRequest(req), displayName)
 			if err != nil {
-				return nil, registerClientOut{}, toMCPError(err)
+				return nil, registerClientOut{}, s.toMCPError(err)
 			}
 			if result == nil {
-				return nil, registerClientOut{}, toMCPError(errNilRegistrationResult)
+				return nil, registerClientOut{}, s.toMCPError(errNilRegistrationResult)
 			}
 			return nil, registerClientOut{
 				ClientID:    result.ClientID,

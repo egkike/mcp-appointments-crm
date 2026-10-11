@@ -26,11 +26,11 @@ func (s *Server) registerAlertTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, _ getPendingAlertsIn) (*mcp.CallToolResult, dto.GetPendingAlertsResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.GetPendingAlertsResult{}, toMCPError(err)
+					return nil, dto.GetPendingAlertsResult{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.GetPendingAlerts.Execute(ctx, dto.GetPendingAlertsInput{Caller: *caller})
 				if err != nil {
-					return nil, dto.GetPendingAlertsResult{}, toMCPError(err)
+					return nil, dto.GetPendingAlertsResult{}, s.toMCPError(err)
 				}
 				if result == nil {
 					return nil, dto.GetPendingAlertsResult{Alerts: []dto.PendingAlertView{}}, nil
@@ -45,10 +45,10 @@ func (s *Server) registerAlertTools() {
 			func(ctx context.Context, _ *mcp.CallToolRequest, in markAlertAsSentIn) (*mcp.CallToolResult, dto.MarkAlertAsSentResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.MarkAlertAsSentResult{}, toMCPError(err)
+					return nil, dto.MarkAlertAsSentResult{}, s.toMCPError(err)
 				}
 				if in.AlertID <= 0 {
-					return nil, dto.MarkAlertAsSentResult{}, toMCPError(&domain.SemanticError{
+					return nil, dto.MarkAlertAsSentResult{}, s.toMCPError(&domain.SemanticError{
 						Code:    domain.ErrCodeInvalidInput,
 						Message: "alert_id debe ser un entero positivo",
 					})
@@ -58,7 +58,7 @@ func (s *Server) registerAlertTools() {
 					AlertID: in.AlertID,
 				})
 				if err != nil {
-					return nil, dto.MarkAlertAsSentResult{}, toMCPError(err)
+					return nil, dto.MarkAlertAsSentResult{}, s.toMCPError(err)
 				}
 				return nil, *result, nil
 			})
