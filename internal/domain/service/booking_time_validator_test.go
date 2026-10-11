@@ -509,3 +509,27 @@ func TestValidateBookingTimeSlotMalformedHHMM(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateBookingTimeSlotCorruptBusinessHours pins the fail-closed contract
+// for a corrupt business_hours value. Reachable only through external tampering
+// (every write path validates), so it MUST surface as an internal error with the
+// parse error preserved in Cause — never masquerade as a legitimately closed day.
+func TestValidateBookingTimeSlotCorruptBusinessHours(t *testing.T) {
+	slot, deps := defaultTimeSlot(t)
+	slot.BusinessProfile.BusinessHours = `not json`
+
+	err := ValidateBookingTimeSlot(context.Background(), slot, deps)
+
+	if err == nil {
+		t.Fatal("expected an internal error, got nil")
+	}
+	if err.Code != domain.ErrCodeInternal {
+		t.Errorf("code = %q; want %q", err.Code, domain.ErrCodeInternal)
+	}
+	if err.Message != "el horario del negocio no pudo leerse; contactá al administrador." {
+		t.Errorf("message = %q; want the corrupt-hours message", err.Message)
+	}
+	if err.Cause == nil {
+		t.Error("cause = nil; want the parse error preserved server-side")
+	}
+}

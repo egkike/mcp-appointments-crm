@@ -172,7 +172,10 @@ func TestMapBusinessHours_EntityRoundTrip(t *testing.T) {
 	if !bp.IsOpenOn(1) {
 		t.Errorf("Monday should be open")
 	}
-	open, close, ok := bp.GetOpenClose(1)
+	open, close, ok, err := bp.GetOpenClose(1)
+	if err != nil {
+		t.Fatalf("GetOpenClose(1) error = %v, want nil", err)
+	}
 	if !ok {
 		t.Fatal("GetOpenClose(1) should be ok")
 	}

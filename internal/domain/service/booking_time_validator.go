@@ -139,7 +139,18 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	}
 
 	if businessOpenHHMM == "" || businessCloseHHMM == "" {
-		open, close, ok := slot.BusinessProfile.GetOpenClose(profileDayKey)
+		open, close, ok, err := slot.BusinessProfile.GetOpenClose(profileDayKey)
+		if err != nil {
+			// A corrupt business_hours value (reachable only through external
+			// tampering; every write path validates) must not masquerade as a
+			// legitimately closed day. Fail closed and keep the parse error in
+			// Cause for server-side logging.
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeInternal,
+				Message: "el horario del negocio no pudo leerse; contactá al administrador.",
+				Cause:   err,
+			}
+		}
 		if !ok || open == "" || close == "" {
 			return &domain.SemanticError{
 				Code:    domain.ErrCodeBusinessClosed,

@@ -73,32 +73,39 @@ func ProfileDayKey(w time.Weekday) int {
 }
 
 // IsOpenOn reports whether the business is open on the given day of week
-// (1=Monday, 7=Sunday). Returns false if BusinessHours is empty or invalid JSON.
-// The day must come from ProfileDayKey (or an equivalent "1".."7" literal),
-// never from a raw int(time.Weekday()).
+// (1=Monday, 7=Sunday). It is a non-production convenience helper (tests and
+// setup round-trips) and deliberately lenient: an unreadable BusinessHours
+// collapses to false so callers that only need a yes/no keep working. Booking
+// and availability logic MUST call GetOpenClose directly to distinguish a
+// corrupt value from a legitimately closed day. The day must come from
+// ProfileDayKey (or an equivalent "1".."7" literal), never from a raw
+// int(time.Weekday()).
 func (bp *BusinessProfile) IsOpenOn(dayOfWeek int) bool {
-	hours, err := bp.parseBusinessHours()
-	if err != nil {
-		return false
-	}
-	_, exists := hours[dayOfWeek]
-	return exists
+	_, _, ok, err := bp.GetOpenClose(dayOfWeek)
+	return err == nil && ok
 }
 
-// GetOpenClose returns the open and close times (HH:MM) for the given day of week
-// (1=Monday, 7=Sunday). Returns ok=false if the business is closed that day or
-// BusinessHours is invalid. The day must come from ProfileDayKey (or an
-// equivalent "1".."7" literal), never from a raw int(time.Weekday()).
-func (bp *BusinessProfile) GetOpenClose(dayOfWeek int) (open, close string, ok bool) {
+// GetOpenClose returns the open and close times (HH:MM) for the given day of
+// week (1=Monday, 7=Sunday). Contract:
+//
+//   - open day:      open/close set, ok=true, err=nil
+//   - closed day:    ok=false, err=nil (day key absent, or BusinessHours empty)
+//   - corrupt value: ok=false, err != nil (BusinessHours is not readable)
+//
+// Callers that book or report availability MUST treat err != nil as a
+// fail-closed internal error; only err == nil && !ok means "legitimately
+// closed". The day must come from ProfileDayKey (or an equivalent "1".."7"
+// literal), never from a raw int(time.Weekday()).
+func (bp *BusinessProfile) GetOpenClose(dayOfWeek int) (open, close string, ok bool, err error) {
 	hours, err := bp.parseBusinessHours()
 	if err != nil {
-		return "", "", false
+		return "", "", false, err
 	}
 	day, exists := hours[dayOfWeek]
 	if !exists {
-		return "", "", false
+		return "", "", false, nil
 	}
-	return day.Open, day.Close, true
+	return day.Open, day.Close, true, nil
 }
 
 // parseBusinessHoursDayKey converts a business_hours JSON key to its integer day
