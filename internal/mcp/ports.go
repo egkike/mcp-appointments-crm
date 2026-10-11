@@ -157,3 +157,31 @@ type UpsertSchedulePort interface {
 type DeleteSchedulePort interface {
 	Execute(context.Context, dto.DeleteScheduleInput) (*dto.DeleteScheduleResult, error)
 }
+
+// ── Business-hours exception ports (feat-hours-exception-tool, PR2) ──
+//
+// The three owner-only tools over the date-specific business-hours overrides.
+// They reuse the shared BusinessHoursExceptionRepo as-is (no repository or
+// schema change) and, like the maintenance writes above, each use case
+// re-asserts auth.RequireRole(RoleOwner) after re-injecting the caller while
+// the composition root keeps its own ToolRBAC entry (double enforcement).
+
+// CreateHoursExceptionPort adds an exception and returns the stored row read
+// back by its unique date (the repository's Create never exposes the
+// AUTOINCREMENT id). ToolRBAC entry: owner only.
+type CreateHoursExceptionPort interface {
+	Execute(context.Context, dto.CreateHoursExceptionInput) (*entity.BusinessHoursException, error)
+}
+
+// DeleteHoursExceptionPort removes an exception by its integer id.
+// ToolRBAC entry: owner only.
+type DeleteHoursExceptionPort interface {
+	Execute(context.Context, dto.DeleteHoursExceptionInput) (*dto.DeleteHoursExceptionResult, error)
+}
+
+// ListHoursExceptionsPort reads the exceptions in an inclusive [from, to] range
+// ordered by exception_date ASC; an empty range is an empty slice, never an
+// error. ToolRBAC entry: owner only.
+type ListHoursExceptionsPort interface {
+	Execute(context.Context, dto.ListHoursExceptionsInput) ([]*entity.BusinessHoursException, error)
+}

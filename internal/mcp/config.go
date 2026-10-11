@@ -56,6 +56,13 @@ type Config struct {
 	UpdateProfessional    UpdateProfessionalPort
 	UpsertSchedule        UpsertSchedulePort
 	DeleteSchedule        DeleteSchedulePort
+
+	// Business-hours exception ports (feat-hours-exception-tool): owner-only
+	// like the maintenance writes above, and sharing the same
+	// BusinessHoursExceptionRepo the availability read path already consumes.
+	CreateHoursException CreateHoursExceptionPort
+	DeleteHoursException DeleteHoursExceptionPort
+	ListHoursExceptions  ListHoursExceptionsPort
 }
 
 // LoadConfig resolves MCP_BIND and MCP_PORT with ADR-0007 precedence:
