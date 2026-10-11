@@ -137,3 +137,48 @@ type DeleteScheduleResult struct {
 	DayOfWeek      int    `json:"day_of_week"`
 	Status         string `json:"status"`
 }
+
+// CreateHoursExceptionInput is the full payload for create_hours_exception
+// (feat-hours-exception-tool). The unique exception_date is the row identity;
+// is_closed selects the only two legal shapes: a fully closed day (no times) or
+// an open day with a custom window (both times). OpenTime/CloseTime/Reason are
+// pointers because the entity stores them as pointers, so an omitted value
+// stays NULL in SQLite — which is exactly what an is_closed=true row requires.
+// Validation (date format/calendar, is_closed↔times, HH:MM, open<close,
+// uniqueness) stays single-sourced in the repository (design §1.3); this carrier
+// only bridges the transport to the use case.
+type CreateHoursExceptionInput struct {
+	Caller        auth.Caller `json:"-"`
+	ExceptionDate string      `json:"exception_date"`
+	IsClosed      bool        `json:"is_closed"`
+	OpenTime      *string     `json:"open_time,omitempty"`
+	CloseTime     *string     `json:"close_time,omitempty"`
+	Reason        *string     `json:"reason,omitempty"`
+}
+
+// DeleteHoursExceptionInput identifies the exception to delete by its integer
+// id, mirroring repository.BusinessHoursExceptionRepo.Delete(ctx, id). The id is
+// the row identity the create read-back exposes to the LLM (design §2).
+type DeleteHoursExceptionInput struct {
+	Caller      auth.Caller `json:"-"`
+	ExceptionID int         `json:"exception_id"`
+}
+
+// DeleteHoursExceptionResult is the response body for delete_hours_exception
+// (mirrors dto.DeleteScheduleResult / dto.DeleteServiceResult).
+type DeleteHoursExceptionResult struct {
+	ExceptionID int    `json:"exception_id"`
+	Status      string `json:"status"`
+}
+
+// ListHoursExceptionsInput is the required inclusive range for
+// list_hours_exceptions. Both bounds are YYYY-MM-DD strings; they are parsed and
+// format-checked at the use case before the repository call (a malformed bound
+// is a Spanish semantic error). The range mirrors
+// repository.BusinessHoursExceptionRepo.List: inclusive on both ends, with no
+// invented default window (design §3, D4).
+type ListHoursExceptionsInput struct {
+	Caller auth.Caller `json:"-"`
+	From   string      `json:"from"`
+	To     string      `json:"to"`
+}
