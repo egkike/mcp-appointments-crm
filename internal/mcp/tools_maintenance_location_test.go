@@ -17,10 +17,10 @@ import (
 // they are written out verbatim rather than referenced from the implementation.
 
 const (
-	wantGeoMalformed    = "Error: la ubicación no tiene un formato válido. Usá geo:lat,long (por ejemplo geo:-34.6037,-58.3816)."
-	wantGeoOutOfRange   = "Error: las coordenadas de la ubicación están fuera de rango (latitud -90..90, longitud -180..180)."
-	wantGeoMixedNumeric = "Error: no puedo combinar una ubicación geo: con latitude/longitude numéricas."
-	wantGeoMixedClear   = "Error: no puedo combinar una ubicación geo: con el borrado de latitude/longitude."
+	wantGeoMalformed    = "la ubicación no tiene un formato válido. Usá geo:lat,long (por ejemplo geo:-34.6037,-58.3816)."
+	wantGeoOutOfRange   = "las coordenadas de la ubicación están fuera de rango (latitud -90..90, longitud -180..180)."
+	wantGeoMixedNumeric = "no puedo combinar una ubicación geo: con latitude/longitude numéricas."
+	wantGeoMixedClear   = "no puedo combinar una ubicación geo: con el borrado de latitude/longitude."
 )
 
 // TestToolUpdateBusinessProfileAcceptsGeoLocationURI proves a valid `geo:` URI
