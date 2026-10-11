@@ -46,3 +46,5 @@ Spec phase first (proposal/design/spec deltas under `openspec/changes/feat-hours
 - **Owner review**: 'Dale procede' 2026-10-11 — implementation authorized.
 - **NEXT**: phase 1 (TASK-1.1..1.4, PR1) → gate → owner commit approval → PR1 merge → phase 2 (PR2) → phase 3 (PR3). Per tasks.md: OQ-1/OQ-2 resolved (23 tools; singular dir).
 - **GGA exception (owner override 2026-10-11)**: the phase-1 commit landed with --no-verify after 3 consecutive STRICT_MODE ambiguous blocks (underlying verdict visibly PASSED in all three). This overrides the tasks.md Phase-4 'never --no-verify' rule BY EXPLICIT OWNER DECISION for this commit only; the review content ran and passed each time. Upstream suggestion recorded: relax the exactly-one-STATUS-line parser (first-STATUS-wins or strip tool-echo lines).
+- **PR1**: https://github.com/egkike/mcp-appointments-crm/pull/116 — commit e59ffa8 (6 files, +885: 3 use cases + 23-test suite + DTOs + tracker). Awaiting CI + merge; phase 2 branches from updated main.
+- **PR1 MERGED 2026-10-11**: squash `2105f9d` on main, CI green (run 38170537087, 1m07s). Phase 2 branches from this state.
