@@ -1,7 +1,7 @@
 # Feature: F-4 — clear-null fields in `update_business_profile` (lat/long)
 
 - **Created**: 2026-09-30
-- **Status**: COMPLETE — DELIVERED y MERGED (squash `3b86db9`, 2026-09-30, PR #105; issue #106 auto-closed). Siguientes: change `feat-whatsapp-bot` (spec SDD, ADR-0018) y `scripts/uninstall.sh`.
+- **Status**: COMPLETE — DELIVERED y MERGED (squash `3b86db9`, 2026-09-30, PR #105; issue #106 auto-closed). Review nativo APPROVED 2026-10-12 (ver sección de cierre). Nota backlog: `feat-whatsapp-bot` ya fue implementado y archivado por otras sesiones (2026-10-08); `feat-hours-exception-tool` archivado (2026-10-11).
 - **Backlog refs**: PRD §7 Fase N / §3.8.9 (commit 55d3c42); demo-plan smoke v0.6.1; scout task `muofg6sx-1-5kc0`; issue de tracking **#106** (creado 2026-09-30, linkeado con `Closes #106` desde el PR #105).
 
 ## Goal
@@ -57,3 +57,21 @@ Stack local: gentle-ai v4.0.0 (go module v4, vcs `ff77164d`; migración cerrada 
 - **Comentario upstream** (consentimiento owner): #3991 (issuecomment-5970978258, 2026-10-03) reporta el repro en 4.0.0 con protocolo + envelope; autor egkike. #4937 intocado (la clase truncation ya está reportada ahí). Post-sync 4.0.0, la lente sigue routando `command-code/z-ai/glm-5.3-flash` con `thinking: high`.
 - **Estado posterior**: sin fix publicado; **gate operativo = fallback a prueba de fallo** (writer self-verify + verificador independiente + GGA). Mitigación thinking low sigue descartada (no arregla la clase truncation de #4937). Vigilancia: releases > v4.0.0 y respuesta en #3991; al haber fix, retry del collect (STATUS fresco → slots en orden).
 - **Próximo (owner decide)**: arrancar spec `feat-whatsapp-bot` (ODD, consumidor de ADR-0018) o seguir en standby; `scripts/uninstall.sh` ya está en el backlog.
+
+## Cierre del review nativo — APPROVED (2026-10-12)
+
+Tras actualizar el stack a gentle-ai v4.1.0/v4.1.1 (12-10), el review del lineage `review-aa28c86d3b625bed` se completó: **4/4 lentes capturadas y admitidas → `state: approved`** (store_revision `sha256:a757093a6f2fb43e6c0672c698d8e52e99cd4b934f0c824e174443700750d4ef`).
+
+**Root cause del defecto completo** (confirmado empíricamente, corrije lecturas previas nuestras y de #5226):
+1. El launch del reviewer lo gobierna el **frontmatter del def del agente** (`model` + `thinking` en `~/.gentle-shell/agent/agents/review-*.md`) — NO el routing `models.json`/`profiles.json` ni `state.json`.
+2. `deepseek-v4.1-flash` + `thinking: high` = starvation (el reasoning consume el budget compartido de ~16k → `reviewer-empty-output`); `glm-5.3-flash` + `thinking: medium` = emisión confiable (3/3 capturas limpias con el mismo prompt de 50.6 KB).
+3. El payload "truncado" de 4315 B (clase #4937 aparente) era el **cap del modelo** (deepseek + high), no un corte del relay: después del switch, un resultado de 4.641 B llegó completo.
+4. Bloqueo intermedio: el upgrade bundled creó el config home `~/.gentle-shell/config/gentle-ai/` VACÍO → `reviewer-config-invalid` hasta migrar `models.json` + `profiles.json` a mano desde `~/.pi/gentle-ai/` (el relay los lee de ahí; el guard auto-permission exige que la migración la haga un humano).
+
+**Sweep y cierre** (prompt 50.6 KB en todas las corridas): risk ✅ 1er intento (3.512 B); resilience 3 intentos (deepseek-empty → glm truncado 4.315 B → glm-empty); readability y reliability deepseek-empty; tras re-rutear los 4 defs a `glm-5.3-flash` + `medium`: resilience ✅ (3.137 B), readability ✅ (4.641 B), reliability ✅ → cierre nativo en el último evento admitido.
+
+**Findings: 7, todos informativos/no-bloqueantes** ("none opened a correction, none reopens this review"): 1 WARNING readability (`internal/mcp/tools_maintenance_test.go:316-322`) + 6 SUGGESTION (`update_business_profile.go:171-173`, `docs/PRD.md:1464`, `maintenance.go:34-35`, `tools_maintenance_test.go:317-322`, `tools_maintenance.go:106-109`). Quedan como trabajo futuro menor (candidato a un followups doc).
+
+**Acknowledgement formal**: refusado sin quemar (`native-approved-acknowledgement-not-current`) — la autoridad aprobada está atada al target F-4 (`dfe979d5...`) y el workspace driftó (acumuló el trabajo de otras sesiones: bot archivado 10-08, hours-exception 10-11, etc.). La aprobación queda en el store como evidencia; el provider ofrece un fresh START para el diff acumulado (~110 paths) — NO recomendado como está (candidato gigante; esas features ya pasaron sus gates).
+
+**Upstream**: datos del sweep + la resolución posteada en gentle-ai#5226 (comentarios issuecomment-6132427073 y posterior).
