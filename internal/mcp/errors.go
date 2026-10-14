@@ -81,11 +81,13 @@ func jsonParseGuard(next http.Handler) http.Handler {
 		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBodyBytes+1))
 		if err != nil {
-			http.Error(w, "failed to read request body", http.StatusBadRequest)
+			// Same wording as the auth_translator sibling: transport text stays
+			// single-language (Spanish) — TestJSONParseGuard_HTTPBodyMessagesSpanish pins it.
+			http.Error(w, "no se pudo leer el cuerpo de la solicitud", http.StatusBadRequest)
 			return
 		}
 		if len(body) > maxRequestBodyBytes {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			http.Error(w, "cuerpo de la solicitud demasiado grande", http.StatusRequestEntityTooLarge)
 			return
 		}
 		if !json.Valid(body) {
