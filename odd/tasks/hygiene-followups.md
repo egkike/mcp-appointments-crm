@@ -41,17 +41,17 @@ default → review nativo.
 
 ## Tasks
 
-- [ ] **T1 — internal/admin** (`internal/admin/hermes.go`, `hermes_test.go`): #2 validación
+- [x] **T1 — internal/admin** `c28743d` (`internal/admin/hermes.go`, `hermes_test.go`): #2 validación
       de bind en `HermesEndpointURL` (rechaza unspecified + no-loopback, mensajes semánticos),
       #3 guard Windows en los 2 tests de modos, #4 doc de desviación aceptada + test de
       regresión semántica.
-- [ ] **T2 — plumbing + lazy** (`cmd/mcp-server/main.go`, `cmd/mcp-server/admin_tui.go`,
+- [x] **T2 — plumbing + lazy** `1cc9f23` (`cmd/mcp-server/main.go`, `cmd/mcp-server/admin_tui.go`,
       `internal/tui/{ports,model,cmds}.go`, `internal/tui/app_test.go`,
       `cmd/mcp-server/admin_tui_test.go`, `cmd/mcp-server/main_test.go`): #7 signal context
       plumbing completo + #1 bootstrap lazy (Deps.Hermes pasa a resolver diferido; el error
       se surfacea en la opción, no en el startup).
-- [ ] **T3 — inline**: #6 cache del unauth handler en `methodGate` (`internal/mcp/server.go`).
-- [ ] **T4 — close-out**: pipeline completo, review nativo, issue-first PR.
+- [x] **T3 — inline** `230b453`: #6 cache del unauth handler en `methodGate` (`internal/mcp/server.go`).
+- [x] **T4 — close-out**: pipeline completo, review nativo, issue-first PR — merged as `5694316` (PR #100).
 
 ## Evidence
 

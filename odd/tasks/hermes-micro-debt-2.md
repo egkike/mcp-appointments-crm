@@ -2,7 +2,7 @@
 
 **Type**: refactor/fix batch (unclaimed tail of odd/tasks/hermes-maintenance.md, post-micro-fixes reconciliation)
 **Branch**: `feat/hermes-micro-debt-2` (code → feature branch → PR)
-**Status**: IN PROGRESS — tracking created 2026-10-10
+**Status**: COMPLETE (MERGED 2026-10-11 — squash `8e3d004` on main, PR #114, CI green) — tracking created 2026-10-10
 **Origin**: owner approval 2026-10-10 ("Dale me suena bien"), claim condition met (PR #113 merged, CI green).
 
 ## Scope

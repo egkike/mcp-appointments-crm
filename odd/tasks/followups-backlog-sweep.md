@@ -2,7 +2,7 @@
 
 **Type**: mixed batch (fix/refactor/test/docs) — owner-approved 2026-10-11
 **Branch**: `feat/followups-backlog-sweep` (code → feature branch → PR)
-**Status**: IN PROGRESS — tracking created 2026-10-11
+**Status**: COMPLETE — PR #115 squash-merged as `237cdc8` on main (2026-10-11); tracking created 2026-10-11
 **Source**: feat-whatsapp-bot close-out list items 1/3/6/7 + GGA non-blocking suggestions + doc closures of items 2/4/5. Item 8 split into its own spec-first feature (see `feat-hours-exception-tool.md`).
 
 ## Owner decisions (2026-10-11)

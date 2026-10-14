@@ -2,7 +2,7 @@
 
 **Type**: refactor/fix (follow-ups of feat-whatsapp-bot, recorded 2026-10-08)
 **Branch**: `feat/code-hardening-followups` (code → feature branch → PR)
-**Status**: IN PROGRESS — tracking created 2026-10-10
+**Status**: COMPLETE — PR #113 squash-merged as `bdee151` on main (2026-10-10); tracking created 2026-10-10
 
 ## Scope
 

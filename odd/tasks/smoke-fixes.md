@@ -34,7 +34,7 @@ Close the actionable findings from the v0.4.0 fresh-install functional smoke on 
 - [x] **T2b — stale repos count log fix** ✅ commit `ce56650` (GGA observation on 80e37d0;
       9 repos not 11, same class as d7b65f7)
 - [x] **T3 — Stale deployment docs** ✅ commit `12d62e9`
-- [ ] **T4 — Gate + PR**
+- [x] **T4 — Gate + PR** — PR #93 squash-merged as `478386f` (issue #92 closed); native review APPROVED en dos lineages (ver Native review evidence)
 
 ## Evidence / commits
 

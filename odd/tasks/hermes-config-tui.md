@@ -57,22 +57,22 @@ PRD risk R5 ("El dueño del negocio no sabe cómo configurar Hermes ni apuntarlo
 
 ## Tasks
 
-- [ ] **T0 — ADR-0017** (docs lane: branch → commit → ff to main, no PR): decision, format
+- [x] **T0 — ADR-0017** `74dc04b` (docs lane: branch → commit → ff to main, no PR): decision, format
       contract (quoted E.164-with-`+`), merge/idempotency contract, non-goals. Docs = read-only
       for this feature's review (committed before the code branch).
-- [ ] **T1 — admin core** (`internal/admin/hermes.go` + tests): types for the Hermes config shape
+- [x] **T1 — admin core** `362dccc` (`internal/admin/hermes.go` + tests): types for the Hermes config shape
       (generic map for unknown keys), load/merge/atomic-write, snippet renderer, URL + phone
       validation reuse, no YAML emit of unquoted `+` values (quote-force), unit tests incl.
       merge-with-existing-servers and YAML-type regression (value stays a string).
-- [ ] **T2 — TUI wiring** (`internal/tui/`): new capability + screen + menu item + form
+- [x] **T2 — TUI wiring** `6a76a6f` (`internal/tui/`): new capability + screen + menu item + form
       (`formStep` phone prefill w/ override) + `tea.Cmd` calling the admin core + view screens
       (summary/snippet fallback) + update the scope-pin test. No business logic in the TUI.
-- [ ] **T3 — composition root** (`cmd/mcp-server/admin_tui.go`, `cmd/mcp-server/main.go`):
+- [x] **T3 — composition root** `6a76a6f` (`cmd/mcp-server/admin_tui.go`, `cmd/mcp-server/main.go`):
       pass `mcp.Config` (bind/port) into the deps so the TUI can build the endpoint URL;
       extend `tui.Deps` with the Hermes-config port.
-- [ ] **T4 — console fallback** (`adminMenuOptions` + action func): same capability, line-based
+- [x] **T4 — console fallback** `d8246a9` (`adminMenuOptions` + action func): same capability, line-based
       flow reusing the same admin core.
-- [ ] **T5 — close-out**: full pre-flight pipeline (fmt/vet/golangci/build/test -race), functional
+- [x] **T5 — close-out**: full pre-flight pipeline (fmt/vet/golangci/build/test -race), functional — native review review-eb6b809fafd682a0 APPROVED first pass; merged as `c0fdba3` (PR #98)
       checks (fresh-path write, merge path, snippet fallback), native review gate (default
       routing), issue + issue-first PR, owner merge.
 

@@ -1,7 +1,7 @@
 # Feature: GoReleaser + releases por CI (release v0.4.0)
 
 - **Created**: 2026-09-13
-- **Status**: in progress
+- **Status**: COMPLETE — delivered 2026-09-18, close-out commit `7a1553f` (PR #87 merged; pipeline live: tags v0.4.0…v0.6.1 published automatically by CI)
 - **Backlog refs**: PRD §7 Fase N, ADR-0014, docs/deployment.md (Release Process pending target)
 - **Mirror**: `odd/goreleaser-release-ci/tasks` (Engram) — ENGRAM DOWN at creation
   (server ownership mismatch, pid 2664 at http://127.0.0.1:7437); context recovered

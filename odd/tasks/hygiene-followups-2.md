@@ -47,7 +47,7 @@ Superficie del candidato (diff de PR #100, commit 5694316):
     **gate nativo APPROVED primera pasada** (lineage review-7b524be75481095e, tier high,
     4/4 lens materialize, 17 paths / 958 líneas, budget 200 sin correcciones, receipt
     ddfaba23 quemado 2026-09-25, 5 hallazgos advisory SUGGESTION) + issue-first PR
-- [ ] **T7 — Close-out**: pipeline completo (fmt/vet/golangci/build/test -race), gate
+- [x] **T7 — Close-out**: pipeline completo (fmt/vet/golangci/build/test -race), delivered as `1d773b5` (PR #102, Merge identity) — gate
       nativo por routing (default → review nativo), issue-first PR, merge por owner.
 
 ## Disposiciones (owner, 2026-09-25): 8/8 FIX
