@@ -11,6 +11,7 @@
 | `review-5534a1380c6262fe` | hours-exception phase 1 (PR #116, squash 2105f9d) | 3 SUGGESTION |
 | `review-688b86f460c4be9c` | hours-exception phase 2 (PR #117, squash 4467f51) | 1 SUGGESTION |
 | `review-86d213546c1defe7` | A3 parity guard (PR #123, squash da0dd93, approved + acknowledged 2026-10-14) | 2 SUGGESTION |
+| `review-bae540b2846285cc` | CONSOLIDATED: hardening closure batch (PR #127, f9d2657) + TOCTOU widening (PR #129, 513f270) — approved + acknowledged 2026-10-14 evening | 1 WARNING + 2 SUGGESTION |
 
 Plus the 2 GGA transport suggestions from the #115 commit-hook review. Everything below is non-blocking by definition (no correction transition was offered for any candidate); each item is a candidate for a small future refactor batch.
 
@@ -99,5 +100,18 @@ Delivered via PR #121 (tracking issue #120, squash `0a04f7c` on main; branch `fe
 
 **Still open after this batch:**
 
-1. **TOCTOU read-back window** (`create_hours_exception.go:79-90`) — separate code PR: `Create … RETURNING` port widening (the #114 pattern), ready to implement when the no-repository-change constraint does not apply.
+~~1. **TOCTOU read-back window** (`create_hours_exception.go:79-90`) — separate code PR: `Create … RETURNING` port widening (the #114 pattern), ready to implement when the no-repository-change constraint does not apply.~~
+   **EXECUTED 2026-10-14 (PR #128/#129, squash `513f270`)**: `domainrepo.BusinessHoursExceptionRepo.Create` widened to `(*entity, error)` with single atomic `INSERT … RETURNING`; the use case dropped the read-back Get (defensive nil-row guard kept). Delivered within the consolidated native review `review-bae540b2846285cc` (see below).
 2. Nothing else: every location in this document has now been visited and disposed.
+
+## Disposition (2026-10-14, v3) — CONSOLIDATED native review APPROVED — backlog saga CLOSED
+
+Both PRs merged squash (`f9d2657` batch / `513f270e` TOCTOU; CI green on both merge commits). The consolidated candidate (27 paths, 669 lines) went through native review `review-bae540b2846285cc` — medium, lenses risk+resilience+reliability, **APPROVED** with authority burned (`store_revision sha256:41de91ca…`). Transport reliability of the relay swallowed the `review-reliability` slot for 6 attempts (`stopReason: length`, config verified correct glm/medium by the owner); the seventh attempt post-merges ran clean — the block was provider-transient over the large candidate, not configuration.
+
+**New informational findings (queued, non-blocking):**
+
+- **C-R3-001** — `odd/tasks/review-findings-backlog.md:84` (SUGGESTION, reliability).
+- **C-R3-log-attr-key-change** — `internal/mcp/errors.go:70-73` (SUGGESTION, reliability).
+- **C-R4-log-truncation** — `internal/mcp/errors.go:65-71` (WARNING, resilience): the 256-rune `err_msg` cap can cut forensic tail content (`%w` chains put root cause at the end); head+tail keep is the candidate fix if a forwarding log sink ever materializes.
+
+**Backlog status: the hardening backlog doc is now fully dispositioned — no open follow-ups remain in this file.** Future informational findings (all of the above) live in the lists above and are re-triaged only when batched into a future PR; this document stops being the live backlog at this point.
