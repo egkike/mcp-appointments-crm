@@ -45,6 +45,26 @@ Plus the 2 GGA transport suggestions from the #115 commit-hook review. Everythin
 - English HTTP-level texts in `internal/mcp/errors.go` (:73, :77) vs the Spanish sibling (`auth_translator.go:61`) — consistency fix.
 - Triple POST-body buffering per request (auth_translator.go:57 → errors.go:71 → errors.go:152, each up to 1 MiB+1); the translator could pass the parsed name/body down.
 
-## Suggested next batch
+## Suggested next batch (EXECUTED 2026-10-14 — see disposition below)
 
 A single small refactor PR could absorb the mechanical items: the errors.go HTTP texts (2 strings), the IsOpenOn unexport decision (needs the config round-trip test moved), the dto json-tags cleanup (drop dead tags or document), and the Config-builder consolidation. The F-4 WARNING and the remaining items need individual judgment — see each entry.
+
+## Disposition (2026-10-14) — mechanical batch EXECUTED
+
+Delivered via PR #121 (tracking issue #120, squash `0a04f7c` on main; branch `feat/backlog-mechanical-batch`, 4 commits: `a5ca74a` → `3b6898d` → `7daa347` → `6464781`; CI green; native assess `reviewDue=false` medium/under_budget; human review by owner).
+
+**Resolved by the batch:**
+
+- GGA transport suggestions: errors.go HTTP texts EN→ES (pinned by `TestJSONParseGuard_HTTPBodyMessagesSpanish`).
+- `R3-isopenon-footgun`: resolved further than proposed — the lenient wrapper was removed entirely (no production caller ever materialized); lookups go through `GetOpenClose`, config round-trip test rewired.
+- `R3-dto-wire-tags`: dead tags dropped from the three exception INPUT carriers; `DeleteHoursExceptionResult` documented as the live wire shape; `Caller json:"-"` restored + guard-pinned (a GGA CRITICAL on the first draft — tag dropped by mistake — was fixed RED→GREEN).
+- `R3-config-literal-triplication`: mock sites share `configFromMockPorts` with per-site overrides; integration literal documented as the intentional composition-root mirror.
+- Batch-grown (GGA rounds on the entity candidate): mandatory identity scalars + slot-interval validation (wizard-exact semantics), uniform `*domain.SemanticError` in `Validate()` (detailed Spanish messages now reach the LLM), NaN/Inf coordinate guards, write-gate strict day keys (read leniency stays pinned), context-wrapped `json.Unmarshal` read error, `businessHoursDay` in-code exception comment.
+
+**Still open (follow-ups, owner-approved):**
+
+1. **A2 — ADR line** for the `businessHoursDay` persistence-parse tags carve-out of the "entities are wire-free" rule (in-code comment exists; the clause says no exceptions, so an ADR note prevents relitigation).
+2. **A3 — parity test** for the three parallel field enumerations of `UpdateBusinessProfileInput` (guard + scalar applier + reference applier): reflect-based drift guard so a future field cannot be silently dropped or accepted-without-apply.
+3. **A4 — RBAC inversion**: `BusinessProfileRepo.Update` re-asserts `RoleAdmin, RoleOwner` while the use case enforces `RoleOwner`; inert today (single caller) but the inner gate is weaker than its caller — tighten the repo to owner-only or document the port as generic.
+4. **Advisory — INPUT-tag duplication pattern**: input DTOs duplicating wire tags that live in the transport (`create_booking` precedent, pinned by `TestDTOFieldTags`) — repo-wide convention, needs a design decision (same family as R3-dto-wire-tags).
+5. All remaining informational findings listed above (F-4 WARNING, TOCTOU read-back window, R3-empty-query-mux, R3-log-attrs, R3-rule-column, design-prefix examples) — none reassessed since this doc was created.
