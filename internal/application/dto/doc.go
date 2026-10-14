@@ -2,8 +2,8 @@
 // adapters (internal/mcp), the use cases (internal/application/usecase) and
 // the entities (internal/domain/entity).
 //
-// Wire-tag convention (PR #126 batch, close-out of the INPUT-tag duplication
-// advisory in odd/tasks/review-findings-backlog.md):
+// Wire-tag convention (close-out of the INPUT-tag duplication advisory in
+// odd/tasks/review-findings-backlog.md, tracked by issue #126):
 //
 //   - '*Input' carriers are wire-free: the transport adapter owns the JSON
 //     request shapes through its '*In' structs (e.g. internal/mcp
