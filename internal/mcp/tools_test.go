@@ -121,39 +121,50 @@ func ownerCallerPtr() *auth.Caller {
 	return &c
 }
 
+// configFromMockPorts renders the 23-port server Config from a mockToolPorts
+// bundle. It is the single source of the field mapping (R3-config-literal-
+// triplication: this literal used to be enumerated by hand at newToolServer
+// and newHoursExceptionUseCaseServer); tests needing different ports override
+// the returned Config's fields after the call (per-site overrides). Adding a
+// tool means touching Config + the registering site + this mapper; the
+// ToolCount registration checks keep guarding the surface count.
+func configFromMockPorts(p *mockToolPorts) Config {
+	return Config{
+		Version:                "test",
+		Logger:                 discardLogger(),
+		CheckAvailability:      p.checkAvail,
+		CreateBooking:          p.create,
+		GetBooking:             p.get,
+		CancelBooking:          p.cancel,
+		RescheduleBooking:      p.reschedule,
+		GetBusinessProfile:     p.profile,
+		SearchClientsAdvanced:  p.searchClients,
+		SearchServicesAdvanced: p.searchServices,
+		GetPendingAlerts:       p.getPendingAlerts,
+		MarkAlertAsSent:        p.markAlertAsSent,
+		GetLoyaltyReport:       p.loyalty,
+		RegisterClient:         p.registerClient,
+		UpdateBusinessProfile:  p.updateProfile,
+		CreateService:          p.createService,
+		UpdateService:          p.updateService,
+		DeleteService:          p.deleteService,
+		CreateProfessional:     p.createProfessional,
+		UpdateProfessional:     p.updateProfessional,
+		UpsertSchedule:         p.upsertSchedule,
+		DeleteSchedule:         p.deleteSchedule,
+		CreateHoursException:   p.createHoursException,
+		DeleteHoursException:   p.deleteHoursException,
+		ListHoursExceptions:    p.listHoursExceptions,
+	}
+}
+
 // newToolServer builds a Server with all twenty-three ports mocked and returns
 // its unauthenticated Handler (unit level: caller is injected via the request
 // context, exactly as AuthMiddleware would).
 func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
 	t.Helper()
 	ports := newMockPorts()
-	srv := NewServer(Config{
-		Version:                "test",
-		Logger:                 discardLogger(),
-		CheckAvailability:      ports.checkAvail,
-		CreateBooking:          ports.create,
-		GetBooking:             ports.get,
-		CancelBooking:          ports.cancel,
-		RescheduleBooking:      ports.reschedule,
-		GetBusinessProfile:     ports.profile,
-		SearchClientsAdvanced:  ports.searchClients,
-		SearchServicesAdvanced: ports.searchServices,
-		GetPendingAlerts:       ports.getPendingAlerts,
-		MarkAlertAsSent:        ports.markAlertAsSent,
-		GetLoyaltyReport:       ports.loyalty,
-		RegisterClient:         ports.registerClient,
-		UpdateBusinessProfile:  ports.updateProfile,
-		CreateService:          ports.createService,
-		UpdateService:          ports.updateService,
-		DeleteService:          ports.deleteService,
-		CreateProfessional:     ports.createProfessional,
-		UpdateProfessional:     ports.updateProfessional,
-		UpsertSchedule:         ports.upsertSchedule,
-		DeleteSchedule:         ports.deleteSchedule,
-		CreateHoursException:   ports.createHoursException,
-		DeleteHoursException:   ports.deleteHoursException,
-		ListHoursExceptions:    ports.listHoursExceptions,
-	})
+	srv := NewServer(configFromMockPorts(ports))
 	return srv, ports
 }
 
