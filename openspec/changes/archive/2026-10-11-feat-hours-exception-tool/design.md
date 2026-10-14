@@ -141,10 +141,10 @@ The transport's error contract keeps **only** `*domain.SemanticError` messages (
 
 | Repository outcome | Use-case mapping | Client message (example) |
 |---|---|---|
-| `*domain.SemanticError` (date format/calendar) | **pass through unchanged** | `Error: la fecha debe tener formato YYYY-MM-DD.` / `Error: la fecha no es una fecha válida (formato YYYY-MM-DD).` |
-| `ErrInvalidInput` (is_closed↔times, `HH:MM`, `open<close`) | `ErrCodeInvalidInput` | `Error: la excepción no es válida. Si el negocio está cerrado, no envíes open_time/close_time; si está abierto, ambos son obligatorios en formato HH:MM y open_time debe ser anterior a close_time.` |
-| `ErrConflict` (duplicate date) | `ErrCodeConflict` | `Error: ya existe una excepción para esa fecha. Borrala y creala de nuevo si querés cambiar el horario de ese día.` |
-| `ErrNotFound` (delete unknown id) | `ErrCodeNotFound` | `Error: no existe una excepción con ese id.` |
+| `*domain.SemanticError` (date format/calendar) | **pass through unchanged** | `la fecha debe tener formato YYYY-MM-DD.` / `la fecha no es una fecha válida (formato YYYY-MM-DD).` |
+| `ErrInvalidInput` (is_closed↔times, `HH:MM`, `open<close`) | `ErrCodeInvalidInput` | `la excepción no es válida. Si el negocio está cerrado, no envíes open_time/close_time; si está abierto, ambos son obligatorios en formato HH:MM y open_time debe ser anterior a close_time.` |
+| `ErrConflict` (duplicate date) | `ErrCodeConflict` | `ya existe una excepción para esa fecha. Borrala y creala de nuevo si querés cambiar el horario de ese día.` |
+| `ErrNotFound` (delete unknown id) | `ErrCodeNotFound` | `no existe una excepción con ese id.` |
 | any other error | returned wrapped (`fmt.Errorf`) → `-32603` | generic server error; detail only in server logs |
 
 The pass-through branch is checked first (`errors.As(err, &sem)`), because `validateExceptionDate` already returns a `*domain.SemanticError` with a clean Spanish `Message` and a `Cause` that keeps `domain.ErrInvalidInput` reachable through `errors.Is` (`internal/repository/validation.go:62-80`). Every other branch **replaces** the repository's internal prefix with a client-facing message, so no `"crear excepción: ..."` prefix or driver text reaches the LLM.
