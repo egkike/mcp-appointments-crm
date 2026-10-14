@@ -104,22 +104,22 @@ func (r *fakeHoursExceptionRepo) Get(_ context.Context, date time.Time) (*entity
 	return row, nil
 }
 
-func (r *fakeHoursExceptionRepo) Create(_ context.Context, e *entity.BusinessHoursException) error {
+func (r *fakeHoursExceptionRepo) Create(_ context.Context, e *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 	if _, exists := r.rows[e.ExceptionDate]; exists {
-		return fmt.Errorf("crear excepción: %w", domain.ErrConflict)
+		return nil, fmt.Errorf("crear excepción: %w", domain.ErrConflict)
 	}
 	if e.IsClosed {
 		if e.OpenTime != nil || e.CloseTime != nil {
-			return fmt.Errorf("crear excepción: %w", domain.ErrInvalidInput)
+			return nil, fmt.Errorf("crear excepción: %w", domain.ErrInvalidInput)
 		}
 	} else if e.OpenTime == nil || e.CloseTime == nil || *e.OpenTime >= *e.CloseTime {
-		return fmt.Errorf("crear excepción: %w", domain.ErrInvalidInput)
+		return nil, fmt.Errorf("crear excepción: %w", domain.ErrInvalidInput)
 	}
 	r.nextID++
 	stored := *e
 	stored.ID = r.nextID
 	r.rows[stored.ExceptionDate] = &stored
-	return nil
+	return &stored, nil
 }
 
 func (r *fakeHoursExceptionRepo) List(_ context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
@@ -596,7 +596,7 @@ func TestHoursExceptionUseCaseSemanticMessages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, repo := newHoursExceptionUseCaseServer(t)
 			if tt.seed {
-				if err := repo.Create(context.Background(), &entity.BusinessHoursException{ExceptionDate: "2026-12-25", IsClosed: true}); err != nil {
+				if _, err := repo.Create(context.Background(), &entity.BusinessHoursException{ExceptionDate: "2026-12-25", IsClosed: true}); err != nil {
 					t.Fatalf("seed: %v", err)
 				}
 			}

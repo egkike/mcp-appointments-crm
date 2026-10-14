@@ -28,7 +28,7 @@ func TestBusinessHoursExceptionRepo_Create_DoSPlantingBlocked(t *testing.T) {
 				ExceptionDate: "9999-12-31",
 				IsClosed:      true,
 			}
-			err := repo.Create(tc.ctx, ex)
+			_, err := repo.Create(tc.ctx, ex)
 			if !errors.Is(err, domain.ErrForbidden) && !errors.Is(err, domain.ErrUnauthenticated) {
 				t.Errorf("got %v, want ErrForbidden or ErrUnauthenticated", err)
 			}
@@ -40,12 +40,13 @@ func TestBusinessHoursExceptionRepo_Create_AdminCanPlantClosedException(t *testi
 	db, mock := newMockDB(t)
 	repo := NewBusinessHoursExceptionRepo(db)
 
-	mock.ExpectExec(`INSERT INTO business_hours_exception`).
+	mock.ExpectQuery(`INSERT INTO business_hours_exception`).
 		WithArgs("9999-12-31", true, nil, nil, nil).
-		WillReturnResult(sqlmock.NewResult(1, 1))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "exception_date", "is_closed", "open_time", "close_time", "reason", "created_at"}).
+			AddRow(1, "9999-12-31", true, nil, nil, nil, "2026-10-14T12:00:00Z"))
 
 	ex := &entity.BusinessHoursException{ExceptionDate: "9999-12-31", IsClosed: true}
-	if err := repo.Create(adminCtx(), ex); err != nil {
+	if _, err := repo.Create(adminCtx(), ex); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

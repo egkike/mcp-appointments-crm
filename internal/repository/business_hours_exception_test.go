@@ -17,16 +17,17 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		repo := NewBusinessHoursExceptionRepo(db)
 
 		reason := "Navidad"
-		mock.ExpectExec(`INSERT INTO business_hours_exception`).
+		mock.ExpectQuery(`INSERT INTO business_hours_exception`).
 			WithArgs("2026-12-25", true, nil, nil, &reason).
-			WillReturnResult(sqlmock.NewResult(1, 1))
+			WillReturnRows(sqlmock.NewRows([]string{"id", "exception_date", "is_closed", "open_time", "close_time", "reason", "created_at"}).
+				AddRow(1, "2026-12-25", true, nil, nil, &reason, "2026-10-14T12:00:00Z"))
 
 		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 			Reason:        &reason,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -38,9 +39,10 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 
 		open := "10:00"
 		close := "14:00"
-		mock.ExpectExec(`INSERT INTO business_hours_exception`).
+		mock.ExpectQuery(`INSERT INTO business_hours_exception`).
 			WithArgs("2026-12-24", false, &open, &close, nil).
-			WillReturnResult(sqlmock.NewResult(1, 1))
+			WillReturnRows(sqlmock.NewRows([]string{"id", "exception_date", "is_closed", "open_time", "close_time", "reason", "created_at"}).
+				AddRow(1, "2026-12-24", false, &open, &close, nil, "2026-10-14T12:00:00Z"))
 
 		ex := &entity.BusinessHoursException{
 			ExceptionDate: "2026-12-24",
@@ -48,7 +50,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -62,7 +64,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-12-25T00:00:00",
 			IsClosed:      true,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for datetime, got %v", err)
 		}
@@ -76,7 +78,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "25/12/2026",
 			IsClosed:      true,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for slashes, got %v", err)
 		}
@@ -93,7 +95,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      nil,
 			CloseTime:     &close,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for nil open_time, got %v", err)
 		}
@@ -110,7 +112,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     nil,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for nil close_time, got %v", err)
 		}
@@ -128,7 +130,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for open>close, got %v", err)
 		}
@@ -146,7 +148,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for is_closed with times, got %v", err)
 		}
@@ -164,7 +166,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for single-digit hour, got %v", err)
 		}
@@ -182,7 +184,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for time with seconds, got %v", err)
 		}
@@ -200,7 +202,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for hour=25, got %v", err)
 		}
@@ -218,7 +220,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			OpenTime:      &open,
 			CloseTime:     &close,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for minute=70, got %v", err)
 		}
@@ -232,7 +234,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-13-45",
 			IsClosed:      true,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for invalid calendar date, got %v", err)
 		}
@@ -246,7 +248,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-02-30",
 			IsClosed:      true,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for Feb 30, got %v", err)
 		}
@@ -256,7 +258,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
-		mock.ExpectExec(`INSERT INTO business_hours_exception`).
+		mock.ExpectQuery(`INSERT INTO business_hours_exception`).
 			WithArgs("2026-12-25", true, nil, nil, nil).
 			WillReturnError(errors.New("UNIQUE constraint failed: business_hours_exception.exception_date"))
 
@@ -264,7 +266,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if !errors.Is(err, domain.ErrConflict) {
 			t.Errorf("expected domain.ErrConflict, got %v", err)
 		}
@@ -274,7 +276,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewBusinessHoursExceptionRepo(db)
 
-		mock.ExpectExec(`INSERT INTO business_hours_exception`).
+		mock.ExpectQuery(`INSERT INTO business_hours_exception`).
 			WithArgs("2026-12-25", true, nil, nil, nil).
 			WillReturnError(errors.New("disk full"))
 
@@ -282,7 +284,7 @@ func TestBusinessHoursExceptionRepo_Create(t *testing.T) {
 			ExceptionDate: "2026-12-25",
 			IsClosed:      true,
 		}
-		err := repo.Create(adminCtx(), ex)
+		_, err := repo.Create(adminCtx(), ex)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}

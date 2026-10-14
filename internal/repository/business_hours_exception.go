@@ -36,60 +36,67 @@ func NewBusinessHoursExceptionRepo(db *sql.DB) *BusinessHoursExceptionRepo {
 //   - open_time must be < close_time
 //
 // Returns domain.ErrInvalidInput for validation failures, domain.ErrConflict for duplicate dates.
-func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *entity.BusinessHoursException) error {
+func (r *BusinessHoursExceptionRepo) Create(ctx context.Context, ex *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
-		return fmt.Errorf("crear excepción: %w", err)
+		return nil, fmt.Errorf("crear excepción: %w", err)
 	}
 
 	// Validate date format and calendar validity via shared helper.
 	if err := validateExceptionDate(ex.ExceptionDate); err != nil {
-		return fmt.Errorf("crear excepción: %w", err)
+		return nil, fmt.Errorf("crear excepción: %w", err)
 	}
 
 	if ex.IsClosed {
 		// If closed, open_time and close_time must not be set.
 		if ex.OpenTime != nil || ex.CloseTime != nil {
-			return fmt.Errorf("crear excepción: si está cerrado, no se deben especificar horarios: %w",
+			return nil, fmt.Errorf("crear excepción: si está cerrado, no se deben especificar horarios: %w",
 				domain.ErrInvalidInput)
 		}
 	} else {
 		// If open, both times are required.
 		if ex.OpenTime == nil || ex.CloseTime == nil {
-			return fmt.Errorf("crear excepción: si está abierto, se deben especificar hora de apertura y cierre: %w",
+			return nil, fmt.Errorf("crear excepción: si está abierto, se deben especificar hora de apertura y cierre: %w",
 				domain.ErrInvalidInput)
 		}
 		// Validate HH:MM format.
 		if !timeHHMMRe.MatchString(*ex.OpenTime) {
-			return fmt.Errorf("crear excepción: la hora de apertura debe tener formato HH:MM, se recibió: %q: %w",
+			return nil, fmt.Errorf("crear excepción: la hora de apertura debe tener formato HH:MM, se recibió: %q: %w",
 				*ex.OpenTime, domain.ErrInvalidInput)
 		}
 		if !timeHHMMRe.MatchString(*ex.CloseTime) {
-			return fmt.Errorf("crear excepción: la hora de cierre debe tener formato HH:MM, se recibió: %q: %w",
+			return nil, fmt.Errorf("crear excepción: la hora de cierre debe tener formato HH:MM, se recibió: %q: %w",
 				*ex.CloseTime, domain.ErrInvalidInput)
 		}
 		// Validate open < close using string comparison (HH:MM is lexicographically ordered).
 		if *ex.OpenTime >= *ex.CloseTime {
-			return fmt.Errorf("crear excepción: la hora de apertura (%s) debe ser anterior a la hora de cierre (%s): %w",
+			return nil, fmt.Errorf("crear excepción: la hora de apertura (%s) debe ser anterior a la hora de cierre (%s): %w",
 				*ex.OpenTime, *ex.CloseTime, domain.ErrInvalidInput)
 		}
 	}
 
-	_, err := r.db.ExecContext(ctx,
+	// The INSERT ... RETURNING is a single atomic statement (the #114
+	// pattern, same as business_profile/schedules): the stored row — the
+	// server-assigned id and created_at included — is the result of the
+	// write itself, so no separate read can race it.
+	stored := &entity.BusinessHoursException{}
+	err := r.db.QueryRowContext(ctx,
 		`INSERT INTO business_hours_exception (exception_date, is_closed, open_time, close_time, reason)
-		 VALUES (?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?)
+		 RETURNING id, exception_date, is_closed, open_time, close_time, reason, created_at`,
 		ex.ExceptionDate, ex.IsClosed, ex.OpenTime, ex.CloseTime, ex.Reason,
-	)
+	).Scan(&stored.ID, &stored.ExceptionDate, &stored.IsClosed, &stored.OpenTime,
+		&stored.CloseTime, &stored.Reason, &stored.CreatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return fmt.Errorf("crear excepción: la fecha %s ya existe: %w", ex.ExceptionDate, domain.ErrConflict)
+			return nil, fmt.Errorf("crear excepción: la fecha %s ya existe: %w", ex.ExceptionDate, domain.ErrConflict)
 		}
-		return &domain.SemanticError{
+		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeInternal,
 			Message: "Error interno al crear la excepción",
 			Cause:   err,
 		}
 	}
-	return nil
+	return stored, nil
 }
 
 // Get returns the exception for a given date. Returns domain.ErrNotFound if

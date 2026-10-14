@@ -32,7 +32,7 @@ import (
 // nil so an unexpected dependency path fails fast.
 type mockHoursExceptionRepo struct {
 	GetFn    func(ctx context.Context, date time.Time) (*entity.BusinessHoursException, error)
-	CreateFn func(ctx context.Context, e *entity.BusinessHoursException) error
+	CreateFn func(ctx context.Context, e *entity.BusinessHoursException) (*entity.BusinessHoursException, error)
 	ListFn   func(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error)
 	DeleteFn func(ctx context.Context, id int) error
 }
@@ -44,7 +44,7 @@ func (m *mockHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*enti
 	return m.GetFn(ctx, date)
 }
 
-func (m *mockHoursExceptionRepo) Create(ctx context.Context, e *entity.BusinessHoursException) error {
+func (m *mockHoursExceptionRepo) Create(ctx context.Context, e *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 	if m.CreateFn == nil {
 		panic("mockHoursExceptionRepo.CreateFn not set")
 	}
@@ -79,14 +79,9 @@ const (
 func TestCreateHoursExceptionUseCase_ClosedException(t *testing.T) {
 	logger, buf := captureAuditLogger()
 	var created *entity.BusinessHoursException
-	var readBackDate time.Time
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(_ context.Context, e *entity.BusinessHoursException) error {
+		CreateFn: func(_ context.Context, e *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 			created = e
-			return nil
-		},
-		GetFn: func(_ context.Context, date time.Time) (*entity.BusinessHoursException, error) {
-			readBackDate = date
 			stored := *created
 			stored.ID = 7
 			return &stored, nil
@@ -115,9 +110,6 @@ func TestCreateHoursExceptionUseCase_ClosedException(t *testing.T) {
 	if created.Reason == nil || *created.Reason != "Navidad" {
 		t.Errorf("Reason = %v, want Navidad", created.Reason)
 	}
-	if got := readBackDate.Format("2006-01-02"); got != "2026-12-25" {
-		t.Errorf("read-back date = %s, want 2026-12-25", got)
-	}
 	if result == nil || result.ID != 7 {
 		t.Fatalf("result = %+v, want the stored row (ID 7)", result)
 	}
@@ -127,11 +119,8 @@ func TestCreateHoursExceptionUseCase_ClosedException(t *testing.T) {
 func TestCreateHoursExceptionUseCase_OpenExceptionWithWindow(t *testing.T) {
 	var created *entity.BusinessHoursException
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(_ context.Context, e *entity.BusinessHoursException) error {
+		CreateFn: func(_ context.Context, e *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 			created = e
-			return nil
-		},
-		GetFn: func(_ context.Context, _ time.Time) (*entity.BusinessHoursException, error) {
 			stored := *created
 			stored.ID = 9
 			return &stored, nil
@@ -160,14 +149,10 @@ func TestCreateHoursExceptionUseCase_OpenExceptionWithWindow(t *testing.T) {
 
 func TestCreateHoursExceptionUseCase_Forbidden(t *testing.T) {
 	logger, buf := captureAuditLogger()
-	createCalls, getCalls := 0, 0
+	createCalls := 0
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error {
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 			createCalls++
-			return nil
-		},
-		GetFn: func(context.Context, time.Time) (*entity.BusinessHoursException, error) {
-			getCalls++
 			return nil, nil
 		},
 	}
@@ -181,16 +166,16 @@ func TestCreateHoursExceptionUseCase_Forbidden(t *testing.T) {
 		})
 		return err
 	})
-	if createCalls != 0 || getCalls != 0 {
-		t.Errorf("repository reached for a non-owner caller (Create=%d, Get=%d)", createCalls, getCalls)
+	if createCalls != 0 {
+		t.Errorf("repository reached for a non-owner caller (Create=%d)", createCalls)
 	}
 }
 
 func TestCreateHoursExceptionUseCase_ClosedWithTimesRejected(t *testing.T) {
 	open, close := "10:00", "14:00"
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error {
-			return fmt.Errorf("crear excepción: si está cerrado, no se deben especificar horarios: %w", domain.ErrInvalidInput)
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
+			return nil, fmt.Errorf("crear excepción: si está cerrado, no se deben especificar horarios: %w", domain.ErrInvalidInput)
 		},
 		GetFn: func(context.Context, time.Time) (*entity.BusinessHoursException, error) {
 			t.Fatal("read-back must not run after a rejected write")
@@ -211,8 +196,8 @@ func TestCreateHoursExceptionUseCase_ClosedWithTimesRejected(t *testing.T) {
 
 func TestCreateHoursExceptionUseCase_OpenWithoutTimesRejected(t *testing.T) {
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error {
-			return fmt.Errorf("crear excepción: si está abierto, se deben especificar hora de apertura y cierre: %w", domain.ErrInvalidInput)
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
+			return nil, fmt.Errorf("crear excepción: si está abierto, se deben especificar hora de apertura y cierre: %w", domain.ErrInvalidInput)
 		},
 		GetFn: func(context.Context, time.Time) (*entity.BusinessHoursException, error) {
 			t.Fatal("read-back must not run after a rejected write")
@@ -232,8 +217,8 @@ func TestCreateHoursExceptionUseCase_OpenWithoutTimesRejected(t *testing.T) {
 func TestCreateHoursExceptionUseCase_OpenTimeNotBeforeCloseTimeRejected(t *testing.T) {
 	open, close := "15:00", "09:00"
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error {
-			return fmt.Errorf("crear excepción: la hora de apertura (%s) debe ser anterior a la hora de cierre (%s): %w",
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
+			return nil, fmt.Errorf("crear excepción: la hora de apertura (%s) debe ser anterior a la hora de cierre (%s): %w",
 				open, close, domain.ErrInvalidInput)
 		},
 		GetFn: func(context.Context, time.Time) (*entity.BusinessHoursException, error) {
@@ -255,9 +240,9 @@ func TestCreateHoursExceptionUseCase_OpenTimeNotBeforeCloseTimeRejected(t *testi
 
 func TestCreateHoursExceptionUseCase_MalformedDatePassthrough(t *testing.T) {
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error {
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 			// Shape produced by repository.validateExceptionDate.
-			return &domain.SemanticError{
+			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeInvalidInput,
 				Message: "la fecha debe tener formato YYYY-MM-DD.",
 				Cause:   fmt.Errorf("la fecha debe tener formato YYYY-MM-DD, se recibió: %q: %w", "25/12/2026", domain.ErrInvalidInput),
@@ -283,8 +268,8 @@ func TestCreateHoursExceptionUseCase_MalformedDatePassthrough(t *testing.T) {
 
 func TestCreateHoursExceptionUseCase_CalendarInvalidDatePassthrough(t *testing.T) {
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error {
-			return &domain.SemanticError{
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
+			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeInvalidInput,
 				Message: "la fecha no es una fecha válida (formato YYYY-MM-DD).",
 				Cause:   fmt.Errorf("la fecha %q no es una fecha válida (formato YYYY-MM-DD): %w", "2026-02-30", domain.ErrInvalidInput),
@@ -307,8 +292,8 @@ func TestCreateHoursExceptionUseCase_CalendarInvalidDatePassthrough(t *testing.T
 
 func TestCreateHoursExceptionUseCase_DuplicateDateConflict(t *testing.T) {
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error {
-			return fmt.Errorf("crear excepción: la fecha %s ya existe: %w", "2026-12-25", domain.ErrConflict)
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
+			return nil, fmt.Errorf("crear excepción: la fecha %s ya existe: %w", "2026-12-25", domain.ErrConflict)
 		},
 		GetFn: func(context.Context, time.Time) (*entity.BusinessHoursException, error) {
 			t.Fatal("read-back must not run after a rejected write")
@@ -328,27 +313,14 @@ func TestCreateHoursExceptionUseCase_DuplicateDateConflict(t *testing.T) {
 	}
 }
 
-func TestCreateHoursExceptionUseCase_ReadBackFailureStaysInternal(t *testing.T) {
+func TestCreateHoursExceptionUseCase_NilStoredRowStaysInternal(t *testing.T) {
+	// Defensive contract of Create...RETURNING: a conforming implementation
+	// never returns (nil, nil); if a future one does, the use case must fail
+	// closed instead of logging/dereferencing a nil id.
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error { return nil },
-		GetFn: func(context.Context, time.Time) (*entity.BusinessHoursException, error) {
-			return nil, errors.New("database is locked")
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
+			return nil, nil
 		},
-	}
-	uc := NewCreateHoursExceptionUseCase(repo, nil)
-
-	_, err := uc.Execute(context.Background(), dto.CreateHoursExceptionInput{
-		Caller:        ownerCaller(),
-		ExceptionDate: "2026-12-25",
-		IsClosed:      true,
-	})
-	assertInternalErrorPrefix(t, err, "create_hours_exception:")
-}
-
-func TestCreateHoursExceptionUseCase_ReadBackNilStaysInternal(t *testing.T) {
-	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error { return nil },
-		GetFn:    func(context.Context, time.Time) (*entity.BusinessHoursException, error) { return nil, nil },
 	}
 	uc := NewCreateHoursExceptionUseCase(repo, nil)
 
@@ -362,8 +334,8 @@ func TestCreateHoursExceptionUseCase_ReadBackNilStaysInternal(t *testing.T) {
 
 func TestCreateHoursExceptionUseCase_UnknownErrorStaysInternal(t *testing.T) {
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error {
-			return errors.New("disk I/O error")
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
+			return nil, errors.New("disk I/O error")
 		},
 	}
 	uc := NewCreateHoursExceptionUseCase(repo, nil)
@@ -378,8 +350,7 @@ func TestCreateHoursExceptionUseCase_UnknownErrorStaysInternal(t *testing.T) {
 
 func TestCreateHoursExceptionUseCase_NilLoggerDoesNotPanic(t *testing.T) {
 	repo := &mockHoursExceptionRepo{
-		CreateFn: func(context.Context, *entity.BusinessHoursException) error { return nil },
-		GetFn: func(context.Context, time.Time) (*entity.BusinessHoursException, error) {
+		CreateFn: func(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 			return &entity.BusinessHoursException{ID: 1, ExceptionDate: "2026-12-25", IsClosed: true}, nil
 		},
 	}
