@@ -169,21 +169,21 @@ func TestMapBusinessHours_EntityRoundTrip(t *testing.T) {
 	}
 
 	bp := entity.BusinessProfile{BusinessHours: mapped}
-	if !bp.IsOpenOn(1) {
-		t.Errorf("Monday should be open")
-	}
+	// The entity has no lenient yes/no helper anymore (GGA r2 #5); config
+	// asserts the round-trip through the exported GetOpenClose contract that
+	// production booking logic must use anyway.
 	open, close, ok, err := bp.GetOpenClose(1)
 	if err != nil {
 		t.Fatalf("GetOpenClose(1) error = %v, want nil", err)
 	}
 	if !ok {
-		t.Fatal("GetOpenClose(1) should be ok")
+		t.Fatal("GetOpenClose(1) should be ok (Monday must be open)")
 	}
 	if open != "09:00" || close != "18:00" {
 		t.Errorf("GetOpenClose(1) = %s-%s, want 09:00-18:00", open, close)
 	}
-	if bp.IsOpenOn(7) {
-		t.Errorf("Sunday should be closed")
+	if _, _, ok, err := bp.GetOpenClose(7); ok || err != nil {
+		t.Errorf("Sunday should be closed: GetOpenClose(7) = (_, _, %v, %v)", ok, err)
 	}
 }
 
