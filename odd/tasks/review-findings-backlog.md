@@ -10,6 +10,7 @@
 | `review-d30af8ec9a65d464` | backlog sweep batch (PR #115, squash 237cdc8) | 4 SUGGESTION |
 | `review-5534a1380c6262fe` | hours-exception phase 1 (PR #116, squash 2105f9d) | 3 SUGGESTION |
 | `review-688b86f460c4be9c` | hours-exception phase 2 (PR #117, squash 4467f51) | 1 SUGGESTION |
+| `review-86d213546c1defe7` | A3 parity guard (PR #123, squash da0dd93, approved + acknowledged 2026-10-14) | 2 SUGGESTION |
 
 Plus the 2 GGA transport suggestions from the #115 commit-hook review. Everything below is non-blocking by definition (no correction transition was offered for any candidate); each item is a candidate for a small future refactor batch.
 
@@ -64,7 +65,12 @@ Delivered via PR #121 (tracking issue #120, squash `0a04f7c` on main; branch `fe
 **Still open (follow-ups, owner-approved):**
 
 1. **A2 — ADR line** for the `businessHoursDay` persistence-parse tags carve-out of the "entities are wire-free" rule (in-code comment exists; the clause says no exceptions, so an ADR note prevents relitigation).
-2. **A3 — parity test** for the three parallel field enumerations of `UpdateBusinessProfileInput` (guard + scalar applier + reference applier): reflect-based drift guard so a future field cannot be silently dropped or accepted-without-apply.
+2. ~~**A3 — parity test**~~ — **EXECUTED 2026-10-14**: reflect-based parity guard in `internal/application/usecase/update_business_profile_parity_test.go` (PR #122/#123, review `review-86d213546c1defe7` approved; RED verified via three temporary drift mutations). A future unlisted field can no longer be silently dropped or accepted-without-apply. Its two new informational findings are listed below.
 3. **A4 — RBAC inversion**: `BusinessProfileRepo.Update` re-asserts `RoleAdmin, RoleOwner` while the use case enforces `RoleOwner`; inert today (single caller) but the inner gate is weaker than its caller — tighten the repo to owner-only or document the port as generic.
 4. **Advisory — INPUT-tag duplication pattern**: input DTOs duplicating wire tags that live in the transport (`create_booking` precedent, pinned by `TestDTOFieldTags`) — repo-wide convention, needs a design decision (same family as R3-dto-wire-tags).
 5. All remaining informational findings listed above (F-4 WARNING, TOCTOU read-back window, R3-empty-query-mux, R3-log-attrs, R3-rule-column, design-prefix examples) — none reassessed since this doc was created.
+
+### From the A3 parity-guard review (review-86d213546c1defe7)
+
+- **A3-R3-1** — `internal/application/usecase/update_business_profile_parity_test.go:41-46` (SUGGESTION, reliability).
+- **A3-R3-2** — `internal/application/usecase/update_business_profile_parity_test.go:107-109` (SUGGESTION, reliability).
