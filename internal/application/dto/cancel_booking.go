@@ -9,7 +9,7 @@ type CancelBookingInput struct {
 	// Caller is the authenticated actor requesting the cancellation.
 	Caller auth.Caller `json:"-"`
 	// BookingID identifies the booking to cancel.
-	BookingID string `json:"booking_id"`
+	BookingID string
 }
 
 // CancelBookingResult holds the outcome of a successful cancellation.

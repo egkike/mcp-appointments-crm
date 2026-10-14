@@ -25,7 +25,7 @@ type ServiceSearchEntry struct {
 // SearchClientsAdvancedInput carries the authenticated caller and the FTS query.
 type SearchClientsAdvancedInput struct {
 	Caller    auth.Caller `json:"-"`
-	QueryText string      `json:"query_text"`
+	QueryText string
 }
 
 // SearchClientsAdvancedResult is the response body for search_clients_advanced.
@@ -36,7 +36,7 @@ type SearchClientsAdvancedResult struct {
 // SearchServicesAdvancedInput carries the authenticated caller and the FTS query.
 type SearchServicesAdvancedInput struct {
 	Caller    auth.Caller `json:"-"`
-	QueryText string      `json:"query_text"`
+	QueryText string
 }
 
 // SearchServicesAdvancedResult is the response body for search_services_advanced.
@@ -58,8 +58,8 @@ type LoyaltyReportEntry struct {
 // while an omitted value defaults to 10.
 type GetLoyaltyReportInput struct {
 	Caller auth.Caller `json:"-"`
-	Period string      `json:"period,omitempty"`
-	TopN   *int        `json:"top_n,omitempty"`
+	Period string
+	TopN   *int
 }
 
 // GetLoyaltyReportResult is the response body for get_loyalty_report.

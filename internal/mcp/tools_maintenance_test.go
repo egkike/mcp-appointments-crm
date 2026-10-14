@@ -319,7 +319,7 @@ func TestToolUpdateBusinessProfilePresenceMarkersStayOutOfSchema(t *testing.T) {
 	stubMaintenancePortsFail(ports, errors.New("port must not be called"))
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "update_business_profile", `{"latitudeProvided":true}`))
-	wantToolError(t, resp, "")
+	wantToolError(t, resp, "unexpected additional properties")
 }
 
 // ── create_service ──

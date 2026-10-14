@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -60,8 +62,34 @@ func (s *Server) toMCPError(err error) *jsonrpc.Error {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	logger.Error("tool handler failed", "err", err)
+	// Bounded summary attrs (R3-log-attrs): the raw error may carry
+	// caller-derived fragments, and a log sink that forwards records must not
+	// receive unbounded or multi-line values. The typed kind plus a capped
+	// single-line message preserve root-cause signal without dumping payload
+	// fragments.
+	logger.Error("tool handler failed",
+		"err_kind", fmt.Sprintf("%T", err),
+		"err_msg", boundedLogValue(err.Error()))
 	return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: msgInternal}
+}
+
+// maxBoundedLogRunes caps one log attribute value. Large structured dumps
+// belong to the caller's own debugging, not to the server's shared log sink.
+const maxBoundedLogRunes = 256
+
+// boundedLogValue flattens a value to one line and caps its length.
+func boundedLogValue(v string) string {
+	v = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, v)
+	runes := []rune(v)
+	if len(runes) <= maxBoundedLogRunes {
+		return v
+	}
+	return string(runes[:maxBoundedLogRunes]) + "…[truncated]"
 }
 
 // jsonParseGuard wraps the streamable handler with two JSON-RPC transport

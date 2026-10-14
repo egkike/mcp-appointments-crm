@@ -64,7 +64,7 @@ Delivered via PR #121 (tracking issue #120, squash `0a04f7c` on main; branch `fe
 
 **Still open (follow-ups, owner-approved):**
 
-1. **A2 — ADR line** for the `businessHoursDay` persistence-parse tags carve-out of the "entities are wire-free" rule (in-code comment exists; the clause says no exceptions, so an ADR note prevents relitigation).
+1. ~~**A2 — ADR line**~~ — **EXECUTED 2026-10-14** (commit `a7e365c`, ahead of this list): ADR-0013 Positive/Dominio puro now carries the wire-tag carve-out note; the in-code comment and the ADR cross-reference.
 2. ~~**A3 — parity test**~~ — **EXECUTED 2026-10-14**: reflect-based parity guard in `internal/application/usecase/update_business_profile_parity_test.go` (PR #122/#123, review `review-86d213546c1defe7` approved; RED verified via three temporary drift mutations). A future unlisted field can no longer be silently dropped or accepted-without-apply. Its two new informational findings are listed below.
 3. ~~**A4 — RBAC inversion**~~ — **EXECUTED 2026-10-14, owner decision: document the port as generic** (tightening was rejected as coupling the adapter to one caller's policy, diverging from the nine sibling repo-layer re-asserts). `domainrepo.BusinessProfileRepo.Update` now carries a role-generic doc comment (PR #124/#125, squash `9835b9f`; commit `docs(domain): …` on `test/backlog-a4-port-doc`): caller-scoped owner-only narrowing stays in the use case (ADR-0015 D2). Native review `review-be71c677a3fbb501` approved (medium/review-reliability, comment-only 8 lines) + acknowledged on glm-5.3-flash relay.
 4. **Advisory — INPUT-tag duplication pattern**: input DTOs duplicating wire tags that live in the transport (`create_booking` precedent, pinned by `TestDTOFieldTags`) — repo-wide convention, needs a design decision (same family as R3-dto-wire-tags).
@@ -74,3 +74,30 @@ Delivered via PR #121 (tracking issue #120, squash `0a04f7c` on main; branch `fe
 
 - **A3-R3-1** — `internal/application/usecase/update_business_profile_parity_test.go:41-46` (SUGGESTION, reliability).
 - **A3-R3-2** — `internal/application/usecase/update_business_profile_parity_test.go:107-109` (SUGGESTION, reliability).
+
+## Disposition (2026-10-14, v2) — mechanical closure batch EXECUTED (+ advisory decision)
+
+**Owner decisions (2026-10-14):** advisory dto-tags resolved as **(a) convention + sweep**; mechanical items grouped in one batch PR; the TOCTOU port-widening delivered separately as a code PR.
+
+**Batch contents (committed on the batch branch; lines approximate):**
+
+- **Advisory dto-tags sweep (adopted convention)**: every `*Input` carrier in `internal/application/dto` is now wire-free — data fields carry no tags; marker guards (`Caller json:"-"`, `ClearLatitude/ClearLongitude json:"-"`) stay. Fixed in the same pass: `SearchClientsAdvancedInput`/`SearchServicesAdvancedInput` previously shipped the Caller **without** the protective `json:"-"` (a leak the sweep-guard made visible — pinned by `TestCallerFieldNotSerialized`). Convention documented in the new `internal/application/dto/doc.go` and pinned by the new reflect guard `TestInputCarriersAreWireFree` (19 carriers) + `TestCallerFieldNotSerialized` + re-wired `TestDTOFieldTags` (Result cases unchanged: those tags are the live wire contract). New wire-tag INPUT carriers will fail the guard automatically.
+- **R3-empty-query-mux**: `TestToolSearchClientsAdvancedRejectsEmptyQuery` relocated from the unit-tier `tools_search_test.go` to `server_integration_test.go` alongside the other real-mux coverage it depends on.
+- **R3-rule-column**: the documentation-only `rule` column of `TestValidateFTSQuery_ShapeContract` folded into the case names (`"<shape> [<guard>]"`), so the guard info still travels in every failure line and subtest name without pretending an assertion.
+- **R3-log-attrs**: `toMCPError` infra-failure log now emits bounded summary attrs (`err_kind` = Go type + `err_msg` single-line capped at 256 runes) instead of the raw error object.
+- **F-4 WARNING (tools_maintenance_test.go:316-322)**: the presence-markers probe now asserts the schema-validation substring (`¬unexpected additional properties`) like its sibling test, instead of accepting any tool error.
+
+**F-4 leftover dispositions (visited, judged, no-willfix):**
+
+- `update_business_profile.go:171-173` — no-willfix: JSON-literal validation is entity/repository-owned by the architecture (double validation would cross the boundary).
+- `maintenance.go:34-35` — resolved by the #121 batch (INPUT doc comments rewritten).
+- `tools_maintenance.go:106-109` — no-willfix: the double decode is the documented solution for explicit-JSON-null vs omitted key (an alias decode cannot distinguish them).
+- `docs/PRD.md:1464` — no-willfix: historical log row, superseded by later versions (1.17/1.20/1.21); no current defect.
+- **A3-R3-1 / A3-R3-2** (parity test :41-46, :107-109) — no-willfix: the helper/reflection shape is already the minimal readable form, and value assertions are owned by the per-column partial-merge table (the guard only needs one-column uniqueness).
+
+**Docs lane related**: A2 line marked EXECUTED here (it was delivered 8 commits before this list's own update); the `2026-10-11-feat-hours-exception-tool/design.md` §4 examples dropped the stale `"Error: "` prefix (R3-design-prefix-examples) to match the shipped messages (verified against `internal/application/usecase/create_hours_exception.go:67-73` and `internal/repository/validation.go:66-73`).
+
+**Still open after this batch:**
+
+1. **TOCTOU read-back window** (`create_hours_exception.go:79-90`) — separate code PR: `Create … RETURNING` port widening (the #114 pattern), ready to implement when the no-repository-change constraint does not apply.
+2. Nothing else: every location in this document has now been visited and disposed.

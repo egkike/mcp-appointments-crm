@@ -15,7 +15,9 @@ type PendingAlertView struct {
 // GetPendingAlertsInput carries the authenticated caller for the
 // get_pending_alerts use case.
 type GetPendingAlertsInput struct {
-	Caller auth.Caller
+	// Caller keeps the protective guard: auth context must never serialize
+	// (see the package doc and TestCallerFieldNotSerialized).
+	Caller auth.Caller `json:"-"`
 }
 
 // GetPendingAlertsResult is the response body for get_pending_alerts.
@@ -25,7 +27,7 @@ type GetPendingAlertsResult struct {
 
 // MarkAlertAsSentInput carries the authenticated caller and the alert ID.
 type MarkAlertAsSentInput struct {
-	Caller  auth.Caller
+	Caller  auth.Caller `json:"-"`
 	AlertID int
 }
 
