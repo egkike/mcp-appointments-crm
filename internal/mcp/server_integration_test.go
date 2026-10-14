@@ -136,6 +136,12 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 	deleteHoursExceptionUC := usecase.NewDeleteHoursExceptionUseCase(bizHoursExRepo, discardLogger())
 	listHoursExceptionsUC := usecase.NewListHoursExceptionsUseCase(bizHoursExRepo)
 
+	// The 23-port Config literal is composed by hand here on purpose: the
+	// integration suite wires REAL use cases over REAL repositories, while
+	// configFromMockPorts (tools_test.go) only renders the mock bundle — this
+	// literal is the composition-root mirror, not a mock variant. The compiler
+	// forces field exhaustiveness at every Config construction; the
+	// ToolCount/expectedToolCount registration checks keep guarding the count.
 	srv := NewServer(Config{
 		Version:                "test",
 		Logger:                 discardLogger(),

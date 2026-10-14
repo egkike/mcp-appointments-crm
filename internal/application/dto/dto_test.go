@@ -63,6 +63,11 @@ func TestCallerFieldNotSerialized(t *testing.T) {
 		UpdateProfessionalInput{Caller: caller},
 		UpsertScheduleInput{Caller: caller},
 		DeleteScheduleInput{Caller: caller},
+		// Hours-exception carriers (feat-hours-exception-tool): application-
+		// layer carriers, but Caller must never serialize on an accident.
+		CreateHoursExceptionInput{Caller: caller, ExceptionDate: "2026-12-25"},
+		DeleteHoursExceptionInput{Caller: caller, ExceptionID: 1},
+		ListHoursExceptionsInput{Caller: caller, From: "2026-12-01", To: "2026-12-31"},
 	}
 	for _, input := range inputs {
 		data, err := json.Marshal(input)
@@ -206,6 +211,38 @@ func TestDTOFieldTags(t *testing.T) {
 				{"ProfessionalID", "professional_id"},
 				{"DayOfWeek", "day_of_week"},
 				{"Status", "status"},
+			},
+		},
+		{
+			// The exception input carriers carry NO data-field tags (the
+			// transport adapter owns the wire shape); Caller keeps the
+			// protective json:"-" (GGA r2 round on the dto commit).
+			name:   "CreateHoursExceptionInput",
+			target: CreateHoursExceptionInput{},
+			fields: []fieldSpec{
+				{"Caller", "-"},
+				{"ExceptionDate", ""},
+				{"IsClosed", ""},
+				{"OpenTime", ""},
+				{"CloseTime", ""},
+				{"Reason", ""},
+			},
+		},
+		{
+			name:   "DeleteHoursExceptionInput",
+			target: DeleteHoursExceptionInput{},
+			fields: []fieldSpec{
+				{"Caller", "-"},
+				{"ExceptionID", ""},
+			},
+		},
+		{
+			name:   "ListHoursExceptionsInput",
+			target: ListHoursExceptionsInput{},
+			fields: []fieldSpec{
+				{"Caller", "-"},
+				{"From", ""},
+				{"To", ""},
 			},
 		},
 	}

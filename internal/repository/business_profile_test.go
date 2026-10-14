@@ -188,6 +188,18 @@ func storedProfileRow() *sqlmock.Rows {
 	)
 }
 
+// validProfile returns a profile whose mandatory identity scalars pass the
+// entity.Validate() identity gate (name non-empty, ISO-4217 alpha-3 currency
+// code, symbol, slot interval > 0 — the install.sh wizard baseline). Each
+// Update subtest overrides the field its own rule exercises, so a failed
+// assertion never comes from the identity gate.
+func validProfile(name string) *entity.BusinessProfile {
+	return &entity.BusinessProfile{
+		ID: "singleton", Name: name,
+		CurrencyCode: "ARS", CurrencySymbol: "$", SlotIntervalMinutes: 30,
+	}
+}
+
 func TestBusinessProfileRepo_Update(t *testing.T) {
 	t.Run("success returns the stored row", func(t *testing.T) {
 		db, mock := newMockDB(t)
@@ -199,13 +211,13 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 				nil, nil, nil, // longitude, cover_photo_url, public_phone
 				nil, nil, nil, // messenger_platform, messenger_id, contact_email
 				nil, nil, // website_url, general_description
-				"", "", nil, // currency_code, currency_symbol, accepted_payment_methods
-				"", 0, "", // timezone, slot_interval_minutes, business_hours
+				"ARS", "$", nil, // currency_code, currency_symbol, accepted_payment_methods
+				"", 30, "", // timezone, slot_interval_minutes, business_hours
 				"singleton", // WHERE id = ?
 			).
 			WillReturnRows(storedProfileRow())
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Updated"}
+		profile := validProfile("Updated")
 		stored, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -225,13 +237,13 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 				nil, nil, nil,
 				nil, nil, nil,
 				nil, nil,
-				"", "", nil,
-				"", 0, "",
+				"ARS", "$", nil,
+				"", 30, "",
 				"singleton",
 			).
 			WillReturnRows(sqlmock.NewRows(profileReturningTestColumns))
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Ghost"}
+		profile := validProfile("Ghost")
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrRowGone) {
 			t.Errorf("expected domain.ErrRowGone, got %v", err)
@@ -249,7 +261,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 			WillReturnRows(storedProfileRow())
 
 		platform := "whatsapp"
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		profile := validProfile("Test")
+		profile.MessengerPlatform = &platform
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -264,7 +277,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 			WillReturnRows(storedProfileRow())
 
 		platform := "telegram"
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		profile := validProfile("Test")
+		profile.MessengerPlatform = &platform
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -276,7 +290,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		repo := NewBusinessProfileRepo(db)
 
 		platform := "facebook"
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", MessengerPlatform: &platform}
+		profile := validProfile("Test")
+		profile.MessengerPlatform = &platform
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for invalid platform, got %v", err)
@@ -291,7 +306,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 			WillReturnRows(storedProfileRow())
 
 		methods := `["cash","credit_card"]`
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		profile := validProfile("Test")
+		profile.AcceptedPaymentMethods = &methods
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -306,7 +322,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 			WillReturnRows(storedProfileRow())
 
 		methods := `[]`
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		profile := validProfile("Test")
+		profile.AcceptedPaymentMethods = &methods
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -318,7 +335,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		repo := NewBusinessProfileRepo(db)
 
 		methods := `not-json`
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		profile := validProfile("Test")
+		profile.AcceptedPaymentMethods = &methods
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for invalid JSON, got %v", err)
@@ -330,7 +348,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		repo := NewBusinessProfileRepo(db)
 
 		methods := `["cash",""]`
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", AcceptedPaymentMethods: &methods}
+		profile := validProfile("Test")
+		profile.AcceptedPaymentMethods = &methods
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for empty string in array, got %v", err)
@@ -344,7 +363,7 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		mock.ExpectQuery(`UPDATE business_profile SET`).
 			WillReturnRows(storedProfileRow())
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		profile := validProfile("Test")
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -358,7 +377,7 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		mock.ExpectQuery(`UPDATE business_profile SET`).
 			WillReturnError(errors.New("disk full"))
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		profile := validProfile("Test")
 		_, err := repo.Update(adminCtx(), profile)
 		if err == nil {
 			t.Fatal("expected error, got nil")
@@ -372,11 +391,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		mock.ExpectQuery(`UPDATE business_profile SET`).
 			WillReturnRows(storedProfileRow())
 
-		profile := &entity.BusinessProfile{
-			ID:            "singleton",
-			Name:          "Test",
-			BusinessHours: `{"1":{"open":"09:00","close":"18:00"}}`,
-		}
+		profile := validProfile("Test")
+		profile.BusinessHours = `{"1":{"open":"09:00","close":"18:00"}}`
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -390,7 +406,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		mock.ExpectQuery(`UPDATE business_profile SET`).
 			WillReturnRows(storedProfileRow())
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", BusinessHours: ""}
+		profile := validProfile("Test")
+		profile.BusinessHours = ""
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -401,11 +418,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &entity.BusinessProfile{
-			ID:            "singleton",
-			Name:          "Test",
-			BusinessHours: `{invalid`,
-		}
+		profile := validProfile("Test")
+		profile.BusinessHours = `{invalid`
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for malformed JSON, got %v", err)
@@ -416,11 +430,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &entity.BusinessProfile{
-			ID:            "singleton",
-			Name:          "Test",
-			BusinessHours: `["not","an","object"]`,
-		}
+		profile := validProfile("Test")
+		profile.BusinessHours = `["not","an","object"]`
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for JSON array, got %v", err)
@@ -431,11 +442,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &entity.BusinessProfile{
-			ID:            "singleton",
-			Name:          "Test",
-			BusinessHours: `"just a string"`,
-		}
+		profile := validProfile("Test")
+		profile.BusinessHours = `"just a string"`
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for JSON string, got %v", err)
@@ -449,11 +457,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		mock.ExpectQuery(`UPDATE business_profile SET`).
 			WillReturnRows(storedProfileRow())
 
-		profile := &entity.BusinessProfile{
-			ID:       "singleton",
-			Name:     "Test",
-			Timezone: "America/Argentina/Buenos_Aires",
-		}
+		profile := validProfile("Test")
+		profile.Timezone = "America/Argentina/Buenos_Aires"
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -467,7 +472,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		mock.ExpectQuery(`UPDATE business_profile SET`).
 			WillReturnRows(storedProfileRow())
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test", Timezone: ""}
+		profile := validProfile("Test")
+		profile.Timezone = ""
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -478,11 +484,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &entity.BusinessProfile{
-			ID:       "singleton",
-			Name:     "Test",
-			Timezone: "Not/A/Real/Zone",
-		}
+		profile := validProfile("Test")
+		profile.Timezone = "Not/A/Real/Zone"
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for invalid timezone, got %v", err)
@@ -494,11 +497,8 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		repo := NewBusinessProfileRepo(db)
 
 		methods := `null`
-		profile := &entity.BusinessProfile{
-			ID:                     "singleton",
-			Name:                   "Test",
-			AcceptedPaymentMethods: &methods,
-		}
+		profile := validProfile("Test")
+		profile.AcceptedPaymentMethods = &methods
 		_, err := repo.Update(adminCtx(), profile)
 		if !errors.Is(err, domain.ErrInvalidInput) {
 			t.Errorf("expected domain.ErrInvalidInput for JSON null, got %v", err)
@@ -509,7 +509,7 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		profile := validProfile("Test")
 		_, err := repo.Update(context.Background(), profile)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
@@ -524,7 +524,7 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		profile := validProfile("Test")
 		_, err := repo.Update(clientCtx("c-1"), profile)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
@@ -539,7 +539,7 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewBusinessProfileRepo(db)
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		profile := validProfile("Test")
 		_, err := repo.Update(staffCtx("pro-1"), profile)
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
@@ -557,7 +557,7 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		mock.ExpectQuery(`UPDATE business_profile SET`).
 			WillReturnRows(storedProfileRow())
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		profile := validProfile("Test")
 		_, err := repo.Update(adminCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -571,7 +571,7 @@ func TestBusinessProfileRepo_Update(t *testing.T) {
 		mock.ExpectQuery(`UPDATE business_profile SET`).
 			WillReturnRows(storedProfileRow())
 
-		profile := &entity.BusinessProfile{ID: "singleton", Name: "Test"}
+		profile := validProfile("Test")
 		_, err := repo.Update(ownerCtx(), profile)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

@@ -2,6 +2,7 @@ package entity
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -49,57 +50,9 @@ func TestProfileDayKeyMatchesBusinessHoursEncoding(t *testing.T) {
 			t.Errorf("ProfileDayKey(%v) = %d; want a key inside 1..7", wd, key)
 			continue
 		}
-		if !bp.IsOpenOn(key) {
-			t.Errorf("IsOpenOn(ProfileDayKey(%v)=%d) = false; want true", wd, key)
+		if _, _, ok, err := bp.GetOpenClose(key); err != nil || !ok {
+			t.Errorf("GetOpenClose(ProfileDayKey(%v)=%d) = ok=%v err=%v; want ok=true err=nil", wd, key, ok, err)
 		}
-	}
-}
-
-func TestBusinessProfile_IsOpenOn(t *testing.T) {
-	tests := []struct {
-		name          string
-		businessHours string
-		dayOfWeek     int
-		want          bool
-	}{
-		{
-			name:          "open on monday (day 1)",
-			businessHours: `{"1":{"open":"09:00","close":"18:00"},"6":{"open":"10:00","close":"14:00"}}`,
-			dayOfWeek:     1,
-			want:          true,
-		},
-		{
-			name:          "closed on wednesday (day 3)",
-			businessHours: `{"1":{"open":"09:00","close":"18:00"},"6":{"open":"10:00","close":"14:00"}}`,
-			dayOfWeek:     3,
-			want:          false,
-		},
-		{
-			name:          "open on saturday (day 6)",
-			businessHours: `{"1":{"open":"09:00","close":"18:00"},"6":{"open":"10:00","close":"14:00"}}`,
-			dayOfWeek:     6,
-			want:          true,
-		},
-		{
-			name:          "empty business hours",
-			businessHours: `{}`,
-			dayOfWeek:     1,
-			want:          false,
-		},
-		{
-			name:          "invalid JSON returns closed",
-			businessHours: `{invalid`,
-			dayOfWeek:     1,
-			want:          false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bp := &BusinessProfile{BusinessHours: tt.businessHours}
-			if got := bp.IsOpenOn(tt.dayOfWeek); got != tt.want {
-				t.Errorf("IsOpenOn(%d) = %v, want %v", tt.dayOfWeek, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -297,6 +250,14 @@ func TestBusinessProfile_validateBusinessHoursJSON(t *testing.T) {
 			wantSub:       "clave de día",
 		},
 		{
+			// Write-only leniency guard: the READ path normalizes legacy
+			// zero-padded keys ("01","007"), but a WRITE gate has no legacy DB
+			// to be compatible with — non-canonical keys must not accumulate.
+			name:          "zero-padded day key rejected on write",
+			businessHours: `{"01":{"open":"09:00","close":"18:00"}}`,
+			wantSub:       "clave de día",
+		},
+		{
 			name:          "non-numeric day key",
 			businessHours: `{"mon":{"open":"09:00","close":"18:00"}}`,
 			wantSub:       "clave de día",
@@ -329,12 +290,26 @@ func TestBusinessProfile_validateBusinessHoursJSON(t *testing.T) {
 // cases pass nil explicitly.
 func coordPtr(v float64) *float64 { return &v }
 
+// nanFloat/infFloat build the non-finite coordinate values the NaN/Inf
+// defense-in-depth guards must reject.
+func nanFloat() *float64         { v := math.NaN(); return &v }
+func infFloat(sign int) *float64 { v := math.Inf(sign); return &v }
+
 // TestBusinessProfile_ValidateCoordinates pins the WGS-84 range invariant of
 // the singleton profile: the domain is the authoritative gate, so an
 // out-of-range numeric coordinate must be rejected even when it bypasses the
 // `geo:` URI parser (e.g. a raw {"latitude": 200} tool call). Exact boundaries
 // are inclusive; nil means "not set" and is always allowed.
 func TestBusinessProfile_ValidateCoordinates(t *testing.T) {
+	// withValidScalars supplies the mandatory identity scalars: this table
+	// exercises ONLY the coordinate rule, and its fixtures must carry the
+	// valid baseline that the mandatory-scalars table already pins.
+	withValidScalars := func(lat, long *float64) *BusinessProfile {
+		return &BusinessProfile{
+			Name: "Barbería Don José", CurrencyCode: "ARS", CurrencySymbol: "$",
+			SlotIntervalMinutes: 30, Latitude: lat, Longitude: long,
+		}
+	}
 	tests := []struct {
 		name    string
 		lat     *float64
@@ -353,10 +328,16 @@ func TestBusinessProfile_ValidateCoordinates(t *testing.T) {
 		{name: "exact latitude 90 is allowed", lat: coordPtr(90)},
 		{name: "exact longitude -180 is allowed", long: coordPtr(-180)},
 		{name: "exact longitude 180 is allowed", long: coordPtr(180)},
+		// NaN/Inf bypass both range comparisons (defense-in-depth: today no
+		// parse path can produce them, but entity.Validate is declared the
+		// authoritative invariant for raw numerics).
+		{name: "latitude NaN is rejected", lat: nanFloat(), wantErr: true, wantSub: "latitud"},
+		{name: "longitude +Inf is rejected", long: infFloat(+1), wantErr: true, wantSub: "longitud"},
+		{name: "longitude -Inf is rejected", long: infFloat(-1), wantErr: true, wantSub: "longitud"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			bp := &BusinessProfile{Latitude: tt.lat, Longitude: tt.long}
+			bp := withValidScalars(tt.lat, tt.long)
 			err := bp.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
@@ -374,6 +355,95 @@ func TestBusinessProfile_ValidateCoordinates(t *testing.T) {
 	}
 }
 
+func TestBusinessProfile_ValidateMandatoryScalars(t *testing.T) {
+	// validScalars returns a profile whose mandatory identity scalars (name,
+	// currency code, currency symbol, slot interval) are all valid, mirroring
+	// the install.sh wizard semantics (v_nonempty / v_currency / v_symbol /
+	// v_positive_int); individual cases break one at a time.
+	validScalars := func() BusinessProfile {
+		return BusinessProfile{Name: "Barbería Don José", CurrencyCode: "ARS", CurrencySymbol: "$", SlotIntervalMinutes: 30}
+	}
+	tests := []struct {
+		name    string
+		mutate  func(*BusinessProfile)
+		wantErr bool
+		wantSub string
+	}{
+		{name: "valid identity scalars pass", mutate: func(*BusinessProfile) {}},
+		{
+			name:    "empty name is rejected (v_nonempty)",
+			mutate:  func(bp *BusinessProfile) { bp.Name = "" },
+			wantErr: true, wantSub: "nombre",
+		},
+		{
+			name:    "whitespace-only name is rejected",
+			mutate:  func(bp *BusinessProfile) { bp.Name = "   " },
+			wantErr: true, wantSub: "nombre",
+		},
+		{
+			name:    "empty currency code is rejected (v_currency)",
+			mutate:  func(bp *BusinessProfile) { bp.CurrencyCode = "" },
+			wantErr: true, wantSub: "moneda",
+		},
+		{
+			name:    "lowercase currency code is rejected",
+			mutate:  func(bp *BusinessProfile) { bp.CurrencyCode = "ars" },
+			wantErr: true, wantSub: "moneda",
+		},
+		{
+			name:    "two-letter currency code is rejected",
+			mutate:  func(bp *BusinessProfile) { bp.CurrencyCode = "AR" },
+			wantErr: true, wantSub: "moneda",
+		},
+		{
+			name:    "four-letter currency code is rejected",
+			mutate:  func(bp *BusinessProfile) { bp.CurrencyCode = "ARSS" },
+			wantErr: true, wantSub: "moneda",
+		},
+		{
+			name:    "empty currency symbol is rejected (v_symbol)",
+			mutate:  func(bp *BusinessProfile) { bp.CurrencySymbol = "" },
+			wantErr: true, wantSub: "símbolo",
+		},
+		{
+			name:    "zero slot interval is rejected (v_positive_int)",
+			mutate:  func(bp *BusinessProfile) { bp.SlotIntervalMinutes = 0 },
+			wantErr: true, wantSub: "intervalo",
+		},
+		{
+			name:    "negative slot interval is rejected",
+			mutate:  func(bp *BusinessProfile) { bp.SlotIntervalMinutes = -15 },
+			wantErr: true, wantSub: "intervalo",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bp := validScalars()
+			tt.mutate(&bp)
+			err := bp.Validate()
+			if tt.wantErr {
+				if !errors.Is(err, domain.ErrInvalidInput) {
+					t.Fatalf("Validate() error = %v; want wrapping domain.ErrInvalidInput", err)
+				}
+				var sem *domain.SemanticError
+				if !errors.As(err, &sem) {
+					t.Fatalf("Validate() error = %v; want *domain.SemanticError", err)
+				}
+				if sem.Code != domain.ErrCodeInvalidInput {
+					t.Errorf("SemanticError.Code = %v; want ErrCodeInvalidInput", sem.Code)
+				}
+				if !strings.Contains(err.Error(), tt.wantSub) {
+					t.Errorf("Validate() error = %q; want it to mention %q", err, tt.wantSub)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Validate() error = %v; want nil", err)
+			}
+		})
+	}
+}
+
 func TestBusinessProfile_Validate(t *testing.T) {
 	whatsapp := "whatsapp"
 	telegram := "telegram"
@@ -385,6 +455,10 @@ func TestBusinessProfile_Validate(t *testing.T) {
 	invalidHours := `[1,2,3]`
 	validTZ := "America/Argentina/Buenos_Aires"
 	invalidTZ := "Mars/Unknown"
+	// Mandatory identity scalars baseline: every fixture carries them so each
+	// case exercises its own rule (the mandatory gate itself has its own
+	// dedicated table above).
+	validName, validCode, validSymbol, validSlot := "Barbería Don José", "ARS", "$", 30
 
 	tests := []struct {
 		name    string
@@ -394,6 +468,7 @@ func TestBusinessProfile_Validate(t *testing.T) {
 		{
 			name: "valid profile with all optional fields",
 			bp: &BusinessProfile{
+				Name: validName, CurrencyCode: validCode, CurrencySymbol: validSymbol, SlotIntervalMinutes: validSlot,
 				MessengerPlatform:      &whatsapp,
 				AcceptedPaymentMethods: &validPayments,
 				BusinessHours:          validHours,
@@ -402,17 +477,21 @@ func TestBusinessProfile_Validate(t *testing.T) {
 		},
 		{
 			name: "valid profile with nil optional fields",
-			bp:   &BusinessProfile{},
+			bp: &BusinessProfile{
+				Name: validName, CurrencyCode: validCode, CurrencySymbol: validSymbol, SlotIntervalMinutes: validSlot,
+			},
 		},
 		{
 			name: "valid profile with telegram platform",
 			bp: &BusinessProfile{
+				Name: validName, CurrencyCode: validCode, CurrencySymbol: validSymbol, SlotIntervalMinutes: validSlot,
 				MessengerPlatform: &telegram,
 			},
 		},
 		{
 			name: "invalid messenger platform",
 			bp: &BusinessProfile{
+				Name: validName, CurrencyCode: validCode, CurrencySymbol: validSymbol, SlotIntervalMinutes: validSlot,
 				MessengerPlatform: &invalidPlatform,
 			},
 			wantErr: true,
@@ -420,6 +499,7 @@ func TestBusinessProfile_Validate(t *testing.T) {
 		{
 			name: "invalid payment methods (not an array)",
 			bp: &BusinessProfile{
+				Name: validName, CurrencyCode: validCode, CurrencySymbol: validSymbol, SlotIntervalMinutes: validSlot,
 				AcceptedPaymentMethods: &invalidPayments,
 			},
 			wantErr: true,
@@ -427,6 +507,7 @@ func TestBusinessProfile_Validate(t *testing.T) {
 		{
 			name: "invalid payment methods (empty string in array)",
 			bp: &BusinessProfile{
+				Name: validName, CurrencyCode: validCode, CurrencySymbol: validSymbol, SlotIntervalMinutes: validSlot,
 				AcceptedPaymentMethods: &emptyStrPayment,
 			},
 			wantErr: true,
@@ -434,6 +515,7 @@ func TestBusinessProfile_Validate(t *testing.T) {
 		{
 			name: "invalid business hours (array instead of object)",
 			bp: &BusinessProfile{
+				Name: validName, CurrencyCode: validCode, CurrencySymbol: validSymbol, SlotIntervalMinutes: validSlot,
 				BusinessHours: invalidHours,
 			},
 			wantErr: true,
@@ -441,6 +523,7 @@ func TestBusinessProfile_Validate(t *testing.T) {
 		{
 			name: "invalid timezone",
 			bp: &BusinessProfile{
+				Name: validName, CurrencyCode: validCode, CurrencySymbol: validSymbol, SlotIntervalMinutes: validSlot,
 				Timezone: invalidTZ,
 			},
 			wantErr: true,

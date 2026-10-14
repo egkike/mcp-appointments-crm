@@ -73,10 +73,10 @@ func (uc *UpdateBusinessProfileUseCase) Execute(ctx context.Context, input dto.U
 	stored, err := uc.profiles.Update(ctx, profile)
 	if err != nil {
 		// Client-shaped semantic errors carry their own LLM-facing Spanish
-		// message (today the coordinate range guards of entity.Validate); pass
-		// them through untouched so the caller sees the specific reason. Every
-		// other domain.ErrInvalidInput failure (business_hours, timezone,
-		// payment methods, messenger platform) keeps the generic collapse below.
+		// message: entity.Validate() returns *domain.SemanticError for every
+		// rule it enforces, so profile-validation failures pass through here
+		// verbatim. The generic collapse below stays for sentinel-only
+		// domain.ErrInvalidInput errors raised by lower layers.
 		var sem *domain.SemanticError
 		if errors.As(err, &sem) {
 			return nil, sem

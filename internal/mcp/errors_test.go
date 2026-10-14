@@ -2,14 +2,64 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
+
+// bodyErrReader always fails on read, simulating a transport-level error that
+// consumes the request body before jsonParseGuard sees it.
+type bodyErrReader struct{}
+
+func (bodyErrReader) Read(_ []byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+
+// TestJSONParseGuard_HTTPBodyMessagesSpanish pins the transport HTTP body
+// messages in Spanish, matching the auth_translator sibling wording. The
+// messages are the plain-text bodies of the 400/413 responses (http.Error);
+// JSON-RPC callers never see them, but bilingual transport text is drift.
+func TestJSONParseGuard_HTTPBodyMessagesSpanish(t *testing.T) {
+	innerCalled := false
+	handler := jsonParseGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		innerCalled = true
+	}))
+
+	t.Run("unreadable body answers 400 in Spanish", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/mcp", bodyErrReader{})
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d; want 400", rec.Code)
+		}
+		if innerCalled {
+			t.Error("inner handler ran on an unreadable body")
+		}
+		if body := strings.TrimSuffix(rec.Body.String(), "\n"); body != "no se pudo leer el cuerpo de la solicitud" {
+			t.Errorf("body = %q; want the Spanish transport message", body)
+		}
+	})
+
+	t.Run("oversized body answers 413 in Spanish", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/mcp", strings.NewReader(strings.Repeat("a", maxRequestBodyBytes+1)))
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("status = %d; want 413", rec.Code)
+		}
+		if innerCalled {
+			t.Error("inner handler ran on an oversized body")
+		}
+		if body := strings.TrimSuffix(rec.Body.String(), "\n"); body != "cuerpo de la solicitud demasiado grande" {
+			t.Errorf("body = %q; want the Spanish transport message", body)
+		}
+	})
+}
 
 // newTestServerWithLogger builds the minimal Server the toMCPError contract
 // needs (a cfg.Logger sink) plus the buffer capturing its records.

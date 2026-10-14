@@ -156,33 +156,15 @@ func newHoursExceptionUseCaseServer(t *testing.T) (*Server, *fakeHoursExceptionR
 	t.Helper()
 	repo := newFakeHoursExceptionRepo()
 	ports := newMockPorts()
-	return NewServer(Config{
-		Version:                "test",
-		Logger:                 discardLogger(),
-		CheckAvailability:      ports.checkAvail,
-		CreateBooking:          ports.create,
-		GetBooking:             ports.get,
-		CancelBooking:          ports.cancel,
-		RescheduleBooking:      ports.reschedule,
-		GetBusinessProfile:     ports.profile,
-		SearchClientsAdvanced:  ports.searchClients,
-		SearchServicesAdvanced: ports.searchServices,
-		GetPendingAlerts:       ports.getPendingAlerts,
-		MarkAlertAsSent:        ports.markAlertAsSent,
-		GetLoyaltyReport:       ports.loyalty,
-		RegisterClient:         ports.registerClient,
-		UpdateBusinessProfile:  ports.updateProfile,
-		CreateService:          ports.createService,
-		UpdateService:          ports.updateService,
-		DeleteService:          ports.deleteService,
-		CreateProfessional:     ports.createProfessional,
-		UpdateProfessional:     ports.updateProfessional,
-		UpsertSchedule:         ports.upsertSchedule,
-		DeleteSchedule:         ports.deleteSchedule,
-		CreateHoursException:   usecase.NewCreateHoursExceptionUseCase(repo, discardLogger()),
-		DeleteHoursException:   usecase.NewDeleteHoursExceptionUseCase(repo, discardLogger()),
-		ListHoursExceptions:    usecase.NewListHoursExceptionsUseCase(repo),
-	}), repo
+	// Single-source mapper + per-site overrides: the three exception ports are
+	// the REAL use cases over the fake repo so the assertions below exercise
+	// the messages the use cases actually produce; the other twenty ports stay
+	// the shared mocks.
+	cfg := configFromMockPorts(ports)
+	cfg.CreateHoursException = usecase.NewCreateHoursExceptionUseCase(repo, discardLogger())
+	cfg.DeleteHoursException = usecase.NewDeleteHoursExceptionUseCase(repo, discardLogger())
+	cfg.ListHoursExceptions = usecase.NewListHoursExceptionsUseCase(repo)
+	return NewServer(cfg), repo
 }
 
 // hoursExceptionToolArgs holds one schema-valid payload per tool, so the
