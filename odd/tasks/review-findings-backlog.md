@@ -74,3 +74,30 @@ Delivered via PR #121 (tracking issue #120, squash `0a04f7c` on main; branch `fe
 
 - **A3-R3-1** — `internal/application/usecase/update_business_profile_parity_test.go:41-46` (SUGGESTION, reliability).
 - **A3-R3-2** — `internal/application/usecase/update_business_profile_parity_test.go:107-109` (SUGGESTION, reliability).
+
+## Disposition (2026-10-14, v2) — mechanical closure batch EXECUTED (+ advisory decision)
+
+**Owner decisions (2026-10-14):** advisory dto-tags resolved as **(a) convention + sweep**; mechanical items grouped in one batch PR; the TOCTOU port-widening delivered separately as a code PR.
+
+**Batch contents (committed on the batch branch; lines approximate):**
+
+- **Advisory dto-tags sweep (adopted convention)**: every `*Input` carrier in `internal/application/dto` is now wire-free — data fields carry no tags; marker guards (`Caller json:"-"`, `ClearLatitude/ClearLongitude json:"-"`) stay. Fixed in the same pass: `SearchClientsAdvancedInput`/`SearchServicesAdvancedInput` previously shipped the Caller **without** the protective `json:"-"` (a leak the sweep-guard made visible — pinned by `TestCallerFieldNotSerialized`). Convention documented in the new `internal/application/dto/doc.go` and pinned by the new reflect guard `TestInputCarriersAreWireFree` (19 carriers) + `TestCallerFieldNotSerialized` + re-wired `TestDTOFieldTags` (Result cases unchanged: those tags are the live wire contract). New wire-tag INPUT carriers will fail the guard automatically.
+- **R3-empty-query-mux**: `TestToolSearchClientsAdvancedRejectsEmptyQuery` relocated from the unit-tier `tools_search_test.go` to `server_integration_test.go` alongside the other real-mux coverage it depends on.
+- **R3-rule-column**: the documentation-only `rule` column of `TestValidateFTSQuery_ShapeContract` folded into the case names (`"<shape> [<guard>]"`), so the guard info still travels in every failure line and subtest name without pretending an assertion.
+- **R3-log-attrs**: `toMCPError` infra-failure log now emits bounded summary attrs (`err_kind` = Go type + `err_msg` single-line capped at 256 runes) instead of the raw error object.
+- **F-4 WARNING (tools_maintenance_test.go:316-322)**: the presence-markers probe now asserts the schema-validation substring (`¬unexpected additional properties`) like its sibling test, instead of accepting any tool error.
+
+**F-4 leftover dispositions (visited, judged, no-willfix):**
+
+- `update_business_profile.go:171-173` — no-willfix: JSON-literal validation is entity/repository-owned by the architecture (double validation would cross the boundary).
+- `maintenance.go:34-35` — resolved by the #121 batch (INPUT doc comments rewritten).
+- `tools_maintenance.go:106-109` — no-willfix: the double decode is the documented solution for explicit-JSON-null vs omitted key (an alias decode cannot distinguish them).
+- `docs/PRD.md:1464` — no-willfix: historical log row, superseded by later versions (1.17/1.20/1.21); no current defect.
+- **A3-R3-1 / A3-R3-2** (parity test :41-46, :107-109) — no-willfix: the helper/reflection shape is already the minimal readable form, and value assertions are owned by the per-column partial-merge table (the guard only needs one-column uniqueness).
+
+**Docs lane related**: A2 line marked EXECUTED here (it was delivered 8 commits before this list's own update); the `2026-10-11-feat-hours-exception-tool/design.md` §4 examples dropped the stale `"Error: "` prefix (R3-design-prefix-examples) to match the shipped messages (verified against `internal/application/usecase/create_hours_exception.go:67-73` and `internal/repository/validation.go:66-73`).
+
+**Still open after this batch:**
+
+1. **TOCTOU read-back window** (`create_hours_exception.go:79-90`) — separate code PR: `Create … RETURNING` port widening (the #114 pattern), ready to implement when the no-repository-change constraint does not apply.
+2. Nothing else: every location in this document has now been visited and disposed.
