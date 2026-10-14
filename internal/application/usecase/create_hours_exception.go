@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -54,7 +53,8 @@ func (uc *CreateHoursExceptionUseCase) Execute(ctx context.Context, input dto.Cr
 		Reason:        input.Reason,
 	}
 
-	if err := uc.exceptions.Create(ctx, exception); err != nil {
+	stored, err := uc.exceptions.Create(ctx, exception)
+	if err != nil {
 		var sem *domain.SemanticError
 		switch {
 		// The repository's date validator already emits a clean Spanish
@@ -77,16 +77,13 @@ func (uc *CreateHoursExceptionUseCase) Execute(ctx context.Context, input dto.Cr
 		return nil, fmt.Errorf("create_hours_exception: %w", err)
 	}
 
-	date, err := time.Parse("2006-01-02", input.ExceptionDate)
-	if err != nil {
-		return nil, fmt.Errorf("create_hours_exception: fecha persistida inválida %q: %w", input.ExceptionDate, err)
-	}
-	stored, err := uc.exceptions.Get(ctx, date)
-	if err != nil {
-		return nil, fmt.Errorf("create_hours_exception: leer excepción creada: %w", err)
-	}
+	// The repository's INSERT ... RETURNING returns the stored row in the
+	// write statement itself, so there is no read-back Get to race a
+	// concurrent delete (R3-readback-window closed with the #114 pattern).
+
 	if stored == nil {
-		return nil, fmt.Errorf("create_hours_exception: la excepción creada para %s no se encontró", input.ExceptionDate)
+		// Defensive: a conforming Create...RETURNING never returns (nil, nil).
+		return nil, fmt.Errorf("create_hours_exception: el repositorio devolvió una excepción vacía")
 	}
 
 	logMaintenanceMutation(uc.logger, caller, "create_hours_exception", "business_hours_exception", strconv.Itoa(stored.ID), "create")

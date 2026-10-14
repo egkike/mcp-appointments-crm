@@ -334,7 +334,7 @@ func (m *mockBusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time
 // Create, List, Delete are not exercised by the PR #B use case path but must
 // be implemented to satisfy repository.BusinessHoursExceptionRepo. They panic
 // if called.
-func (m *mockBusinessHoursExceptionRepo) Create(ctx context.Context, e *entity.BusinessHoursException) error {
+func (m *mockBusinessHoursExceptionRepo) Create(ctx context.Context, e *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
 	panic("mockBusinessHoursExceptionRepo.Create: not expected in PR #B tests")
 }
 func (m *mockBusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {

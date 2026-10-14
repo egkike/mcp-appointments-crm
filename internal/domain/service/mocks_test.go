@@ -58,8 +58,8 @@ type mockBusinessHoursExceptionRepo struct {
 func (m *mockBusinessHoursExceptionRepo) Get(ctx context.Context, d time.Time) (*entity.BusinessHoursException, error) {
 	return m.OnGet(ctx, d)
 }
-func (m *mockBusinessHoursExceptionRepo) Create(context.Context, *entity.BusinessHoursException) error {
-	return nil
+func (m *mockBusinessHoursExceptionRepo) Create(context.Context, *entity.BusinessHoursException) (*entity.BusinessHoursException, error) {
+	return nil, nil
 }
 func (m *mockBusinessHoursExceptionRepo) List(context.Context, time.Time, time.Time) ([]*entity.BusinessHoursException, error) {
 	return nil, nil

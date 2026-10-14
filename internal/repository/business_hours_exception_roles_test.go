@@ -29,12 +29,13 @@ func TestBusinessHoursExceptionRepo_Create_RequiresAdminOrOwner(t *testing.T) {
 			db, mock := newMockDB(t)
 			repo := NewBusinessHoursExceptionRepo(db)
 			if tc.want == nil {
-				mock.ExpectExec(`INSERT INTO business_hours_exception`).
+				mock.ExpectQuery(`INSERT INTO business_hours_exception`).
 					WithArgs("2026-12-25", true, nil, nil, nil).
-					WillReturnResult(sqlmock.NewResult(1, 1))
+					WillReturnRows(sqlmock.NewRows([]string{"id", "exception_date", "is_closed", "open_time", "close_time", "reason", "created_at"}).
+						AddRow(1, "2026-12-25", true, nil, nil, nil, "2026-10-14T12:00:00Z"))
 			}
 			ex := &entity.BusinessHoursException{ExceptionDate: "2026-12-25", IsClosed: true}
-			err := repo.Create(tc.ctx, ex)
+			_, err := repo.Create(tc.ctx, ex)
 			if !errors.Is(err, tc.want) {
 				t.Errorf("got %v, want %v", err, tc.want)
 			}
