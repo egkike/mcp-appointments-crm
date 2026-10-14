@@ -13,12 +13,12 @@ type CheckAvailabilityInput struct {
 	// Caller is the authenticated actor requesting the availability check.
 	Caller auth.Caller `json:"-"`
 	// ServiceID identifies the service being queried.
-	ServiceID string `json:"service_id"`
+	ServiceID string
 	// ProfessionalID identifies the staff member whose calendar is queried.
-	ProfessionalID string `json:"professional_id"`
+	ProfessionalID string
 	// StartDatetime is the desired start time in RFC3339 format. The use case
 	// converts it to an RFC3339 string at the repository boundary.
-	StartDatetime time.Time `json:"start_datetime"`
+	StartDatetime time.Time
 }
 
 // CheckAvailabilityResult holds the outcome of an availability check.

@@ -158,8 +158,8 @@ func TestValidateFTSQuery(t *testing.T) {
 		{"valid with hyphen", "geo-local", false},
 		{"valid alphanumeric term", "b2b", false},
 		{"valid accented acronym", "ÁÉÍ", false},
-		{"empty", "", true},
-		{"whitespace only", "   ", true},
+		{"empty [empty]", "", true},
+		{"whitespace only [empty]", "   ", true},
 		{"asterisk", "juan*", true},
 		{"plus sign", "juan+", true},
 		{"quotes", `"juan"`, true},
@@ -203,9 +203,10 @@ func TestValidateFTSQuery(t *testing.T) {
 
 // TestValidateFTSQuery_ShapeContract pins every rejected FTS5 query shape in
 // one table (GGA request) and complements TestValidateFTSQuery without
-// replacing it. Rejections assert the full -32002 contract (F1/F2); the rule
-// column records which guard fires, so a future reorder of the checks is
-// visible in the test name/table rather than silently reassigning a shape.
+// replacing it. Rejections assert the full -32002 contract (F1/F2). The
+// expected guard is folded into the case name (R3-rule-column: the old
+// documentation-only column never drove an assertion; the name carries the
+// same information and every t.Run subtest reports it on failure).
 func TestValidateFTSQuery_ShapeContract(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -213,20 +214,20 @@ func TestValidateFTSQuery_ShapeContract(t *testing.T) {
 		rule    string // guard expected to reject; empty for accepted shapes
 		wantErr bool
 	}{
-		{"empty", "", "empty", true},
-		{"whitespace only", "   ", "empty", true},
-		{"length 201", strings.Repeat("a", MaxFTSQueryLen+1), "max length", true},
-		{"charset asterisk", "juan*", "charset", true},
-		{"charset plus", "a+b", "charset", true},
-		{"charset quotes", `"quoted"`, "charset", true},
-		{"term-boundary hyphen at end", "geo-", "term-boundary hyphen", true},
-		{"term-boundary hyphen before space", "a- b", "term-boundary hyphen", true},
-		{"term-boundary hyphen at start", "-geo", "term-boundary hyphen", true},
-		{"spaced hyphen operator", "a - b", "term-boundary hyphen", true},
-		{"paired hyphen operator", "a--b", "operator", true},
-		{"word AND", "foo AND bar", "operator", true},
-		{"word NOT at start", "NOT foo", "operator", true},
-		{"lowercase or at start", "or algo", "operator", true},
+		{"empty [empty]", "", "empty", true},
+		{"whitespace only [empty]", "   ", "empty", true},
+		{"length 201 [max length]", strings.Repeat("a", MaxFTSQueryLen+1), "max length", true},
+		{"charset asterisk [charset]", "juan*", "charset", true},
+		{"charset plus [charset]", "a+b", "charset", true},
+		{"charset quotes [charset]", `"quoted"`, "charset", true},
+		{"term-boundary hyphen at end [term-boundary hyphen]", "geo-", "term-boundary hyphen", true},
+		{"term-boundary hyphen before space [term-boundary hyphen]", "a- b", "term-boundary hyphen", true},
+		{"term-boundary hyphen at start [term-boundary hyphen]", "-geo", "term-boundary hyphen", true},
+		{"spaced hyphen operator [term-boundary hyphen]", "a - b", "term-boundary hyphen", true},
+		{"paired hyphen operator [operator]", "a--b", "operator", true},
+		{"word AND [operator]", "foo AND bar", "operator", true},
+		{"word NOT at start [operator]", "NOT foo", "operator", true},
+		{"lowercase or at start [operator]", "or algo", "operator", true},
 		{"accepted hyphen interior", "geo-local", "", false},
 		{"accepted alphanumeric", "b2b", "", false},
 		{"accepted accented", "ÁÉÍ María", "", false},
@@ -268,7 +269,7 @@ func TestValidateFTSQuerySemanticMessages(t *testing.T) {
 		query   string
 		wantMsg string
 	}{
-		{"empty", "   ", "la consulta de búsqueda está vacía."},
+		{"empty [empty]", "   ", "la consulta de búsqueda está vacía."},
 		{"too long", strings.Repeat("a", MaxFTSQueryLen+1), "la consulta de búsqueda excede la longitud máxima (200 caracteres)."},
 		{"forbidden characters", "juan*", "la consulta de búsqueda contiene caracteres no permitidos."},
 		{"forbidden operator", "juan AND maria", "la consulta de búsqueda contiene operadores no permitidos."},

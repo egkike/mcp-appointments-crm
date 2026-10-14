@@ -41,34 +41,56 @@ func TestDTOPackageCompiles(t *testing.T) {
 	_ = DeleteScheduleResult{}
 }
 
+// inputCarriers is the single registry of every '*Input' carrier in the
+// package. Both guards (TestCallerFieldNotSerialized,
+// TestInputCarriersAreWireFree) derive from it, so a NEW carrier only has to
+// be added here — doc.go's contract (no wire tags, protective Caller guard)
+// then applies to it automatically. This registry was itself the gap GGA V1
+// caught on the batch PR: the two alerts carriers were initially missing.
+var inputCarriers = []func(caller auth.Caller) any{
+	func(c auth.Caller) any { return CreateBookingInput{Caller: c, ClientID: "c1"} },
+	func(c auth.Caller) any { return CancelBookingInput{Caller: c, BookingID: "b1"} },
+	func(c auth.Caller) any { return RescheduleBookingInput{Caller: c, BookingID: "b1"} },
+	func(c auth.Caller) any { return CheckAvailabilityInput{Caller: c, ServiceID: "s1"} },
+	func(c auth.Caller) any { return GetBookingInput{Caller: c, BookingID: "b1"} },
+	func(c auth.Caller) any { return SearchClientsAdvancedInput{Caller: c, QueryText: "juan"} },
+	func(c auth.Caller) any { return SearchServicesAdvancedInput{Caller: c, QueryText: "corte"} },
+	func(c auth.Caller) any { return GetLoyaltyReportInput{Caller: c, Period: "month", TopN: nil} },
+	// Maintenance inputs (ADR-0015) — owner-only write surface.
+	func(c auth.Caller) any { return UpdateBusinessProfileInput{Caller: c} },
+	func(c auth.Caller) any { return CreateServiceInput{Caller: c} },
+	func(c auth.Caller) any { return UpdateServiceInput{Caller: c} },
+	func(c auth.Caller) any { return DeleteServiceInput{Caller: c} },
+	func(c auth.Caller) any { return CreateProfessionalInput{Caller: c} },
+	func(c auth.Caller) any { return UpdateProfessionalInput{Caller: c} },
+	func(c auth.Caller) any { return UpsertScheduleInput{Caller: c} },
+	func(c auth.Caller) any { return DeleteScheduleInput{Caller: c} },
+	// Alerts carriers (get_pending_alerts / mark_alert_as_sent).
+	func(c auth.Caller) any { return GetPendingAlertsInput{Caller: c} },
+	func(c auth.Caller) any { return MarkAlertAsSentInput{Caller: c, AlertID: 1} },
+	// Hours-exception carriers (feat-hours-exception-tool).
+	func(c auth.Caller) any { return CreateHoursExceptionInput{Caller: c, ExceptionDate: "2026-12-25"} },
+	func(c auth.Caller) any { return DeleteHoursExceptionInput{Caller: c, ExceptionID: 1} },
+	func(c auth.Caller) any {
+		return ListHoursExceptionsInput{Caller: c, From: "2026-12-01", To: "2026-12-31"}
+	},
+}
+
+// buildInputCarriers instantiates the registry for one caller value.
+func buildInputCarriers(caller auth.Caller) []any {
+	out := make([]any, 0, len(inputCarriers))
+	for _, build := range inputCarriers {
+		out = append(out, build(caller))
+	}
+	return out
+}
+
 // TestCallerFieldNotSerialized verifies that the Caller field on every Input
 // DTO is excluded from JSON output (tagged json:"-"). This is a security
 // contract: auth context must never leak into transport payloads.
 func TestCallerFieldNotSerialized(t *testing.T) {
 	caller := auth.Caller{ID: "caller-secret-id", Role: "admin"}
-	inputs := []any{
-		CreateBookingInput{Caller: caller, ClientID: "c1"},
-		CancelBookingInput{Caller: caller, BookingID: "b1"},
-		RescheduleBookingInput{Caller: caller, BookingID: "b1"},
-		CheckAvailabilityInput{Caller: caller, ServiceID: "s1"},
-		GetBookingInput{Caller: caller, BookingID: "b1"},
-		SearchClientsAdvancedInput{Caller: caller, QueryText: "juan"},
-		SearchServicesAdvancedInput{Caller: caller, QueryText: "corte"},
-		// Maintenance inputs (ADR-0015) — owner-only write surface.
-		UpdateBusinessProfileInput{Caller: caller},
-		CreateServiceInput{Caller: caller},
-		UpdateServiceInput{Caller: caller},
-		DeleteServiceInput{Caller: caller},
-		CreateProfessionalInput{Caller: caller},
-		UpdateProfessionalInput{Caller: caller},
-		UpsertScheduleInput{Caller: caller},
-		DeleteScheduleInput{Caller: caller},
-		// Hours-exception carriers (feat-hours-exception-tool): application-
-		// layer carriers, but Caller must never serialize on an accident.
-		CreateHoursExceptionInput{Caller: caller, ExceptionDate: "2026-12-25"},
-		DeleteHoursExceptionInput{Caller: caller, ExceptionID: 1},
-		ListHoursExceptionsInput{Caller: caller, From: "2026-12-01", To: "2026-12-31"},
-	}
+	inputs := buildInputCarriers(caller)
 	for _, input := range inputs {
 		data, err := json.Marshal(input)
 		if err != nil {
@@ -99,12 +121,12 @@ func TestDTOFieldTags(t *testing.T) {
 			target: CreateBookingInput{},
 			fields: []fieldSpec{
 				{"Caller", "-"},
-				{"ClientID", "client_id"},
-				{"ServiceID", "service_id"},
-				{"ProfessionalID", "professional_id"},
-				{"StartTime", "start_time"},
-				{"Notes", "notes,omitempty"},
-				{"PaymentMethod", "payment_method,omitempty"},
+				{"ClientID", ""},
+				{"ServiceID", ""},
+				{"ProfessionalID", ""},
+				{"StartTime", ""},
+				{"Notes", ""},
+				{"PaymentMethod", ""},
 			},
 		},
 		{
@@ -119,7 +141,7 @@ func TestDTOFieldTags(t *testing.T) {
 			target: CancelBookingInput{},
 			fields: []fieldSpec{
 				{"Caller", "-"},
-				{"BookingID", "booking_id"},
+				{"BookingID", ""},
 			},
 		},
 		{
@@ -135,8 +157,8 @@ func TestDTOFieldTags(t *testing.T) {
 			target: RescheduleBookingInput{},
 			fields: []fieldSpec{
 				{"Caller", "-"},
-				{"BookingID", "booking_id"},
-				{"NewStartTime", "new_start_time"},
+				{"BookingID", ""},
+				{"NewStartTime", ""},
 			},
 		},
 		{
@@ -152,9 +174,9 @@ func TestDTOFieldTags(t *testing.T) {
 			target: CheckAvailabilityInput{},
 			fields: []fieldSpec{
 				{"Caller", "-"},
-				{"ServiceID", "service_id"},
-				{"ProfessionalID", "professional_id"},
-				{"StartDatetime", "start_datetime"},
+				{"ServiceID", ""},
+				{"ProfessionalID", ""},
+				{"StartDatetime", ""},
 			},
 		},
 		{
@@ -169,7 +191,7 @@ func TestDTOFieldTags(t *testing.T) {
 			target: GetBookingInput{},
 			fields: []fieldSpec{
 				{"Caller", "-"},
-				{"BookingID", "booking_id"},
+				{"BookingID", ""},
 			},
 		},
 		{
@@ -419,4 +441,33 @@ func assertRoundTrip[T any](t *testing.T, v T, check func(T)) {
 		t.Fatalf("Unmarshal: %v", err)
 	}
 	check(decoded)
+}
+
+// TestInputCarriersAreWireFree pins the dto↔transport boundary convention
+// (see the package doc): every '*Input' carrier carries no wire tags for its
+// data fields; the transport '*In' structs stay the single source of request
+// shapes. Only marker guards (`json:"-"`) are allowed (Caller on every
+// carrier; presence/clear markers where they exist). A future carrier that
+// declares a data-field payload tag fails here.
+func TestInputCarriersAreWireFree(t *testing.T) {
+	inputs := buildInputCarriers(auth.Caller{ID: "x"})
+	for _, input := range inputs {
+		t.Run(strings.ReplaceAll(reflect.TypeOf(input).String(), "dto.", ""), func(t *testing.T) {
+			typ := reflect.TypeOf(input)
+			for i := 0; i < typ.NumField(); i++ {
+				f := typ.Field(i)
+				tag := f.Tag.Get("json")
+				switch {
+				case f.Name == "Caller":
+					if tag != "-" {
+						t.Errorf("Caller: json tag = %q, want exactly %q (protective guard)", tag, "-")
+					}
+				case tag == "" || tag == "-":
+					// wire-free field or a marker guard: convention holds
+				default:
+					t.Errorf("%s: json tag %q declared on the INPUT carrier: INPUT carriers are wire-free; the shape belongs to the transport '*In' struct", f.Name, tag)
+				}
+			}
+		})
+	}
 }

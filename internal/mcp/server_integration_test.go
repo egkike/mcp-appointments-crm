@@ -411,3 +411,22 @@ func TestServerOversizedBodyRejected(t *testing.T) {
 		t.Errorf("status code string = %s; want 413", got)
 	}
 }
+
+// TestToolSearchClientsAdvancedRejectsEmptyQuery runs the real mux (real SQLite
+// repository) and lives HERE with the other integration coverage rather than
+// inside the unit-tier search test file (R3-empty-query-mux): the empty query
+// reaches the repository FTS validator — the single source of truth since
+// PR #113 — and its semantic error must surface to the LLM as JSON-RPC -32002
+// with the repository message. The transport no longer pre-validates, so this
+// pins the repository message, not a transport mirror.
+func TestToolSearchClientsAdvancedRejectsEmptyQuery(t *testing.T) {
+	mux := newIntegrationMux(t)
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_clients_advanced","arguments":{"query_text":""}}}`
+	_, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, "owner-1", body))
+	if code != -32002 {
+		t.Errorf("code = %d; want -32002 (msg=%q)", code, msg)
+	}
+	if msg != "la consulta de búsqueda está vacía." {
+		t.Errorf("message = %q; want the repository empty-query message", msg)
+	}
+}

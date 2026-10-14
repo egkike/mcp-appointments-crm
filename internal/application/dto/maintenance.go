@@ -25,27 +25,27 @@ import "github.com/egkike/mcp-appointments-crm/internal/auth"
 // transport-to-application markers only and are never serialized.
 type UpdateBusinessProfileInput struct {
 	Caller                 auth.Caller `json:"-"`
-	Name                   *string     `json:"name,omitempty"`
-	Industry               *string     `json:"industry,omitempty"`
-	Country                *string     `json:"country,omitempty"`
-	Address                *string     `json:"address,omitempty"`
-	Latitude               *float64    `json:"latitude,omitempty"`
-	Longitude              *float64    `json:"longitude,omitempty"`
-	ClearLatitude          bool        `json:"-"`
-	ClearLongitude         bool        `json:"-"`
-	CoverPhotoURL          *string     `json:"cover_photo_url,omitempty"`
-	PublicPhone            *string     `json:"public_phone,omitempty"`
-	MessengerPlatform      *string     `json:"messenger_platform,omitempty"`
-	MessengerID            *string     `json:"messenger_id,omitempty"`
-	ContactEmail           *string     `json:"contact_email,omitempty"`
-	WebsiteURL             *string     `json:"website_url,omitempty"`
-	GeneralDescription     *string     `json:"general_description,omitempty"`
-	CurrencyCode           *string     `json:"currency_code,omitempty"`
-	CurrencySymbol         *string     `json:"currency_symbol,omitempty"`
-	AcceptedPaymentMethods *string     `json:"accepted_payment_methods,omitempty"`
-	Timezone               *string     `json:"timezone,omitempty"`
-	SlotIntervalMinutes    *int        `json:"slot_interval_minutes,omitempty"`
-	BusinessHours          *string     `json:"business_hours,omitempty"`
+	Name                   *string
+	Industry               *string
+	Country                *string
+	Address                *string
+	Latitude               *float64
+	Longitude              *float64
+	ClearLatitude          bool `json:"-"`
+	ClearLongitude         bool `json:"-"`
+	CoverPhotoURL          *string
+	PublicPhone            *string
+	MessengerPlatform      *string
+	MessengerID            *string
+	ContactEmail           *string
+	WebsiteURL             *string
+	GeneralDescription     *string
+	CurrencyCode           *string
+	CurrencySymbol         *string
+	AcceptedPaymentMethods *string
+	Timezone               *string
+	SlotIntervalMinutes    *int
+	BusinessHours          *string
 }
 
 // CreateServiceInput is the full payload for create_service.
@@ -53,11 +53,11 @@ type UpdateBusinessProfileInput struct {
 // (the overwhelmingly common intent) instead of the Go zero value (inactive).
 type CreateServiceInput struct {
 	Caller          auth.Caller `json:"-"`
-	Name            string      `json:"name"`
-	Description     *string     `json:"description,omitempty"`
-	DurationMinutes int         `json:"duration_minutes"`
-	Price           float64     `json:"price"`
-	Active          *bool       `json:"is_active,omitempty"`
+	Name            string
+	Description     *string
+	DurationMinutes int
+	Price           float64
+	Active          *bool
 }
 
 // UpdateServiceInput is the partial-merge payload for update_service.
@@ -65,18 +65,18 @@ type CreateServiceInput struct {
 // the stored value).
 type UpdateServiceInput struct {
 	Caller          auth.Caller `json:"-"`
-	ServiceID       string      `json:"service_id"`
-	Name            *string     `json:"name,omitempty"`
-	Description     *string     `json:"description,omitempty"`
-	DurationMinutes *int        `json:"duration_minutes,omitempty"`
-	Price           *float64    `json:"price,omitempty"`
-	Active          *bool       `json:"is_active,omitempty"`
+	ServiceID       string
+	Name            *string
+	Description     *string
+	DurationMinutes *int
+	Price           *float64
+	Active          *bool
 }
 
 // DeleteServiceInput identifies the service to delete.
 type DeleteServiceInput struct {
 	Caller    auth.Caller `json:"-"`
-	ServiceID string      `json:"service_id"`
+	ServiceID string
 }
 
 // DeleteServiceResult is the response body for delete_service.
@@ -91,12 +91,12 @@ type DeleteServiceResult struct {
 // omitted.
 type CreateProfessionalInput struct {
 	Caller        auth.Caller `json:"-"`
-	Name          string      `json:"name"`
-	RoleSpecialty *string     `json:"role_specialty,omitempty"`
-	Email         *string     `json:"email,omitempty"`
-	Phone         *string     `json:"phone,omitempty"`
-	Specialties   []string    `json:"specialties,omitempty"`
-	Status        *string     `json:"status,omitempty"`
+	Name          string
+	RoleSpecialty *string
+	Email         *string
+	Phone         *string
+	Specialties   []string
+	Status        *string
 }
 
 // UpdateProfessionalInput is the partial-merge payload for
@@ -105,30 +105,30 @@ type CreateProfessionalInput struct {
 // empty one) replaces them wholesale.
 type UpdateProfessionalInput struct {
 	Caller         auth.Caller `json:"-"`
-	ProfessionalID string      `json:"professional_id"`
-	Name           *string     `json:"name,omitempty"`
-	RoleSpecialty  *string     `json:"role_specialty,omitempty"`
-	Email          *string     `json:"email,omitempty"`
-	Phone          *string     `json:"phone,omitempty"`
-	Specialties    *[]string   `json:"specialties,omitempty"`
-	Status         *string     `json:"status,omitempty"`
+	ProfessionalID string
+	Name           *string
+	RoleSpecialty  *string
+	Email          *string
+	Phone          *string
+	Specialties    *[]string
+	Status         *string
 }
 
 // UpsertScheduleInput is the full day-slot payload for upsert_schedule.
 // DayOfWeek follows Go's time.Weekday convention (0=Sunday..6=Saturday).
 type UpsertScheduleInput struct {
 	Caller         auth.Caller `json:"-"`
-	ProfessionalID string      `json:"professional_id"`
-	DayOfWeek      int         `json:"day_of_week"`
-	StartTime      string      `json:"start_time"`
-	EndTime        string      `json:"end_time"`
+	ProfessionalID string
+	DayOfWeek      int
+	StartTime      string
+	EndTime        string
 }
 
 // DeleteScheduleInput identifies the professional+day slot to remove.
 type DeleteScheduleInput struct {
 	Caller         auth.Caller `json:"-"`
-	ProfessionalID string      `json:"professional_id"`
-	DayOfWeek      int         `json:"day_of_week"`
+	ProfessionalID string
+	DayOfWeek      int
 }
 
 // DeleteScheduleResult is the response body for delete_schedule.

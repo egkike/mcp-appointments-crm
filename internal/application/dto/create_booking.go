@@ -1,6 +1,3 @@
-// Package dto contains the application-layer data transfer objects.
-// DTOs are pure data carriers with no business logic. They define the
-// input/output contract between the transport layer and the use cases.
 package dto
 
 import (
@@ -16,18 +13,18 @@ type CreateBookingInput struct {
 	// Caller is the authenticated actor requesting the operation.
 	Caller auth.Caller `json:"-"`
 	// ClientID identifies the customer for whom the booking is created.
-	ClientID string `json:"client_id"`
+	ClientID string
 	// ServiceID identifies the service to book.
-	ServiceID string `json:"service_id"`
+	ServiceID string
 	// ProfessionalID identifies the staff member who will provide the service.
-	ProfessionalID string `json:"professional_id"`
+	ProfessionalID string
 	// StartTime is the requested start of the booking (UTC or wall-clock; the
 	// use case converts to the business timezone as needed).
-	StartTime time.Time `json:"start_time"`
+	StartTime time.Time
 	// Notes is an optional free-text annotation for the booking.
-	Notes *string `json:"notes,omitempty"`
+	Notes *string
 	// PaymentMethod is an optional descriptor of how the service will be paid.
-	PaymentMethod *string `json:"payment_method,omitempty"`
+	PaymentMethod *string
 }
 
 // CreateBookingResult holds the outcome of a successful booking creation.

@@ -13,7 +13,7 @@ type GetBookingInput struct {
 	// Caller is the authenticated actor requesting the booking.
 	Caller auth.Caller `json:"-"`
 	// BookingID identifies the booking to retrieve.
-	BookingID string `json:"booking_id"`
+	BookingID string
 }
 
 // BookingView is a transport-ready representation of a booking.

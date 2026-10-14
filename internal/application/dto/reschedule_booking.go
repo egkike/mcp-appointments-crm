@@ -13,9 +13,9 @@ type RescheduleBookingInput struct {
 	// Caller is the authenticated actor requesting the reschedule.
 	Caller auth.Caller `json:"-"`
 	// BookingID identifies the booking to reschedule.
-	BookingID string `json:"booking_id"`
+	BookingID string
 	// NewStartTime is the requested new start time for the booking.
-	NewStartTime time.Time `json:"new_start_time"`
+	NewStartTime time.Time
 }
 
 // RescheduleBookingResult holds the outcome of a successful reschedule.
