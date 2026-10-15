@@ -172,3 +172,45 @@ func TestToMCPError(t *testing.T) {
 		}
 	})
 }
+
+// TestBoundedLogValue pins the R4-log-truncation contract of the shared log
+// sink: values over 256 runes keep BOTH the head (message shape) and the tail
+// (root cause), because %w error chains put the forensic signal at the end.
+// The value must also stay single-line regardless of embedded newlines.
+func TestBoundedLogValue(t *testing.T) {
+	base := "0123456789abcdef"
+	long := strings.Repeat(base, 20) + "…ROOT_CAUSE_MARK…"
+	got := boundedLogValue(long)
+
+	t.Run("capped at budget + suffix", func(t *testing.T) {
+		runes := []rune(got)
+		if len(runes) > maxBoundedLogRunes+len("…[truncated]") {
+			t.Fatalf("bounded length %d exceeds %d + suffix", len(runes), maxBoundedLogRunes)
+		}
+	})
+
+	t.Run("keeps head", func(t *testing.T) {
+		if !strings.HasPrefix(got, base) {
+			t.Errorf("bounded value lost the head: %q", got[:min(20, len(got))])
+		}
+	})
+
+	t.Run("keeps tail root cause", func(t *testing.T) {
+		if !strings.Contains(got, "ROOT_CAUSE_MARK") {
+			t.Errorf("bounded value dropped the root-cause tail: %q", got)
+		}
+	})
+
+	t.Run("single line", func(t *testing.T) {
+		multiline := "line1\nline2\tline3\rline4"
+		if got := boundedLogValue(multiline); strings.ContainsAny(got, "\n\r\t") {
+			t.Errorf("bounded value kept a control char: %q", got)
+		}
+	})
+
+	t.Run("short values pass through", func(t *testing.T) {
+		if got := boundedLogValue("short"); got != "short" {
+			t.Errorf("boundedLogValue(short) = %q", got)
+		}
+	})
+}
