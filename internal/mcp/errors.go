@@ -77,7 +77,11 @@ func (s *Server) toMCPError(err error) *jsonrpc.Error {
 // belong to the caller's own debugging, not to the server's shared log sink.
 const maxBoundedLogRunes = 256
 
-// boundedLogValue flattens a value to one line and caps its length.
+// boundedLogValue flattens a value to one line and caps its length. When the
+// flat value exceeds the budget it keeps the head (message shape) AND the tail
+// (root cause): fmt.Errorf %w chains put the forensic signal at the end, so a
+// head-only cap is exactly the content a diagnostic would need most. The
+// halves split the budget evenly with one shared truncation marker.
 func boundedLogValue(v string) string {
 	v = strings.Map(func(r rune) rune {
 		if r == '\n' || r == '\r' || r == '\t' {
@@ -89,7 +93,9 @@ func boundedLogValue(v string) string {
 	if len(runes) <= maxBoundedLogRunes {
 		return v
 	}
-	return string(runes[:maxBoundedLogRunes]) + "…[truncated]"
+	mark := "…[truncated]"
+	half := (maxBoundedLogRunes - len(mark)) / 2
+	return string(runes[:half]) + mark + string(runes[len(runes)-half:])
 }
 
 // jsonParseGuard wraps the streamable handler with two JSON-RPC transport
