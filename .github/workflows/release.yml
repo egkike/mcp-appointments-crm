@@ -25,7 +25,7 @@ permissions:
 jobs:
   release:
     name: Publish release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -50,8 +50,12 @@ jobs:
       # against this exact GoReleaser release locally (`goreleaser check` +
       # `goreleaser release --snapshot --skip=publish`), and floating the tag
       # would let a new GoReleaser version change published asset names.
+      # The ACTION is pinned to v7.3.0 because v7 targets Node 24 natively
+      # (Node 20 was removed from the runners on 2026-09-23; v6 forced a
+      # compatibility shim). The GoReleaser binary pin above is what guards
+      # asset compatibility; the action major may float within v7 safely.
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7.3.0
         with:
           distribution: goreleaser
           version: 'v2.18.2'
