@@ -444,4 +444,35 @@ CP
   _assert_json_parseable "$SETUP_DIR/setup_services.json"
 }
 
+# TASK-4.2: the setup flow installs the receptionist skill and reports it in
+# the final summary.
+test_skill_install_summary_line() {
+  local out rc dest
+  out=$(_full_input | _run_install 2>&1)
+  rc=$?
+  dest="$HOME/.hermes/skills/recepcionista-negocio/SKILL.md"
+  assertEquals 'exit' 0 "$rc"
+  assertTrue 'skill summary line' \
+    "printf '%s' \"$out\" | grep -q 'Skill recepcionista: instalada'"
+  assertTrue 'skill file installed' "[ -f \"$dest\" ]"
+  assertFalse 'placeholder resolved' "grep -q '{business_name}' \"$dest\""
+}
+
+# TASK-4.2: a skill write failure must not abort the install; the summary
+# still reports the Spanish error outcome.
+test_skill_install_failure_is_non_fatal() {
+  local out rc home
+  home=$(mktemp -d)
+  chmod 500 "$home"
+  export HERMES_HOME="$home"
+  out=$(_full_input | _run_install 2>&1)
+  rc=$?
+  unset HERMES_HOME
+  chmod 700 "$home"
+  rm -rf "$home"
+  assertEquals 'install still exits 0' 0 "$rc"
+  assertTrue 'summary reports write error' \
+    "printf '%s' \"$out\" | grep -q 'Skill recepcionista: error: no se pudo escribir'"
+}
+
 . "$(dirname "$0")/lib/shunit2" || exit 1
