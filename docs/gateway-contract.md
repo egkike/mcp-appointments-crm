@@ -114,3 +114,18 @@ TUI option 7 writes these into `mcp_servers.mcp-appointments.env` in `~/.hermes/
 | `MCP_TELEGRAM_OWNER_PHONE` | the owner's real phone, injected **statically** as `X-Caller-Id` (ADR-0018 D3b) |
 
 > The Hermes-side consumption spelling of these keys is the gateway implementer's reconciliation point: the TUI writes the server-side config keys above; the gateway must read the same names to perform the static owner injection.
+
+## 8. Conversational policy — receptionist skill
+
+> **New (ADR-0020, 2026-10-16).** This contract covers **identity** (§1–§3); the conversational layer is specified separately.
+
+Identity injection, registration and error interpretation do not answer a second question: what Hermes should say to a message that is not about the business (a bare greeting, a weather question, small talk). Those messages **never reach the MCP server** — they live inside the Hermes runtime — so the policy must be loaded before the first message arrives, as a **static receptionist skill** installed into the Hermes home (`feat-hermes-receptionist-skill`):
+
+- **Role:** Hermes on this channel is the assistant of the business (`business_profile.name`), never a general assistant, never a human; business facts come only from the MCP tools and the business profile.
+- **Off-topic (owner decision 2026-10-16, "cordial y orientador"):** no tool calls, one short cordial paragraph (greeting with name, role statement, core-services offer in 1–2 sentences) and the off-topic content is not answered.
+- **Registration loop (§3 above):** the skill carries the same loop as one more rule, plus privacy guardrails (minimal data, no other clients' PII, semantic Spanish messages only).
+- **Escalation:** requests beyond the role go to the owner — nothing is invented beyond `business_profile`.
+
+**Bounds:** the skill is text at rest — it grants no permissions, replaces no RBAC, and cannot restrict what Hermes can technically do; the server-side controls (loopback, per-sender `X-Caller-Id`, RBAC, registration rate limit §7.3) remain the security boundary. Storage and loading follow the **official Hermes skill standard** (verified 2026-10-16, `hermes-agent.nousresearch.com/docs/user-guide/features/skills`): `~/.hermes/skills/<slug>/SKILL.md` with frontmatter; the loader indexes name + description in the system prompt and loads the full text on demand, so the skill advertises itself as applying to every conversation on this channel.
+
+See [ADR-0020](architecture/0020-hermes-conversational-policy.md) and `openspec/changes/feat-hermes-receptionist-skill/` for the full specification.
