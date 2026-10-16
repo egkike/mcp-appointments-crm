@@ -31,7 +31,7 @@ permissions:
 jobs:
   changes:
     name: Detect Go changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
@@ -58,7 +58,7 @@ jobs:
     name: Verify Go code
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
