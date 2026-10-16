@@ -51,7 +51,7 @@ func TestRunDrainsActiveConnectionOnSignal(t *testing.T) {
 	resultCh := make(chan ShutdownResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		res, err := run(context.Background(), srv, ln, discardLogger(), 10*time.Second, sigCh)
+		res, err := run(context.Background(), srv, ln, discardLogger(), 10*time.Second, sigCh, false)
 		resultCh <- res
 		errCh <- err
 	}()
@@ -101,7 +101,7 @@ func TestRunForceClosesAfterDeadline(t *testing.T) {
 	resultCh := make(chan ShutdownResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		res, err := run(context.Background(), srv, ln, discardLogger(), 150*time.Millisecond, sigCh)
+		res, err := run(context.Background(), srv, ln, discardLogger(), 150*time.Millisecond, sigCh, false)
 		resultCh <- res
 		errCh <- err
 	}()
@@ -199,7 +199,7 @@ func TestRunDrainsOnContextCancellation(t *testing.T) {
 	resultCh := make(chan ShutdownResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		res, err := run(ctx, srv, ln, discardLogger(), 10*time.Second, make(chan os.Signal))
+		res, err := run(ctx, srv, ln, discardLogger(), 10*time.Second, make(chan os.Signal), false)
 		resultCh <- res
 		errCh <- err
 	}()
@@ -233,7 +233,7 @@ func TestRunReturnsServeError(t *testing.T) {
 	resultCh := make(chan ShutdownResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		res, err := run(context.Background(), srv, ln, discardLogger(), 10*time.Second, make(chan os.Signal))
+		res, err := run(context.Background(), srv, ln, discardLogger(), 10*time.Second, make(chan os.Signal), false)
 		resultCh <- res
 		errCh <- err
 	}()
@@ -272,7 +272,7 @@ func TestRunSecondSignalForcesImmediateClose(t *testing.T) {
 	resultCh := make(chan ShutdownResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		res, err := run(context.Background(), srv, ln, discardLogger(), 10*time.Second, sigCh)
+		res, err := run(context.Background(), srv, ln, discardLogger(), 10*time.Second, sigCh, false)
 		resultCh <- res
 		errCh <- err
 	}()

@@ -61,6 +61,7 @@ const (
 	confirmDeactivate
 	confirmTransfer
 	confirmHermesConfig
+	confirmSkillRegen
 )
 
 // infoKind distinguishes the outcome of a flow on the shared info screen: a
@@ -171,6 +172,12 @@ type AppModel struct {
 	hermesPhone    string
 	hermesTelegram TelegramFields
 	hermesSnippet  string
+
+	// skillRegen holds the resolved inputs (Hermes home, business name, template
+	// bytes) of the receptionist-skill regeneration cascade started right after
+	// a successful Hermes config write (ADR-0020 §4). It lives only between two
+	// screens of the same decision; menuScreen resets it.
+	skillRegen skillInputs
 }
 
 // NewAppModel builds the initial model. ctx is propagated into every core call
@@ -230,6 +237,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onHermesData(msg)
 	case hermesResultMsg:
 		return m.onHermesResult(msg)
+	case skillStateMsg:
+		return m.onSkillState(msg)
+	case skillResultMsg:
+		return m.onSkillResult(msg)
 	case resultMsg:
 		return m.onResult(msg)
 
@@ -423,6 +434,9 @@ func (m AppModel) runConfirmed() (tea.Model, tea.Cmd) {
 		return m.started(transferCmd(m.ctx, m.deps, m.owner.ID, m.transferDraft))
 	case confirmHermesConfig:
 		return m.started(hermesConfigCmd(m.deps.Hermes.HermesConfig, m.hermesPhone, m.hermesTelegram))
+	case confirmSkillRegen:
+		// Reemplazo confirmado de una skill modificada por el usuario.
+		return m.started(regenSkillCmd(m.skillRegen, true))
 	default:
 		return m.menuScreen(""), nil
 	}
@@ -778,13 +792,10 @@ func (m AppModel) onHermesResult(msg hermesResultMsg) (tea.Model, tea.Cmd) {
 	m.busy = false
 
 	if msg.written {
-		return m.withInfo(infoSuccess,
-			"Configuración de Hermes actualizada.",
-			"Endpoint: "+m.deps.Hermes.EndpointURL,
-			"Teléfono (X-Caller-Id): "+m.hermesPhone,
-			"Telegram: "+m.hermesTelegram.Summary(),
-			"Archivo: "+m.deps.Hermes.Path,
-		), nil
+		// Cascada (ADR-0020 §4): el write del config dispara la detección del
+		// estado de la skill; el resultado llega por skillStateMsg y decide
+		// auto-regeneración, confirmación o nada.
+		return m.started(detectSkillCmd(m.ctx, m.deps))
 	}
 
 	m = m.withScreen(screenHermesSnippet)
@@ -793,6 +804,52 @@ func (m AppModel) onHermesResult(msg hermesResultMsg) (tea.Model, tea.Cmd) {
 	}
 	m.hermesSnippet = msg.snippet
 	return m, nil
+}
+
+// onSkillState lands the detection of the installed skill against a fresh
+// rendering. missing and up-to-date walk straight into the regeneration with no
+// confirmation (there is no user content to protect); modified opens the
+// explicit confirm screen: the installed skill may hold owner edits that must
+// not be replaced without consent (ADR-0020 §4, spec "Modified skill").
+// Detection or rendering failures surface on the info screen and end the
+// cascade: the Hermes config write already succeeded.
+func (m AppModel) onSkillState(msg skillStateMsg) (tea.Model, tea.Cmd) {
+	m.busy = false
+	if msg.err != nil {
+		return m.withInfo(infoError, "Configuración de Hermes actualizada.", skillOutcomeErrorLine(msg.err)), nil
+	}
+	m.skillRegen = msg.inputs
+	switch msg.state {
+	case admin.SkillStateMissing, admin.SkillStateUpToDate:
+		return m.started(regenSkillCmd(msg.inputs, false))
+	case admin.SkillStateModified:
+		return m.askConfirm(confirmState{
+			action:   confirmSkillRegen,
+			title:    confirmSkillRegenTitle,
+			question: confirmSkillRegenQuestion,
+			warning:  confirmSkillRegenWarning,
+		}), nil
+	default:
+		return m.withInfo(infoError, "Configuración de Hermes actualizada.", "El estado de la skill instalada es desconocido."), nil
+	}
+}
+
+// onSkillResult lands the regeneration outcome and closes the option 7 cascade
+// with one screen: the config facts, the skill summary token (the exact
+// vocabulary install.sh reports) and the Hermes loader note.
+func (m AppModel) onSkillResult(msg skillResultMsg) (tea.Model, tea.Cmd) {
+	m.busy = false
+	lines := []string{
+		"Configuración de Hermes actualizada.",
+		"Endpoint: " + m.deps.Hermes.EndpointURL,
+		"Teléfono (X-Caller-Id): " + m.hermesPhone,
+		"Telegram: " + m.hermesTelegram.Summary(),
+		"Archivo: " + m.deps.Hermes.Path,
+	}
+	if msg.err != nil {
+		return m.withInfo(infoError, append(lines, skillOutcomeErrorLine(msg.err))...), nil
+	}
+	return m.withInfo(infoSuccess, append(lines, resultLines(msg.outcome)...)...), nil
 }
 
 // onResult lands a write. A seed or recovery failure re-derives the gate instead
@@ -878,6 +935,7 @@ func (m AppModel) menuScreen(notice string) AppModel {
 	m.hermesPhone = ""
 	m.hermesTelegram = TelegramFields{}
 	m.hermesSnippet = ""
+	m.skillRegen = skillInputs{}
 	return m
 }
 
@@ -997,6 +1055,8 @@ func cancelNotice(action confirmAction) string {
 		return "Operación cancelada: no se transfirió la propiedad."
 	case confirmHermesConfig:
 		return "Operación cancelada: no se cambió la configuración de Hermes."
+	case confirmSkillRegen:
+		return "Operación cancelada: no se tocó la skill instalada."
 	default:
 		return "Operación cancelada."
 	}

@@ -56,6 +56,11 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Setenv("MCP_DB_PATH", f.dbPath)
 	t.Setenv("MCP_CONFIG_DIR", f.configDir)
+	// Hermetic skill-template path: admin.SkillTemplatePath resolves its config
+	// dir through the XDG/home table (not MCP_CONFIG_DIR, which is the caller-id
+	// override), so the fixture must pin XDG_CONFIG_HOME or tests would write
+	// into the developer's real config dir.
+	t.Setenv("XDG_CONFIG_HOME", f.configDir)
 
 	database, err := db.NewDatabase(context.Background(), f.dbPath)
 	if err != nil {
@@ -250,7 +255,7 @@ func (d *driver) run(cmd tea.Cmd) {
 		}
 	case tea.QuitMsg:
 		d.quit = true
-	case gateMsg, professionalsMsg, accountsMsg, transferDataMsg, selfOwnerMsg, hermesDataMsg, hermesResultMsg, resultMsg:
+	case gateMsg, professionalsMsg, accountsMsg, transferDataMsg, selfOwnerMsg, hermesDataMsg, hermesResultMsg, skillStateMsg, skillResultMsg, resultMsg:
 		d.send(msg)
 	default:
 		// spinner.TickMsg, cursor blink messages and other framework traffic.
@@ -1209,6 +1214,12 @@ func TestAppModelHermesConfigWritesTheMergedConfig(t *testing.T) {
 		t.Fatalf("seed hermes config: %v", err)
 	}
 
+	// The write success cascades into the skill regeneration (ADR-0020 §4): the
+	// cascade inputs (profile name + template) must exist before the driver
+	// copies deps.
+	f.deps.BusinessProfile = fakeBusinessProfile{name: "Barbería El Corte"}
+	seedSkillTemplate(t, f)
+
 	d := newDriver(t, f)
 	d.press("7")
 
@@ -1389,11 +1400,23 @@ func TestAppModelHermesConfigFallsBackToTheSnippetWhenTheWriteIsImpossible(t *te
 	f := newFixture(t)
 	f.seedOwner(t, ownerPhone, ownerName)
 
-	// An empty path is the degenerate "there is nowhere to write" case: the load
-	// treats the missing file as empty, and the write fails with a semantic error
-	// instead of a raw driver failure. The flow must degrade to the manual
-	// snippet (ADR-0017 Decision 1).
-	f.hermes.Path = ""
+	// The parent directory is unwritable, the true "write impossible" case
+	// (hermetic, mirroring the WriteHermesConfig unwritable-target tests): the
+	// load reads a missing file as empty and the write fails with a semantic
+	// error instead of a raw driver failure. The flow must degrade to the manual
+	// snippet (ADR-0017 Decision 1). GGA W4 hardened LoadHermesConfig against a
+	// blank path (fail-open read), so "nowhere to write" must no longer be
+	// modeled as an empty path.
+	readonlyParent := filepath.Join(t.TempDir(), "readonly")
+	if err := os.MkdirAll(readonlyParent, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// #nosec G302 -- test-only: tighter than 0600 to force the write-failure path.
+	if err := os.Chmod(readonlyParent, 0o500); err != nil { // #nosec G302 -- test-only: forces the write-failure path
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readonlyParent, 0o700) /* #nosec G302 -- test write-failure fixture cleanup */ })
+	f.hermes.Path = filepath.Join(readonlyParent, "config.yaml")
 
 	d := newDriver(t, f)
 	driveToHermesConfirm(t, d)
@@ -1405,7 +1428,7 @@ func TestAppModelHermesConfigFallsBackToTheSnippetWhenTheWriteIsImpossible(t *te
 	view := d.view()
 	for _, want := range []string{
 		"Configuración manual de Hermes",
-		"no se indicó dónde escribir",
+		"no se pudo crear el archivo temporal",
 		admin.HermesServerName,
 		`X-Caller-Id: "` + ownerPhone + `"`,
 	} {
@@ -1677,4 +1700,137 @@ func TestTableTitleNamesTheView(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fakeBusinessProfile satisfies admin.BusinessProfileReader without the
+// database, so the skill cascade test only controls the stored name.
+type fakeBusinessProfile struct {
+	name string
+	err  error
+}
+
+func (f fakeBusinessProfile) Get(context.Context) (*entity.BusinessProfile, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &entity.BusinessProfile{Name: f.name}, nil
+}
+
+// seedSkillTemplate writes the pristine template where admin.SkillTemplatePath
+// resolves (the fixture's XDG config home) so the regen cascade has a source.
+func seedSkillTemplate(t *testing.T, f fixture) string {
+	t.Helper()
+	p, err := admin.SkillTemplatePath()
+	if err != nil {
+		t.Fatalf("SkillTemplatePath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatalf("mkdir template dir: %v", err)
+	}
+	// #nosec G704 -- p comes from the resolved constant-slug template path;
+	// body comes from the repository template (a repo-captured fixture), not
+	// from untrusted input.
+	body, err := os.ReadFile(filepath.Join("..", "..", "setup", "templates", admin.SkillSlug, admin.SkillFileName))
+	if err != nil {
+		t.Fatalf("read seeded template from repo tree: %v", err)
+	}
+	// #nosec G703 -- p is the canonical SkillTemplatePath of the fixture's temp
+	// config dir; no untrusted component enters it.
+	if err := os.WriteFile(p, body, 0o600); err != nil {
+		t.Fatalf("write template: %v", err)
+	}
+	return p
+}
+
+func TestAppModelHermesConfigRegeneratesMissingSkill(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+	f.deps.BusinessProfile = fakeBusinessProfile{name: "Barbería El Corte"}
+	seedSkillTemplate(t, f)
+
+	d := newDriver(t, f)
+	driveToHermesConfirm(t, d)
+	d.press("s")
+
+	// Cascade: regen → info screen with the installer vocabulary.
+	if d.model.screen != screenInfo {
+		t.Fatalf("screen = %v, want the info screen", d.model.screen)
+	}
+	view := d.view()
+	for _, want := range []string{
+		"Configuración de Hermes actualizada.",
+		"Skill recepcionista: instalada",
+		"Hermes recarga el índice de skills en su próximo arranque.",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view = %q, want it to contain %q", view, want)
+		}
+	}
+}
+
+func TestAppModelHermesConfigUpToDateSkillIsReported(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+	f.deps.BusinessProfile = fakeBusinessProfile{name: "Barbería El Corte"}
+	templatePath := seedSkillTemplate(t, f)
+
+	// Pre-write the skill with EXACTLY what the flow will render: the cascade
+	// must land on "ya instalada sin cambios" instead of rewriting.
+	if _, err := admin.LoadSkillTemplate(); err == nil {
+		rendered, rerr := admin.RenderSkillTemplate(templateContent(t), "Barbería El Corte")
+		if rerr == nil {
+			skillPath := filepath.Join(filepath.Dir(f.hermesPath), "skills", admin.SkillSlug, admin.SkillFileName)
+			_ = os.MkdirAll(filepath.Dir(skillPath), 0o700)
+			_ = os.WriteFile(skillPath, []byte(rendered), 0o600)
+		}
+	}
+	_ = templatePath
+
+	d := newDriver(t, f)
+	driveToHermesConfirm(t, d)
+	d.press("s")
+
+	if d.model.screen != screenInfo {
+		t.Fatalf("screen = %v, want the info screen", d.model.screen)
+	}
+	if !strings.Contains(d.view(), "Skill recepcionista: ya instalada sin cambios") {
+		t.Errorf("view missing up-to-date outcome: %q", d.view())
+	}
+}
+
+func TestAppModelHermesConfigModifiedSkillAsksBeforeReplacing(t *testing.T) {
+	f := newFixture(t)
+	f.seedOwner(t, ownerPhone, ownerName)
+	f.deps.BusinessProfile = fakeBusinessProfile{name: "Barbería El Corte"}
+	seedSkillTemplate(t, f)
+
+	d := newDriver(t, f)
+	driveToHermesConfirm(t, d)
+	// Pre-write a modified skill: herd detection must now open the confirm.
+	skillPath := filepath.Join(filepath.Dir(f.hermesPath), "skills", admin.SkillSlug, admin.SkillFileName)
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0o700); err != nil {
+		t.Fatalf("seed skill dir: %v", err)
+	}
+	if err := os.WriteFile(skillPath, []byte("contenido del operador"), 0o600); err != nil {
+		t.Fatalf("seed skill: %v", err)
+	}
+	d.press("s")
+
+	if d.model.screen != screenConfirm || d.model.confirm.action != confirmSkillRegen {
+		t.Fatalf("screen = %v action = %v, want the skill-replacement confirm", d.model.screen, d.model.confirm.action)
+	}
+	d.press("n")
+	if !strings.Contains(d.view(), "no se tocó la skill instalada") {
+		t.Errorf("view = %q, want the cancellation message", d.view())
+	}
+}
+
+// templateContent loads the seeded template bytes for assertions.
+func templateContent(t *testing.T) string {
+	t.Helper()
+	body, err := admin.LoadSkillTemplate()
+	if err != nil {
+		t.Fatalf("LoadSkillTemplate: %v", err)
+	}
+	return string(body)
 }

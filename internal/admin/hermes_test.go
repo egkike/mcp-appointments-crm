@@ -43,6 +43,9 @@ func TestHermesConfigPath(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	// Neutralize the env-first override so the test never depends on the
+	// developer's ambient HERMES_HOME.
+	t.Setenv("HERMES_HOME", "")
 
 	got, err := HermesConfigPath()
 	if err != nil {
@@ -61,8 +64,8 @@ func TestLoadHermesConfig_AbsentFileReturnsEmptyDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadHermesConfig() error = %v, want nil for an absent file", err)
 	}
-	if len(doc.storage()) != 0 {
-		t.Errorf("LoadHermesConfig() = %v, want an empty document", doc.storage())
+	if loadedRootHasChildren(doc) {
+		t.Error("LoadHermesConfig() returned a non-empty document")
 	}
 }
 
@@ -79,8 +82,8 @@ func TestLoadHermesConfig_EmptyFileReturnsEmptyDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadHermesConfig() error = %v", err)
 	}
-	if len(doc.storage()) != 0 {
-		t.Errorf("LoadHermesConfig() = %v, want an empty document", doc.storage())
+	if loadedRootHasChildren(doc) {
+		t.Error("LoadHermesConfig() returned a non-empty document")
 	}
 }
 
@@ -98,15 +101,13 @@ func TestLoadHermesConfig_ParsesExistingMapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadHermesConfig() error = %v", err)
 	}
-	if got := doc.storage()["model"]; got != "hermes-default" {
-		t.Errorf("doc[model] = %v, want %q", got, "hermes-default")
+	model, ok := childValue(doc.storage().root, "model")
+	if !ok || model.Value != "hermes-default" {
+		t.Errorf("doc[model] = %+v, want %q", model, "hermes-default")
 	}
-	servers, ok := doc.storage()[hermesServersSection].(map[string]any)
-	if !ok {
-		t.Fatalf("doc[mcp_servers] = %T, want map[string]any", doc.storage()[hermesServersSection])
-	}
-	if _, ok := servers["openai"]; !ok {
-		t.Errorf("doc[mcp_servers] lost the openai server: %v", servers)
+	servers := requireMapping(t, doc, hermesServersSection)
+	if _, ok := childValue(servers, "openai"); !ok {
+		t.Errorf("doc[mcp_servers] lost the openai server: %+v", servers.Content)
 	}
 }
 
@@ -155,25 +156,54 @@ func TestSetHermesServer_AbsentFileFlowCreatesEntry(t *testing.T) {
 		t.Fatalf("reload error = %v", err)
 	}
 	entry := hermesEntryFrom(t, reloaded)
-	if entry[hermesURLKey] != testHermesURL {
-		t.Errorf("entry url = %v, want %q", entry[hermesURLKey], testHermesURL)
+	if got := entryString(t, entry, hermesURLKey); got != testHermesURL {
+		t.Errorf("entry url = %q, want %q", got, testHermesURL)
 	}
+}
+
+// loadedRootHasChildren reports whether the document marshals from a mapping
+// node with at least one entry (the node-based image of an empty document).
+func loadedRootHasChildren(doc HermesDocument) bool {
+	root := doc.storage().root
+	return root != nil && len(root.Content) > 0
+}
+
+// requireMapping returns the mapping child at key under root; fails the test
+// when absent or not a mapping.
+func requireMapping(t *testing.T, doc HermesDocument, key string) *yaml.Node {
+	t.Helper()
+	v, ok := childValue(doc.storage().root, key)
+	if !ok || v.Kind != yaml.MappingNode {
+		t.Fatalf("%s missing or not a mapping", key)
+	}
+	return v
 }
 
 // hermesEntryFrom extracts the mcp_servers.<HermesServerName> mapping from a
 // loaded document, failing the test when the shape is wrong.
-func hermesEntryFrom(t *testing.T, doc HermesDocument) map[string]any {
+func hermesEntryFrom(t *testing.T, doc HermesDocument) *yaml.Node {
 	t.Helper()
-	fields := doc.storage()
-	servers, ok := fields[hermesServersSection].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp_servers = %T, want map[string]any", fields[hermesServersSection])
+	root := doc.storage().root
+	servers, ok := childValue(root, hermesServersSection)
+	if !ok || servers.Kind != yaml.MappingNode {
+		t.Fatalf("mcp_servers missing or not a mapping: %v", servers)
 	}
-	entry, ok := servers[HermesServerName].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp_servers.%s = %T, want map[string]any", HermesServerName, servers[HermesServerName])
+	entry, ok := childValue(servers, HermesServerName)
+	if !ok || entry.Kind != yaml.MappingNode {
+		t.Fatalf("mcp_servers.%s missing or not a mapping", HermesServerName)
 	}
 	return entry
+}
+
+// entriesString extracts a scalar string from parent[key]; fails when the key
+// is absent or not a scalar.
+func entryString(t *testing.T, parent *yaml.Node, key string) string {
+	t.Helper()
+	v, ok := childValue(parent, key)
+	if !ok || v.Kind != yaml.ScalarNode {
+		t.Fatalf("%s missing or not a scalar", key)
+	}
+	return v.Value
 }
 
 func TestSetHermesServer_PreservesUnknownKeysAndOtherServers(t *testing.T) {
@@ -209,39 +239,39 @@ func TestSetHermesServer_PreservesUnknownKeysAndOtherServers(t *testing.T) {
 		t.Fatalf("SetHermesServer() error = %v", err)
 	}
 
-	if got := doc.storage()["model"]; got != "hermes-default" {
-		t.Errorf("unknown top-level key lost: doc[model] = %v", got)
+	model, ok := childValue(doc.storage().root, "model")
+	if !ok || model.Value != "hermes-default" {
+		t.Errorf("unknown top-level key lost: doc[model] = %+v", model)
 	}
-	custom, ok := doc.storage()["custom_section"].(map[string]any)
-	if !ok || custom["nested"] != true {
-		t.Errorf("unknown nested key lost: doc[custom_section] = %v", doc.storage()["custom_section"])
-	}
-
-	servers, ok := doc.storage()[hermesServersSection].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp_servers = %T, want map[string]any", doc.storage()[hermesServersSection])
-	}
-	openai, ok := servers["openai"].(map[string]any)
-	if !ok {
-		t.Fatalf("other server lost: mcp_servers[openai] = %v", servers["openai"])
-	}
-	if openai[hermesURLKey] != "https://api.example/mcp" {
-		t.Errorf("other server url mutated: %v", openai[hermesURLKey])
+	custom, ok := childValue(doc.storage().root, "custom_section")
+	if !ok || custom.Kind != yaml.MappingNode {
+		t.Errorf("unknown nested key lost: doc[custom_section] = %+v", custom)
+	} else if nested, _ := childValue(custom, "nested"); nested.Value != "true" {
+		t.Errorf("unknown nested key lost value: doc[custom_section.nested] = %+v", nested)
 	}
 
-	replaced, ok := servers[HermesServerName].(map[string]any)
-	if !ok {
-		t.Fatalf("entry = %T, want map[string]any", servers[HermesServerName])
+	servers := requireMapping(t, doc, hermesServersSection)
+	openai, ok := childValue(servers, "openai")
+	if !ok || openai.Kind != yaml.MappingNode {
+		t.Fatal("other server lost: mcp_servers[openai] is not a mapping")
 	}
-	if replaced[hermesURLKey] != testHermesURL {
-		t.Errorf("entry url = %v, want %q", replaced[hermesURLKey], testHermesURL)
+	if got := entryString(t, openai, hermesURLKey); got != "https://api.example/mcp" {
+		t.Errorf("other server url mutated: %q", got)
 	}
-	headers, ok := replaced[hermesHeadersKey].(map[string]any)
-	if !ok {
-		t.Fatalf("entry headers = %T, want map[string]any", replaced[hermesHeadersKey])
+
+	replaced, ok := childValue(servers, HermesServerName)
+	if !ok || replaced.Kind != yaml.MappingNode {
+		t.Fatal("entry missing or not a mapping")
 	}
-	if _, stale := headers["X-Stale"]; stale {
-		t.Errorf("previous entry keys survived the replace: %v", headers)
+	if got := entryString(t, replaced, hermesURLKey); got != testHermesURL {
+		t.Errorf("entry url = %q, want %q", got, testHermesURL)
+	}
+	headers, ok := childValue(replaced, hermesHeadersKey)
+	if !ok || headers.Kind != yaml.MappingNode {
+		t.Fatal("entry headers missing or not a mapping")
+	}
+	if _, stale := childValue(headers, "X-Stale"); stale {
+		t.Error("previous entry keys survived the replace")
 	}
 }
 
@@ -282,15 +312,13 @@ func TestSetHermesServer_IdempotentReMerge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload error = %v", err)
 	}
-	servers, ok := reloaded.storage()[hermesServersSection].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp_servers is not a mapping after re-merge: %#v", reloaded.storage()[hermesServersSection])
+	servers := requireMapping(t, reloaded, hermesServersSection)
+	if _, ok := childValue(servers, "openai"); !ok {
+		t.Error("idempotent re-merge dropped the other server")
 	}
-	if _, ok := servers["openai"]; !ok {
-		t.Errorf("idempotent re-merge dropped the other server: %v", servers)
-	}
-	if len(servers) != 2 {
-		t.Errorf("mcp_servers has %d entries, want 2 (openai + mcp-appointments)", len(servers))
+	// 2 entries × (key + value) child nodes = 6 contents.
+	if len(servers.Content) != 4 {
+		t.Errorf("mcp_servers has %d entries, want 2 (openai + mcp-appointments)", len(servers.Content)/2)
 	}
 }
 
@@ -300,8 +328,8 @@ func TestSetHermesServer_NormalizesSurroundingWhitespaceInURL(t *testing.T) {
 		t.Fatalf("SetHermesServer() error = %v", err)
 	}
 	entry := hermesEntryFrom(t, doc)
-	if entry[hermesURLKey] != testHermesURL {
-		t.Errorf("entry url = %q, want the trimmed %q", entry[hermesURLKey], testHermesURL)
+	if got := entryString(t, entry, hermesURLKey); got != testHermesURL {
+		t.Errorf("entry url = %q, want the trimmed %q", got, testHermesURL)
 	}
 }
 
@@ -318,21 +346,22 @@ func TestHermesDocument_ZeroValueMutationPersists(t *testing.T) {
 
 	// The mutation must be observable through the document itself, not only
 	// through the map returned by the mutating call.
-	servers, ok := doc.storage()[hermesServersSection].(map[string]any)
-	if !ok {
-		t.Fatalf("zero-value document lost its mapping: mcp_servers = %#v", doc.storage()[hermesServersSection])
+	servers := requireMapping(t, doc, hermesServersSection)
+	entry, ok := childValue(servers, HermesServerName)
+	if !ok || entry.Kind != yaml.MappingNode {
+		t.Fatal("zero-value document lost the entry")
 	}
-	entry, ok := servers[HermesServerName].(map[string]any)
-	if !ok {
-		t.Fatalf("zero-value document lost the entry: %#v", servers[HermesServerName])
-	}
-	if entry[hermesURLKey] != testHermesURL {
-		t.Errorf("entry url = %v, want %q", entry[hermesURLKey], testHermesURL)
+	if got := entryString(t, entry, hermesURLKey); got != testHermesURL {
+		t.Errorf("entry url = %q, want %q", got, testHermesURL)
 	}
 }
 
 func TestSetHermesServer_RejectsNonMappingSection(t *testing.T) {
-	doc := HermesDocument{fields: hermesDocument{hermesServersSection: "not-a-map"}}
+	doc := HermesDocument{fields: hermesDocument{root: &yaml.Node{Kind: yaml.MappingNode,
+		Content: []*yaml.Node{
+			{Kind: yaml.ScalarNode, Value: hermesServersSection},
+			{Kind: yaml.ScalarNode, Value: "not-a-map"},
+		}}}}
 
 	err := doc.SetHermesServer(testHermesURL, testHermesPhone)
 	if err == nil {
@@ -390,9 +419,13 @@ func TestValidateHermesURL(t *testing.T) {
 		rawURL  string
 		wantErr bool
 	}{
-		{name: "http loopback", rawURL: "http://127.0.0.1:3000/mcp"},
-		{name: "https host", rawURL: "https://example.com/mcp"},
-		{name: "http host without path", rawURL: "http://example.com:8080"},
+		{name: "http loopback v4", rawURL: "http://127.0.0.1:3000/mcp"},
+		{name: "http loopback v6", rawURL: "http://[::1]:3000/mcp"},
+		{name: "https remote host", rawURL: "https://example.com/mcp", wantErr: true},
+		{name: "http hostname localhost", rawURL: "http://localhost:3000", wantErr: true},
+		{name: "http non-loopback IP", rawURL: "http://192.168.1.5:3000", wantErr: true},
+		{name: "http unspecified", rawURL: "http://0.0.0.0:3000", wantErr: true},
+		{name: "http host canonical path", rawURL: "http://127.0.0.1:8080/mcp"},
 		{name: "empty", rawURL: "", wantErr: true},
 		{name: "missing scheme", rawURL: "127.0.0.1:3000/mcp", wantErr: true},
 		{name: "unsupported scheme", rawURL: "ftp://example.com", wantErr: true},
@@ -498,12 +531,15 @@ func TestRenderHermesSnippet_ExactQuotedBlock(t *testing.T) {
 		t.Fatalf("RenderHermesSnippet() error = %v", err)
 	}
 
+	// Node model (ADR-0017 amended 2026-10-16): the snippet is byte-identical
+	// to the writer block, which emits owned keys in insertion order (url first,
+	// then headers; the old map model emitted alphabetically).
 	want := strings.Join([]string{
 		"mcp_servers:",
 		"  mcp-appointments:",
+		"    url: http://127.0.0.1:3000/mcp",
 		"    headers:",
 		`      X-Caller-Id: "+5491100000000"`,
-		"    url: http://127.0.0.1:3000/mcp",
 		"",
 	}, "\n")
 	if snippet != want {
@@ -756,5 +792,73 @@ func TestWriteHermesConfig_EmptyPathIsRejected(t *testing.T) {
 	}
 	if semErr.Code != domain.ErrCodeInvalidInput {
 		t.Errorf("WriteHermesConfig(\"\") code = %q, want %q", semErr.Code, domain.ErrCodeInvalidInput)
+	}
+}
+
+func TestValidateHermesURL_RejectsUserinfo(t *testing.T) {
+	// GGA round 9: credentials hidden in the URL would silently ride along with
+	// the X-Caller-Id bootstrap; the endpoint contract has no userinfo segment.
+	for _, raw := range []string{"http://user@127.0.0.1:3000/mcp", "http://user:secret@[::1]:3000/mcp"} {
+		err := ValidateHermesURL(raw)
+		var semErr *domain.SemanticError
+		if !errors.As(err, &semErr) {
+			t.Fatalf("ValidateHermesURL(%q) err = %v, want a semantic error", raw, err)
+		}
+		if !strings.Contains(semErr.Message, "userinfo") {
+			t.Errorf("ValidateHermesURL(%q) message = %q, want it to name the userinfo rule", raw, semErr.Message)
+		}
+	}
+}
+
+func TestValidateHermesURL_RejectsNonCanonicalPathAndMetadata(t *testing.T) {
+	// GGA round 10: the endpoint contract is exactly HermesMCPPath; queries and
+	// fragments blur where X-Caller-Id lands.
+	for _, raw := range []string{
+		"http://127.0.0.1:3000/other",
+		"http://127.0.0.1:3000/mcp/extra",
+		"http://127.0.0.1:3000/mcp?debug=1",
+		"http://[::1]:3000/mcp#tok",
+	} {
+		err := ValidateHermesURL(raw)
+		var semErr *domain.SemanticError
+		if !errors.As(err, &semErr) {
+			t.Fatalf("ValidateHermesURL(%q) err = %v, want a semantic error", raw, err)
+		}
+	}
+	for _, raw := range []string{"http://127.0.0.1:3000/mcp", "http://[::1]:3000/mcp"} {
+		if err := ValidateHermesURL(raw); err != nil {
+			t.Errorf("ValidateHermesURL(%q) = %v, want nil", raw, err)
+		}
+	}
+}
+
+func TestSetHermesServer_RejectsScalarEntry(t *testing.T) {
+	// GGA round 26: a pre-existing scalar mcp-appointments entry can never be
+	// merged; the server flow must reject it with the same message the
+	// Telegram merge already uses, not silently replace the stored value.
+	doc, err := LoadHermesConfig(filepath.Join(t.TempDir(), "absent.yaml"))
+	if err != nil {
+		t.Fatalf("load empty document: %v", err)
+	}
+	sentinel := plainScalar("not-a-map")
+	root := doc.storage().root
+	servers, serversErr := childMapping(root, hermesServersSection)
+	if serversErr != nil {
+		t.Fatalf("seed servers mapping: %v", serversErr)
+	}
+	putChild(servers, HermesServerName, sentinel)
+
+	err = doc.SetHermesServer(testHermesURL, testHermesPhone)
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) {
+		t.Fatalf("SetHermesServer(scalar entry) err = %v, want a semantic error", err)
+	}
+	if !strings.Contains(semErr.Message, "no es un mapa") {
+		t.Errorf("message = %q, want it to name the merge conflict", semErr.Message)
+	}
+	// The stored sentinel is untouched by the failed merge.
+	got, _ := childValue(servers, HermesServerName)
+	if got != sentinel {
+		t.Errorf("scalar entry replaced: got %v, want the original node", got)
 	}
 }

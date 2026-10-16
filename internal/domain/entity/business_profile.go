@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
@@ -139,12 +140,23 @@ func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error
 	if bp.BusinessHours == "" {
 		return nil, nil
 	}
-	var raw map[string]businessHoursDay
+	var raw map[string]*businessHoursDay
 	if err := json.Unmarshal([]byte(bp.BusinessHours), &raw); err != nil {
 		// Wrap so the server-side log carries which column broke (this is a
 		// read-path, non-client-shaped error: the sentinel wrapping convention
 		// stays).
 		return nil, fmt.Errorf("la configuración de business_hours contiene JSON inválido: %w", err)
+	}
+	// Fail secure against corrupt stored data (GGA round 8): JSON "null"
+	// unmarshals successfully into a nil map, which indistinguishably looks
+	// like "no configured days" — stale or half-migrated schedules must not
+	// read worldwide as a closed business. Only an explicit {} means none.
+	// Fail secure against corrupt stored data (GGA round 13): a null DAY
+	// ("{"1":null}") decodes into a zero struct without error and would come
+	// back as an open day with empty times. Same treatment as the top-level
+	// null below. Corrupt HH:MM values get the write-path rules here too.
+	if raw == nil {
+		return nil, fmt.Errorf("la configuración de business_hours no puede ser null: %w", domain.ErrInvalidInput)
 	}
 	result := make(map[int]businessHoursDay, len(raw))
 	// Deterministic first-error: same rationale as validateBusinessHoursJSON.
@@ -158,9 +170,40 @@ func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error
 		if err != nil {
 			return nil, err
 		}
-		result[day] = raw[k]
+		dayPtr := raw[k]
+		// Per-day fail-closed (GGA round 13): a null day decodes into a zero
+		// struct — it would masquerade as an open day with empty times and end
+		// up read as "closed business". HH:MM conformance stays with the compare
+		// stage (hhmmToMinutes in the booking validator), which converts malformed
+		// stored values into a fail-closed internal error; the write path checks
+		// the shapes anyway.
+		if dayPtr == nil {
+			return nil, fmt.Errorf("el horario del día %s no puede ser null: %w", k, domain.ErrInvalidInput)
+		}
+		result[day] = *dayPtr
 	}
 	return result, nil
+}
+
+// MaxBusinessNameLen bounds the business profile name: the single source
+// of truth (Validate) that admin.RenderSkillTemplate reuses when re-rendering
+// the receptionist skill, so the write paths and the regeneration share one
+// limit.
+const MaxBusinessNameLen = 120
+
+// businessNameUnsafeChars are the characters that could alter the SKILL.md
+// the Hermes agent loads: markdown-active metacharacters (emphasis, heading,
+// code, links, html) plus brace/dollar delimiters that could re-enter the
+// template placeholder machinery. `~|# findings`: names legitimately hold
+// none of them.
+const businessNameUnsafeChars = "*_`#~<>|$\\[[]{}"
+
+// BusinessNameHasUnsafeChars reports whether name carries a character the
+// skill renderer and this entity both reject (single source of truth for the
+// render-safe charset; GGA round 8: blocking line breaks alone still allowed
+// inline markdown/instruction injection).
+func BusinessNameHasUnsafeChars(name string) bool {
+	return strings.ContainsAny(name, businessNameUnsafeChars)
 }
 
 // Validate checks business-rule invariants for a business profile.
@@ -177,6 +220,19 @@ func (bp *BusinessProfile) Validate() error {
 	// profile without its identity columns can never be written.
 	if strings.TrimSpace(bp.Name) == "" {
 		return semanticInvalid("el nombre del negocio no puede estar vacío.")
+	}
+	// The name is re-rendered into the receptionist skill (setup/templates), so
+	// it is bounded and must stay single-line (GGA review finding: a stored
+	// multi-line name would inject markdown into the SKILL.md the Hermes agent
+	// loads; 120 runes mirrors admin.RenderSkillTemplate's boundary).
+	if utf8.RuneCountInString(strings.TrimSpace(bp.Name)) > MaxBusinessNameLen {
+		return semanticInvalid("el nombre del negocio no puede superar 120 caracteres.")
+	}
+	if strings.ContainsAny(bp.Name, "\r\n\t") {
+		return semanticInvalid("el nombre del negocio no puede contener saltos de línea ni tabulaciones.")
+	}
+	if BusinessNameHasUnsafeChars(bp.Name) {
+		return semanticInvalid("el nombre del negocio no puede contener caracteres especiales de marcado.")
 	}
 	if !businessProfileCurrencyCodeRegex.MatchString(bp.CurrencyCode) {
 		return semanticInvalid("el código de moneda debe tener exactamente 3 letras mayúsculas (ISO 4217).")

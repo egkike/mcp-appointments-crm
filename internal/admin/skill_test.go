@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
 const testBusinessName = "Barbería El Corte"
@@ -33,6 +34,7 @@ func TestSkillFilePath(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("HERMES_HOME", "")
 
 	got, err := SkillFilePath()
 	if err != nil {
@@ -195,6 +197,7 @@ func TestWriteSkillFile_ExistingFilePreservedOnFailure(t *testing.T) {
 	hermesHome := t.TempDir()
 	path := seedSkillFile(t, hermesHome, "original")
 	dir := filepath.Dir(path)
+	// #nosec G302 -- test-only: 0o500 is tighter than 0600; it forces the write-failure path.
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
@@ -226,7 +229,7 @@ func TestWriteSkillFile_ExistingFilePreservedOnFailure(t *testing.T) {
 func TestRegenSkill_MissingWritesAndReportsInstalled(t *testing.T) {
 	hermesHome := t.TempDir()
 
-	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name} y {business_name}"), testBusinessName, false)
+	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name} y {business_name}"), testBusinessName, false, nil)
 	if err != nil {
 		t.Fatalf("RegenSkill() error = %v", err)
 	}
@@ -249,12 +252,17 @@ func TestRegenSkill_UpToDateDoesNotWrite(t *testing.T) {
 	// A read-only directory proves nothing was written: any write attempt would
 	// fail, so a nil error plus the up-to-date outcome pins the no-write path.
 	dir := filepath.Dir(path)
+	// #nosec G302 -- test-only: 0o500 is tighter than 0600; it forces the write-failure path.
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, skillDirMode) })
 
-	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), testBusinessName, true)
+	snapshot, snapshotErr := InstalledSkillSnapshot(hermesHome)
+	if snapshotErr != nil {
+		t.Fatalf("snapshot: %v", snapshotErr)
+	}
+	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), testBusinessName, true, snapshot)
 	if err != nil {
 		t.Fatalf("RegenSkill() error = %v", err)
 	}
@@ -267,7 +275,7 @@ func TestRegenSkill_ModifiedUnconfirmedIsPreserved(t *testing.T) {
 	hermesHome := t.TempDir()
 	path := seedSkillFile(t, hermesHome, "editado a mano")
 
-	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), testBusinessName, false)
+	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), testBusinessName, false, nil)
 	if err != nil {
 		t.Fatalf("RegenSkill() error = %v", err)
 	}
@@ -283,7 +291,11 @@ func TestRegenSkill_ModifiedConfirmedIsReplaced(t *testing.T) {
 	hermesHome := t.TempDir()
 	path := seedSkillFile(t, hermesHome, "editado a mano")
 
-	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), testBusinessName, true)
+	snapshot, snapshotErr := InstalledSkillSnapshot(hermesHome)
+	if snapshotErr != nil {
+		t.Fatalf("failed to snapshot: %v", snapshotErr)
+	}
+	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), testBusinessName, true, snapshot)
 	if err != nil {
 		t.Fatalf("RegenSkill() error = %v", err)
 	}
@@ -305,12 +317,12 @@ func TestRegenSkill_WriteFailureReportsErrorOutcome(t *testing.T) {
 	if err := os.MkdirAll(skillsRoot, skillDirMode); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.Chmod(skillsRoot, 0o500); err != nil {
+	if err := os.Chmod(skillsRoot, 0o500); err != nil { // #nosec G302 -- test-only failure forcing
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(skillsRoot, skillDirMode) })
 
-	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), testBusinessName, false)
+	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), testBusinessName, false, nil)
 	if err == nil {
 		t.Fatal("RegenSkill() error = nil, want a write failure")
 	}
@@ -326,12 +338,12 @@ func TestRegenSkill_WriteFailureReportsErrorOutcome(t *testing.T) {
 func TestRegenSkill_EmptyNameIsSemanticError(t *testing.T) {
 	hermesHome := t.TempDir()
 
-	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), "   ", false)
+	outcome, err := RegenSkill(hermesHome, []byte("Hola {business_name}"), "   ", false, nil)
 	if err == nil {
 		t.Fatal("RegenSkill() error = nil, want a validation failure")
 	}
-	if outcome != SkillOutcomeWriteError {
-		t.Errorf("outcome = %q, want %q", outcome, SkillOutcomeWriteError)
+	if outcome != SkillOutcomeInvalidInput {
+		t.Errorf("outcome = %q, want %q (input rejection is structurally distinct from a write failure)", outcome, SkillOutcomeInvalidInput)
 	}
 	var semErr *domain.SemanticError
 	if !errors.As(err, &semErr) {
@@ -339,5 +351,125 @@ func TestRegenSkill_EmptyNameIsSemanticError(t *testing.T) {
 	}
 	if semErr.Code != domain.ErrCodeInvalidInput {
 		t.Errorf("RegenSkill() code = %q, want %q", semErr.Code, domain.ErrCodeInvalidInput)
+	}
+}
+
+func TestRenderSkillTemplate_TrimsSurroundingSpace(t *testing.T) {
+	got, err := RenderSkillTemplate("A {business_name} B", "  Acme  ")
+	if err != nil {
+		t.Fatalf("RenderSkillTemplate() error = %v", err)
+	}
+	if got != "A Acme B" {
+		t.Errorf("RenderSkillTemplate() = %q, want %q", got, "A Acme B")
+	}
+}
+
+func TestRenderSkillTemplate_BoundsName(t *testing.T) {
+	// Boundary: exactly entity.MaxBusinessNameLen runes still renders.
+	name := strings.Repeat("á", entity.MaxBusinessNameLen)
+	if _, err := RenderSkillTemplate("hola {business_name}", name); err != nil {
+		t.Fatalf("RenderSkillTemplate(at limit) error = %v, want nil", err)
+	}
+	// One rune past the cap is a Spanish semantic input error.
+	_, err := RenderSkillTemplate("hola {business_name}", name+"x")
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) || semErr.Code != domain.ErrCodeInvalidInput {
+		t.Fatalf("RenderSkillTemplate(overlong) err = %v, want INVALID_INPUT semantic error", err)
+	}
+	if !strings.Contains(semErr.Message, "supera la longitud") {
+		t.Errorf("message = %q, want it to name the length cap", semErr.Message)
+	}
+	// Control characters are rejected at the domain gate, but the skill render
+	// must never carry them either (reuse of the domain rule).
+	_, err = RenderSkillTemplate("hola {business_name}", "acme\ninyección")
+	var semErr2 *domain.SemanticError
+	if !errors.As(err, &semErr2) || semErr2.Code != domain.ErrCodeInvalidInput {
+		t.Fatalf("RenderSkillTemplate(control char) err = %v, want INVALID_INPUT semantic error", err)
+	}
+}
+
+func TestRegenSkill_InvalidInputOutcome(t *testing.T) {
+	hermesHome := t.TempDir()
+	outcome, err := RegenSkill(hermesHome, []byte("hola {business_name}"), "  \n\t ", false, nil)
+	if err == nil {
+		t.Fatal("RegenSkill(blank-ish name) error = nil, want input rejection")
+	}
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) {
+		t.Fatalf("RegenSkill(blank-ish name) err = %T, want *domain.SemanticError", err)
+	}
+	if outcome != SkillOutcomeInvalidInput {
+		t.Errorf("outcome = %q, want %q (input rejection, not a write failure)", outcome, SkillOutcomeInvalidInput)
+	}
+	if _, statErr := os.Stat(skillPathFor(hermesHome)); !os.IsNotExist(statErr) {
+		t.Errorf("installed file must not exist after an input rejection; statErr = %v", statErr)
+	}
+}
+
+func TestHermesDir_OverrideIsTheHermesDirectoryItself(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("env resolution mirrors install.sh POSIX semantics")
+	}
+	dir := filepath.Join(t.TempDir(), "hermes-home")
+	t.Setenv("HERMES_HOME", dir)
+	t.Setenv("HOME", t.TempDir())
+
+	got, err := HermesDir()
+	if err != nil {
+		t.Fatalf("HermesDir() error = %v", err)
+	}
+	if got != dir {
+		t.Errorf("HermesDir() = %q, want %q", got, dir)
+	}
+	// The contract scripts/tests/install_skill_test.sh pins: the config and the
+	// skill live directly under HERMES_HOME, never under HERMES_HOME/.hermes.
+	wantCfg := filepath.Join(dir, HermesConfigFileName)
+	cfg, err := HermesConfigPath()
+	if err != nil {
+		t.Fatalf("HermesConfigPath() error = %v", err)
+	}
+	if cfg != wantCfg {
+		t.Errorf("HermesConfigPath() = %q, want %q", cfg, wantCfg)
+	}
+	wantSkill := filepath.Join(dir, hermesSkillsDirName, SkillSlug, SkillFileName)
+	skl, err := SkillFilePath()
+	if err != nil {
+		t.Fatalf("SkillFilePath() error = %v", err)
+	}
+	if skl != wantSkill {
+		t.Errorf("SkillFilePath() = %q, want %q", skl, wantSkill)
+	}
+}
+
+func TestDetectSkillState_RejectsBlankHome(t *testing.T) {
+	state, err := DetectSkillState("   ", "rendered")
+	if err == nil {
+		t.Fatal("DetectSkillState(blank home) error = nil, want rejection")
+	}
+	if state != SkillStateMissing {
+		t.Errorf("state = %v, want the zero value without a usable file", state)
+	}
+}
+
+func TestWriteSkillFile_RejectsBlankHome(t *testing.T) {
+	err := WriteSkillFile("", "rendered")
+	if err == nil {
+		t.Fatal("WriteSkillFile(blank home) error = nil, want rejection")
+	}
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) {
+		t.Fatalf("WriteSkillFile(blank home) err = %T, want *domain.SemanticError", err)
+	}
+}
+
+func TestRenderSkillTemplate_RejectsMarkdownActiveChars(t *testing.T) {
+	// GGA round 8: newline/tab rejection alone still let inline markdown into
+	// the SKILL.md; the render barrier reuses the domain charset rule.
+	for _, name := range []string{"Acme ** Sucursal", "Co`digo", "Ti[tular", "{business_name}"} {
+		_, err := RenderSkillTemplate("hola {business_name}", name)
+		var semErr *domain.SemanticError
+		if !errors.As(err, &semErr) || semErr.Code != domain.ErrCodeInvalidInput {
+			t.Fatalf("RenderSkillTemplate(%q) err = %v, want INVALID_INPUT semantic error", name, err)
+		}
 	}
 }

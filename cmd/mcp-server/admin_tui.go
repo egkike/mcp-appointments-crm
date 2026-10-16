@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/term"
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/tui"
@@ -69,10 +70,11 @@ func runAdminTUIProgram(ctx context.Context) error {
 	// and a termination signal must not cancel an in-flight operator write
 	// mid-flow. ctx only bounded the shared database open above.
 	return tui.Run(context.Background(), tui.Deps{
-		Accounts:      identity.accounts,
-		Professionals: identity.professionals,
-		Clients:       identity.clients,
-		Hermes:        tui.NewHermesBootstrap(resolveHermes),
+		Accounts:        identity.accounts,
+		Professionals:   identity.professionals,
+		Clients:         identity.clients,
+		BusinessProfile: identity.businessProfiles,
+		Hermes:          tui.NewHermesBootstrap(resolveHermes),
 	})
 }
 
@@ -131,7 +133,7 @@ func isTerminalFile(file *os.File) bool {
 //     each capability (Add Staff, Deactivate, List views) is a self-contained
 //     action.
 //
-// One scanner is shared by the questionnaire and the menu on purpose: two
+// One input is shared by the questionnaire and the menu on purpose: two
 // scanners over the same stream would let the first one buffer the answers the
 // second one needs.
 //
@@ -153,7 +155,7 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 	// context so a termination signal never cancels an in-flight write mid-flow.
 	// ctx only bounded the shared database open above.
 	flowCtx := context.Background()
-	scanner := bufio.NewScanner(stdin)
+	input := newConsoleInput(stdin)
 
 	// The Hermes bootstrap facts come from the running server configuration
 	// (MCP_BIND/MCP_PORT), never from a hardcoded path or URL, and they are
@@ -188,7 +190,7 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 				return err
 			}
 		}
-		return runAdminMenu(flowCtx, identity, scanner, stdout, resolveHermes)
+		return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes, stdinSecretLine(stdin))
 	}
 
 	// R4-deactivated-owner-seed-deadend: "no ACTIVE owner" does not mean "no
@@ -200,10 +202,10 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 		return err
 	}
 	if len(inactiveOwners) > 0 {
-		if err := runSeedDeadendRecovery(flowCtx, identity, scanner, stdout, inactiveOwners); err != nil {
+		if err := runSeedDeadendRecovery(flowCtx, identity, input, stdout, inactiveOwners); err != nil {
 			return err
 		}
-		return runAdminMenu(flowCtx, identity, scanner, stdout, resolveHermes)
+		return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes, stdinSecretLine(stdin))
 	}
 
 	if err := writeConsole(stdout,
@@ -212,12 +214,12 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 		return err
 	}
 
-	input, err := promptSeedInput(scanner, stdout)
+	seedInput, err := promptSeedInput(input, stdout)
 	if err != nil {
 		return err
 	}
 
-	if err := admin.Seed(flowCtx, identity.accounts, input); err != nil {
+	if err := admin.Seed(flowCtx, identity.accounts, seedInput); err != nil {
 		if errors.Is(err, admin.ErrOwnerAlreadyExists) {
 			// Idempotent outcome: an owner appeared between the decision and
 			// the write. Report it semantically and exit clean — never
@@ -230,13 +232,13 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 		return err
 	}
 
-	path, err := admin.WriteCallerID(input.Phone)
+	path, err := admin.WriteCallerID(seedInput.Phone)
 	if err != nil {
 		return err
 	}
 
 	if err := writeConsole(stdout,
-		fmt.Sprintf("Owner creado: %s (%s)\n", input.DisplayName, input.Phone)); err != nil {
+		fmt.Sprintf("Owner creado: %s (%s)\n", seedInput.DisplayName, seedInput.Phone)); err != nil {
 		return err
 	}
 	if err := writeConsole(stdout, fmt.Sprintf("caller-id escrito en %s\n", path)); err != nil {
@@ -246,7 +248,7 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 		return err
 	}
 
-	return runAdminMenu(flowCtx, identity, scanner, stdout, resolveHermes)
+	return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes, stdinSecretLine(stdin))
 }
 
 // runSeedDeadendRecovery closes finding R4-deactivated-owner-seed-deadend: the
@@ -260,7 +262,7 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 // out to be taken, re-renders the choice instead of exiting with the system
 // still unusable. Only a successful reactivation or creation leaves the loop,
 // so the operator menu always opens with an ACTIVE owner in place.
-func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, inactiveOwners []admin.AccountView) error {
+func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, inactiveOwners []admin.AccountView) error {
 	createKey := len(inactiveOwners) + 1
 
 	for {
@@ -281,13 +283,13 @@ func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, scanner 
 			return err
 		}
 
-		index, err := promptIndex(scanner, stdout, "Elegí una opción", createKey)
+		index, err := promptIndex(input, stdout, "Elegí una opción", createKey)
 		if err != nil {
 			return err
 		}
 
 		if index != createKey {
-			done, err := runReactivateOwnerChoice(ctx, identity, scanner, stdout, inactiveOwners[index-1])
+			done, err := runReactivateOwnerChoice(ctx, identity, input, stdout, inactiveOwners[index-1])
 			if err != nil {
 				return err
 			}
@@ -297,7 +299,7 @@ func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, scanner 
 			continue
 		}
 
-		done, err := runNewOwnerSeed(ctx, identity, scanner, stdout, inactiveOwners)
+		done, err := runNewOwnerSeed(ctx, identity, input, stdout, inactiveOwners)
 		if err != nil {
 			return err
 		}
@@ -312,8 +314,8 @@ func runSeedDeadendRecovery(ctx context.Context, identity identityDeps, scanner 
 // must send is the account id of the newly active owner (ADR-0012). done is
 // false when the operator declined: nothing was written and the recovery menu
 // re-renders.
-func runReactivateOwnerChoice(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, candidate admin.AccountView) (done bool, err error) {
-	confirmed, err := promptConfirm(scanner, stdout,
+func runReactivateOwnerChoice(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, candidate admin.AccountView) (done bool, err error) {
+	confirmed, err := promptConfirm(input, stdout,
 		fmt.Sprintf("Se reactivará %s como owner activo. ¿Confirmar?", admin.AccountLabel(candidate)))
 	if err != nil {
 		return false, err
@@ -346,18 +348,18 @@ func runReactivateOwnerChoice(ctx context.Context, identity identityDeps, scanne
 // (almost always the deactivated owner row): the semantic conflict plus the
 // reactivation guidance re-render the choice, so the operator can reactivate
 // that account in one step instead of hunting for a different phone.
-func runNewOwnerSeed(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, inactiveOwners []admin.AccountView) (done bool, err error) {
-	input, err := promptSeedInput(scanner, stdout)
+func runNewOwnerSeed(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, inactiveOwners []admin.AccountView) (done bool, err error) {
+	seedInput, err := promptSeedInput(input, stdout)
 	if err != nil {
 		return false, err
 	}
 
-	if err := admin.Seed(ctx, identity.accounts, input); err != nil {
+	if err := admin.Seed(ctx, identity.accounts, seedInput); err != nil {
 		if errors.Is(err, admin.ErrOwnerAlreadyExists) {
 			if err := writeConsole(stdout, fmt.Sprintf("No se creó ninguna cuenta: %v\n", err)); err != nil {
 				return false, err
 			}
-			if hint := admin.ReactivationHint(inactiveOwners, input.Phone); hint != "" {
+			if hint := admin.ReactivationHint(inactiveOwners, seedInput.Phone); hint != "" {
 				if err := writeConsole(stdout, fmt.Sprintf("%s\n", hint)); err != nil {
 					return false, err
 				}
@@ -367,12 +369,12 @@ func runNewOwnerSeed(ctx context.Context, identity identityDeps, scanner *bufio.
 		return false, err
 	}
 
-	path, err := admin.WriteCallerID(input.Phone)
+	path, err := admin.WriteCallerID(seedInput.Phone)
 	if err != nil {
 		return false, err
 	}
 	if err := writeConsole(stdout,
-		fmt.Sprintf("Owner creado: %s (%s)\n", input.DisplayName, input.Phone)); err != nil {
+		fmt.Sprintf("Owner creado: %s (%s)\n", seedInput.DisplayName, seedInput.Phone)); err != nil {
 		return false, err
 	}
 	if err := writeConsole(stdout, fmt.Sprintf("caller-id escrito en %s\n", path)); err != nil {
@@ -389,7 +391,7 @@ const menuExitKey = "q"
 // each action owns its own prompts. A returned error is rendered by
 // runAdminMenu as "Error: <detalle>" and the menu reopens: a business failure
 // (conflict, dangling professional, DB error) must never abort the session.
-type adminMenuAction func(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error
+type adminMenuAction func(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error
 
 // adminMenuOption is one numbered capability of the operator menu.
 type adminMenuOption struct {
@@ -406,7 +408,7 @@ type adminMenuOption struct {
 // reading them from a package-level path. resolveHermes is the shared
 // tui.HermesResolver, so the console and the Bubble Tea program consume the same
 // shape and the same retry contract (R2-02, R4-001).
-func adminMenuOptions(resolveHermes tui.HermesResolver) []adminMenuOption {
+func adminMenuOptions(resolveHermes tui.HermesResolver, secretLine secretLineReader) []adminMenuOption {
 	return []adminMenuOption{
 		{key: "1", label: "Add Staff", action: runAddStaffFlow},
 		{key: "2", label: "Desactivar cuenta", action: runDeactivateAccountFlow},
@@ -414,7 +416,7 @@ func adminMenuOptions(resolveHermes tui.HermesResolver) []adminMenuOption {
 		{key: "4", label: "Listar por rol", action: runListByRoleFlow},
 		{key: "5", label: "Transferir ownership", action: runTransferOwnershipFlow},
 		{key: "6", label: "Agregarme como cliente", action: runAddSelfAsClientFlow},
-		{key: "7", label: "Configurar Hermes", action: func(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+		{key: "7", label: "Configurar Hermes", action: func(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
 			// Lazy resolution: a bad bind or an unresolvable home is returned as
 			// a semantic error, which runAdminMenu renders as "Error: ..." and
 			// reopens the menu instead of aborting the session.
@@ -422,7 +424,7 @@ func adminMenuOptions(resolveHermes tui.HermesResolver) []adminMenuOption {
 			if err != nil {
 				return err
 			}
-			return runConfigureHermesFlow(ctx, identity, scanner, stdout, hermes)
+			return runConfigureHermesFlow(ctx, identity, input, stdout, hermes, secretLine)
 		}},
 	}
 }
@@ -431,14 +433,14 @@ func adminMenuOptions(resolveHermes tui.HermesResolver) []adminMenuOption {
 // until they quit or the stream ends. End of input (Ctrl+D or a
 // non-interactive invocation) is a clean exit, not an error: an operator who
 // only needed the seed must not get a failure for not answering the menu.
-func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, resolveHermes tui.HermesResolver) error {
-	options := adminMenuOptions(resolveHermes)
+func runAdminMenu(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, resolveHermes tui.HermesResolver, secretLine secretLineReader) error {
+	options := adminMenuOptions(resolveHermes, secretLine)
 	for {
 		if err := writeMenu(stdout, options); err != nil {
 			return err
 		}
 
-		choice, answered, err := readMenuChoice(scanner, stdout)
+		choice, answered, err := readMenuChoice(input, stdout)
 		if err != nil {
 			return err
 		}
@@ -455,7 +457,7 @@ func runAdminMenu(ctx context.Context, identity identityDeps, scanner *bufio.Sca
 			continue
 		}
 
-		if err := option.action(ctx, identity, scanner, stdout); err != nil {
+		if err := option.action(ctx, identity, input, stdout); err != nil {
 			// Business errors reopen the menu; only a console that can no
 			// longer echo would fail here, and that failure is propagated.
 			if werr := writeConsole(stdout, fmt.Sprintf("Error: %v\n", err)); werr != nil {
@@ -490,17 +492,21 @@ func findMenuOption(options []adminMenuOption, choice string) (adminMenuOption, 
 
 // readMenuChoice prompts for one menu key. answered is false when the stream
 // ended (clean quit) and true when the operator typed something.
-func readMenuChoice(scanner *bufio.Scanner, stdout io.Writer) (choice string, answered bool, err error) {
+func readMenuChoice(input *consoleInput, stdout io.Writer) (choice string, answered bool, err error) {
 	if err := writeConsole(stdout, "Seleccioná una opción: "); err != nil {
 		return "", false, err
 	}
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return "", false, fmt.Errorf("leer la entrada del operador: %w", err)
+	// GGA round 17/21: EOF/abort stays a clean quit (answered=false, err=nil)
+	// exactly as the former Scanner branch did — but a REAL read failure is
+	// propagated instead of masquerading as a successful quit.
+	line, lerr := input.Line()
+	if lerr != nil {
+		if errors.Is(lerr, errInputAborted) {
+			return "", false, nil
 		}
-		return "", false, nil
+		return "", false, lerr
 	}
-	return strings.TrimSpace(scanner.Text()), true, nil
+	return line, true, nil
 }
 
 // runAddStaffFlow drives the Add Staff capability (ADR-0016 Decision 1): list
@@ -510,7 +516,7 @@ func readMenuChoice(scanner *bufio.Scanner, stdout io.Writer) (choice string, an
 //
 // With no active professional there is nothing to link the account to, so the
 // flow reports it semantically and returns to the menu instead of failing.
-func runAddStaffFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+func runAddStaffFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
 	candidates, err := admin.ListPickableProfessionals(ctx, identity.professionals)
 	if err != nil {
 		return err
@@ -529,18 +535,18 @@ func runAddStaffFlow(ctx context.Context, identity identityDeps, scanner *bufio.
 		}
 	}
 
-	selected, err := promptIndex(scanner, stdout, "Elegí un profesional", len(candidates))
+	selected, err := promptIndex(input, stdout, "Elegí un profesional", len(candidates))
 	if err != nil {
 		return err
 	}
 	professional := candidates[selected-1]
 
-	phone, err := promptValidated(scanner, stdout, "Teléfono del staff", professional.Phone, admin.ValidatePhone)
+	phone, err := promptValidated(input, stdout, "Teléfono del staff", professional.Phone, admin.ValidatePhone)
 	if err != nil {
 		return err
 	}
 
-	displayName, err := promptValidated(scanner, stdout, "Nombre para mostrar", "", admin.ValidateDisplayName)
+	displayName, err := promptValidated(input, stdout, "Nombre para mostrar", "", admin.ValidateDisplayName)
 	if err != nil {
 		return err
 	}
@@ -570,7 +576,7 @@ func runAddStaffFlow(ctx context.Context, identity identityDeps, scanner *bufio.
 // The picker snapshot is display-only: admin.DeactivateAccount re-reads the
 // accounts before writing, so the guard always runs against the current state
 // and not against the list the operator saw.
-func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
 	views, err := admin.ListAccounts(ctx, identity.accounts, admin.ListFilter{})
 	if err != nil {
 		return err
@@ -589,13 +595,13 @@ func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanne
 		}
 	}
 
-	index, err := promptIndex(scanner, stdout, "Elegí la cuenta a desactivar", len(views))
+	index, err := promptIndex(input, stdout, "Elegí la cuenta a desactivar", len(views))
 	if err != nil {
 		return err
 	}
 	selected := views[index-1]
 
-	confirmed, err := promptConfirm(scanner, stdout,
+	confirmed, err := promptConfirm(input, stdout,
 		fmt.Sprintf("Esta acción desactiva la cuenta %s. ¿Confirmar?", admin.AccountLabel(selected)))
 	if err != nil {
 		return err
@@ -618,8 +624,8 @@ func runDeactivateAccountFlow(ctx context.Context, identity identityDeps, scanne
 
 // runListAllAccountsFlow renders the "all accounts" view (ADR-0016
 // Decision 1), asking first whether the soft-deleted rows must show up.
-func runListAllAccountsFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
-	includeInactive, err := promptConfirm(scanner, stdout, "¿Incluir las cuentas inactivas?")
+func runListAllAccountsFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
+	includeInactive, err := promptConfirm(input, stdout, "¿Incluir las cuentas inactivas?")
 	if err != nil {
 		return err
 	}
@@ -628,7 +634,7 @@ func runListAllAccountsFlow(ctx context.Context, identity identityDeps, scanner 
 
 // runListByRoleFlow renders the role-filtered view: the operator picks a role
 // from the frozen sub-menu and then decides whether inactive rows show up.
-func runListByRoleFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+func runListByRoleFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
 	roles := admin.ListableRoles()
 	if err := writeConsole(stdout, "Roles disponibles:\n"); err != nil {
 		return err
@@ -639,13 +645,13 @@ func runListByRoleFlow(ctx context.Context, identity identityDeps, scanner *bufi
 		}
 	}
 
-	index, err := promptIndex(scanner, stdout, "Elegí el rol", len(roles))
+	index, err := promptIndex(input, stdout, "Elegí el rol", len(roles))
 	if err != nil {
 		return err
 	}
 	role := roles[index-1]
 
-	includeInactive, err := promptConfirm(scanner, stdout, "¿Incluir las cuentas inactivas?")
+	includeInactive, err := promptConfirm(input, stdout, "¿Incluir las cuentas inactivas?")
 	if err != nil {
 		return err
 	}
@@ -741,18 +747,16 @@ func stateColumn(view admin.AccountView) string {
 // promptIndex reads a 1-based index into a numbered list and re-prompts while
 // the answer is not a number inside the range. label names the list, so the
 // same helper serves the professional, account and role pickers.
-func promptIndex(scanner *bufio.Scanner, stdout io.Writer, label string, count int) (int, error) {
+func promptIndex(input *consoleInput, stdout io.Writer, label string, count int) (int, error) {
 	for {
 		if err := writeConsole(stdout, fmt.Sprintf("%s [1-%d]: ", label, count)); err != nil {
 			return 0, err
 		}
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return 0, fmt.Errorf("leer la entrada del operador: %w", err)
-			}
-			return 0, errInputAborted
+		line, lerr := input.Line()
+		if lerr != nil {
+			return 0, lerr
 		}
-		choice, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
+		choice, err := strconv.Atoi(strings.TrimSpace(line))
 		if err != nil || choice < 1 || choice > count {
 			if err := writeConsole(stdout,
 				fmt.Sprintf("Error: opción inválida: elegí un número entre 1 y %d\n", count)); err != nil {
@@ -791,20 +795,18 @@ func writeConsole(stdout io.Writer, text string) error {
 //
 // An interrupted stream aborts the flow with the same semantic error as the
 // other prompts: nothing is written on a half-answered confirmation.
-func promptConfirm(scanner *bufio.Scanner, stdout io.Writer, question string) (bool, error) {
+func promptConfirm(input *consoleInput, stdout io.Writer, question string) (bool, error) {
 	for {
 		if err := writeConsole(stdout, fmt.Sprintf("%s (s/n): ", question)); err != nil {
 			return false, err
 		}
 
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return false, fmt.Errorf("leer la entrada del operador: %w", err)
-			}
-			return false, errInputAborted
+		line, lerr := input.Line()
+		if lerr != nil {
+			return false, lerr
 		}
 
-		switch strings.ToLower(strings.TrimSpace(scanner.Text())) {
+		switch strings.ToLower(strings.TrimSpace(line)) {
 		case "s", "si", "sí":
 			return true, nil
 		case "n", "no":
@@ -819,13 +821,13 @@ func promptConfirm(scanner *bufio.Scanner, stdout io.Writer, question string) (b
 
 // promptSeedInput drives the minimal line-based seed questionnaire. The
 // professional picker belongs to the Add Staff flow.
-func promptSeedInput(scanner *bufio.Scanner, stdout io.Writer) (admin.SeedInput, error) {
-	phone, err := promptValidated(scanner, stdout, "Teléfono del owner (ej. +5491100000000)", "", admin.ValidatePhone)
+func promptSeedInput(input *consoleInput, stdout io.Writer) (admin.SeedInput, error) {
+	phone, err := promptValidated(input, stdout, "Teléfono del owner (ej. +5491100000000)", "", admin.ValidatePhone)
 	if err != nil {
 		return admin.SeedInput{}, err
 	}
 
-	displayName, err := promptValidated(scanner, stdout, "Nombre para mostrar", "", admin.ValidateDisplayName)
+	displayName, err := promptValidated(input, stdout, "Nombre para mostrar", "", admin.ValidateDisplayName)
 	if err != nil {
 		return admin.SeedInput{}, err
 	}
@@ -842,7 +844,55 @@ func promptSeedInput(scanner *bufio.Scanner, stdout io.Writer) (admin.SeedInput,
 //
 // A stream that ends before a valid answer aborts the flow with a semantic
 // error: an interrupted questionnaire must not create a half-built account.
-func promptValidated(scanner *bufio.Scanner, stdout io.Writer, label, defaultValue string, validate func(string) error) (string, error) {
+// promptSecret reads one secret value without terminal echo (GGA round 14):
+// on a real terminal the read goes through term.ReadPassword (echo disabled,
+// newline consumed); with piped stdin the consoleSource path is echo-free by
+// construction. Injectability comes from the consoleSource/reader split: tests pipe
+// stdin, so no special hook is needed — a terminal exercise is a manual smoke.
+// Together with the Bubble Tea form's sensitive field this keeps both
+// presentations' secret handling symmetric.
+// secretLineReader reads one secret line with terminal echo disabled. The
+// console flow wires it ONLY when its input source is the process stdin AND
+// that stdin is a real terminal (GGA round 15: the secret must share the input
+// boundary of the injected consoleSource — never reach os.Stdin globals around it).
+// Piped stdin (tests, scripts) is echo-free by construction and keeps the
+// consoleSource path via a nil hook.
+type secretLineReader func() (string, error)
+
+// stdinSecretLine wires the terminal no-echo reader for the process stdin.
+// Its nil/false-nil distinction keeps unit tests (piped scanners) untouched.
+func stdinSecretLine(stdin io.Reader) secretLineReader {
+	if stdin != os.Stdin || !term.IsTerminal(os.Stdin.Fd()) {
+		return nil
+	}
+	fd := os.Stdin.Fd()
+	return func() (string, error) {
+		raw, err := term.ReadPassword(fd)
+		return string(raw), err
+	}
+}
+
+func promptSecret(input *consoleInput, stdout io.Writer, label string, validate func(string) error, secretLine secretLineReader) (string, error) {
+	for {
+		if err := writeConsole(stdout, label+": "); err != nil {
+			return "", err
+		}
+		line, serr := input.Secret()
+		if serr != nil {
+			return "", serr
+		}
+
+		if err := validate(line); err != nil {
+			if err := writeConsole(stdout, fmt.Sprintf("Error: %v\n", err)); err != nil {
+				return "", err
+			}
+			continue
+		}
+		return line, nil
+	}
+}
+
+func promptValidated(input *consoleInput, stdout io.Writer, label, defaultValue string, validate func(string) error) (string, error) {
 	for {
 		if defaultValue != "" {
 			if err := writeConsole(stdout, fmt.Sprintf("%s [%s]: ", label, defaultValue)); err != nil {
@@ -852,14 +902,12 @@ func promptValidated(scanner *bufio.Scanner, stdout io.Writer, label, defaultVal
 			return "", err
 		}
 
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return "", fmt.Errorf("leer la entrada del operador: %w", err)
-			}
-			return "", errInputAborted
+		line, lerr := input.Line()
+		if lerr != nil {
+			return "", lerr
 		}
 
-		value := strings.TrimSpace(scanner.Text())
+		value := strings.TrimSpace(line)
 		if value == "" && defaultValue != "" {
 			value = defaultValue
 		}
@@ -876,6 +924,97 @@ func promptValidated(scanner *bufio.Scanner, stdout io.Writer, label, defaultVal
 // errInputAborted reports an interrupted operator questionnaire (Ctrl+D or a
 // non-interactive invocation). It is never an interactive re-prompt: there is
 // no more input to read.
+// consoleInput is the single input abstraction of the console flows (GGA
+// round 17): it owns BOTH ordinary lines and no-echo secret reads, so a
+// secret prompt can never bypass input another prompt already has buffered.
+// All prompts share the same *consoleInput; a secret on a real terminal is
+// read through term.ReadPassword on that terminal's fd (echo disabled, no
+// third-party buffering in between), and with piped stdin it is an ordinary
+// Line (echo-free by construction).
+type consoleInput struct {
+	src *bufio.Reader
+	tty bool
+	fd  uintptr
+}
+
+// newConsoleInput wraps the console/pipe input source. Only a real process
+// stdin that is a terminal marks the tty mode; tests and scripts keep the
+// plain reader path.
+func newConsoleInput(stdin io.Reader) *consoleInput {
+	c := &consoleInput{src: bufio.NewReader(stdin)}
+	if f, ok := stdin.(*os.File); ok && f == os.Stdin && term.IsTerminal(f.Fd()) {
+		c.tty = true
+		c.fd = f.Fd()
+	}
+	return c
+}
+
+// consoleInputLineMax bounds one operator line: every prompt value the
+// console collects fits far below it, and a hostile or pasted stream cannot
+// make ReadString allocate unbounded memory (GGA round 21).
+const consoleInputLineMax = 4096
+
+// Line reads one bounded operator line incrementally (GGA round 23): no
+// single unbounded read happens — ReadSlice peeks the 4 KiB budget at a
+// time, an oversized line is rejected with its remainder drained (so it
+// cannot become the next prompt's answer), and EOF without a newline still
+// returns the carried text. The shared input-abort contract covers EOF and
+// reader failures.
+func (c *consoleInput) Line() (string, error) {
+	var collected []byte
+	oversized := false
+	for {
+		piece, ferr := c.src.ReadSlice('\n')
+		if len(piece) > 0 && oversized {
+			// Drain: the chunk is counted but not kept.
+		} else if len(collected)+len(piece) > consoleInputLineMax {
+			oversized = true
+		} else {
+			collected = append(collected, piece...)
+		}
+		if ferr != nil {
+			if ferr == io.EOF {
+				if oversized {
+					return "", &domain.SemanticError{
+						Code:    domain.ErrCodeInvalidInput,
+						Message: "la entrada del operador excede la longitud máxima permitida",
+					}
+				}
+				// A carried final line without newline is still content.
+				if len(collected) > 0 {
+					return string(collected), nil
+				}
+				return "", errInputAborted
+			}
+			if errors.Is(ferr, bufio.ErrBufferFull) {
+				continue
+			}
+			return "", fmt.Errorf("leer la entrada del operador: %w", ferr)
+		}
+		if oversized {
+			return "", &domain.SemanticError{
+				Code:    domain.ErrCodeInvalidInput,
+				Message: "la entrada del operador excede la longitud máxima permitida",
+			}
+		}
+		return strings.TrimSpace(string(collected)), nil
+	}
+}
+
+// Secret reads one secret value. On a terminal it is the no-echo path; on
+// piped stdin it is an ordinary Line (echo-free by construction, and no
+// buffered line can be bypassed because both kinds share this reader).
+func (c *consoleInput) Secret() (string, error) {
+	if !c.tty {
+		return c.Line()
+	}
+	raw, err := term.ReadPassword(c.fd)
+	if err != nil {
+		return "", fmt.Errorf("leer la entrada secreta: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
 var errInputAborted = &domain.SemanticError{
 	Code:    domain.ErrCodeInvalidInput,
 	Message: "se canceló la operación: no se recibió la entrada necesaria",
@@ -908,7 +1047,7 @@ type transferSuccessorOption struct {
 // ("tu cuenta está deshabilitada"), so keeping the stale id would break every
 // authenticated MCP call (ADR-0012). This closes the ADR-0016 chicken-and-egg
 // note: the TUI is the only legitimate owner-management path.
-func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
 	owner, err := admin.ActiveOwner(ctx, identity.accounts)
 	if err != nil {
 		return err
@@ -932,18 +1071,18 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanne
 		}
 	}
 
-	index, err := promptIndex(scanner, stdout, "Elegí el sucesor", len(options))
+	index, err := promptIndex(input, stdout, "Elegí el sucesor", len(options))
 	if err != nil {
 		return err
 	}
 	chosen := options[index-1]
 
 	if chosen.kind == admin.SuccessorNewPhone {
-		phone, err := promptValidated(scanner, stdout, "Teléfono del nuevo owner", "", admin.ValidatePhone)
+		phone, err := promptValidated(input, stdout, "Teléfono del nuevo owner", "", admin.ValidatePhone)
 		if err != nil {
 			return err
 		}
-		displayName, err := promptValidated(scanner, stdout, "Nombre para mostrar", "", admin.ValidateDisplayName)
+		displayName, err := promptValidated(input, stdout, "Nombre para mostrar", "", admin.ValidateDisplayName)
 		if err != nil {
 			return err
 		}
@@ -964,7 +1103,7 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, scanne
 	if err := writeConsole(stdout, "Paso 2 de 2: confirmar la transferencia.\n"); err != nil {
 		return err
 	}
-	confirmed, err := promptConfirm(scanner, stdout, "El owner actual quedará desactivado. ¿Confirmar?")
+	confirmed, err := promptConfirm(input, stdout, "El owner actual quedará desactivado. ¿Confirmar?")
 	if err != nil {
 		return err
 	}
@@ -1031,7 +1170,7 @@ func transferSuccessorOptions(ctx context.Context, identity identityDeps) ([]tra
 // same port, so the console cannot invent an id. Registering an
 // already-registered phone is an outcome, not an error: the operator reads the
 // honest state and returns to the menu with the session intact.
-func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer) error {
+func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
 	owner, err := admin.ActiveOwner(ctx, identity.accounts)
 	if err != nil {
 		return err
@@ -1043,7 +1182,7 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner 
 		return err
 	}
 
-	displayName, err := promptValidated(scanner, stdout, "Nombre para mostrar del cliente", "", admin.ValidateDisplayName)
+	displayName, err := promptValidated(input, stdout, "Nombre para mostrar del cliente", "", admin.ValidateDisplayName)
 	if err != nil {
 		return err
 	}
@@ -1077,26 +1216,26 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, scanner 
 // the operator can finish the bootstrap by hand (ADR-0017 Decision 1). The chain
 // itself lives in tui.ApplyHermesConfigWithTelegram, the same helper the Bubble
 // Tea wizard runs, so the console never re-derives the path or the endpoint.
-func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner *bufio.Scanner, stdout io.Writer, hermes tui.HermesConfig) error {
+func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, hermes tui.HermesConfig, secretLine secretLineReader) error {
 	owner, err := admin.ActiveOwner(ctx, identity.accounts)
 	if err != nil {
 		return err
 	}
 
-	phone, err := promptValidated(scanner, stdout, "Teléfono del owner (X-Caller-Id)", owner.ID, admin.ValidatePhone)
+	phone, err := promptValidated(input, stdout, "Teléfono del owner (X-Caller-Id)", owner.ID, admin.ValidatePhone)
 	if err != nil {
 		return err
 	}
 
-	token, err := promptValidated(scanner, stdout, "Token del bot de Telegram (formato <id>:<hash>)", "", admin.ValidateTelegramBotToken)
+	token, err := promptSecret(input, stdout, "Token del bot de Telegram (formato <id>:<hash>) - no se verá al escribir", admin.ValidateTelegramBotToken, secretLine)
 	if err != nil {
 		return err
 	}
-	chatID, err := promptValidated(scanner, stdout, "Chat id de la allowlist de Telegram (ej. 987654321)", "", admin.ValidateTelegramChatID)
+	chatID, err := promptValidated(input, stdout, "Chat id de la allowlist de Telegram (ej. 987654321)", "", admin.ValidateTelegramChatID)
 	if err != nil {
 		return err
 	}
-	telegramPhone, err := promptValidated(scanner, stdout, "Teléfono del owner para Telegram (X-Caller-Id)", owner.ID, admin.ValidatePhone)
+	telegramPhone, err := promptValidated(input, stdout, "Teléfono del owner para Telegram (X-Caller-Id)", owner.ID, admin.ValidatePhone)
 	if err != nil {
 		return err
 	}
@@ -1106,7 +1245,7 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner 
 		return err
 	}
 
-	confirmed, err := promptConfirm(scanner, stdout,
+	confirmed, err := promptConfirm(input, stdout,
 		"Se escribirá la entrada mcp-appointments en el config de Hermes. ¿Confirmar?")
 	if err != nil {
 		return err
@@ -1120,7 +1259,24 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, scanner 
 		if err := writeConsole(stdout, "Configuración de Hermes actualizada.\n"); err != nil {
 			return err
 		}
-		return writeHermesFacts(stdout, hermes, phone, telegram)
+		if err := writeHermesFacts(stdout, hermes, phone, telegram); err != nil {
+			return err
+		}
+		// ADR-0020 §4 cascade: the skill regeneration runs as part of option 7,
+		// with the same outcomes the installer prints. A modified skill asks
+		// before replacing; a failure surfaces but never breaks the config flow
+		// (the write already succeeded).
+		outcome, skillErr := tui.RegenerateSkillForConsole(ctx, hermes, identity.businessProfiles, func() (bool, error) {
+			return promptConfirm(input, stdout,
+				"La skill recepcionista instalada difiere del template del sistema. ¿Reemplazarla? Se descartan los cambios manuales.")
+		})
+		if skillErr == nil {
+			return writeConsole(stdout, "Skill recepcionista: "+string(outcome)+"\nHermes recarga el índice de skills en su próximo arranque.\n")
+		}
+		if werr := writeConsole(stdout, "Error: "+skillErr.Error()+"\n"); werr != nil {
+			return werr
+		}
+		return nil
 	}
 	return writeHermesSnippetFallback(stdout, hermes, snippet, err)
 }
@@ -1153,7 +1309,7 @@ func writeHermesSnippetFallback(stdout io.Writer, hermes tui.HermesConfig, snipp
 		return err
 	}
 	if err := writeConsole(stdout,
-		"No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado:\n"); err != nil {
+		"No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado. El bloque de Telegram quedó sin aplicar: re-corre la opción 7 para completar esos tres campos.\n"); err != nil {
 		return err
 	}
 	if err := writeConsole(stdout, fmt.Sprintf("%s\n", hermes.Path)); err != nil {

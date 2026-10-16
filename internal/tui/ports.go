@@ -132,4 +132,9 @@ type Deps struct {
 	Professionals ProfessionalsPort
 	Clients       ClientsPort
 	Hermes        HermesBootstrap
+	// BusinessProfile is the narrow read the receptionist-skill regeneration
+	// needs to resolve the business name (ADR-0020 §4). Nil means the
+	// composition root did not wire it: the regeneration reports it instead of
+	// guessing a name.
+	BusinessProfile admin.BusinessProfileReader
 }

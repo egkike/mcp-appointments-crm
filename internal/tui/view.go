@@ -48,8 +48,12 @@ const (
 	hermesOwnerPhoneLabel = "Teléfono del owner para Telegram (X-Caller-Id)"
 	confirmHermesTitle    = "Confirmar configuración de Hermes"
 	confirmHermesQuestion = "Se escribirá la entrada mcp-appointments en el config de Hermes. ¿Confirmar?"
-	hermesSnippetTitle    = "Configuración manual de Hermes"
-	hermesSnippetIntro    = "No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado:"
+
+	confirmSkillRegenTitle    = "Confirmar reemplazo de la skill"
+	confirmSkillRegenQuestion = "La skill instalada difiere del template del sistema. ¿Reemplazarla?"
+	confirmSkillRegenWarning  = "La skill actual fue modificada; el reemplazo descarta esos cambios y aplica la versión del template."
+	hermesSnippetTitle        = "Configuración manual de Hermes"
+	hermesSnippetIntro        = "No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado. El bloque de Telegram quedó sin aplicar: re-corre la opción 7 para completar esos tres campos."
 )
 
 // capability identifies one operator capability of the menu (ADR-0016
