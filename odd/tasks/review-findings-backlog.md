@@ -80,7 +80,7 @@ Delivered via PR #121 (tracking issue #120, squash `0a04f7c` on main; branch `fe
 
 **Owner decisions (2026-10-14):** advisory dto-tags resolved as **(a) convention + sweep**; mechanical items grouped in one batch PR; the TOCTOU port-widening delivered separately as a code PR.
 
-**Batch contents (committed on the batch branch; lines approximate):**
+**Batch contents (squash `f9d2657`, PR #127; the `feat/backlog-mechanical-batch` branch was deleted after the merge — this squash is the durable reference):**
 
 - **Advisory dto-tags sweep (adopted convention)**: every `*Input` carrier in `internal/application/dto` is now wire-free — data fields carry no tags; marker guards (`Caller json:"-"`, `ClearLatitude/ClearLongitude json:"-"`) stay. Fixed in the same pass: `SearchClientsAdvancedInput`/`SearchServicesAdvancedInput` previously shipped the Caller **without** the protective `json:"-"` (a leak the sweep-guard made visible — pinned by `TestCallerFieldNotSerialized`). Convention documented in the new `internal/application/dto/doc.go` and pinned by the new reflect guard `TestInputCarriersAreWireFree` (19 carriers) + `TestCallerFieldNotSerialized` + re-wired `TestDTOFieldTags` (Result cases unchanged: those tags are the live wire contract). New wire-tag INPUT carriers will fail the guard automatically.
 - **R3-empty-query-mux**: `TestToolSearchClientsAdvancedRejectsEmptyQuery` relocated from the unit-tier `tools_search_test.go` to `server_integration_test.go` alongside the other real-mux coverage it depends on.
@@ -115,3 +115,13 @@ Both PRs merged squash (`f9d2657` batch / `513f270e` TOCTOU; CI green on both me
 - **C-R4-log-truncation** — `internal/mcp/errors.go:65-71` (WARNING, resilience): the 256-rune `err_msg` cap can cut forensic tail content (`%w` chains put root cause at the end); head+tail keep is the candidate fix if a forwarding log sink ever materializes.
 
 **Backlog status: the hardening backlog doc is now fully dispositioned — no open follow-ups remain in this file.** Future informational findings (all of the above) live in the lists above and are re-triaged only when batched into a future PR; this document stops being the live backlog at this point.
+
+## Disposition (2026-10-15) — final C-* queue CLOSED (docs lane)
+
+The three queued findings from the consolidated review are disposed. One was already fixed in code; the other two are docs-only corrections against this document and `docs/deployment.md`. Docs lane: direct to main after structural readback.
+
+1. ~~**C-R4-log-truncation** (`internal/mcp/errors.go:65-71`, WARNING, resilience)~~ — **EXECUTED 2026-10-15**. PR #131 (squash `a032d9a`) rewrote `boundedLogValue` to keep head AND tail under the 256-rune cap: the halves split the budget evenly around the single `…[truncated]` marker, so the root cause at the tail of `%w` chains survives a truncation. Single-line flattening is unchanged; pinned by `TestBoundedLogValue` (RED observed first).
+2. ~~**C-R3-log-attr-key-change** (`internal/mcp/errors.go:70-73`, SUGGESTION, reliability)~~ — **EXECUTED 2026-10-15, disposition: document the contract**. The rename from the raw `err` attribute (pre-#127 shape, grep-able as `err=`) to the bounded `err_kind`/`err_msg` summary attrs changed the operator-facing log record schema; no in-server sink materializes, so the code is correct and the gap was operator knowledge. `docs/deployment.md` now documents the infra-failure record shape (message, attr names, kind, head+tail truncation, no `err=` attribute) with journald query examples; scripts that grep for `err=` are told to target `err_kind`/`err_msg` instead.
+3. ~~**C-R3-001** (`odd/tasks/review-findings-backlog.md:84`, SUGGESTION, reliability)~~ — **EXECUTED 2026-10-15**. The v2 batch-contents header claimed "committed on the batch branch; lines approximate", pointing at a since-deleted branch and weakening the document's own evidence trail (the finding targets the doc itself). Header rewritten to pin the durable reference (squash `f9d2657`, PR #127) and to state the branch was deleted after the merge.
+
+**Backlog status: zero items remain in this document (original findings, follow-ups, and the C-* queue). The doc is archived as history only.**

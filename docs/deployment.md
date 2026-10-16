@@ -197,6 +197,38 @@ bash install.sh --version v0.3.0
 | Logs | User journal: `journalctl --user -u mcp-appointments-crm` (the systemd unit writes no log file) |
 | Service unit | `~/.config/systemd/user/mcp-appointments-crm.service` |
 
+#### Infra-failure log record shape
+
+Everything the LLM client receives on infrastructure failures is a generic
+`-32603` envelope; the forensic trace lives only in the log record the server
+emits for every tool-handler failure that is NOT a `domain.SemanticError`
+(business-rule messages are never logged as errors). The record shape is a
+stable operator contract:
+
+```
+tool handler failed  err_kind=<Go error type>  err_msg=<single-line, ≤256 runes>
+```
+
+- `err_kind` is the concrete Go type (`fmt.Sprintf("%T", err)`) — e.g.
+  `*fmt.wrapError`.
+- `err_msg` is the flat, single-line error text. Values longer than 256 runes
+  are truncated to head+tail around one `…[truncated]` marker (root cause of
+  `%w` chains lives at the tail). Newlines and tabs are flattened to spaces.
+
+Query examples: `journalctl --user -u mcp-appointments-crm -g "tool handler failed"`
+or filter by `err_kind`. There is no `err=` attribute — the pre-hardening raw
+shape (single `err` key carrying the raw multi-line error object) was replaced
+by these bounded summary attributes in PR #127 (f9d2657); scripts that grep
+for `err=` must target `err_kind`/`err_msg` instead.
+
+This contract fixes only the per-request tool-handler record of `toMCPError`.
+Other failure paths emit their own records with different shapes and keep the
+raw `error` attribute today: auth middleware caller-resolution
+(`auth: caller resolution failed`, attrs `caller_hash` + `error`) and the alert
+lifecycle guard (`alert lifecycle failure: booking mutation succeeded`, attrs
+`operation`/`booking_id`/`error`); startup failures in `cmd/mcp-server` also
+use `error`.
+
 The `.env` file (created if absent, never overwritten) holds loopback config:
 
 ```bash
