@@ -1068,6 +1068,23 @@ render_skill_template() {
   printf '%s' "$out"
 }
 
+# seed_config_template TEMPLATE: copia el template pristino del repo a
+# $CONFIG_DIR/templates/$SKILL_SLUG/SKILL.md SIEMPRE sobrescribiendo (es
+# contenido versionado del repo que alimenta la regeneración desde la TUI; no
+# lleva la protección de "modified" de la skill instalada), con escritura
+# atómica 0600. Devuelve un código distinto de cero ante cualquier fallo; los
+# llamadores lo tratan como no fatal.
+seed_config_template() {
+  local template="$1" template_dir dest
+  template_dir="$CONFIG_DIR/templates/$SKILL_SLUG"
+  dest="$template_dir/SKILL.md"
+  mkdir -p "$template_dir" 2>/dev/null || return 1
+  chmod 0700 "$template_dir" 2>/dev/null || return 1
+  cat "$template" | atomic_write "$dest" || return 1
+  chmod 0600 "$dest" 2>/dev/null || return 1
+  return 0
+}
+
 install_receptionist_skill() {
   local name rendered dest dir existing template hermes_home
   # Default outcome: any early return below is a write/template failure.
@@ -1077,6 +1094,13 @@ install_receptionist_skill() {
     echo 'Aviso: no se pudo instalar la skill recepcionista (template ausente).' >&2
     return 0
   }
+  # Re-seed the config-dir copy of the pristine template on every install: it is
+  # versioned repo content feeding the TUI regeneration path, so it is always
+  # overwritten. Non-fatal: a copy failure only prints an aviso, unless the
+  # skill install itself had nothing to use (already the error family above).
+  if ! seed_config_template "$template"; then
+    echo 'Aviso: no se pudo actualizar la copia del template de la skill en el directorio de configuración.' >&2
+  fi
   rendered=$(render_skill_template "$template" "$name")
   hermes_home="${HERMES_HOME:-$HOME/.hermes}"
   dest="$hermes_home/skills/$SKILL_SLUG/SKILL.md"
@@ -1658,6 +1682,7 @@ prompt_reconfigure() {
 run_setup() {
   resolve_paths || exit 1
   mkdir -p "$SETUP_DIR"
+  mkdir -p "$CONFIG_DIR/templates"
   if [ -f "$CHECKPOINT_PATH" ]; then
     prompt_rsq
   elif setup_files_exist; then

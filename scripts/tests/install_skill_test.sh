@@ -130,4 +130,29 @@ test_summary_line_format() {
   assertEquals 'summary line' 'Skill recepcionista: instalada' "$(print_skill_summary)"
 }
 
+# The pristine repo template is re-seeded into CONFIG_DIR/templates on install
+# (versioned content for the TUI regeneration path), placeholder intact.
+test_pristine_template_copied_to_config_dir() {
+  local dest
+  store_set "business.name" "Negocio"
+  install_receptionist_skill >/dev/null 2>&1
+  dest="$CONFIG_DIR/templates/recepcionista-negocio/SKILL.md"
+  assertTrue 'config-dir template exists' "[ -f \"$dest\" ]"
+  assertEquals 'pristine template bytes' "$(cat "$TEMPLATE")" "$(cat "$dest")"
+  assertTrue 'placeholder intact in pristine copy' "grep -q '{business_name}' \"$dest\""
+  assertEquals 'template file mode 600' '600' "$(stat -c %a "$dest")"
+}
+
+# The config-dir template copy is versioned content: it is always overwritten
+# (no modified-protection like the installed skill).
+test_pristine_template_always_overwritten() {
+  local dest
+  store_set "business.name" "Negocio"
+  dest="$CONFIG_DIR/templates/recepcionista-negocio/SKILL.md"
+  mkdir -p "${dest%/*}"
+  printf 'template editado a mano\n' > "$dest"
+  install_receptionist_skill >/dev/null 2>&1
+  assertEquals 'hand-edited copy replaced' "$(cat "$TEMPLATE")" "$(cat "$dest")"
+}
+
 . "$(dirname "$0")/lib/shunit2" || exit 1
