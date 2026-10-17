@@ -1,7 +1,7 @@
 # Tasks: feat-hermes-receptionist-skill
 
 > **Change:** feat-hermes-receptionist-skill
-> **Status:** tasks drafted (spec phase) — doc-first change; implementation follows in an apply change
+> **Status:** CLOSED 2026-10-17 — all tasks verified against delivery evidence; smoke manual transferred to backlog B2 (`odd/tasks/backlog.md`). Archived as `openspec/changes/archive/2026-10-16-feat-hermes-receptionist-skill/`. Original draft status below. | tasks drafted (spec phase) — doc-first change; implementation follows in an apply change
 > **Inputs:** `proposal.md`, `design.md`, `specs/hermes-receptionist-skill/spec.md`, `odd/tasks/feat-hermes-receptionist-skill.md`
 > **Skill type:** non-LLM-reviewed? No — this change modifies **no Go code paths**; it ships skill template + install script block + TUI entry in the apply change. This tasks file covers only the doc-first deliverables. Implementation units land in a follow-up change after spec review.
 
@@ -52,14 +52,14 @@
 
 ### TASK-3.1 — Structural readback
 
-- [ ] Read back ADR-0020 + change folder in full; cross-check every S# from `odd/tasks/feat-hermes-receptionist-skill.md` is covered by at least one artifact
-- [ ] Verify no Go/server behavior is mentioned as changed (search diff for `internal/`, `cmd/`, "tool" claims)
-- [ ] Cross-link check: ADR-0020 ↔ gateway-contract.md §8 ↔ change folder (bidirectional or one-way-ref consistent with sibling docs)
+- [x] Read back ADR-0020 + change folder in full; cross-check every S# from `odd/tasks/feat-hermes-receptionist-skill.md` is covered by at least one artifact — **done 2026-10-16 pre-merge** (feat doc Log L5)
+- [x] Verify no Go/server behavior is mentioned as changed (search diff for `internal/`, `cmd/`, "tool" claims) — docs-only diff confirmed (feat doc Log L9)
+- [x] Cross-link check: ADR-0020 ↔ gateway-contract.md §8 ↔ change folder (bidirectional or one-way-ref consistent with sibling docs) — done 2026-10-16 (ADR indexed in docs/architecture/README.md, feat doc Log L4)
 
 ### TASK-3.2 — Per-AGENTS verification & gates
 
-- [ ] Docs lane: no `go build`/`go test` required (no code paths changed); confirm with `git diff --stat` that only `.md` files changed
-- [ ] Full pipeline run still green on `main` baseline before branch merge (per the "always ask before commit" rule with the owner)
+- [x] Docs lane: no `go build`/`go test` required (no code paths changed); confirm with `git diff --stat` that only `.md` files changed — confirmed on commits 5912e18/0c1f888 (feat doc Log L9)
+- [x] Full pipeline run still green on `main` baseline before branch merge (per the "always ask before commit" rule with the owner) — green baseline; merge 5912e18→badb8a9 ff-only 2026-10-16
 
 ---
 
@@ -86,11 +86,11 @@
 
 ### TASK-4.3 — TUI option 7 step 2
 
-- [ ] Regeneration step inside option 7: state detection (missing / up-to-date / modified), confirm on modified, atomic write, Spanish messages incl. index-refresh note
-- [ ] go tests (MVU + atomic write in `t.TempDir()`)
+- [x] Regeneration step inside option 7: state detection (missing / up-to-date / modified), confirm on modified, atomic write, Spanish messages incl. index-refresh note — delivered in `8d94434` (internal/tui/skill.go cascade; feat doc Log L13/L15)
+- [x] go tests (MVU + atomic write in `t.TempDir()`) — delivered in `8d94434` (skill_console_test.go console parity)
 
 ### TASK-4.4 — Verification & delivery
 
-- [ ] Full go pipeline + structural readback + native review of the code candidate
-- [ ] Smoke manual en el host (skill lista, `hermes skills` la indexa, comportamiento off-topic)
-- [ ] PR gh + squash merge + CI green
+- [x] Full go pipeline + structural readback + native review of the code candidate — native review `review-c522aef035ce7e3c` APPROVED + burned (after `scope_changed` recovery of lineage f32febf9c0f9d664); 15 pkgs -race green, golangci 0, bash 6/6, cross-builds linux/darwin/windows (feat doc Log L15)
+- [x] Smoke manual en el host (skill lista, `hermes skills` la indexa, comportamiento off-topic) — **transferred to backlog B2** (`odd/tasks/backlog.md`): owner-hand verification, outside this change's code scope; change closes with smoke pending by owner decision 2026-10-17
+- [x] PR gh + squash merge + CI green — PR #135 squash-merged as `da231d3`; CI runs 38984018852 (pre-merge) / 38984381069 (post-merge) green (obs 1291)
