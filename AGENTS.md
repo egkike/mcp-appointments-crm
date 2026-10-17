@@ -89,6 +89,33 @@ After verification passes, ALWAYS ask user:
 
 Wait for user confirmation before proceeding.
 
+### Delegated Worker Commits (standing authorization, 2026-10-17)
+
+When the orchestrator delegates an apply/implement work unit to a subagent (worker), the
+worker is **pre-authorized to commit that unit itself** after GGA passes. Contract:
+
+1. **Worker pipeline per unit:** full Pre-Commit Checklist (fmt/vet/lint/build/test -race)
+   → `git commit` (GGA hook fires) → fix determinable findings → re-run pipeline → commit again.
+2. **Bounded GGA loop:** max **5 rounds** GGA per unit. On an ambiguous verdict (parser STRICT
+   window or poisoned cache), run `gga cache clear` before retrying. Fix only findings the
+   worker can determine real; never loop on conceptual/minted findings past the cap.
+3. **Worker authority boundaries (hard rules):**
+   - NEVER run `git commit --no-verify` (nor any bypass). If the verdict is PASSED but the
+     parser reads it ambiguously, or FAILED findings can't be determined real, or the round
+     cap is hit: abort — leave changes staged, commit NOTHING, and hand back to the
+     orchestrator with GGA logs and evidence. Only the owner decides `--no-verify`.
+   - NEVER use `git push`, create PRs, branches off-policy, or any destructive git command.
+   - One commit per work unit (≤ ~400 authored changed lines); never the whole feature.
+   - Only when this worker is the sole writer of the worktree at that moment
+     (parallel writers require isolated worktrees).
+   - Record GGA round count and log path in the commit message body and in the feature doc.
+4. **What still asks the user (unchanged):** `--no-verify`, push, PR creation, merge,
+   recovery/correction beyond one bounded pass, and any off-touched-scope change.
+
+Rationale: the GGA round-trip loop across sessions burned orchestrator context (24+ rounds
+of minted findings in PR #135). The worker that authored the code resolves findings with
+the diff context already loaded; the orchestrator receives one result per unit.
+
 ## Branch & Commit Strategy
 
 ### Branch Rules
