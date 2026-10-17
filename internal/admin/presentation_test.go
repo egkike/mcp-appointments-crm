@@ -172,7 +172,7 @@ func TestApplyHermesConfigWritesTheMergedEntry(t *testing.T) {
 		t.Fatalf("LoadHermesConfig() after write error = %v", err)
 	}
 	entry := hermesEntryFrom(t, doc)
-	if entry[hermesURLKey] != testHermesURL {
-		t.Errorf("merged entry url = %v, want %q", entry[hermesURLKey], testHermesURL)
+	if got := entryString(t, entry, hermesURLKey); got != testHermesURL {
+		t.Errorf("merged entry url = %q, want %q", got, testHermesURL)
 	}
 }

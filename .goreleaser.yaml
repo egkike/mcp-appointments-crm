@@ -58,6 +58,8 @@ archives:
       - scripts/backup.sh
       - setup/service/mcp-appointments-crm.service
       - setup/service/com.mcp.appointments.server.plist
+      # The archive ships the skill template for the TUI regeneration path.
+      - setup/templates/**
 
 # install.sh verifies the downloaded archive against this file, so the name is
 # part of the installer contract as well (ADR-0014, Decision 2).

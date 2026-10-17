@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -1432,7 +1431,7 @@ func consoleIdentity(t *testing.T, dbPath string) identityDeps {
 func TestAdminMenuOptions_RegistersConfigureHermes(t *testing.T) {
 	options := adminMenuOptions(func() (tui.HermesConfig, error) {
 		return tui.HermesConfig{Path: "p", EndpointURL: "e"}, nil
-	})
+	}, nil)
 
 	if len(options) != 7 {
 		t.Fatalf("option count = %d, want 7", len(options))
@@ -1581,8 +1580,8 @@ func TestRunConfigureHermesFlow_RequiresAnActiveOwner(t *testing.T) {
 
 	var out bytes.Buffer
 	err := runConfigureHermesFlow(context.Background(), identity,
-		bufio.NewScanner(strings.NewReader("")), &out,
-		tui.HermesConfig{Path: filepath.Join(t.TempDir(), "config.yaml"), EndpointURL: consoleHermesEndpoint(t)})
+		newConsoleInput(strings.NewReader("")), &out,
+		tui.HermesConfig{Path: filepath.Join(t.TempDir(), "config.yaml"), EndpointURL: consoleHermesEndpoint(t)}, nil)
 
 	if err == nil {
 		t.Fatal("runConfigureHermesFlow() error = nil, want the no-active-owner failure")
@@ -1609,13 +1608,25 @@ func TestRunConfigureHermesFlow_FallsBackToSnippetWhenWriteFails(t *testing.T) {
 	identity := consoleIdentity(t, dbPath)
 
 	var out bytes.Buffer
-	// An empty path is the degenerate "there is nowhere to write" case: the load
-	// treats the missing file as empty and the write fails with a semantic error
-	// instead of a raw driver failure.
-	stdin := bufio.NewScanner(strings.NewReader("\n" + telegramTestToken + "\n" + telegramTestChatID + "\n\ns\n"))
+	// An unwritable parent is the true "there is nowhere to write" case (the
+	// same hermetic driver as the WriteHermesConfig unwritable-target tests): the
+	// load treats the missing file as empty and the write fails with a semantic
+	// error instead of a raw driver failure. GGA W4 hardened LoadHermesConfig
+	// against a blank path (fail-open read), so "nowhere to write" can no longer
+	// be modeled as an empty path.
+	readonlyParent := filepath.Join(t.TempDir(), "readonly")
+	if err := os.MkdirAll(readonlyParent, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// #nosec G302 -- test-only: tighter than 0600 to force the write-failure path.
+	if err := os.Chmod(readonlyParent, 0o500); err != nil { // #nosec G302 -- test-only: forces the write-failure path
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readonlyParent, 0o700) /* #nosec G302 -- test write-failure fixture cleanup */ })
+	stdin := newConsoleInput(strings.NewReader("\n" + telegramTestToken + "\n" + telegramTestChatID + "\n\ns\n"))
 
 	err := runConfigureHermesFlow(context.Background(), identity, stdin, &out,
-		tui.HermesConfig{EndpointURL: consoleHermesEndpoint(t)})
+		tui.HermesConfig{Path: filepath.Join(readonlyParent, "config.yaml"), EndpointURL: consoleHermesEndpoint(t)}, nil)
 
 	if err == nil {
 		t.Fatal("runConfigureHermesFlow() error = nil, want the write failure")
@@ -1624,7 +1635,7 @@ func TestRunConfigureHermesFlow_FallsBackToSnippetWhenWriteFails(t *testing.T) {
 	if !errors.As(err, &semErr) {
 		t.Fatalf("error = %T (%v), want *domain.SemanticError", err, err)
 	}
-	if !strings.Contains(semErr.Message, "no se indicó dónde escribir") {
+	if !strings.Contains(semErr.Message, "no se pudo crear el archivo temporal") {
 		t.Errorf("message = %q, want the semantic write-path failure", semErr.Message)
 	}
 

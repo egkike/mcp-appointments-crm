@@ -569,3 +569,65 @@ func TestBusinessProfile_parseBusinessHours_deterministicFirstError(t *testing.T
 		t.Errorf("parseBusinessHours() error = %q, want the sorted-first key (\"8\") error", err)
 	}
 }
+
+func TestParseBusinessHoursRejectsNullMap(t *testing.T) {
+	// GGA round 8: JSON "null" unmarshals successfully into a nil map, which
+	// would read as "no configured days". Corrupt/half-migrated stored data
+	// must fail instead of looking like a closed schedule.
+	bp := BusinessProfile{BusinessHours: "null"}
+	days, err := bp.parseBusinessHours()
+	if err == nil {
+		t.Fatal("parseBusinessHours(\"null\") error = nil, want a corruption failure")
+	}
+	if days != nil {
+		t.Errorf("days = %v, want nil on failure", days)
+	}
+	if !strings.Contains(err.Error(), "business_hours no puede ser null") {
+		t.Errorf("err = %v, want it to name the null corruption", err)
+	}
+}
+
+func TestBusinessProfileValidateRejectsUnsafeNameChars(t *testing.T) {
+	// GGA round 8: the name re-renders into the SKILL.md Hermes loads, so
+	// markdown-active characters are rejected at the domain gate.
+	bp := &BusinessProfile{
+		Name:                "Acme ** Herrajes",
+		CurrencyCode:        "ARS",
+		CurrencySymbol:      "$",
+		SlotIntervalMinutes: 15,
+	}
+	err := bp.Validate()
+	if err == nil {
+		t.Fatal("Validate(markdown name) error = nil, want rejection")
+	}
+	if !strings.Contains(err.Error(), "caracteres especiales de marcado") {
+		t.Errorf("err = %v, want it to name the unsafe-character rule", err)
+	}
+}
+
+func TestParseBusinessHoursRejectsNullDayAndBadTimes(t *testing.T) {
+	// GGA round 13: per-day fail-closed on the read path — a null day decodes
+	// into a zero struct; corrupt times must not read as availability.
+	cases := []struct {
+		name   string
+		json   string
+		substr string
+	}{
+		{"null day", `{"1":null}`, "no puede ser null"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bp := BusinessProfile{BusinessHours: tc.json}
+			days, err := bp.parseBusinessHours()
+			if err == nil {
+				t.Fatalf("parseBusinessHours(%s) error = nil, want rejection", tc.json)
+			}
+			if days != nil {
+				t.Errorf("days = %v, want nil on failure", days)
+			}
+			if !strings.Contains(err.Error(), tc.substr) {
+				t.Errorf("err = %v, want it to contain %q", err, tc.substr)
+			}
+		})
+	}
+}

@@ -68,3 +68,29 @@
 1. ~~Skill name / directory~~ → **RESOLVED**: verified against the official Hermes docs (`hermes-agent.nousresearch.com/docs/user-guide/features/skills`); storage `~/.hermes/skills/<slug>/SKILL.md`, frontmatter name/description/version, house sections When to Use → Procedure → Pitfalls → Verification, description ≤60 chars. Slug: `recepcionista-negocio`; progressive-disclosure nuance incorporated (design §1).
 2. ~~TUI option label~~ → **RESOLVED (owner)**: second step inside option 7 "Configurar Hermes", no new menu item.
 3. ~~Tone verbatim check~~ → **RESOLVED (owner)**: "Cordial y orientador" confirmed for the template's canonical redirect.
+
+---
+
+## Phase 4 — Apply (owner-approved 2026-10-16)
+
+> Rama `feat/feat-receptionist-skill-apply`. Unit content per `odd/tasks/feat-hermes-receptionist-skill.md` T5–T8. Advisory R2-001 (readability, design.md:39, informational) read/disposed: style-only, no apply obligation.
+
+### TASK-4.1 — Template
+
+- [x] `setup/templates/recepcionista-negocio/SKILL.md`: official format (frontmatter name/description/version, When to Use → Procedure → Pitfalls → Verification), single `{business_name}` placeholder (canonical example only), content per design §3
+
+### TASK-4.2 — install.sh block
+
+- [x] Skill-install step after the seed: render `{business_name}`, atomic `0600` write into `~/.hermes/skills/recepcionista-negocio/SKILL.md`, no silent overwrite of a modified skill, non-fatal failure reported in the summary — commit `2659c51`
+- [x] bash tests under `scripts/tests/` (shunit2: 8 unit + 2 e2e, GREEN; run_tests.sh 6/6 suites; shellcheck 0 new)
+
+### TASK-4.3 — TUI option 7 step 2
+
+- [ ] Regeneration step inside option 7: state detection (missing / up-to-date / modified), confirm on modified, atomic write, Spanish messages incl. index-refresh note
+- [ ] go tests (MVU + atomic write in `t.TempDir()`)
+
+### TASK-4.4 — Verification & delivery
+
+- [ ] Full go pipeline + structural readback + native review of the code candidate
+- [ ] Smoke manual en el host (skill lista, `hermes skills` la indexa, comportamiento off-topic)
+- [ ] PR gh + squash merge + CI green

@@ -1,6 +1,6 @@
 # ADR-0017: TUI "configurar Hermes" (bootstrap del config de Hermes)
 
-- **Status**: accepted
+- **Status**: accepted · **amendment 2026-10-16**: ValidateHermesURL hard-rejecta hosts no-loopback (ver Enmienda al final)
 - **Date**: 2026-09-24
 - **Authors**: Kike
 - **Related**: ADR-0016 (alcance admin-tui), ADR-0009 (modelo de autorización), PRD §7 Fase N
@@ -85,3 +85,28 @@ serializar a mano rompería configs de Hermes que no controlamos.
 - El gate de verificación corre por ruteo default (superficie de escritura nueva +
   dependencia nueva en `go.mod`) → review nativo.
 - `go.mod` incorpora la primera librería YAML del repo; queda en la superficie de review.
+
+## Enmienda 2026-10-16 — loopback hard-gate en ValidateHermesURL
+
+Durante el apply de `feat-hermes-receptionist-skill` (candidato de código en
+`feat/feat-receptionist-skill-apply`), la review GGA (gpt-6-luna, ronda 5 en adelante)
+añadió un hallazgo reificado: `ValidateHermesURL` era format-only (http/https + host no
+vacío), y `SetHermesServer` persiste el teléfono del owner como header `X-Caller-Id` para
+ese endpoint — un host remoto podría recibir PII. La semántica "format-only, loopback
+warn-only" de la Decision original queda **revocada por decisión del owner** (2026-10-16,
+"el hardening real").
+
+- `admin.ValidateHermesURL` ahora exige un **IP literal loopback** en el host (127.0.0.0/8
+  o ::1), via el predicado compartido `loopback.Classify` (mismo gate que el bind del
+  server al arranque, imposible que drifteen aparte). Hostnames (`localhost`, DNS), 0.0.0.0
+  y IPs no-loopback rechazan con mensaje semántico en español.
+- Impacto en caminos vivos: cero — el único productor de URLs que llega a esta validación
+  es `HermesEndpointURL(bind, port)`, que ya compone desde un bind loopback literal
+  clasificado. La URL que acepta/rechaza el config de Hermes queda idéntica a la que el
+  server puede bindear.
+- La observación sobre `map[string]any` quedó RESUELTA en esta enmienda (2026-10-16,
+  ronda 12 de la review): el documento es ahora un árbol tipado `yaml.Node`
+  (`HermesDocument` sin un solo valor `any`), lo que además elimina la desviación léxica
+  del modelo anterior: comentarios, orden de claves y estilos de las claves NO propias
+  sobreviven load/write verbatim. Las claves propias se emiten en orden de inserción
+  (url antes que headers).

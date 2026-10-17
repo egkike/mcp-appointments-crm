@@ -32,10 +32,14 @@ func seedTelegramFixture(t *testing.T) HermesDocument {
 	if err := doc.SetHermesServer("http://127.0.0.1:3000/mcp", validOwnerPhone); err != nil {
 		t.Fatalf("seed server entry: %v", err)
 	}
-	fields := doc.storage()
-	fields["telemetry"] = map[string]any{"enabled": true}
-	servers := fields[hermesServersSection].(map[string]any)
-	servers["other-server"] = map[string]any{"url": "http://127.0.0.1:9999/mcp"}
+	root := doc.storage().root
+	telemetry := &yaml.Node{Kind: yaml.MappingNode}
+	putChild(telemetry, "enabled", plainScalar("true"))
+	putChild(root, "telemetry", telemetry)
+	servers, _ := childMapping(root, hermesServersSection)
+	otherEntry := &yaml.Node{Kind: yaml.MappingNode}
+	putChild(otherEntry, "url", plainScalar("http://127.0.0.1:9999/mcp"))
+	putChild(servers, "other-server", otherEntry)
 	return doc
 }
 
@@ -96,45 +100,48 @@ func TestSetHermesTelegramOwnerBot_MergesWithoutClobbering(t *testing.T) {
 		t.Fatalf("set telegram owner bot: %v", err)
 	}
 
-	fields := doc.storage()
+	root := doc.storage().root
 	// Foreign top-level key preserved.
-	if _, ok := fields["telemetry"]; !ok {
+	if _, ok := childValue(root, "telemetry"); !ok {
 		t.Error("foreign top-level key 'telemetry' was dropped")
 	}
-	servers := fields[hermesServersSection].(map[string]any)
+	servers, serversErr := childMapping(root, hermesServersSection)
+	if serversErr != nil || servers == nil {
+		t.Fatal("servers missing")
+	}
 	// Foreign sibling server preserved.
-	if _, ok := servers["other-server"]; !ok {
+	if _, ok := childValue(servers, "other-server"); !ok {
 		t.Error("foreign sibling server 'other-server' was dropped")
 	}
 	// The owned entry keeps url + headers AND gains env.
-	entry, ok := servers[HermesServerName].(map[string]any)
-	if !ok {
-		t.Fatalf("owned entry missing or not a map")
+	entry, ok := childValue(servers, HermesServerName)
+	if !ok || entry.Kind != yaml.MappingNode {
+		t.Fatal("owned entry missing or not a map")
 	}
-	if _, ok := entry[hermesURLKey]; !ok {
+	if _, ok := childValue(entry, hermesURLKey); !ok {
 		t.Error("owned entry lost its url key")
 	}
-	if _, ok := entry[hermesHeadersKey]; !ok {
+	if _, ok := childValue(entry, hermesHeadersKey); !ok {
 		t.Error("owned entry lost its headers key")
 	}
-	env, ok := entry["env"].(map[string]any)
-	if !ok {
+	env, err := childMapping(entry, hermesEnvKey)
+	if err != nil || env == nil {
 		t.Fatalf("env block missing or not a map")
 	}
 	for _, key := range []string{
-		"MCP_TELEGRAM_BOT_TOKEN",
-		"MCP_TELEGRAM_ALLOWED_CHAT_ID",
-		"MCP_TELEGRAM_OWNER_PHONE",
+		hermesTelegramTokenKey,
+		hermesTelegramChatIDKey,
+		hermesTelegramPhoneKey,
 	} {
-		if _, ok := env[key]; !ok {
+		if _, ok := childValue(env, key); !ok {
 			t.Errorf("env key %s missing", key)
 		}
 	}
 	// The owner phone env value must be a double-quoted scalar node (YAML 1.1
 	// +54 trap applies to env values too).
-	phoneNode, ok := env["MCP_TELEGRAM_OWNER_PHONE"].(*yaml.Node)
+	phoneNode, ok := childValue(env, hermesTelegramPhoneKey)
 	if !ok || phoneNode.Style != yaml.DoubleQuotedStyle {
-		t.Errorf("MCP_TELEGRAM_OWNER_PHONE is not a double-quoted *yaml.Node (got %T)", env["MCP_TELEGRAM_OWNER_PHONE"])
+		t.Errorf("MCP_TELEGRAM_OWNER_PHONE is not double-quoted (got %v)", phoneNode)
 	}
 }
 
@@ -150,22 +157,22 @@ func TestSetHermesServer_PreservesTelegramEnv(t *testing.T) {
 		t.Fatalf("server second: %v", err)
 	}
 
-	entry := doc.storage()[hermesServersSection].(map[string]any)[HermesServerName].(map[string]any)
-	env, ok := entry["env"].(map[string]any)
-	if !ok {
+	entry := hermesEntryFrom(t, doc)
+	envNode, ok := childValue(entry, hermesEnvKey)
+	if !ok || envNode.Kind != yaml.MappingNode {
 		t.Fatal("env block dropped by SetHermesServer (silent data loss)")
 	}
 	for _, key := range []string{
-		"MCP_TELEGRAM_BOT_TOKEN",
-		"MCP_TELEGRAM_ALLOWED_CHAT_ID",
-		"MCP_TELEGRAM_OWNER_PHONE",
+		hermesTelegramTokenKey,
+		hermesTelegramChatIDKey,
+		hermesTelegramPhoneKey,
 	} {
-		if _, ok := env[key]; !ok {
+		if _, ok := childValue(envNode, key); !ok {
 			t.Errorf("env key %s lost by SetHermesServer", key)
 		}
 	}
-	if entry[hermesURLKey] != "http://127.0.0.1:3001/mcp" {
-		t.Errorf("url = %v, want the second-flow value", entry[hermesURLKey])
+	if got := entryString(t, entry, hermesURLKey); got != "http://127.0.0.1:3001/mcp" {
+		t.Errorf("url = %q, want the second-flow value", got)
 	}
 }
 
@@ -247,14 +254,22 @@ func TestSetHermesTelegramOwnerBot_WritesAndPersistsAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
-	reloadedFields := reloaded.storage()
-	servers := reloadedFields[hermesServersSection].(map[string]any)
-	entry := servers[HermesServerName].(map[string]any)
-	env := entry["env"].(map[string]any)
-	if len(env) != 3 {
-		t.Errorf("env keys = %d, want 3", len(env))
+	entry := hermesEntryFrom(t, reloaded)
+	envNode, ok := childValue(entry, hermesEnvKey)
+	if !ok || envNode.Kind != yaml.MappingNode || len(envNode.Content) != 6 {
+		t.Errorf("env block missing or wrong shape after the write round trip")
 	}
-	if _, ok := servers["other-server"]; !ok {
+	if _, ok := childValue(entry, hermesURLKey); !ok {
+		t.Error("owned entry lost url after the write round trip")
+	}
+	if _, ok := childValue(entry, hermesHeadersKey); !ok {
+		t.Error("owned entry lost headers after the write round trip")
+	}
+	servers, err2 := childMapping(reloaded.storage().root, hermesServersSection)
+	if err2 != nil {
+		t.Fatalf("reload servers: %v", err2)
+	}
+	if _, ok := childValue(servers, "other-server"); !ok {
 		t.Error("foreign sibling server lost after the write round trip")
 	}
 }
@@ -279,5 +294,37 @@ func TestMaskTelegramToken(t *testing.T) {
 				t.Errorf("masked value %q contains the full input", got)
 			}
 		})
+	}
+}
+
+func TestSetHermesTelegramOwnerBot_RejectsScalarEntry(t *testing.T) {
+	// R3-001 correction pin (review-f32febf9c0f9d664): a pre-existing scalar
+	// entry can never host the env block; the merge must fail instead of
+	// silently dropping the Telegram values.
+	doc, err := LoadHermesConfig(filepath.Join(t.TempDir(), "absent.yaml"))
+	if err != nil {
+		t.Fatalf("load empty document: %v", err)
+	}
+	servers, serversErr := childMapping(doc.storage().root, hermesServersSection)
+	if serversErr != nil {
+		t.Fatalf("seed servers: %v", serversErr)
+	}
+	putChild(servers, HermesServerName, plainScalar("not-a-map"))
+
+	before, mErr := marshalHermesDocument(doc)
+	if mErr != nil {
+		t.Fatalf("marshal before: %v", mErr)
+	}
+	err = doc.SetHermesTelegramOwnerBot(validTelegramToken, validTelegramChatID, validOwnerPhone)
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) {
+		t.Fatalf("SetHermesTelegramOwnerBot(scalar entry) err = %v, want a semantic error", err)
+	}
+	after, mErr := marshalHermesDocument(doc)
+	if mErr != nil {
+		t.Fatalf("marshal after: %v", mErr)
+	}
+	if string(before) != string(after) {
+		t.Error("a rejected merge mutated the document")
 	}
 }

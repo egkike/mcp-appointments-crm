@@ -693,9 +693,10 @@ func closeDatabase(database *db.DB, logger *slog.Logger) {
 // in construction style (T1, ADR-0016 D3.5). The professionals handle backs the
 // Add Staff picker (T3).
 type identityDeps struct {
-	accounts      *repository.AccountsRepo
-	clients       *repository.ClientsRepo
-	professionals *repository.ProfessionalsRepo
+	accounts         *repository.AccountsRepo
+	clients          *repository.ClientsRepo
+	professionals    *repository.ProfessionalsRepo
+	businessProfiles *repository.BusinessProfileRepo
 }
 
 // newIdentityDeps constructs the accounts, clients and professionals
@@ -703,8 +704,9 @@ type identityDeps struct {
 // run migrations.
 func newIdentityDeps(database *db.DB, logger *slog.Logger) identityDeps {
 	return identityDeps{
-		accounts:      repository.NewAccountsRepo(database.Conn, logger),
-		clients:       repository.NewClientsRepo(database.Conn),
-		professionals: repository.NewProfessionalsRepo(database.Conn),
+		accounts:         repository.NewAccountsRepo(database.Conn, logger),
+		clients:          repository.NewClientsRepo(database.Conn),
+		professionals:    repository.NewProfessionalsRepo(database.Conn),
+		businessProfiles: repository.NewBusinessProfileRepo(database.Conn),
 	}
 }
