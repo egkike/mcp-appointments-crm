@@ -16,7 +16,7 @@
 | **B4** | Advisory-lock boundary: external process writing the Hermes config while the server runs is outside the flock (check-to-use race is covered; external-writer competition is a documented design disposition АDR-0020 design §1). Candidate as issue `type:refactor`; refactor itself NOT scoped | obs 1291 Next Steps 2b | issue creation (owner decision) | OPEN (optional) |
 | **B5** | Roadmap post-v0.7.0: P2 REST/HTTP transport endpoints; P3 metrics/observability. NO scope, spec, or owner requirement yet — directions only; must enter the normal ODD doc-first flow when picked | obs 1291 Next Steps 3 (stale P1 removed) | owner decision → doc-first | OPEN (needs scope) |
 | **B6** | GGA upstream vigilance: Gentleman-Programming/gentleman-guardian-angel#113 OPEN without triage since 2026-10-11 (4 owner comments, last 6227034534; maintainer silent). On upstream fix → update local `.gga` (homebrew upgrade) | obs 1323 Next Steps 4 | passive watch | OPEN (external) |
-| **B7** | CI check of `ecebff0` before the NEXT push to main (docs-only push bypassed the "Verify Go code" required check; Post-Merge CI Sequencing rule applies) | AGENTS.md push 2026-10-17 | single check on demand | OPEN (micro) |
+| **B7** | CI check of `ecebff0` before the push to main — **VERIFIED 2026-10-17**: run 39050687640 completed success on main | AGENTS.md push 2026-10-17 | single check on demand | CLOSED |
 
 ## Closed / superseded (record kept)
 
@@ -29,3 +29,4 @@
 ## Log
 
 - **L1** 2026-10-17 — owner: "Primero actualiza el backlog y luego me vuelves a mostrar los pendientes". Backlog reconciled from stale session-summary notes; stale P1 corrected against repo evidence (tags + PRD changelog). Item B1 discovered fresh (OpenSpec change left open with 10 unchecked boxes).
+- **L2** 2026-10-17 — owner: "Haz commit del backlog". B7 verified first (CI run 39050687640 success on `ecebff0`); doc committed docs-lane direct to main (`0bdab28`, rama `docs/backlog-2026-10-17` borrada tras ff-only; GGA hook: sin archivos evaluables). B7 moved to CLOSED/VERIFIED in this update.
