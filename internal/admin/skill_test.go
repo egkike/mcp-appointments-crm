@@ -473,3 +473,75 @@ func TestRenderSkillTemplate_RejectsMarkdownActiveChars(t *testing.T) {
 		}
 	}
 }
+
+// TestGuardSkillSwap_FileReplacedMidFlowAborts pins the B9 guard: an external
+// rename-replace between the fd open and the final replacement aborts the
+// consent flow without overwriting the external edit (issue #137 R-lost-update
+// blind spot; the compare-by-fd alone cannot see a new inode).
+func TestGuardSkillSwap_FileReplacedMidFlowAborts(t *testing.T) {
+	hermesHome := t.TempDir()
+	path := skillPathFor(hermesHome)
+	if err := ensureSkillDir(filepath.Dir(path)); err != nil {
+		t.Fatalf("ensure skill dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("INSTALLED-A"), hermesFileMode); err != nil {
+		t.Fatalf("seed installed skill: %v", err)
+	}
+
+	// #nosec G304 -- constant-slug path under the fixture Hermes home.
+	f, err := os.OpenFile(path, os.O_RDWR, hermesFileMode)
+	if err != nil {
+		t.Fatalf("open the installed skill fd: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	// The external writer replaces the file at the PATH (rename swap): a new
+	// inode with new bytes behind a fd that still refs the old one.
+	if err := os.WriteFile(filepath.Join(hermesHome, ".external-swap"), []byte("EXTERNAL-B"), hermesFileMode); err != nil {
+		t.Fatalf("external writer temp: %v", err)
+	}
+	if err := os.Rename(filepath.Join(hermesHome, ".external-swap"), path); err != nil {
+		t.Fatalf("external rename swap: %v", err)
+	}
+
+	err = guardSkillSwap(f, path)
+	if err == nil {
+		t.Fatal("guardSkillSwap = nil, want the external-replacement semantic abort")
+	}
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) {
+		t.Fatalf("err = %v, want a domain.SemanticError", err)
+	}
+	if !strings.Contains(semErr.Message, "reemplazada") {
+		t.Errorf("message = %q, want the replaced-by-external-writer wording", semErr.Message)
+	}
+
+	// The external edit survives: the guard must abort WITHOUT the rename.
+	if b, rerr := os.ReadFile(path); rerr != nil || string(b) != "EXTERNAL-B" { // #nosec G304 -- fixture path
+		t.Errorf("path bytes = %q (%v), want EXTERNAL-B preserved", b, rerr)
+	}
+}
+
+// TestGuardSkillSwap_SameInodePasses keeps the happy path: the fd and the path
+// refer to the same inode on filesystems WITH inode semantics.
+func TestGuardSkillSwap_SameInodePasses(t *testing.T) {
+	hermesHome := t.TempDir()
+	path := skillPathFor(hermesHome)
+	if err := ensureSkillDir(filepath.Dir(path)); err != nil {
+		t.Fatalf("ensure skill dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("INSTALLED-A"), hermesFileMode); err != nil {
+		t.Fatalf("seed installed skill: %v", err)
+	}
+
+	// #nosec G304 -- constant-slug path under the fixture Hermes home.
+	f, err := os.OpenFile(path, os.O_RDWR, hermesFileMode)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if err := guardSkillSwap(f, path); err != nil {
+		t.Fatalf("guardSkillSwap on the same inode = %v, want nil", err)
+	}
+}
