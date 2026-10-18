@@ -2,7 +2,7 @@
 
 **Type**: mixed batch (feature/refactor/chore) — owner-approved 2026-10-18 via B5 scoping
 **Branch**: TBD (code → feature branch → PR; docs lane pieces committed from main only)
-**Status**: doc-first phase OPEN
+**Status**: CLOSED end-to-end 2026-10-18 (PR #138 → eb384c0 en main; smoke manual B2 pendiente owner)
 **Origin**: backlog item **B5** (`odd/tasks/backlog.md`) + PRD §3.8.8/RF9 deferred residuals (owner decision 2026-09-16) + stale PRD ⏳ line correction
 
 ## Specs
