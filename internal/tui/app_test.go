@@ -1026,6 +1026,49 @@ func TestAppModelTableViewScrollsWithTheKeyboard(t *testing.T) {
 	}
 }
 
+func TestAppModelAuditViewIsReadOnlyAndScrollable(t *testing.T) {
+	f := newFixture(t)
+
+	events := make([]admin.AuditEventView, 0, 12)
+	for i := range 12 {
+		events = append(events, admin.AuditEventView{
+			Ts:     fmt.Sprintf("2026-10-18T10:%02d:00Z", i),
+			Event:  "account_created",
+			Action: "create",
+			// Views mirror persisted rows: the target id arrives already masked (the id IS the phone).
+			TargetID:    "***00" + fmt.Sprintf("%02d", i),
+			TargetRole:  "staff",
+			PhoneMasked: "***00" + fmt.Sprintf("%02d", i),
+			ActorRef:    strings.Repeat("a", 64),
+		})
+	}
+
+	model := newModel(f)
+	model.screen = screenAuditTrail
+	model.tableTitle = "Audit log (últimos 12, read-only)"
+	model.viewport.Height = 3
+	model.auditEvents = events
+	model.viewport.SetContent(renderAuditTrailTable(model.auditEvents))
+
+	d := &driver{t: t, model: model}
+	d.press("down")
+	d.press("down")
+	if d.model.viewport.YOffset == 0 {
+		t.Errorf("viewport offset = %d, want the audit table scrolled by the arrow keys", d.model.viewport.YOffset)
+	}
+
+	view := renderAuditTrailTable(events)
+	if !strings.Contains(view, "account_created") || !strings.Contains(view, auditMaskedLastRow) {
+		t.Errorf("audit table body = %q, want the event row and the masked phone", view)
+	}
+	if strings.Contains(view, "+5491100000011") {
+		t.Errorf("audit table leaks the raw target id")
+	}
+}
+
+// auditMaskedLastRow is the masked phone of the last fixture row (MaskPhone keeps the last 4 digits).
+const auditMaskedLastRow = "***0011"
+
 func TestAppModelListByRoleFiltersTheTable(t *testing.T) {
 	f := newFixture(t)
 	withOwnerAndStaff(t, f)
@@ -1662,6 +1705,7 @@ func TestMenuItemsMirrorTheFrozenScope(t *testing.T) {
 		"Transferir ownership",
 		"Agregarme como cliente",
 		"Configurar Hermes",
+		"Ver audit log",
 	}
 
 	if len(items) != len(want) {

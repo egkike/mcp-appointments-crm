@@ -240,10 +240,66 @@ func accountTriggerDDL() []string {
 	}
 }
 
+// accountAuditDDL returns the additive DDL of the persisted account audit
+// trail (`accounts_audit`, change feat-tui-ops-residuals S1) plus its
+// read-optimised indexes. The table is pure history: no FKs, no unique key,
+// one INSERT per mutation outcome emitted by the repository layer.
+func accountAuditDDL() []string {
+	return []string{
+		`CREATE TABLE IF NOT EXISTS accounts_audit (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			ts            TEXT NOT NULL,
+			event         TEXT NOT NULL CHECK (event IN (
+				'account_created', 'account_updated', 'account_deactivated',
+				'ownership_transferred', 'second_owner_rejected', 'inactive_purged')),
+			actor_ref     TEXT,
+			target_id     TEXT,
+			target_role   TEXT,
+			action        TEXT NOT NULL CHECK (action IN
+				('create', 'update', 'deactivate', 'transfer', 'reject', 'purge')),
+			phone_masked  TEXT CHECK (phone_masked IS NULL OR phone_masked LIKE '***%' OR phone_masked = ""),
+			detail        TEXT,
+			CHECK (ts != '')
+		)`,
+
+		`CREATE INDEX IF NOT EXISTS idx_accounts_audit_ts
+			ON accounts_audit(ts DESC)`,
+
+		`CREATE INDEX IF NOT EXISTS idx_accounts_audit_target
+			ON accounts_audit(target_id, ts DESC)`,
+	}
+}
+
+// accountAuditImmutabilityDDL enforces the audit append-only contract at the
+// storage layer (owner decision OQ-2: defense-in-depth beyond the API rule).
+// Both mutations abort for every possible statement shape: a compromise of the
+// process, a future refactoring bug or a manual sqlite3 session can ASK the
+// audit table to lie, and the trigger refuses.
+func accountAuditImmutabilityDDL() []string {
+	return []string{
+		`CREATE TRIGGER IF NOT EXISTS accounts_audit_immutable_update
+			BEFORE UPDATE ON accounts_audit
+		BEGIN
+			SELECT RAISE(ABORT, 'accounts_audit es inmutable: el audit trail no se puede modificar');
+		END`,
+
+		`CREATE TRIGGER IF NOT EXISTS accounts_audit_immutable_delete
+			BEFORE DELETE ON accounts_audit
+		BEGIN
+			SELECT RAISE(ABORT, 'accounts_audit es inmutable: el audit trail no se puede borrar');
+		END`,
+	}
+}
+
 // seedDDL returns the initial INSERT statement for schema_version (version 1).
 func seedDDL() []string {
 	return []string{
 		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
 			(1, 'initial schema: 8 domain tables per PRD §3.7 + accounts (auth, PRD §3.8.2) + schema_version + 6 FTS sync triggers + 2 secondary indexes + 2 single-owner triggers')`,
+
+		// feat-tui-ops-residuals S1: additive audit trail (table + immutability
+		// triggers). Row is informational; each initSchema run is idempotent.
+		`INSERT OR IGNORE INTO schema_version (version, description) VALUES
+			(2, 'feat-tui-ops-residuals S1: persists the account audit trail in accounts_audit (append-only, masked identities); DDL triggers reject UPDATE/DELETE')`,
 	}
 }

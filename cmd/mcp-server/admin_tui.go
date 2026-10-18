@@ -75,6 +75,7 @@ func runAdminTUIProgram(ctx context.Context) error {
 		Clients:         identity.clients,
 		BusinessProfile: identity.businessProfiles,
 		Hermes:          tui.NewHermesBootstrap(resolveHermes),
+		Audit:           identity.audit,
 	})
 }
 
@@ -426,7 +427,32 @@ func adminMenuOptions(resolveHermes tui.HermesResolver, secretLine secretLineRea
 			}
 			return runConfigureHermesFlow(ctx, identity, input, stdout, hermes, secretLine)
 		}},
+		{key: "8", label: "Ver audit log", action: runAuditTrailFlow},
 	}
+}
+
+// runAuditTrailFlow prints the read-only audit page: the same masked rows the
+// Bubble Tea view renders, flat lines for the pipe/winery operator (owner
+// decisions OQ-6: últimas 200, read-only, sin paginación). Nothing about the
+// flow can write: the core takes a reader-only port and the loop only prints.
+func runAuditTrailFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
+	views, err := admin.ListAuditTrail(ctx, identity.audit, admin.AuditTrailViewLimit)
+	if err != nil {
+		return err
+	}
+	if len(views) == 0 {
+		return writeConsole(stdout, "El trail de auditoría está vacío: aún no hay mutaciones de cuentas.\n")
+	}
+
+	if err := writeConsole(stdout, fmt.Sprintf("Audit log (últimos %d events, read-only):\n", len(views))); err != nil {
+		return err
+	}
+	for _, v := range views {
+		if err := writeConsole(stdout, "  "+admin.AuditLine(v)+"\n"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // runAdminMenu renders the numbered menu and dispatches the operator's choice

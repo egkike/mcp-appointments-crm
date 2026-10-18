@@ -212,6 +212,8 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 	ddl = append(ddl, ftsTriggerDDL()...)
 	ddl = append(ddl, secondaryIndexDDL()...)
 	ddl = append(ddl, accountTriggerDDL()...)
+	ddl = append(ddl, accountAuditDDL()...)
+	ddl = append(ddl, accountAuditImmutabilityDDL()...)
 	ddl = append(ddl, seedDDL()...)
 
 	for _, stmt := range ddl {

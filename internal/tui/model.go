@@ -48,6 +48,7 @@ const (
 	screenInfo
 	screenHermesForm
 	screenHermesSnippet
+	screenAuditTrail
 )
 
 // confirmAction identifies the write the confirmation screen gates. One screen
@@ -151,6 +152,9 @@ type AppModel struct {
 
 	// read-only table view
 	tableFilter admin.ListFilter
+	// auditEvents holds the read-only audit page of the audit view screen
+	// (feat-tui-ops-residuals S1): the rows the viewport renders, newest first.
+	auditEvents []admin.AuditEventView
 	tableTitle  string
 	viewport    viewport.Model
 
@@ -229,6 +233,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onProfessionals(msg)
 	case accountsMsg:
 		return m.onAccounts(msg)
+	case auditMsg:
+		return m.onAudit(msg)
 	case transferDataMsg:
 		return m.onTransferData(msg)
 	case selfOwnerMsg:
@@ -358,6 +364,10 @@ func (m AppModel) routeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key.String() == "i" {
 			return m.toggleInactive()
 		}
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(key)
+		return m, cmd
+	case screenAuditTrail:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(key)
 		return m, cmd
@@ -627,6 +637,8 @@ func (m AppModel) openMenuItem(index int) (tea.Model, tea.Cmd) {
 		return m.started(selfOwnerCmd(m.ctx, m.deps))
 	case capabilityConfigureHermes:
 		return m.started(hermesDataCmd(m.ctx, m.deps))
+	case capabilityAuditLog:
+		return m.started(auditCmd(m.ctx, m.deps))
 	default:
 		return m, nil
 	}

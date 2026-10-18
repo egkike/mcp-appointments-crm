@@ -3,6 +3,8 @@ package usecase
 import (
 	"log/slog"
 	"time"
+
+	entity "github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
 // Registration audit trail (change feat-whatsapp-bot, design §1.3 step 6).
@@ -39,11 +41,12 @@ func registrationLogger(logger *slog.Logger) *slog.Logger {
 // "***" (spec: the audit value MUST be "masked to its last 4 digits"). Values
 // short enough that the last-4 rule would expose the whole number collapse to
 // "***", so the full phone can never reach the log.
+//
+// Since feat-tui-ops-residuals S1 the rule lives in entity.MaskPhone so the
+// persistable audit rows and this log rule share one source; this shim keeps
+// call sites and tests of the registration audit untouched.
 func maskPhone(phone string) string {
-	if len(phone) <= 4 {
-		return "***"
-	}
-	return "***" + phone[len(phone)-4:]
+	return entity.MaskPhone(phone)
 }
 
 // logRegistrationEvent emits the single structured audit record of one

@@ -18,16 +18,62 @@ import (
 var _ domainrepo.AccountsRepo = (*AccountsRepo)(nil)
 
 // AccountsRepo provides CRUD operations for the accounts table.
-// All mutations emit structured audit logs via the injected *slog.Logger.
+// All mutations emit structured audit logs via the injected *slog.Logger and
+// persist the same outcome into the append-only `accounts_audit` table via
+// the embedded AccountsAuditRepo (feat-tui-ops-residuals S1: the DB row is the
+// durable consultable source, slog stays the operational channel — same
+// emission sites, one row per outcome, never PII).
 type AccountsRepo struct {
 	db     *sql.DB
 	logger *slog.Logger
+	audit  *AccountsAuditRepo
 }
 
 // NewAccountsRepo creates a repo with an already-open *sql.DB and configured *slog.Logger.
 // It does NOT open connections or run migrations.
 func NewAccountsRepo(db *sql.DB, logger *slog.Logger) *AccountsRepo {
-	return &AccountsRepo{db: db, logger: logger}
+	return &AccountsRepo{db: db, logger: logger, audit: NewAccountsAuditRepo(db)}
+}
+
+// persistAuditEvent writes the durable audit row for a mutation outcome. The
+// slog emission stays authoritative-operational: an audit write failure is
+// logged and swallowed, never rolled back (spec: same criterion as the
+// current slog trail — the mutation MUST NOT fail because the audit sink
+// failed, otherwise the audit sink would become a write blocker on the
+// critical path).
+func (r *AccountsRepo) persistAuditEvent(ctx context.Context, e *entity.AccountAuditEvent) {
+	if err := r.audit.Append(ctx, e); err != nil {
+		r.logger.Warn("audit row write failed", "audit_event", e.Event, "error", err)
+	}
+}
+
+// newAccountAuditEvent assembles the masked, non-PII event every emission
+// site persists: actor hashed via auth.HashCallerID (the same decision the
+// middleware already made for its records), target phone always MaskPhone-ed,
+// detail JSON expected pre-masked by the caller (the transfer's
+// previous_owner_id) so no column ever carries a raw phone.
+func newAccountAuditEvent(actorID, eventID, action, targetID string, targetRole entity.AccountRole, detail *entity.AccountAuditDetail) *entity.AccountAuditEvent {
+	role := ""
+	if targetRole != "" {
+		role = string(targetRole)
+	}
+	actorRef := ""
+	if actorID != "" {
+		actorRef = auth.HashCallerID(actorID)
+	}
+	return &entity.AccountAuditEvent{
+		Ts:       time.Now().UTC().Format(time.RFC3339Nano),
+		Event:    eventID,
+		ActorRef: actorRef,
+		// The account id IS the phone: the persistence rule "no raw PII in any
+		// column" binds this field too, so the target ships masked here as well
+		// (phone_masked makes the rule explicit for every reader of the row).
+		TargetID:    entity.MaskPhone(targetID),
+		TargetRole:  role,
+		Action:      action,
+		PhoneMasked: entity.MaskPhone(targetID),
+		Detail:      detail,
+	}
 }
 
 // validRole checks if the role is one of the three allowed values.
@@ -75,10 +121,13 @@ func (r *AccountsRepo) Create(ctx context.Context, a *entity.Account) error {
 			return fmt.Errorf("verificar owner activo: %w", err)
 		}
 		if count > 0 {
-			// Emit security audit log for the rejection attempt
-			attrs := auditAttrs(actorFromContext(ctx), a.ID, string(a.Role))
+			// Emit security audit log for the rejection attempt (slog + durable
+			// audit row: the rejection leaves a trace and nothing else).
+			actorID := actorFromContext(ctx)
+			attrs := auditAttrs(actorID, a.ID, string(a.Role))
 			attrs = append(attrs, "result", "rejected")
 			r.logger.Warn("second active owner rejected", attrs...)
+			r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventRejected, entity.AccountAuditActionReject, a.ID, a.Role, nil))
 			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", domain.ErrConflict)
 		}
 	}
@@ -107,7 +156,9 @@ func (r *AccountsRepo) Create(ctx context.Context, a *entity.Account) error {
 		return fmt.Errorf("crear cuenta: %w", err)
 	}
 
-	r.logger.Info("account created", auditAttrs(actorFromContext(ctx), a.ID, string(a.Role))...)
+	actorID := actorFromContext(ctx)
+	r.logger.Info("account created", auditAttrs(actorID, a.ID, string(a.Role))...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventCreated, entity.AccountAuditActionCreate, a.ID, a.Role, nil))
 	return nil
 }
 
@@ -257,7 +308,9 @@ func (r *AccountsRepo) Update(ctx context.Context, a *entity.Account) error {
 	// RowsAffected == 0 after a confirmed-existing row means no-op update (same values). Not an error.
 	_ = result
 
-	r.logger.Info("account updated", auditAttrs(actorFromContext(ctx), a.ID, string(a.Role))...)
+	actorID := actorFromContext(ctx)
+	r.logger.Info("account updated", auditAttrs(actorID, a.ID, string(a.Role))...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventUpdated, entity.AccountAuditActionUpdate, a.ID, a.Role, nil))
 	return nil
 }
 
@@ -298,7 +351,9 @@ func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error {
 		return fmt.Errorf("desactivar cuenta: %w", err)
 	}
 
-	r.logger.Info("account deactivated", auditAttrs(actorFromContext(ctx), id, role)...)
+	actorID := actorFromContext(ctx)
+	r.logger.Info("account deactivated", auditAttrs(actorID, id, role)...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventDeactive, entity.AccountAuditActionDeactivate, id, entity.AccountRole(role), nil))
 	return nil
 }
 
@@ -373,9 +428,16 @@ func (r *AccountsRepo) TransferOwnership(ctx context.Context, fromID, toID strin
 	}
 	committed = true
 
-	attrs := auditAttrs(actorFromContext(ctx), toID, string(entity.RoleOwner))
+	actorID := actorFromContext(ctx)
+	// Detail is the typed audit payload: the sink marshals it, so no
+	// free-form JSON can bypass the mask rule (previous owner ships masked).
+	detail := &entity.AccountAuditDetail{PreviousOwnerMasked: entity.MaskPhone(fromID)}
+	// slog keeps the historical raw shape (existing pin): the "no raw PII"
+	// rule this slice adds binds the PERSISTED rows, not the journal.
+	attrs := auditAttrs(actorID, toID, string(entity.RoleOwner))
 	attrs = append(attrs, "previous_owner_id", fromID)
 	r.logger.Info("ownership transferred", attrs...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventTransfer, entity.AccountAuditActionTransfer, toID, entity.RoleOwner, detail))
 	return nil
 }
 

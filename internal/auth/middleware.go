@@ -129,7 +129,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			// server-side with a hashed caller reference: the raw ID is PII
 			// and the resolver error text no longer embeds it.
 			m.logger.Error("auth: caller resolution failed",
-				"caller_hash", hashCallerID(id),
+				"caller_hash", HashCallerID(id),
 				"error", err,
 			)
 			http.Error(w, "error interno", http.StatusInternalServerError)
@@ -158,7 +158,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		// Step 7: audit log for privileged callers (hashed ID — no PII in logs)
 		if caller.Role == RoleAdmin || caller.Role == RoleOwner {
 			m.logger.Info("privileged access",
-				"caller_hash", hashCallerID(caller.ID),
+				"caller_hash", HashCallerID(caller.ID),
 				"tool", tool,
 			)
 		}
@@ -179,17 +179,19 @@ func roleAllowed(role string, allowed []string) bool {
 	return false
 }
 
-// hashCallerID returns the SHA-256 digest of the caller ID for audit and
+// HashCallerID returns the SHA-256 digest of the caller ID for audit and
 // error logs: a stable correlation key that keeps raw PII (phone numbers,
-// emails) out of log output. The digest is one-way but NOT non-reversible:
-// caller IDs are low-entropy (phone numbers, emails — a ~10^10–10^11 value
-// space), so an offline enumeration over the ID space can recover them from
-// any unkeyed digest. Accepted deviation, signed off by the project owner on
-// 2026-08-20: this server is loopback-only (127.0.0.1), single-tenant, and its
-// logs never leave the host. A keyed HMAC is required BEFORE logs are shipped
-// off-host (defense-in-depth tradeoff, per GGA WARNING-1 on commit
-// followups-mcp-suggestions).
-func hashCallerID(id string) string {
+// emails) out of log output. Exported for the audit emitters that persist
+// rows (accounts_audit): the table stores the same hashed reference decision
+// the middleware already made (design §1.2, "actor_ref"). The digest is
+// one-way but NOT non-reversible: caller IDs are low-entropy (phone numbers,
+// emails — a ~10^10–10^11 value space), so an offline enumeration over the ID
+// space can recover them from any unkeyed digest. Accepted deviation, signed
+// off by the project owner on 2026-08-20: this server is loopback-only
+// (127.0.0.1), single-tenant, and its logs never leave the host. A keyed HMAC
+// is required BEFORE logs are shipped off-host (defense-in-depth tradeoff,
+// per GGA WARNING-1 on commit followups-mcp-suggestions).
+func HashCallerID(id string) string {
 	h := sha256.Sum256([]byte(id))
 	return fmt.Sprintf("%x", h[:]) // full 256-bit digest (64 hex chars)
 }

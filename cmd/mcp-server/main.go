@@ -697,6 +697,7 @@ type identityDeps struct {
 	clients          *repository.ClientsRepo
 	professionals    *repository.ProfessionalsRepo
 	businessProfiles *repository.BusinessProfileRepo
+	audit            *repository.AccountsAuditRepo
 }
 
 // newIdentityDeps constructs the accounts, clients and professionals
@@ -708,5 +709,6 @@ func newIdentityDeps(database *db.DB, logger *slog.Logger) identityDeps {
 		clients:          repository.NewClientsRepo(database.Conn),
 		professionals:    repository.NewProfessionalsRepo(database.Conn),
 		businessProfiles: repository.NewBusinessProfileRepo(database.Conn),
+		audit:            repository.NewAccountsAuditRepo(database.Conn),
 	}
 }

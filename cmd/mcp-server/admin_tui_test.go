@@ -1433,18 +1433,22 @@ func TestAdminMenuOptions_RegistersConfigureHermes(t *testing.T) {
 		return tui.HermesConfig{Path: "p", EndpointURL: "e"}, nil
 	}, nil)
 
-	if len(options) != 7 {
-		t.Fatalf("option count = %d, want 7", len(options))
+	if len(options) != 8 {
+		t.Fatalf("option count = %d, want 8", len(options))
 	}
 	last := options[len(options)-1]
-	if last.key != "7" {
-		t.Errorf("last option key = %q, want %q", last.key, "7")
+	if last.key != "8" {
+		t.Errorf("last option key = %q, want %q", last.key, "8")
 	}
-	if last.label != "Configurar Hermes" {
-		t.Errorf("last option label = %q, want %q", last.label, "Configurar Hermes")
+	if last.label != "Ver audit log" {
+		t.Errorf("last option label = %q, want %q", last.label, "Ver audit log")
 	}
 	if last.action == nil {
-		t.Error("last option action = nil, want the Hermes flow")
+		t.Error("last option action = nil, want the audit trail flow")
+	}
+	hermes := options[len(options)-2]
+	if hermes.key != "7" || hermes.label != "Configurar Hermes" || hermes.action == nil {
+		t.Errorf("second-to-last option = {%q %q %v}, want the Hermes flow", hermes.key, hermes.label, hermes.action != nil)
 	}
 }
 

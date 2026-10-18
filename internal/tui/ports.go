@@ -132,6 +132,10 @@ type Deps struct {
 	Professionals ProfessionalsPort
 	Clients       ClientsPort
 	Hermes        HermesBootstrap
+	// Audit is the read-only slice of the persisted account audit trail the
+	// "Ver audit log" view needs (feat-tui-ops-residuals S1, OQ-6). The write
+	// side lives in the repository layer, so this is deliberately reader-only.
+	Audit admin.AuditTrailReader
 	// BusinessProfile is the narrow read the receptionist-skill regeneration
 	// needs to resolve the business name (ADR-0020 §4). Nil means the
 	// composition root did not wire it: the regeneration reports it instead of

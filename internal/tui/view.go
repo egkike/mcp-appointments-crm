@@ -69,6 +69,7 @@ const (
 	capabilityTransfer
 	capabilityAddSelf
 	capabilityConfigureHermes
+	capabilityAuditLog
 )
 
 // menuItem is one numbered entry of the operator menu, in menu order.
@@ -88,6 +89,7 @@ func menuItems() []menuItem {
 		{label: "Transferir ownership", capability: capabilityTransfer},
 		{label: "Agregarme como cliente", capability: capabilityAddSelf},
 		{label: "Configurar Hermes", capability: capabilityConfigureHermes},
+		{label: "Ver audit log", capability: capabilityAuditLog},
 	}
 }
 
@@ -178,6 +180,8 @@ func (m AppModel) View() string {
 		b.WriteString(m.viewInfo())
 	case screenHermesSnippet:
 		b.WriteString(m.viewHermesSnippet())
+	case screenAuditTrail:
+		b.WriteString(m.viewAuditTrail())
 	}
 
 	b.WriteString("\n" + subtleStyle.Render(m.hintLine()) + "\n")

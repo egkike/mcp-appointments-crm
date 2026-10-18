@@ -581,8 +581,8 @@ func TestMiddleware_AuditLog_Admin(t *testing.T) {
 		attrs[a.Key] = a.Value.Any()
 		return true
 	})
-	if attrs["caller_hash"] != hashCallerID(id) {
-		t.Errorf("audit caller_hash = %v; want %q", attrs["caller_hash"], hashCallerID(id))
+	if attrs["caller_hash"] != HashCallerID(id) {
+		t.Errorf("audit caller_hash = %v; want %q", attrs["caller_hash"], HashCallerID(id))
 	}
 	// The audit hash is the FULL 256-bit digest (64 hex chars), never a
 	// truncated prefix (GGA WARNING-1).
