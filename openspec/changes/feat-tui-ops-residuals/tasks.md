@@ -95,18 +95,18 @@
 
 #### TASK-2.4 — GREEN: tabla + adaptador (aplica OQ-2)
 
-- [ ] DDL `accounts_audit` en `internal/db/schema.go` (nuevo builder compuesto por `initSchema`), con índices `ts` y `target_id`
-- [ ] Adaptador `internal/repository/accounts_audit.go` con prepared statements (`Append`, `List`)
-- [ ] Puerto en `internal/domain/repository` si la escritura vive fuera del repo de cuentas
-- [ ] Conectar `Append` en los puntos de emisión existentes (`internal/repository/accounts.go`, `internal/application/usecase/maintenance_audit.go`) manteniendo el `slog`
+- [x] DDL `accounts_audit` en `internal/db/schema.go` (nuevo builder compuesto por `initSchema`), con índices `ts` y `target_id` — **DONE 921db5a** (builder `accountAuditDDL` + triggers `accountAuditImmutabilityDDL`; índices ts/target)
+- [x] Adaptador `internal/repository/accounts_audit.go` con prepared statements (`Append`, `List`) — **DONE** (`Append` sink contract-enforcing; `LastAccountsAudit` ORDER BY id, clamp 200/500)
+- [x] Puerto en `internal/domain/repository` si la escritura vive fuera del repo de cuentas — **DONE** (`AccountAuditReader` read-only; write inside the repo layer)
+- [x] Conectar `Append` en los puntos de emisión existentes (`internal/repository/accounts.go`) manteniendo el `slog` — **DONE** (5 sites: create/update/deactivate/transfer/second-owner-reject; fail-open; maintenance/registration slog sites stay slog-only per design §1.3 — solo mutaciones de cuentas persiste la fila)
 - [ ] **Edit surface:** `internal/db/schema.go`, `internal/repository/accounts_audit.go` (new), `internal/domain/repository/accounts_audit.go` (new), `internal/repository/accounts.go`, `internal/application/usecase/maintenance_audit.go`
 
 #### TASK-2.5 — GREEN: núcleo + vista (aplica OQ-6)
 
-- [ ] `internal/admin.ListAuditEvents` con proyección mínima
-- [ ] `capabilityAuditLog` en `internal/tui/view.go` + dispatch en `internal/tui/model.go` + pantalla read-only
-- [ ] Entrada espejo en `adminMenuOptions` (`cmd/mcp-server/admin_tui.go`) con el mismo núcleo
-- [ ] Tests MVU (read-only, mensajes en español) + test de paridad de consola
+- [x] `internal/admin.ListAuditTrail` con proyección mínima — **DONE** (AuditEventView + `AuditLine`)
+- [x] `capabilityAuditLog` en `internal/tui/view.go` + dispatch en `internal/tui/model.go` + pantalla read-only — **DONE** (menu entry "Ver audit log", screenAuditTrail, viewport read-only)
+- [x] Entrada espejo en `adminMenuOptions` (`cmd/mcp-server/admin_tui.go`) con el mismo núcleo — **DONE** (key 8 `runAuditTrailFlow`; menu pin tests both sides updated)
+- [x] Tests MVU (read-only, mensajes en español) + test de paridad de consola — **DONE** (TestAppModelAuditViewIsReadOnlyAndScrollable + repo/trigger/fail-open/mask pins; console menu pin)
 - [ ] **Gate:** pipeline completo + `go test -race ./...`
 - **Edit surface:** `internal/admin/audit.go` (new), `internal/tui/view.go`, `internal/tui/model.go`, `internal/tui/cmds.go`, `cmd/mcp-server/admin_tui.go`, tests de paridad
 - **Slice estimate:** ~300–380 líneas totales; el slice se divide en (a) tabla+adaptador y (b) núcleo+vista si supera el presupuesto.
