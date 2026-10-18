@@ -18,16 +18,62 @@ import (
 var _ domainrepo.AccountsRepo = (*AccountsRepo)(nil)
 
 // AccountsRepo provides CRUD operations for the accounts table.
-// All mutations emit structured audit logs via the injected *slog.Logger.
+// All mutations emit structured audit logs via the injected *slog.Logger and
+// persist the same outcome into the append-only `accounts_audit` table via
+// the embedded AccountsAuditRepo (feat-tui-ops-residuals S1: the DB row is the
+// durable consultable source, slog stays the operational channel — same
+// emission sites, one row per outcome, never PII).
 type AccountsRepo struct {
 	db     *sql.DB
 	logger *slog.Logger
+	audit  *AccountsAuditRepo
 }
 
 // NewAccountsRepo creates a repo with an already-open *sql.DB and configured *slog.Logger.
 // It does NOT open connections or run migrations.
 func NewAccountsRepo(db *sql.DB, logger *slog.Logger) *AccountsRepo {
-	return &AccountsRepo{db: db, logger: logger}
+	return &AccountsRepo{db: db, logger: logger, audit: NewAccountsAuditRepo(db)}
+}
+
+// persistAuditEvent writes the durable audit row for a mutation outcome. The
+// slog emission stays authoritative-operational: an audit write failure is
+// logged and swallowed, never rolled back (spec: same criterion as the
+// current slog trail — the mutation MUST NOT fail because the audit sink
+// failed, otherwise the audit sink would become a write blocker on the
+// critical path).
+func (r *AccountsRepo) persistAuditEvent(ctx context.Context, e *entity.AccountAuditEvent) {
+	if err := r.audit.Append(ctx, e); err != nil {
+		r.logger.Warn("audit row write failed", "audit_event", e.Event, "error", err)
+	}
+}
+
+// newAccountAuditEvent assembles the masked, non-PII event every emission
+// site persists: actor hashed via auth.HashCallerID (the same decision the
+// middleware already made for its records), target phone always MaskPhone-ed,
+// detail JSON expected pre-masked by the caller (the transfer's
+// previous_owner_id) so no column ever carries a raw phone.
+func newAccountAuditEvent(actorID, eventID, action, targetID string, targetRole entity.AccountRole, detail *entity.AccountAuditDetail) *entity.AccountAuditEvent {
+	role := ""
+	if targetRole != "" {
+		role = string(targetRole)
+	}
+	actorRef := ""
+	if actorID != "" {
+		actorRef = auth.HashCallerID(actorID)
+	}
+	return &entity.AccountAuditEvent{
+		Ts:       time.Now().UTC().Format(time.RFC3339Nano),
+		Event:    eventID,
+		ActorRef: actorRef,
+		// The account id IS the phone: the persistence rule "no raw PII in any
+		// column" binds this field too, so the target ships masked here as well
+		// (phone_masked makes the rule explicit for every reader of the row).
+		TargetID:    entity.MaskPhone(targetID),
+		TargetRole:  role,
+		Action:      action,
+		PhoneMasked: entity.MaskPhone(targetID),
+		Detail:      detail,
+	}
 }
 
 // validRole checks if the role is one of the three allowed values.
@@ -75,10 +121,13 @@ func (r *AccountsRepo) Create(ctx context.Context, a *entity.Account) error {
 			return fmt.Errorf("verificar owner activo: %w", err)
 		}
 		if count > 0 {
-			// Emit security audit log for the rejection attempt
-			attrs := auditAttrs(actorFromContext(ctx), a.ID, string(a.Role))
+			// Emit security audit log for the rejection attempt (slog + durable
+			// audit row: the rejection leaves a trace and nothing else).
+			actorID := actorFromContext(ctx)
+			attrs := auditAttrs(actorID, a.ID, string(a.Role))
 			attrs = append(attrs, "result", "rejected")
 			r.logger.Warn("second active owner rejected", attrs...)
+			r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventRejected, entity.AccountAuditActionReject, a.ID, a.Role, nil))
 			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", domain.ErrConflict)
 		}
 	}
@@ -107,7 +156,9 @@ func (r *AccountsRepo) Create(ctx context.Context, a *entity.Account) error {
 		return fmt.Errorf("crear cuenta: %w", err)
 	}
 
-	r.logger.Info("account created", auditAttrs(actorFromContext(ctx), a.ID, string(a.Role))...)
+	actorID := actorFromContext(ctx)
+	r.logger.Info("account created", auditAttrs(actorID, a.ID, string(a.Role))...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventCreated, entity.AccountAuditActionCreate, a.ID, a.Role, nil))
 	return nil
 }
 
@@ -184,6 +235,88 @@ func (r *AccountsRepo) GetByRole(ctx context.Context, role entity.AccountRole) (
 
 // List returns all accounts ordered by created_at ASC. Returns empty slice (not nil) when no rows exist.
 // Requires an authenticated caller.
+// PurgeInactive hard-deletes ONE account row by id, refusing anything that
+// is not an INACTIVE account (feat-tui-ops-residuals S3; owner-only per
+// ADR-0016 governance). The `is_active = 0` re-check inside the DELETE keeps
+// the confirm-to-execute window closed without a transaction: an account
+// re-activated between the operator's confirmation and the write is not
+// deleted (0 rows affected → purged=false). The caller re-reads the current
+// state for display, never trusting a stale pick (mirrors the deactivate
+// snapshot rule).
+//
+// FK-safe by construction: no table references accounts (verified, design
+// §3.3), so the DELETE cannot cascade or violate a RESTRICT.
+// Both the slog record and the durable audit row fire only when the row was
+// really deleted; the audit write stays fail-open (S1 policy).
+func (r *AccountsRepo) PurgeInactive(ctx context.Context, id string) (bool, error) {
+	if _, err := auth.RequireRole(ctx, auth.RoleOwner); err != nil {
+		return false, fmt.Errorf("purgar cuenta: %w", err)
+	}
+	if id == "" {
+		return false, fmt.Errorf("purgar cuenta: %w: el id no puede estar vacío", domain.ErrInvalidInput)
+	}
+
+	// The row dies in this call, so the REAL role must be captured ATOMICALLY
+	// with the delete (read-then-delete opens a stale-role window if a
+	// concurrent update lands between the two statements): one transaction
+	// guards both, and the is_active=0 re-check runs INSIDE it.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("purgar cuenta: iniciar la transacción: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var role string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT role FROM accounts WHERE id = ? AND is_active = 0`, id,
+	).Scan(&role); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("purgar cuenta: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx,
+		`DELETE FROM accounts WHERE id = ? AND is_active = 0`, id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("purgar cuenta: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("purgar cuenta: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("purgar cuenta: confirmar la transacción: %w", err)
+	}
+	committed = true
+
+	actorID := actorFromContext(ctx)
+	r.logger.Info("account purged", auditAttrs(actorID, id, role)...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(
+		actorID, entity.AccountAuditEventPurged, entity.AccountAuditActionPurge,
+		id, entity.AccountRole(role), nil))
+	return true, nil
+}
+
+// LastAccountsAudit delegates the read-only audit page to the embedded audit
+// adapter, so the single AccountsRepo handle satisfies reader ports too
+// (admin.AuditTrailReader) without the composition root keeping two handles
+// alive per database.
+func (r *AccountsRepo) LastAccountsAudit(ctx context.Context, limit int) ([]*entity.AccountAuditEvent, error) {
+	return r.audit.LastAccountsAudit(ctx, limit)
+}
+
+// List returns every account row, active or not, oldest first — the raw base
+// of the list views and of the purge preview.
 func (r *AccountsRepo) List(ctx context.Context) ([]*entity.Account, error) {
 	if _, err := auth.RequireCaller(ctx); err != nil {
 		return nil, fmt.Errorf("listar cuentas: %w", err)
@@ -257,7 +390,9 @@ func (r *AccountsRepo) Update(ctx context.Context, a *entity.Account) error {
 	// RowsAffected == 0 after a confirmed-existing row means no-op update (same values). Not an error.
 	_ = result
 
-	r.logger.Info("account updated", auditAttrs(actorFromContext(ctx), a.ID, string(a.Role))...)
+	actorID := actorFromContext(ctx)
+	r.logger.Info("account updated", auditAttrs(actorID, a.ID, string(a.Role))...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventUpdated, entity.AccountAuditActionUpdate, a.ID, a.Role, nil))
 	return nil
 }
 
@@ -298,7 +433,9 @@ func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error {
 		return fmt.Errorf("desactivar cuenta: %w", err)
 	}
 
-	r.logger.Info("account deactivated", auditAttrs(actorFromContext(ctx), id, role)...)
+	actorID := actorFromContext(ctx)
+	r.logger.Info("account deactivated", auditAttrs(actorID, id, role)...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventDeactive, entity.AccountAuditActionDeactivate, id, entity.AccountRole(role), nil))
 	return nil
 }
 
@@ -373,9 +510,16 @@ func (r *AccountsRepo) TransferOwnership(ctx context.Context, fromID, toID strin
 	}
 	committed = true
 
-	attrs := auditAttrs(actorFromContext(ctx), toID, string(entity.RoleOwner))
+	actorID := actorFromContext(ctx)
+	// Detail is the typed audit payload: the sink marshals it, so no
+	// free-form JSON can bypass the mask rule (previous owner ships masked).
+	detail := &entity.AccountAuditDetail{PreviousOwnerMasked: entity.MaskPhone(fromID)}
+	// slog keeps the historical raw shape (existing pin): the "no raw PII"
+	// rule this slice adds binds the PERSISTED rows, not the journal.
+	attrs := auditAttrs(actorID, toID, string(entity.RoleOwner))
 	attrs = append(attrs, "previous_owner_id", fromID)
 	r.logger.Info("ownership transferred", attrs...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventTransfer, entity.AccountAuditActionTransfer, toID, entity.RoleOwner, detail))
 	return nil
 }
 

@@ -14,7 +14,7 @@ func TestProfileDayKey(t *testing.T) {
 	tests := []struct {
 		name    string
 		weekday time.Weekday
-		want    int
+		want    DayKey
 	}{
 		{"sunday maps to 7", time.Sunday, 7},
 		{"monday maps to 1", time.Monday, 1},

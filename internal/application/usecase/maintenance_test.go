@@ -922,7 +922,7 @@ func TestUpsertScheduleUseCase_ReturnsTheRowWrittenByTheAdapter(t *testing.T) {
 			stored.ID = 7
 			return &stored, nil
 		},
-		FindByProfessionalAndDayFn: func(context.Context, string, int) (*entity.Schedule, error) {
+		FindByProfessionalAndDayFn: func(context.Context, string, entity.ScheduleWeekday) (*entity.Schedule, error) {
 			readBackCalled = true
 			return &entity.Schedule{ID: 99, StartTime: "00:00", EndTime: "00:01"}, nil
 		},
@@ -1043,11 +1043,11 @@ func TestDeleteScheduleUseCase_HappyPath(t *testing.T) {
 	logger, buf := captureAuditLogger()
 	var deletedDay int
 	repo := &mockSchedulesRepo{
-		DeleteFn: func(_ context.Context, professionalID string, day int) error {
+		DeleteFn: func(_ context.Context, professionalID string, day entity.ScheduleWeekday) error {
 			if professionalID != "p1" {
 				t.Fatalf("Delete professionalID = %q, want p1", professionalID)
 			}
-			deletedDay = day
+			deletedDay = int(day)
 			return nil
 		},
 	}
@@ -1068,7 +1068,7 @@ func TestDeleteScheduleUseCase_HappyPath(t *testing.T) {
 
 func TestDeleteScheduleUseCase_NotFound(t *testing.T) {
 	repo := &mockSchedulesRepo{
-		DeleteFn: func(context.Context, string, int) error { return domain.ErrNotFound },
+		DeleteFn: func(context.Context, string, entity.ScheduleWeekday) error { return domain.ErrNotFound },
 	}
 	uc := NewDeleteScheduleUseCase(repo, nil)
 
@@ -1078,7 +1078,7 @@ func TestDeleteScheduleUseCase_NotFound(t *testing.T) {
 
 func TestDeleteScheduleUseCase_InvalidDay(t *testing.T) {
 	repo := &mockSchedulesRepo{
-		DeleteFn: func(context.Context, string, int) error { return domain.ErrInvalidInput },
+		DeleteFn: func(context.Context, string, entity.ScheduleWeekday) error { return domain.ErrInvalidInput },
 	}
 	uc := NewDeleteScheduleUseCase(repo, nil)
 
@@ -1090,7 +1090,7 @@ func TestDeleteScheduleUseCase_Forbidden(t *testing.T) {
 	logger, buf := captureAuditLogger()
 	called := false
 	repo := &mockSchedulesRepo{
-		DeleteFn: func(context.Context, string, int) error { called = true; return nil },
+		DeleteFn: func(context.Context, string, entity.ScheduleWeekday) error { called = true; return nil },
 	}
 	uc := NewDeleteScheduleUseCase(repo, logger)
 
@@ -1120,7 +1120,7 @@ func TestMaintenanceUseCases_NilLoggerDoesNotPanic(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	schedules := &mockSchedulesRepo{DeleteFn: func(context.Context, string, int) error { return nil }}
+	schedules := &mockSchedulesRepo{DeleteFn: func(context.Context, string, entity.ScheduleWeekday) error { return nil }}
 	if _, err := NewDeleteScheduleUseCase(schedules, nil).Execute(context.Background(), dto.DeleteScheduleInput{Caller: ownerCaller(), ProfessionalID: "p1", DayOfWeek: 1}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

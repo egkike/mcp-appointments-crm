@@ -1433,18 +1433,26 @@ func TestAdminMenuOptions_RegistersConfigureHermes(t *testing.T) {
 		return tui.HermesConfig{Path: "p", EndpointURL: "e"}, nil
 	}, nil)
 
-	if len(options) != 7 {
-		t.Fatalf("option count = %d, want 7", len(options))
+	if len(options) != 9 {
+		t.Fatalf("option count = %d, want 9", len(options))
 	}
 	last := options[len(options)-1]
-	if last.key != "7" {
-		t.Errorf("last option key = %q, want %q", last.key, "7")
+	if last.key != "9" {
+		t.Errorf("last option key = %q, want %q", last.key, "9")
 	}
-	if last.label != "Configurar Hermes" {
-		t.Errorf("last option label = %q, want %q", last.label, "Configurar Hermes")
+	if last.label != "Purgar cuentas desactivadas" {
+		t.Errorf("last option label = %q, want %q", last.label, "Purgar cuentas desactivadas")
 	}
 	if last.action == nil {
-		t.Error("last option action = nil, want the Hermes flow")
+		t.Error("last option action = nil, want the purge flow")
+	}
+	audit := options[len(options)-2]
+	if audit.key != "8" || audit.label != "Ver audit log" || audit.action == nil {
+		t.Errorf("second-to-last option = {%q %q %v}, want the audit trail flow", audit.key, audit.label, audit.action != nil)
+	}
+	hermes := options[len(options)-3]
+	if hermes.key != "7" || hermes.label != "Configurar Hermes" || hermes.action == nil {
+		t.Errorf("third-to-last option = {%q %q %v}, want the Hermes flow", hermes.key, hermes.label, hermes.action != nil)
 	}
 }
 

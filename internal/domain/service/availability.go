@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
 
@@ -105,7 +106,7 @@ func (s *AvailabilityService) CheckAvailability(
 	}
 
 	localStart := startTime.In(loc)
-	dayOfWeek := int(localStart.Weekday())
+	dayOfWeek := entity.ScheduleDay(localStart.Weekday())
 
 	exceptionDate := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, loc)
 	exception, err := deps.BusinessHoursExceptions.Get(ctx, exceptionDate)

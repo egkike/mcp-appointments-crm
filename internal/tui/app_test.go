@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/egkike/mcp-appointments-crm/internal/admin"
 	"github.com/egkike/mcp-appointments-crm/internal/db"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/repository"
 )
@@ -90,6 +92,7 @@ func newFixture(t *testing.T) fixture {
 		Accounts:      f.accounts,
 		Professionals: f.professionals,
 		Clients:       f.clients,
+		Audit:         f.accounts,
 		Hermes:        NewHermesBootstrap(func() (HermesConfig, error) { return *hermes, nil }),
 	}
 	return f
@@ -255,7 +258,7 @@ func (d *driver) run(cmd tea.Cmd) {
 		}
 	case tea.QuitMsg:
 		d.quit = true
-	case gateMsg, professionalsMsg, accountsMsg, transferDataMsg, selfOwnerMsg, hermesDataMsg, hermesResultMsg, skillStateMsg, skillResultMsg, resultMsg:
+	case gateMsg, professionalsMsg, accountsMsg, transferDataMsg, selfOwnerMsg, hermesDataMsg, hermesResultMsg, skillStateMsg, skillResultMsg, resultMsg, auditMsg, purgeDataMsg:
 		d.send(msg)
 	default:
 		// spinner.TickMsg, cursor blink messages and other framework traffic.
@@ -591,7 +594,7 @@ func TestAppModelMenuReachesEveryFlow(t *testing.T) {
 		{
 			name:       "an unknown numbered option is ignored",
 			install:    func(t *testing.T, f fixture) { t.Helper(); f.seedOwner(t, ownerPhone, ownerName) },
-			keys:       []string{"9"},
+			keys:       []string{"0"},
 			wantScreen: screenMenu,
 			wantCopy:   "¿Qué querés hacer?",
 		},
@@ -1025,6 +1028,49 @@ func TestAppModelTableViewScrollsWithTheKeyboard(t *testing.T) {
 		t.Errorf("viewport offset = %d, want the table scrolled by the arrow keys", d.model.viewport.YOffset)
 	}
 }
+
+func TestAppModelAuditViewIsReadOnlyAndScrollable(t *testing.T) {
+	f := newFixture(t)
+
+	events := make([]admin.AuditEventView, 0, 12)
+	for i := range 12 {
+		events = append(events, admin.AuditEventView{
+			Ts:     fmt.Sprintf("2026-10-18T10:%02d:00Z", i),
+			Event:  "account_created",
+			Action: "create",
+			// Views mirror persisted rows: the target id arrives already masked (the id IS the phone).
+			TargetID:    "***00" + fmt.Sprintf("%02d", i),
+			TargetRole:  "staff",
+			PhoneMasked: "***00" + fmt.Sprintf("%02d", i),
+			ActorRef:    strings.Repeat("a", 64),
+		})
+	}
+
+	model := newModel(f)
+	model.screen = screenAuditTrail
+	model.tableTitle = "Audit log (últimos 12, read-only)"
+	model.viewport.Height = 3
+	model.auditEvents = events
+	model.viewport.SetContent(renderAuditTrailTable(model.auditEvents))
+
+	d := &driver{t: t, model: model}
+	d.press("down")
+	d.press("down")
+	if d.model.viewport.YOffset == 0 {
+		t.Errorf("viewport offset = %d, want the audit table scrolled by the arrow keys", d.model.viewport.YOffset)
+	}
+
+	view := renderAuditTrailTable(events)
+	if !strings.Contains(view, "account_created") || !strings.Contains(view, auditMaskedLastRow) {
+		t.Errorf("audit table body = %q, want the event row and the masked phone", view)
+	}
+	if strings.Contains(view, "+5491100000011") {
+		t.Errorf("audit table leaks the raw target id")
+	}
+}
+
+// auditMaskedLastRow is the masked phone of the last fixture row (MaskPhone keeps the last 4 digits).
+const auditMaskedLastRow = "***0011"
 
 func TestAppModelListByRoleFiltersTheTable(t *testing.T) {
 	f := newFixture(t)
@@ -1662,6 +1708,8 @@ func TestMenuItemsMirrorTheFrozenScope(t *testing.T) {
 		"Transferir ownership",
 		"Agregarme como cliente",
 		"Configurar Hermes",
+		"Ver audit log",
+		"Purgar cuentas desactivadas",
 	}
 
 	if len(items) != len(want) {
@@ -1833,4 +1881,50 @@ func templateContent(t *testing.T) string {
 		t.Fatalf("LoadSkillTemplate: %v", err)
 	}
 	return string(body)
+}
+
+// TestAppModelPurgeDoubleGateDeactivatesThenPurges runs the full S3 flow: the
+// operator deactivates a staff account inside the TUI, opens the purge
+// capability, and must pass BOTH the ordinary and the permanent confirm gate
+// before the batch deletes anything (owner decisions OQ-1/OQ-3).
+func TestAppModelPurgeDoubleGateDeactivatesThenPurges(t *testing.T) {
+	f := newFixture(t)
+	withOwnerAndStaff(t, f)
+
+	d := newDriver(t, f)
+	// Deactivate the staff account through the existing gated flow ("2").
+	d.press("2")
+	d.selectRow(staffName)
+	d.press("enter")
+	d.press("s")
+	d.press("enter") // outcome -> menu
+
+	// First gate: the batch summary names the masked row.
+	d.press("9")
+	if d.model.screen != screenConfirm {
+		t.Fatalf("screen after purge data = %v, want the first confirm gate", d.model.screen)
+	}
+	view := d.view()
+	if !strings.Contains(view, "ELIMINA PERMANENTEMENTE") {
+		t.Errorf("first gate view = %q, want the permanent-elimination warning", view)
+	}
+	d.press("s") // ordinary confirm
+
+	// Second gate: the permanent copy, on the SAME ids.
+	if d.model.screen != screenConfirm || d.model.confirm.action != confirmPurgeFinal {
+		t.Fatalf("second gate missing: screen=%v action=%v, want confirmPurgeFinal", d.model.screen, d.model.confirm.action)
+	}
+	if !strings.Contains(d.view(), "ÚLTIMA CONFIRMACIÓN") {
+		t.Errorf("second gate view missing the permanent copy")
+	}
+	d.press("s") // final accept
+
+	end := d.view()
+	if !strings.Contains(end, "Purga completa: 1") {
+		t.Errorf("final view = %q, want the purge outcome line", end)
+	}
+
+	if _, err := f.accounts.FindByID(admin.TUIContext(context.Background()), staffPhone); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("staff row must be hard-deleted, got %v", err)
+	}
 }

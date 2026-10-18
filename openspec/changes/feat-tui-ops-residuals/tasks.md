@@ -70,18 +70,18 @@
 
 #### TASK-2.1 — RED: tests de traducción y frontera
 
-- [ ] Tests de `entity.DayKey` / `entity.ScheduleWeekday`: tabla completa `0..6`, domingo (`DayKey=7`, `ScheduleWeekday=0`), lunes (`1`/`1`)
-- [ ] Test de frontera `GetOpenClose`: día cerrado (`ok=false, err=nil`) vs clave corrupta (`err != nil`, fail-closed)
-- [ ] Registrar el fallo observado (RED)
+- [x] Tests de `entity.DayKey` / `entity.ScheduleWeekday`: tabla completa `0..6`, domingo (`DayKey=7`, `ScheduleWeekday=0`), lunes (`1`/`1`)
+- [x] Test de frontera `GetOpenClose`: día cerrado (`ok=false, err=nil`) vs clave corrupta (`err != nil`, fail-closed)
+- [x] Registrar el fallo observado (RED)
 - **Edit surface:** `internal/domain/entity/business_profile_test.go`, `internal/domain/entity/daykey_test.go` (new)
 
 #### TASK-2.2 — GREEN: tipos nominales + call sites
 
-- [ ] `internal/domain/entity/daykey.go` (new) con `DayKey` (1..7) y `ScheduleWeekday` (0..6) y sus constructores desde `time.Weekday`
-- [ ] Cambiar firma de `GetOpenClose(day DayKey)` y del puerto `SchedulesRepo.FindByProfessionalAndDay(..., day ScheduleWeekday)`
-- [ ] Reemplazar los `int(...Weekday())` crudos en `slot_context.go:89`, `availability.go:108`, `booking_time_validator.go:116`
-- [ ] Correr los tests verdes
-- [ ] **Gate:** `go fmt`, `go vet`, `golangci-lint`, `go build -o /dev/null ./...`, `go test -race ./internal/domain/...`
+- [x] `internal/domain/entity/daykey.go` (new) con `DayKey` (1..7) y `ScheduleWeekday` (0..6) y sus constructores desde `time.Weekday`
+- [x] Cambiar firma de `GetOpenClose(day DayKey)` y del puerto `SchedulesRepo.FindByProfessionalAndDay(..., day ScheduleWeekday)`
+- [x] Reemplazar los `int(...Weekday())` crudos en `slot_context.go:89`, `availability.go:108`, `booking_time_validator.go:116`
+- [x] Correr los tests verdes
+- [x] **Gate:** `go fmt`, `go vet`, `golangci-lint`, `go build -o /dev/null ./...`, `go test -race ./internal/domain/...`
 - **Edit surface:** `internal/domain/entity/daykey.go`, `internal/domain/entity/business_profile.go`, `internal/domain/repository/schedules.go`, `internal/domain/service/slot_context.go`, `internal/domain/service/availability.go`, `internal/domain/service/booking_time_validator.go`
 - **Slice estimate:** ~120–180 líneas (impl + tests). Si excede, dividir entity vs service.
 
@@ -95,18 +95,18 @@
 
 #### TASK-2.4 — GREEN: tabla + adaptador (aplica OQ-2)
 
-- [ ] DDL `accounts_audit` en `internal/db/schema.go` (nuevo builder compuesto por `initSchema`), con índices `ts` y `target_id`
-- [ ] Adaptador `internal/repository/accounts_audit.go` con prepared statements (`Append`, `List`)
-- [ ] Puerto en `internal/domain/repository` si la escritura vive fuera del repo de cuentas
-- [ ] Conectar `Append` en los puntos de emisión existentes (`internal/repository/accounts.go`, `internal/application/usecase/maintenance_audit.go`) manteniendo el `slog`
+- [x] DDL `accounts_audit` en `internal/db/schema.go` (nuevo builder compuesto por `initSchema`), con índices `ts` y `target_id` — **DONE 921db5a** (builder `accountAuditDDL` + triggers `accountAuditImmutabilityDDL`; índices ts/target)
+- [x] Adaptador `internal/repository/accounts_audit.go` con prepared statements (`Append`, `List`) — **DONE** (`Append` sink contract-enforcing; `LastAccountsAudit` ORDER BY id, clamp 200/500)
+- [x] Puerto en `internal/domain/repository` si la escritura vive fuera del repo de cuentas — **DONE** (`AccountAuditReader` read-only; write inside the repo layer)
+- [x] Conectar `Append` en los puntos de emisión existentes (`internal/repository/accounts.go`) manteniendo el `slog` — **DONE** (5 sites: create/update/deactivate/transfer/second-owner-reject; fail-open; maintenance/registration slog sites stay slog-only per design §1.3 — solo mutaciones de cuentas persiste la fila)
 - [ ] **Edit surface:** `internal/db/schema.go`, `internal/repository/accounts_audit.go` (new), `internal/domain/repository/accounts_audit.go` (new), `internal/repository/accounts.go`, `internal/application/usecase/maintenance_audit.go`
 
 #### TASK-2.5 — GREEN: núcleo + vista (aplica OQ-6)
 
-- [ ] `internal/admin.ListAuditEvents` con proyección mínima
-- [ ] `capabilityAuditLog` en `internal/tui/view.go` + dispatch en `internal/tui/model.go` + pantalla read-only
-- [ ] Entrada espejo en `adminMenuOptions` (`cmd/mcp-server/admin_tui.go`) con el mismo núcleo
-- [ ] Tests MVU (read-only, mensajes en español) + test de paridad de consola
+- [x] `internal/admin.ListAuditTrail` con proyección mínima — **DONE** (AuditEventView + `AuditLine`)
+- [x] `capabilityAuditLog` en `internal/tui/view.go` + dispatch en `internal/tui/model.go` + pantalla read-only — **DONE** (menu entry "Ver audit log", screenAuditTrail, viewport read-only)
+- [x] Entrada espejo en `adminMenuOptions` (`cmd/mcp-server/admin_tui.go`) con el mismo núcleo — **DONE** (key 8 `runAuditTrailFlow`; menu pin tests both sides updated)
+- [x] Tests MVU (read-only, mensajes en español) + test de paridad de consola — **DONE** (TestAppModelAuditViewIsReadOnlyAndScrollable + repo/trigger/fail-open/mask pins; console menu pin)
 - [ ] **Gate:** pipeline completo + `go test -race ./...`
 - **Edit surface:** `internal/admin/audit.go` (new), `internal/tui/view.go`, `internal/tui/model.go`, `internal/tui/cmds.go`, `cmd/mcp-server/admin_tui.go`, tests de paridad
 - **Slice estimate:** ~300–380 líneas totales; el slice se divide en (a) tabla+adaptador y (b) núcleo+vista si supera el presupuesto.

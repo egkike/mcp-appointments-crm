@@ -26,8 +26,10 @@ func NewSchedulesRepo(db *sql.DB) *SchedulesRepo {
 	return &SchedulesRepo{db: db}
 }
 
-// validateDayOfWeek checks that day is in the range 0-6 (Sunday-Saturday).
-func validateDayOfWeek(day int) error {
+// validateDayOfWeek checks that day is in the range 0-6 (Sunday-Saturday) of
+// the entity.ScheduleWeekday encoding shared by time.Weekday and
+// schedules.day_of_week.
+func validateDayOfWeek(day entity.ScheduleWeekday) error {
 	if day < 0 || day > 6 {
 		return fmt.Errorf("day_of_week debe estar entre 0 (Domingo) y 6 (Sábado), se recibió %d: %w", day, domain.ErrInvalidInput)
 	}
@@ -56,7 +58,7 @@ func validateScheduleTimes(startTime, endTime string) error {
 // Returns domain.ErrInvalidInput if day_of_week is out of range (0-6).
 // Staff callers can only query their own schedule; the professionalID parameter
 // is overridden with caller.ProfessionalID.
-func (r *SchedulesRepo) FindByProfessionalAndDay(ctx context.Context, professionalID string, dayOfWeek int) (*entity.Schedule, error) {
+func (r *SchedulesRepo) FindByProfessionalAndDay(ctx context.Context, professionalID string, dayOfWeek entity.ScheduleWeekday) (*entity.Schedule, error) {
 	if err := validateDayOfWeek(dayOfWeek); err != nil {
 		return nil, fmt.Errorf("obtener horario: %w", err)
 	}
@@ -124,7 +126,7 @@ func (r *SchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) (*entity
 		return nil, fmt.Errorf("upsert horario: %w", err)
 	}
 
-	if err := validateDayOfWeek(s.DayOfWeek); err != nil {
+	if err := validateDayOfWeek(entity.ScheduleWeekday(s.DayOfWeek)); err != nil {
 		return nil, fmt.Errorf("upsert horario: %w", err)
 	}
 	if err := validateScheduleTimes(s.StartTime, s.EndTime); err != nil {
@@ -169,7 +171,7 @@ func (r *SchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) (*entity
 // Returns domain.ErrNotFound if no schedule exists for that combination.
 // Returns domain.ErrInvalidInput if day_of_week is out of range.
 // Requires admin or owner role.
-func (r *SchedulesRepo) Delete(ctx context.Context, professionalID string, dayOfWeek int) error {
+func (r *SchedulesRepo) Delete(ctx context.Context, professionalID string, dayOfWeek entity.ScheduleWeekday) error {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return fmt.Errorf("eliminar horario: %w", err)
 	}

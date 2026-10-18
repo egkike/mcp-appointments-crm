@@ -152,8 +152,10 @@ func TestSchemaVersion_NoDuplicateOnReInit(t *testing.T) {
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM schema_version").Scan(&count); err != nil {
 		t.Fatalf("count schema_version: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("schema_version row count = %d; want 1", count)
+	// feat-tui-ops-residuals S1 adds version 2 (audit trail); the note the
+	// test still pins is idempotency: re-init must NOT duplicate rows.
+	if count != 2 {
+		t.Errorf("schema_version row count = %d; want 2 (v1 + audit trail v2)", count)
 	}
 }
 

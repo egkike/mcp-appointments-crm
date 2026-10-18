@@ -111,11 +111,12 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 		}
 	}
 
-	// dayOfWeek keeps Go's time.Weekday encoding (0..6, Sunday=0): the one used
-	// by schedules.day_of_week and by spanishDayNamesPlural.
-	dayOfWeek := int(slot.Start.Weekday())
+	// dayOfWeek keeps the schedules encoding (0..6, Sunday=0) used by
+	// schedules.day_of_week and by spanishDayNamesPlural; ScheduleDay is the
+	// single translation point from time.Weekday.
+	dayOfWeek := entity.ScheduleDay(slot.Start.Weekday())
 	// profileDayKey is the business_hours JSON encoding ("1".."7", Monday=1);
-	// entity.ProfileDayKey is the single translation point between both.
+	// entity.ProfileDayKey is the single translation point from time.Weekday.
 	profileDayKey := entity.ProfileDayKey(slot.Start.Weekday())
 	dateStr := slot.Start.Format("2006-01-02")
 

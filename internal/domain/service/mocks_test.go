@@ -67,16 +67,16 @@ func (m *mockBusinessHoursExceptionRepo) List(context.Context, time.Time, time.T
 func (m *mockBusinessHoursExceptionRepo) Delete(context.Context, int) error { return nil }
 
 type mockSchedulesRepo struct {
-	OnFindByProfessionalAndDay func(context.Context, string, int) (*entity.Schedule, error)
+	OnFindByProfessionalAndDay func(context.Context, string, entity.ScheduleWeekday) (*entity.Schedule, error)
 }
 
-func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, pid string, day int) (*entity.Schedule, error) {
+func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, pid string, day entity.ScheduleWeekday) (*entity.Schedule, error) {
 	return m.OnFindByProfessionalAndDay(ctx, pid, day)
 }
 func (m *mockSchedulesRepo) Upsert(context.Context, *entity.Schedule) (*entity.Schedule, error) {
 	return nil, nil
 }
-func (m *mockSchedulesRepo) Delete(context.Context, string, int) error { return nil }
+func (m *mockSchedulesRepo) Delete(context.Context, string, entity.ScheduleWeekday) error { return nil }
 
 type mockBookingsRepo struct {
 	OnFindOverlapping func(context.Context, string, time.Time, time.Time) ([]*entity.Booking, error)

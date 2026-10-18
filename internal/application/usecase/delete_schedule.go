@@ -9,6 +9,7 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	domainrepo "github.com/egkike/mcp-appointments-crm/internal/domain/repository"
 )
 
@@ -35,7 +36,10 @@ func (uc *DeleteScheduleUseCase) Execute(ctx context.Context, input dto.DeleteSc
 		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "no tienes permiso para realizar esta acción", Cause: domain.ErrForbidden}
 	}
 
-	if err := uc.schedules.Delete(ctx, input.ProfessionalID, input.DayOfWeek); err != nil {
+	// DayOfWeek arrives as the wire int (0..6) and is converted to the nominal
+	// schedules encoding at this boundary, so the repository never sees a raw
+	// int that could carry the other (business_hours) convention.
+	if err := uc.schedules.Delete(ctx, input.ProfessionalID, entity.ScheduleWeekday(input.DayOfWeek)); err != nil {
 		switch {
 		case errors.Is(err, domain.ErrNotFound):
 			return nil, &domain.SemanticError{Code: domain.ErrCodeNotFound, Message: "el profesional no tiene un horario ese día", Cause: err}

@@ -34,8 +34,8 @@ func defaultSlotMocks(capturedDay *int, capturedExcDate *time.Time) (
 		*capturedExcDate = d
 		return &entity.BusinessHoursException{ID: 1, ExceptionDate: "2026-08-03", IsClosed: false}, nil
 	}}
-	scheds = &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, day int) (*entity.Schedule, error) {
-		*capturedDay = day
+	scheds = &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, day entity.ScheduleWeekday) (*entity.Schedule, error) {
+		*capturedDay = int(day)
 		return &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 1, StartTime: "09:00", EndTime: "17:00"}, nil
 	}}
 	return pros, profile, excs, scheds
@@ -182,7 +182,7 @@ func TestResolveSlotContext(t *testing.T) {
 			name:  "schedule_lookup_failure_wraps_operation_context",
 			start: mondayUTC,
 			mutate: func(_ *mockProfessionalsRepo, _ *mockBusinessProfileRepo, _ *mockBusinessHoursExceptionRepo, scheds *mockSchedulesRepo) {
-				scheds.OnFindByProfessionalAndDay = func(context.Context, string, int) (*entity.Schedule, error) {
+				scheds.OnFindByProfessionalAndDay = func(context.Context, string, entity.ScheduleWeekday) (*entity.Schedule, error) {
 					return nil, errors.New("boom")
 				}
 			},
@@ -192,7 +192,7 @@ func TestResolveSlotContext(t *testing.T) {
 			name:  "missing_schedule_is_tolerated",
 			start: mondayUTC,
 			mutate: func(_ *mockProfessionalsRepo, _ *mockBusinessProfileRepo, _ *mockBusinessHoursExceptionRepo, scheds *mockSchedulesRepo) {
-				scheds.OnFindByProfessionalAndDay = func(context.Context, string, int) (*entity.Schedule, error) {
+				scheds.OnFindByProfessionalAndDay = func(context.Context, string, entity.ScheduleWeekday) (*entity.Schedule, error) {
 					return nil, domain.ErrNotFound
 				}
 			},

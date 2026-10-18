@@ -48,6 +48,7 @@ const (
 	screenInfo
 	screenHermesForm
 	screenHermesSnippet
+	screenAuditTrail
 )
 
 // confirmAction identifies the write the confirmation screen gates. One screen
@@ -62,6 +63,11 @@ const (
 	confirmTransfer
 	confirmHermesConfig
 	confirmSkillRegen
+	confirmPurge
+	// confirmPurgeFinal is the second gate of the purge chain: the first
+	// screen announced the batch, this one closes it with the permanent
+	// consequence spelled out (S3: extra confirmation, both flows).
+	confirmPurgeFinal
 )
 
 // infoKind distinguishes the outcome of a flow on the shared info screen: a
@@ -96,6 +102,10 @@ type confirmState struct {
 	// Hermes endpoint, phone and target file). Empty for the account flows.
 	details []string
 	target  admin.AccountView
+	// ids carries the batch the purge gates confirm (feat-tui-ops S3): the
+	// two-step chain re-shares the exact same ids, never re-deriving them
+	// between gates.
+	ids []string
 }
 
 // busyLine is the answer to Esc, q or Ctrl+C while a core call is in flight: the
@@ -151,6 +161,9 @@ type AppModel struct {
 
 	// read-only table view
 	tableFilter admin.ListFilter
+	// auditEvents holds the read-only audit page of the audit view screen
+	// (feat-tui-ops-residuals S1): the rows the viewport renders, newest first.
+	auditEvents []admin.AuditEventView
 	tableTitle  string
 	viewport    viewport.Model
 
@@ -229,6 +242,10 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onProfessionals(msg)
 	case accountsMsg:
 		return m.onAccounts(msg)
+	case auditMsg:
+		return m.onAudit(msg)
+	case purgeDataMsg:
+		return m.onPurgeData(msg)
 	case transferDataMsg:
 		return m.onTransferData(msg)
 	case selfOwnerMsg:
@@ -361,6 +378,10 @@ func (m AppModel) routeKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(key)
 		return m, cmd
+	case screenAuditTrail:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(key)
+		return m, cmd
 	default:
 		return m, nil
 	}
@@ -437,6 +458,17 @@ func (m AppModel) runConfirmed() (tea.Model, tea.Cmd) {
 	case confirmSkillRegen:
 		// Reemplazo confirmado de una skill modificada por el usuario.
 		return m.started(regenSkillCmd(m.skillRegen, true))
+	case confirmPurge:
+		// Primer gate aceptado: el segundo re-confirma con la consecuencia
+		// permanente explícita, con los MISMOS ids capturados al inicio.
+		return m.askConfirm(confirmState{
+			action:   confirmPurgeFinal,
+			title:    confirmPurgeTitle,
+			question: fmt.Sprintf("ÚLTIMA CONFIRMACIÓN: la eliminación es permanente y sin vuelta atrás. Repito: %s. ¿Confirmar?", trimQuestionTail(m.confirm.question)),
+			ids:      m.confirm.ids,
+		}), nil
+	case confirmPurgeFinal:
+		return m.started(purgeFinalCmd(m.ctx, m.deps, m.confirm.ids))
 	default:
 		return m.menuScreen(""), nil
 	}
@@ -627,6 +659,10 @@ func (m AppModel) openMenuItem(index int) (tea.Model, tea.Cmd) {
 		return m.started(selfOwnerCmd(m.ctx, m.deps))
 	case capabilityConfigureHermes:
 		return m.started(hermesDataCmd(m.ctx, m.deps))
+	case capabilityAuditLog:
+		return m.started(auditCmd(m.ctx, m.deps))
+	case capabilityPurgeInactive:
+		return m.started(purgeDataCmd(m.ctx, m.deps))
 	default:
 		return m, nil
 	}
@@ -1043,6 +1079,23 @@ func tableHeight(height int) int {
 	return max(height-chromeLines, 3)
 }
 
+// trimQuestionTail removes the confirm tail (". ¿Confirmar?") the first gate
+// appends, so the second gate can re-state the batch without a nested
+// "¿Confirmar? ¿Confirmar?" echo.
+func trimQuestionTail(question string) string {
+	suffix := ". ¿Confirmar?"
+	if strings.HasSuffix(question, suffix) {
+		return strings.TrimSuffix(question, suffix)
+	}
+	return question
+}
+
+// purgeFinalCmd runs the batch behind the second gate (same ids, no
+// re-derivation) and reports every row outcome.
+func purgeFinalCmd(ctx context.Context, deps Deps, ids []string) tea.Cmd {
+	return purgeCmd(ctx, deps, ids)
+}
+
 // cancelNotice phrases the cancellation of the confirmation the operator just
 // declined. A cancellation is a decision, not an error.
 func cancelNotice(action confirmAction) string {
@@ -1057,6 +1110,8 @@ func cancelNotice(action confirmAction) string {
 		return "Operación cancelada: no se cambió la configuración de Hermes."
 	case confirmSkillRegen:
 		return "Operación cancelada: no se tocó la skill instalada."
+	case confirmPurge, confirmPurgeFinal:
+		return "Operación cancelada: no se purgó ninguna cuenta."
 	default:
 		return "Operación cancelada."
 	}
