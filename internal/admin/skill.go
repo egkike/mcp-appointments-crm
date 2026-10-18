@@ -459,6 +459,16 @@ func WriteSkillFileConsent(hermesHome string, rendered string, consentSnapshot [
 			Message: "la skill cambió durante la verificación; corré la regeneración de nuevo",
 		}
 	}
+	// B9 inode guard (issue #137): a non-cooperating writer that REPLACED the
+	// file by rename carries its bytes in a different inode — the fd still
+	// refs the old one, so the byte compare above passes and the final rename
+	// would silently discard the external edit. Re-stat the PATH and fail
+	// closed on divergence (same "run regeneration again" contract the
+	// changed-after-consent path uses). Filesystems without inode semantics
+	// (both zeros) skip the guard instead of failing closed on stat.
+	if err := guardSkillSwap(f, path); err != nil {
+		return err
+	}
 	return rewriteViaTemp(filepath.Dir(path), filepath.Base(path), rendered)
 }
 

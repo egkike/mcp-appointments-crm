@@ -1370,7 +1370,7 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *c
 		// (the write already succeeded).
 		outcome, skillErr := tui.RegenerateSkillForConsole(ctx, hermes, identity.businessProfiles, func() (bool, error) {
 			return promptConfirm(input, stdout,
-				"La skill recepcionista instalada difiere del template del sistema. ¿Reemplazarla? Se descartan los cambios manuales.")
+				"La skill recepcionista instalada difiere del template del sistema. ¿Reemplazarla? Se descartan los cambios manuales. Puede tratarse de una modificación de Hermes (procedural memory) o manual.")
 		})
 		if skillErr == nil {
 			return writeConsole(stdout, "Skill recepcionista: "+string(outcome)+"\nHermes recarga el índice de skills en su próximo arranque.\n")

@@ -52,7 +52,7 @@ const (
 	confirmPurgeTitle         = "Purgar cuentas desactivadas"
 	confirmSkillRegenTitle    = "Confirmar reemplazo de la skill"
 	confirmSkillRegenQuestion = "La skill instalada difiere del template del sistema. ¿Reemplazarla?"
-	confirmSkillRegenWarning  = "La skill actual fue modificada; el reemplazo descarta esos cambios y aplica la versión del template."
+	confirmSkillRegenWarning  = "La skill actual fue modificada; el reemplazo descarta esos cambios y aplica la versión del template. Puede tratarse de una modificación de Hermes (procedural memory) o manual."
 	hermesSnippetTitle        = "Configuración manual de Hermes"
 	hermesSnippetIntro        = "No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado. El bloque de Telegram quedó sin aplicar: re-corre la opción 7 para completar esos tres campos."
 )
