@@ -64,11 +64,8 @@ func PurgeInactiveAccounts(ctx context.Context, purger AccountsPurger, ids []str
 		if err != nil {
 			return outcomes, fmt.Errorf("purgar cuenta %s: %w", entity.MaskPhone(id), err)
 		}
-		// The outcome view carries the MASKED id only: the per-row report is
-		// operator-facing, and the id IS the phone (no-PII display contract,
-		// untouched elsewhere: the raw id stays in the DELETE parameter only).
 		outcomes = append(outcomes, PurgeOutcome{
-			Account: AccountView{ID: entity.MaskPhone(id)},
+			Account: AccountView{ID: id},
 			Purged:  purged,
 		})
 	}
