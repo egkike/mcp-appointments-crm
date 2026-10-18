@@ -8,6 +8,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/egkike/mcp-appointments-crm/internal/admin"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
@@ -289,5 +290,39 @@ func TestAccountsRepo_PurgeInactive(t *testing.T) {
 	}
 	if !purge.found || !purge.masked {
 		t.Errorf("purge audit row missing or unmasked (found=%v masked=%v)", purge.found, purge.masked)
+	}
+}
+
+// TestAdminPurgeInactiveAccounts_OutcomeIdsMasked pins the R3-001 correction:
+// the per-outcome report the TUI and console render carries MASKED ids (the
+// account id IS the phone), so a partial-batch read can never leak raw PII.
+func TestAdminPurgeInactiveAccounts_OutcomeIdsMasked(t *testing.T) {
+	db, cleanup := newAggregateTestDB(t)
+	defer cleanup()
+	logger, _ := newTestLogger()
+	repo := NewAccountsRepo(db, logger)
+
+	owner := &entity.Account{ID: "+5491122334401", Role: entity.RoleOwner, DisplayName: "Owner", Active: true}
+	profID := "prof-purge-report"
+	staff := &entity.Account{ID: "+5491122334402", Role: entity.RoleStaff, DisplayName: "Purge Report", Active: true, ProfessionalID: &profID}
+	if err := repo.Create(ownerCtx(), owner); err != nil {
+		t.Fatalf("owner Create: %v", err)
+	}
+	if err := repo.Create(ownerCtx(), staff); err != nil {
+		t.Fatalf("staff Create: %v", err)
+	}
+	if err := repo.Deactivate(ownerCtx(), staff.ID); err != nil {
+		t.Fatalf("Deactivate: %v", err)
+	}
+
+	outcomes, err := admin.PurgeInactiveAccounts(ownerCtx(), repo, []string{staff.ID})
+	if err != nil {
+		t.Fatalf("PurgeInactiveAccounts: %v", err)
+	}
+	if len(outcomes) != 1 || !outcomes[0].Purged {
+		t.Fatalf("outcomes = %+v, want one purged row", outcomes)
+	}
+	if outcomes[0].Account.ID != "***4402" {
+		t.Errorf("outcome id = %q, want the masked phone ***4402", outcomes[0].Account.ID)
 	}
 }
