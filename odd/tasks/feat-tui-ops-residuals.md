@@ -1,0 +1,29 @@
+# Feature: TUI ops residuals close-out (audit view, day-keys, purge-inactive)
+
+**Type**: mixed batch (feature/refactor/chore) — owner-approved 2026-10-18 via B5 scoping
+**Branch**: TBD (code → feature branch → PR; docs lane pieces committed from main only)
+**Status**: doc-first phase OPEN
+**Origin**: backlog item **B5** (`odd/tasks/backlog.md`) + PRD §3.8.8/RF9 deferred residuals (owner decision 2026-09-16) + stale PRD ⏳ line correction
+
+## Specs
+
+- **S1 (R1 audit log view)**: Persist the accounts audit trail to the database (today it is structured `slog` only — `cmd/mcp-server/main.go:365,389`, masked-phone audit trail, no table) and expose a read-only **Audit view** in the `mcp-server admin tui` menu (ADR-0010/0016 pattern, console parity without TTY). Deferred by owner decision 2026-09-16 ("vista de audit log persistido (hoy el audit es solo slog)").
+- **S2 (R2 day-keys normalization)**: Unify the day-key conventions: `int(Weekday())` raw 0..6 sites (`internal/domain/service/slot_context.go:89`, `internal/domain/service/availability.go:108`) vs business_hours `"1".."7"` (Monday=1..Sunday=7) via `entity.ProfileDayKey` (`internal/domain/entity/business_profile.go:84-92`) and the translator at `booking_time_validator.go:119`. Single convention, single validation entry point, pin by tests; ADR-0015 follow-up recorded by the owner (2026-09-16).
+- **S3 (R3 purge-inactive sub-command)**: Implement `purge-inactive` per PRD §3.8.8 ("Hard delete solo se permite via sub-comando `purge-inactive` con confirmación extra"): extra confirmation step in both TTY and console flows, FK-safe hard delete of `is_active=0` accounts only.
+- **S4 (PRD correction)**: Correct the stale PRD changelog/§3.8.8 list: line `docs/PRD.md:864` ("8. ⏳ Fase 2+ — TUI menú operacional con seed del owner — pendiente") contradicts `docs/PRD.md:1343` (MVP ENTREGADO 2026-09-16, ADR-0016). Rewrite to reflect delivered MVP + the three residuals as the tracked queue, pointing here.
+
+## Tasks
+
+- **T1** (S1-S4) · route docs · explore + draft openspec change `feat-tui-ops-residuals` (proposal/design/spec/tasks) + evidence table — **worker delegation**
+- **T2** (S4) · route docs · PRD §3.8.8 stale line rewrite inside the same change
+- **T3** (S1-S3) · route code · apply (schema/repo/usecase/TUI/CLI) — **after owner spec round**
+- **T4** (S1-S3) · route code · pipeline + native review per unit slices
+
+## Log
+
+- **L1** 2026-10-18 — owner: "Vamos con el B5" → B5 candidates shown (P2 REST / P3 metrics / TUI residuals); owner picked **"TUI menú operacional + seed (PRD ⏳)"**.
+- **L2** 2026-10-18 — PRD evidence check: the §3.8.8/RF9 MVP was already DELIVERED 2026-09-16 (wizard seed, Add Staff, Deactivate, Transfer Ownership, listados, Add Yourself as Client — `docs/PRD.md:1343`). The ⏳ line at `docs/PRD.md:864` is stale. Reframe presented with residuals R1/R2/R3; owner: **"Encñas todos los residuals"** → scope = S1-S4. NOTE: R3 references PRD §3.8.8 soft-delete paragraph ("purge-inactive" Fase 2+).
+- **L3** 2026-10-18 — worker (T1, S1-S4): change doc-first `feat-tui-ops-residuals` redactado en `openspec/changes/feat-tui-ops-residuals/` — `proposal.md` (resumen, problema de negocio, outcome, scope S1-S4, non-goals, Evidence Inventory E1-E24 con `path:line`), `design.md` (contrato de capas ADR-0013, DDL propuesta de `accounts_audit` sin PII + `phone_masked` reusando `maskPhone` + `actor_ref` opaco, catálogo de eventos por mutación, decisión S2 tipo nominal `entity.DayKey`/`ScheduleWeekday` con cero migración, UX de doble confirmación para `purge-inactive` en TTY y consola, inventario FK-safe, matriz de tests con `t.TempDir` + `-race`, security review con límite honesto de inmutabilidad, riesgos/rollback), `specs/tui-operational-residuals/spec.md` (GIVEN/WHEN/THEN) y `tasks.md` (Review Workload Forecast + Phase 1 Q&A + Phase 2 slices).
+- **L4** 2026-10-18 — worker (T2, S4): reescrita **solo** `docs/PRD.md:864` (línea stale ⏳ → MVP entregado 2026-09-16 + los tres residuales trackeados). Verificado `git diff --stat docs/PRD.md` = `1 insertion(+), 1 deletion(-)`; ninguna otra línea de `docs/PRD.md` tocada.
+- **L5** 2026-10-18 — worker: 6 preguntas abiertas embebidas en `tasks.md` §Phase 1 (bloquean el apply): OQ-1 shape de `purge-inactive` (menú TUI vs sub-comando), OQ-2 trigger de inmutabilidad del audit, OQ-3 alcance de purge (solo cuentas vs profesionales huérfanos), OQ-4 cross-ref ADR de day-keys en `docs/PRD.md:1343` (deuda documental), OQ-5 retención del audit, OQ-6 límite/paginación de la vista. El change queda en spec phase esperando la ronda del owner antes de T3/T4.
+- **L6** 2026-10-18 — Owner round 1 CHECK (OQ-1..OQ-6 resueltos): OQ-1 **entrada del menú TUI** (elección del owner, no sub-comando; PRD literal §3.8.8 sub-comando queda superseded por decisión del owner 2026-10-18 — el change registra la diferencia); OQ-2 trigger SQLite + append-only API; OQ-3 purge SOLO cuentas; OQ-4 cross-ref PRD:1343 corregida ahora (ADR-0016 Decision 3.4); OQ-5 retención indefinida; OQ-6 vista últimos 200 sin paginación. Phase 1 cerrada → T3/T4 (apply) ya no tienen bloqueantes.
