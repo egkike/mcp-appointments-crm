@@ -46,7 +46,7 @@ func defaultDeps(t *testing.T) (AvailabilityDeps, *time.Location) {
 		BusinessHoursExceptions: &mockBusinessHoursExceptionRepo{OnGet: func(_ context.Context, _ time.Time) (*entity.BusinessHoursException, error) {
 			return nil, domain.ErrNotFound
 		}},
-		Schedules: &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, _ int) (*entity.Schedule, error) {
+		Schedules: &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, _ entity.ScheduleWeekday) (*entity.Schedule, error) {
 			return &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 1, StartTime: "09:00", EndTime: "17:00"}, nil
 		}},
 		Bookings: &mockBookingsRepo{OnFindOverlapping: func(_ context.Context, _ string, _, _ time.Time) ([]*entity.Booking, error) {
@@ -123,7 +123,7 @@ func TestCheckAvailability(t *testing.T) {
 	})
 	t.Run("professional_not_working", func(t *testing.T) {
 		deps, loc := defaultDeps(t)
-		deps.Schedules = &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, _ int) (*entity.Schedule, error) {
+		deps.Schedules = &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, _ entity.ScheduleWeekday) (*entity.Schedule, error) {
 			return nil, domain.ErrNotFound
 		}}
 		_, err := svc.CheckAvailability(context.Background(), paramsAt("10:00", loc), deps)
@@ -144,7 +144,7 @@ func TestCheckAvailability(t *testing.T) {
 	})
 	t.Run("slot_starts_before_professional_start", func(t *testing.T) {
 		deps, loc := defaultDeps(t)
-		deps.Schedules = &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, _ int) (*entity.Schedule, error) {
+		deps.Schedules = &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, _ entity.ScheduleWeekday) (*entity.Schedule, error) {
 			return &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 1, StartTime: "10:00", EndTime: "17:00"}, nil
 		}}
 		_, err := svc.CheckAvailability(context.Background(), paramsAt("09:30", loc), deps)

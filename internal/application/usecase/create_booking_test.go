@@ -367,7 +367,9 @@ func createBookingMocks(svc *entity.Service, validatorRet *domain.SemanticError)
 		},
 	}
 	schedRepo := &mockSchedulesRepo{
-		FindByProfessionalAndDayFn: func(_ context.Context, _ string, _ int) (*entity.Schedule, error) { return nil, domain.ErrNotFound },
+		FindByProfessionalAndDayFn: func(_ context.Context, _ string, _ entity.ScheduleWeekday) (*entity.Schedule, error) {
+			return nil, domain.ErrNotFound
+		},
 	}
 	clientsRepo := &mockClientsRepo{
 		FindByIDFn: func(_ context.Context, id string) (*entity.Client, error) {

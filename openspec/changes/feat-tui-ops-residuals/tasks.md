@@ -70,18 +70,18 @@
 
 #### TASK-2.1 — RED: tests de traducción y frontera
 
-- [ ] Tests de `entity.DayKey` / `entity.ScheduleWeekday`: tabla completa `0..6`, domingo (`DayKey=7`, `ScheduleWeekday=0`), lunes (`1`/`1`)
-- [ ] Test de frontera `GetOpenClose`: día cerrado (`ok=false, err=nil`) vs clave corrupta (`err != nil`, fail-closed)
-- [ ] Registrar el fallo observado (RED)
+- [x] Tests de `entity.DayKey` / `entity.ScheduleWeekday`: tabla completa `0..6`, domingo (`DayKey=7`, `ScheduleWeekday=0`), lunes (`1`/`1`)
+- [x] Test de frontera `GetOpenClose`: día cerrado (`ok=false, err=nil`) vs clave corrupta (`err != nil`, fail-closed)
+- [x] Registrar el fallo observado (RED)
 - **Edit surface:** `internal/domain/entity/business_profile_test.go`, `internal/domain/entity/daykey_test.go` (new)
 
 #### TASK-2.2 — GREEN: tipos nominales + call sites
 
-- [ ] `internal/domain/entity/daykey.go` (new) con `DayKey` (1..7) y `ScheduleWeekday` (0..6) y sus constructores desde `time.Weekday`
-- [ ] Cambiar firma de `GetOpenClose(day DayKey)` y del puerto `SchedulesRepo.FindByProfessionalAndDay(..., day ScheduleWeekday)`
-- [ ] Reemplazar los `int(...Weekday())` crudos en `slot_context.go:89`, `availability.go:108`, `booking_time_validator.go:116`
-- [ ] Correr los tests verdes
-- [ ] **Gate:** `go fmt`, `go vet`, `golangci-lint`, `go build -o /dev/null ./...`, `go test -race ./internal/domain/...`
+- [x] `internal/domain/entity/daykey.go` (new) con `DayKey` (1..7) y `ScheduleWeekday` (0..6) y sus constructores desde `time.Weekday`
+- [x] Cambiar firma de `GetOpenClose(day DayKey)` y del puerto `SchedulesRepo.FindByProfessionalAndDay(..., day ScheduleWeekday)`
+- [x] Reemplazar los `int(...Weekday())` crudos en `slot_context.go:89`, `availability.go:108`, `booking_time_validator.go:116`
+- [x] Correr los tests verdes
+- [x] **Gate:** `go fmt`, `go vet`, `golangci-lint`, `go build -o /dev/null ./...`, `go test -race ./internal/domain/...`
 - **Edit surface:** `internal/domain/entity/daykey.go`, `internal/domain/entity/business_profile.go`, `internal/domain/repository/schedules.go`, `internal/domain/service/slot_context.go`, `internal/domain/service/availability.go`, `internal/domain/service/booking_time_validator.go`
 - **Slice estimate:** ~120–180 líneas (impl + tests). Si excede, dividir entity vs service.
 

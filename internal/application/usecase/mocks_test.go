@@ -347,12 +347,12 @@ func (m *mockBusinessHoursExceptionRepo) Delete(ctx context.Context, id int) err
 // --- mockSchedulesRepo (PR #B entity resolution + T2 maintenance) ---
 
 type mockSchedulesRepo struct {
-	FindByProfessionalAndDayFn func(ctx context.Context, professionalID string, day int) (*entity.Schedule, error)
+	FindByProfessionalAndDayFn func(ctx context.Context, professionalID string, day entity.ScheduleWeekday) (*entity.Schedule, error)
 	UpsertFn                   func(ctx context.Context, s *entity.Schedule) (*entity.Schedule, error)
-	DeleteFn                   func(ctx context.Context, professionalID string, day int) error
+	DeleteFn                   func(ctx context.Context, professionalID string, day entity.ScheduleWeekday) error
 }
 
-func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, professionalID string, day int) (*entity.Schedule, error) {
+func (m *mockSchedulesRepo) FindByProfessionalAndDay(ctx context.Context, professionalID string, day entity.ScheduleWeekday) (*entity.Schedule, error) {
 	if m.FindByProfessionalAndDayFn == nil {
 		panic("mockSchedulesRepo.FindByProfessionalAndDayFn not set")
 	}
@@ -366,7 +366,7 @@ func (m *mockSchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) (*en
 	return m.UpsertFn(ctx, s)
 }
 
-func (m *mockSchedulesRepo) Delete(ctx context.Context, professionalID string, day int) error {
+func (m *mockSchedulesRepo) Delete(ctx context.Context, professionalID string, day entity.ScheduleWeekday) error {
 	if m.DeleteFn == nil {
 		panic("mockSchedulesRepo.DeleteFn not set")
 	}

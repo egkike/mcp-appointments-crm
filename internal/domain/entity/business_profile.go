@@ -81,23 +81,8 @@ type businessHoursDay struct {
 	Close string `json:"close"`
 }
 
-// ProfileDayKey translates a time.Weekday into the day key used by
-// BusinessProfile.BusinessHours and by the profile day lookups (GetOpenClose).
-// It is the single translation point between the two day
-// encodings used in this project, which must never be mixed up:
-//
-//   - time.Weekday (Go) and schedules.day_of_week: 0..6, Sunday=0, Monday=1,
-//     ..., Saturday=6.
-//   - business_hours JSON keys: "1".."7", Monday=1, ..., Saturday=6, Sunday=7.
-func ProfileDayKey(w time.Weekday) int {
-	if w == time.Sunday {
-		return 7
-	}
-	return int(w)
-}
-
-// GetOpenClose returns the open and close times (HH:MM) for the given day of
-// week (1=Monday, 7=Sunday). Contract:
+// GetOpenClose returns the open and close times (HH:MM) for the given
+// business_hours day key (DayKey: 1=Monday, 7=Sunday). Contract:
 //
 //   - open day:      open/close set, ok=true, err=nil
 //   - closed day:    ok=false, err=nil (day key absent, or BusinessHours empty)
@@ -105,38 +90,39 @@ func ProfileDayKey(w time.Weekday) int {
 //
 // Callers that book or report availability MUST treat err != nil as a
 // fail-closed internal error; only err == nil && !ok means "legitimately
-// closed". The day must come from ProfileDayKey (or an equivalent "1".."7"
-// literal), never from a raw int(time.Weekday()).
-func (bp *BusinessProfile) GetOpenClose(dayOfWeek int) (open, close string, ok bool, err error) {
+// closed". The day must be a DayKey from entity.ProfileDayKey (or an
+// equivalent "1".."7" literal), never a raw int(time.Weekday()).
+func (bp *BusinessProfile) GetOpenClose(day DayKey) (open, close string, ok bool, err error) {
 	hours, err := bp.parseBusinessHours()
 	if err != nil {
 		return "", "", false, err
 	}
-	day, exists := hours[dayOfWeek]
+	d, exists := hours[day]
 	if !exists {
 		return "", "", false, nil
 	}
-	return day.Open, day.Close, true, nil
+	return d.Open, d.Close, true, nil
 }
 
-// parseBusinessHoursDayKey converts a business_hours JSON key to its integer day
-// number (1=Monday, 7=Sunday). Digit-only keys of any length are accepted: legacy
+// parseBusinessHoursDayKey converts a business_hours JSON key to its DayKey
+// (1=Monday, 7=Sunday). Digit-only keys of any length are accepted: legacy
 // zero-padded keys ("01", "007") normalize for read compatibility with databases
 // written before the strict validator (no migration), while the canonical emitted
 // form remains "1".."7". Sign-prefixed keys ("+1"/"-1"), whitespace, and values
 // outside 1..7 stay rejected; it is the single rule shared by the read/write paths.
-func parseBusinessHoursDayKey(key string) (int, error) {
+func parseBusinessHoursDayKey(key string) (DayKey, error) {
 	day, err := strconv.Atoi(key)
 	if err != nil || day < 1 || day > 7 || strings.ContainsFunc(key, func(r rune) bool { return r < '0' || r > '9' }) {
 		return 0, fmt.Errorf("clave de día %q inválida (1..7): %w", key, domain.ErrInvalidInput)
 	}
-	return day, nil
+	return DayKey(day), nil
 }
 
 // parseBusinessHours parses the BusinessHours JSON string. Every key must be a
-// day number in 1..7; any other key is rejected with domain.ErrInvalidInput
-// instead of being silently mapped to a garbage day number.
-func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error) {
+// day number in 1..7 (mapped to its DayKey); any other key is rejected with
+// domain.ErrInvalidInput instead of being silently mapped to a garbage day
+// number.
+func (bp *BusinessProfile) parseBusinessHours() (map[DayKey]businessHoursDay, error) {
 	if bp.BusinessHours == "" {
 		return nil, nil
 	}
@@ -158,7 +144,7 @@ func (bp *BusinessProfile) parseBusinessHours() (map[int]businessHoursDay, error
 	if raw == nil {
 		return nil, fmt.Errorf("la configuración de business_hours no puede ser null: %w", domain.ErrInvalidInput)
 	}
-	result := make(map[int]businessHoursDay, len(raw))
+	result := make(map[DayKey]businessHoursDay, len(raw))
 	// Deterministic first-error: same rationale as validateBusinessHoursJSON.
 	keys := make([]string, 0, len(raw))
 	for k := range raw {

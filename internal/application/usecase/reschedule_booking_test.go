@@ -357,7 +357,7 @@ func rescheduleDeps() (
 		},
 	}
 	schedRepo := &mockSchedulesRepo{
-		FindByProfessionalAndDayFn: func(_ context.Context, _ string, _ int) (*entity.Schedule, error) {
+		FindByProfessionalAndDayFn: func(_ context.Context, _ string, _ entity.ScheduleWeekday) (*entity.Schedule, error) {
 			return nil, domain.ErrNotFound
 		},
 	}
