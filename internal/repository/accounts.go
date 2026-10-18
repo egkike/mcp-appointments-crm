@@ -235,6 +235,88 @@ func (r *AccountsRepo) GetByRole(ctx context.Context, role entity.AccountRole) (
 
 // List returns all accounts ordered by created_at ASC. Returns empty slice (not nil) when no rows exist.
 // Requires an authenticated caller.
+// PurgeInactive hard-deletes ONE account row by id, refusing anything that
+// is not an INACTIVE account (feat-tui-ops-residuals S3; owner-only per
+// ADR-0016 governance). The `is_active = 0` re-check inside the DELETE keeps
+// the confirm-to-execute window closed without a transaction: an account
+// re-activated between the operator's confirmation and the write is not
+// deleted (0 rows affected → purged=false). The caller re-reads the current
+// state for display, never trusting a stale pick (mirrors the deactivate
+// snapshot rule).
+//
+// FK-safe by construction: no table references accounts (verified, design
+// §3.3), so the DELETE cannot cascade or violate a RESTRICT.
+// Both the slog record and the durable audit row fire only when the row was
+// really deleted; the audit write stays fail-open (S1 policy).
+func (r *AccountsRepo) PurgeInactive(ctx context.Context, id string) (bool, error) {
+	if _, err := auth.RequireRole(ctx, auth.RoleOwner); err != nil {
+		return false, fmt.Errorf("purgar cuenta: %w", err)
+	}
+	if id == "" {
+		return false, fmt.Errorf("purgar cuenta: %w: el id no puede estar vacío", domain.ErrInvalidInput)
+	}
+
+	// The row dies in this call, so the REAL role must be captured ATOMICALLY
+	// with the delete (read-then-delete opens a stale-role window if a
+	// concurrent update lands between the two statements): one transaction
+	// guards both, and the is_active=0 re-check runs INSIDE it.
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("purgar cuenta: iniciar la transacción: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var role string
+	if err := tx.QueryRowContext(ctx,
+		`SELECT role FROM accounts WHERE id = ? AND is_active = 0`, id,
+	).Scan(&role); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("purgar cuenta: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx,
+		`DELETE FROM accounts WHERE id = ? AND is_active = 0`, id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("purgar cuenta: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("purgar cuenta: %w", err)
+	}
+	if affected == 0 {
+		return false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("purgar cuenta: confirmar la transacción: %w", err)
+	}
+	committed = true
+
+	actorID := actorFromContext(ctx)
+	r.logger.Info("account purged", auditAttrs(actorID, id, role)...)
+	r.persistAuditEvent(ctx, newAccountAuditEvent(
+		actorID, entity.AccountAuditEventPurged, entity.AccountAuditActionPurge,
+		id, entity.AccountRole(role), nil))
+	return true, nil
+}
+
+// LastAccountsAudit delegates the read-only audit page to the embedded audit
+// adapter, so the single AccountsRepo handle satisfies reader ports too
+// (admin.AuditTrailReader) without the composition root keeping two handles
+// alive per database.
+func (r *AccountsRepo) LastAccountsAudit(ctx context.Context, limit int) ([]*entity.AccountAuditEvent, error) {
+	return r.audit.LastAccountsAudit(ctx, limit)
+}
+
+// List returns every account row, active or not, oldest first — the raw base
+// of the list views and of the purge preview.
 func (r *AccountsRepo) List(ctx context.Context) ([]*entity.Account, error) {
 	if _, err := auth.RequireCaller(ctx); err != nil {
 		return nil, fmt.Errorf("listar cuentas: %w", err)

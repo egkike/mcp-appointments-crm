@@ -49,6 +49,7 @@ const (
 	confirmHermesTitle    = "Confirmar configuración de Hermes"
 	confirmHermesQuestion = "Se escribirá la entrada mcp-appointments en el config de Hermes. ¿Confirmar?"
 
+	confirmPurgeTitle         = "Purgar cuentas desactivadas"
 	confirmSkillRegenTitle    = "Confirmar reemplazo de la skill"
 	confirmSkillRegenQuestion = "La skill instalada difiere del template del sistema. ¿Reemplazarla?"
 	confirmSkillRegenWarning  = "La skill actual fue modificada; el reemplazo descarta esos cambios y aplica la versión del template."
@@ -70,6 +71,7 @@ const (
 	capabilityAddSelf
 	capabilityConfigureHermes
 	capabilityAuditLog
+	capabilityPurgeInactive
 )
 
 // menuItem is one numbered entry of the operator menu, in menu order.
@@ -90,6 +92,7 @@ func menuItems() []menuItem {
 		{label: "Agregarme como cliente", capability: capabilityAddSelf},
 		{label: "Configurar Hermes", capability: capabilityConfigureHermes},
 		{label: "Ver audit log", capability: capabilityAuditLog},
+		{label: "Purgar cuentas desactivadas", capability: capabilityPurgeInactive},
 	}
 }
 

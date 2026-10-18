@@ -30,6 +30,7 @@ type AccountsPort interface {
 	admin.AccountsCreator
 	admin.AccountsActivator
 	admin.AccountsAdmin
+	admin.AccountsPurger
 	admin.AccountsTransfer
 	admin.AccountsByIDReader
 }

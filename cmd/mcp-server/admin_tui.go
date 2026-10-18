@@ -428,6 +428,7 @@ func adminMenuOptions(resolveHermes tui.HermesResolver, secretLine secretLineRea
 			return runConfigureHermesFlow(ctx, identity, input, stdout, hermes, secretLine)
 		}},
 		{key: "8", label: "Ver audit log", action: runAuditTrailFlow},
+		{key: "9", label: "Purgar cuentas desactivadas", action: runPurgeInactiveFlow},
 	}
 }
 
@@ -453,6 +454,81 @@ func runAuditTrailFlow(ctx context.Context, identity identityDeps, input *consol
 		}
 	}
 	return nil
+}
+
+// runPurgeInactiveFlow is the console mirror of the TUI purge: list, two
+// confirmations (the ordinary one and the permanent one), batch core call and
+// per-outcome report. Exactly the same core the TUI uses: only the prompts
+// differ.
+func runPurgeInactiveFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer) error {
+	views, err := admin.InactiveAccounts(ctx, identity.accounts)
+	if err != nil {
+		return err
+	}
+	if len(views) == 0 {
+		return writeConsole(stdout, "No hay cuentas desactivadas para purgar.\n")
+	}
+
+	if err := writeConsole(stdout, fmt.Sprintf("Cuentas desactivadas (%d):\n", len(views))); err != nil {
+		return err
+	}
+	for _, v := range views {
+		if err := writeConsole(stdout, "  "+admin.AccountLabel(v)+"\n"); err != nil {
+			return err
+		}
+	}
+	ids := make([]string, 0, len(views))
+	for _, v := range views {
+		ids = append(ids, v.ID)
+	}
+
+	first, err := promptConfirm(input, stdout,
+		fmt.Sprintf("Esta acción ELIMINA PERMANENTEMENTE %d cuenta(s) desactivada(s): %s. ¿Confirmar?", len(views), admin.PurgeQuestion(views)))
+	if err != nil {
+		return err
+	}
+	if !first {
+		return writeConsole(stdout, "Operación cancelada: no se purgó ninguna cuenta.\n")
+	}
+	second, err := promptConfirm(input, stdout,
+		"ÚLTIMA CONFIRMACIÓN: la eliminación es permanente y sin vuelta atrás. ¿Confirmar?")
+	if err != nil {
+		return err
+	}
+	if !second {
+		return writeConsole(stdout, "Operación cancelada: no se purgó ninguna cuenta.\n")
+	}
+
+	outcomes, err := admin.PurgeInactiveAccounts(ctx, identity.accounts, ids)
+	// Mid-batch failures keep the completed outcomes visible: the operator
+	// must read WHICH accounts were already permanently deleted, then the error.
+	// The per-outcome report comes first (masked ids), THEN the sanitized
+	// error: raw causes stay server-side, mirroring the TUI flow.
+	summary := fmt.Sprintf("Purga completa: %s.\n", purgeReportLine(outcomes, len(ids)))
+	if err != nil {
+		summary += "Resultado parcial: la purga no se completó; revisá el log del servicio.\n"
+	}
+	return writeConsole(stdout, summary)
+}
+
+// purgeReportLine is the count + per-account phrasing shared with the TUI
+// report; the view of every outcome id is already masked at persistence.
+func purgeReportLine(outcomes []admin.PurgeOutcome, requested int) string {
+	purged := 0
+	rows := make([]string, 0, len(outcomes))
+	for _, o := range outcomes {
+		state := "no purgada"
+		if o.Purged {
+			purged++
+			state = "eliminada permanente"
+		}
+		rows = append(rows, fmt.Sprintf("  %s: %s", o.Account.ID, state))
+	}
+	report := fmt.Sprintf("%d cuenta(s) eliminada(s) permanentemente de %d pedidas", purged, requested)
+	if len(rows) > 0 {
+		report += "\n" + strings.Join(rows, "\n")
+	}
+	return report
 }
 
 // runAdminMenu renders the numbered menu and dispatches the operator's choice

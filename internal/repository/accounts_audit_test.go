@@ -8,6 +8,8 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
@@ -215,5 +217,77 @@ func TestAccountsAudit_TransferRowCarriesMaskedDetail(t *testing.T) {
 	}
 	if transfer.Detail == nil || transfer.Detail.PreviousOwnerMasked != "***0101" {
 		t.Errorf("transfer detail = %+v, want the masked previous owner", transfer.Detail)
+	}
+}
+
+// TestAccountsRepo_PurgeInactive pins the destructive S3 contract: owner-only,
+// inactive-only (is_active=0 re-check), one audit row per really-deleted
+// account, and the audit event carries the masked id.
+func TestAccountsRepo_PurgeInactive(t *testing.T) {
+	repo, audit := newAuditTestRepo(t)
+
+	owner := &entity.Account{ID: "+5491100100001", Role: entity.RoleOwner, DisplayName: "Owner", Active: true}
+	profID := "prof-purge"
+	staff := &entity.Account{ID: "+5491100100002", Role: entity.RoleStaff, DisplayName: "Purge Me", Active: true, ProfessionalID: &profID}
+	if err := repo.Create(ownerCtx(), owner); err != nil {
+		t.Fatalf("owner Create: %v", err)
+	}
+	if err := repo.Create(ownerCtx(), staff); err != nil {
+		t.Fatalf("staff Create: %v", err)
+	}
+	if err := repo.Deactivate(ownerCtx(), staff.ID); err != nil {
+		t.Fatalf("Deactivate: %v", err)
+	}
+
+	// Non-owner callers are refused BEFORE any delete: a staff caller cannot
+	// shrink the whitelist.
+	staffCalling := auth.WithCaller(context.Background(), auth.Caller{ID: staff.ID, Role: "staff"})
+	purged, err := repo.PurgeInactive(staffCalling, staff.ID)
+	if err == nil || !strings.Contains(err.Error(), "no tiene permiso") {
+		t.Fatalf("PurgeInactive as staff: err = %v, want an authorization error", err)
+	}
+	if purged {
+		t.Fatal("staff caller must not delete anything")
+	}
+
+	// Active accounts are refused by the is_active=0 re-check (0 rows): the
+	// active owner is untouched even if the operator picked it by mistake.
+	purged, err = repo.PurgeInactive(ownerCtx(), owner.ID)
+	if err != nil {
+		t.Fatalf("PurgeInactive on the active owner: %v", err)
+	}
+	if purged {
+		t.Fatal("the active owner must never be deletable through the purge")
+	}
+
+	purged, err = repo.PurgeInactive(ownerCtx(), staff.ID)
+	if err != nil {
+		t.Fatalf("PurgeInactive: %v", err)
+	}
+	if !purged {
+		t.Fatal("the inactive staff account must be purged")
+	}
+	if _, err := repo.FindByID(ownerCtx(), staff.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("post-purge lookup: err = %v, want domain.ErrNotFound", err)
+	}
+
+	events, err := audit.LastAccountsAudit(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("LastAccountsAudit: %v", err)
+	}
+	var purge struct{ found, masked bool }
+	for _, e := range events {
+		if e.Event == entity.AccountAuditEventPurged {
+			purge.found = true
+			if e.TargetID == staff.ID {
+				t.Errorf("purge audit row leaks the raw id: %q", e.TargetID)
+			}
+			if strings.HasPrefix(e.TargetID, "***") {
+				purge.masked = true
+			}
+		}
+	}
+	if !purge.found || !purge.masked {
+		t.Errorf("purge audit row missing or unmasked (found=%v masked=%v)", purge.found, purge.masked)
 	}
 }
