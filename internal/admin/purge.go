@@ -8,6 +8,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
@@ -62,6 +63,14 @@ func PurgeInactiveAccounts(ctx context.Context, purger AccountsPurger, ids []str
 	for _, id := range ids {
 		purged, err := purger.PurgeInactive(ctx, id)
 		if err != nil {
+			// B8 f9 (GGA round 1, owner: fix + recommit): the operator-facing
+			// partial message points to the service log, so the raw cause must
+			// actually land there. slog.Default() IS the designated main logger
+			// (main.go D2) for both the TUI and console flows, and masking stays
+			// consistent with the package's no-raw-id display contract (this
+			// path never carried a raw-id emission, so f5's disposition is
+			// untouched). The masked wrap below stays the client-facing shape.
+			slog.Error("purge-inactive row failed", "account", entity.MaskPhone(id), "error", err)
 			return outcomes, fmt.Errorf("purgar cuenta %s: %w", entity.MaskPhone(id), err)
 		}
 		// The outcome view carries the MASKED id only: the per-row report is

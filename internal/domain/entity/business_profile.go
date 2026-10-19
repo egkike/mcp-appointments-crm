@@ -145,6 +145,13 @@ func (bp *BusinessProfile) parseBusinessHours() (map[DayKey]businessHoursDay, er
 		return nil, fmt.Errorf("la configuración de business_hours no puede ser null: %w", domain.ErrInvalidInput)
 	}
 	result := make(map[DayKey]businessHoursDay, len(raw))
+	// B8 f2 design amendment: different raw keys can normalize to the same
+	// DayKey ("1" and "01"). The sorted-key order used to silently let the
+	// last one win the map; an ambiguous stored document is corrupt data and
+	// must fail closed instead. The write path can never produce this shape
+	// (it rejects zero-padded keys outright), so this guards the read path of
+	// legacy data only.
+	seen := make(map[DayKey]string, len(raw))
 	// Deterministic first-error: same rationale as validateBusinessHoursJSON.
 	keys := make([]string, 0, len(raw))
 	for k := range raw {
@@ -156,6 +163,10 @@ func (bp *BusinessProfile) parseBusinessHours() (map[DayKey]businessHoursDay, er
 		if err != nil {
 			return nil, err
 		}
+		if prev, dup := seen[day]; dup {
+			return nil, fmt.Errorf("la configuración de business_hours define el día %v dos veces (%s y %s): %w", day, prev, k, domain.ErrInvalidInput)
+		}
+		seen[day] = k
 		dayPtr := raw[k]
 		// Per-day fail-closed (GGA round 13): a null day decodes into a zero
 		// struct — it would masquerade as an open day with empty times and end

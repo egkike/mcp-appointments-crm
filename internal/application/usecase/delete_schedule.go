@@ -31,8 +31,18 @@ func NewDeleteScheduleUseCase(schedules domainrepo.SchedulesRepo, logger *slog.L
 // the LLM can act on.
 func (uc *DeleteScheduleUseCase) Execute(ctx context.Context, input dto.DeleteScheduleInput) (*dto.DeleteScheduleResult, error) {
 	ctx = auth.WithCaller(ctx, input.Caller)
+	// B8 f1: pass auth.RequireRole's own error through unchanged. The old
+	// wrapper collapsed RequireRole's ErrCodeUnauthenticated (missing caller)
+	// into ErrCodeForbidden, erasing the 401/403 distinction this layer's
+	// contract documents (internal/auth/helpers.go). The MCP middleware gates
+	// non-owners before the handler, so clients see no difference today; this
+	// keeps the defense-in-depth seam honest.
 	caller, err := auth.RequireRole(ctx, auth.RoleOwner)
 	if err != nil {
+		var sem *domain.SemanticError
+		if errors.As(err, &sem) {
+			return nil, sem
+		}
 		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "no tienes permiso para realizar esta acción", Cause: domain.ErrForbidden}
 	}
 

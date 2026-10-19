@@ -127,7 +127,7 @@ func (s *AvailabilityService) CheckAvailability(
 		BusinessProfile: profile,
 		Schedule:        schedule,
 		Exception:       exception,
-		Start:           startTime,
+		Start:           localStart, // B8 f3: validate the business-local wall clock, not the offset-bearing parsed instant
 	}, BookingTimeValidatorDeps{Bookings: deps.Bookings}); semErr != nil {
 		return nil, semErr
 	}
