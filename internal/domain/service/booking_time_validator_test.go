@@ -304,6 +304,30 @@ func TestValidateBookingTimeSlot(t *testing.T) {
 			wantCode:   code(domain.ErrCodeInternal),
 		},
 		{
+			name: "start_with_seconds_rejected_exact_to_minute",
+			// B8 f4 fail-closed: a sub-minute start must never sneak past the
+			// close bound via Format("15:04") truncation (15:00:30 vs 15:00 close).
+			mutate: func(s *SlotInput) {
+				s.Start = futureDateInTZ("10:00", buenosAiresLoc(t)).Add(30 * time.Second)
+			},
+			wantCode: code(domain.ErrCodeInvalidInput),
+		},
+		{
+			name: "start_with_nanoseconds_rejected_exact_to_minute",
+			mutate: func(s *SlotInput) {
+				s.Start = futureDateInTZ("10:00", buenosAiresLoc(t)).Add(500 * time.Millisecond)
+			},
+			wantCode: code(domain.ErrCodeInvalidInput),
+		},
+		{
+			// Differential pin (B8 f4): a minute-exact start keeps today's behavior.
+			name: "start_exact_minute_still_passes",
+			mutate: func(s *SlotInput) {
+				s.Start = futureDateInTZ("10:00", buenosAiresLoc(t))
+			},
+			wantCode: nil,
+		},
+		{
 			name:     "all_pass",
 			wantCode: nil,
 		},

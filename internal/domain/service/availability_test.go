@@ -159,6 +159,27 @@ func TestCheckAvailability(t *testing.T) {
 		_, err := svc.CheckAvailability(context.Background(), paramsAt("10:00", loc), deps)
 		assertSemanticError(t, err, domain.ErrCodeBookingOverlap, "Juan ya tiene una reserva")
 	})
+	t.Run("offset_day_differs_from_business_local_day", func(t *testing.T) {
+		// B8 f3: the validator must evaluate the BUSINESS-LOCAL wall clock, not
+		// the parsed instant's own RFC3339 offset. 2027-01-05T06:00:00+09:00 is
+		// the same instant as Monday 2027-01-04 18:00 ART — in ART the slot
+		// starts EXACTLY at the 18:00 close (out of hours); under the buggy
+		// startTime hand-off the +09:00 wall clock reads Tuesday 06:00 and the
+		// reported failure flips to BUSINESS_CLOSED ("martes").
+		deps, _ := defaultDeps(t)
+		// The professional works beyond the business close so the effective close
+		// in step 4 is the business 18:00, not the schedule end.
+		deps.Schedules = &mockSchedulesRepo{OnFindByProfessionalAndDay: func(_ context.Context, _ string, _ entity.ScheduleWeekday) (*entity.Schedule, error) {
+			return &entity.Schedule{ProfessionalID: "pro-1", DayOfWeek: 1, StartTime: "09:00", EndTime: "20:00"}, nil
+		}}
+		params := &CheckAvailabilityParams{
+			ServiceID:      "svc-1",
+			ProfessionalID: "pro-1",
+			StartDatetime:  "2027-01-05T06:00:00+09:00",
+		}
+		_, err := svc.CheckAvailability(context.Background(), params, deps)
+		assertSemanticError(t, err, domain.ErrCodeSlotOutOfHours, "cierre a las 18:00")
+	})
 	t.Run("past_slot", func(t *testing.T) {
 		deps, loc := defaultDeps(t)
 		past := time.Date(2020, 6, 15, 10, 0, 0, 0, loc) // Monday

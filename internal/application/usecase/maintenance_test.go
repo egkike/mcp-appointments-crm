@@ -1094,12 +1094,33 @@ func TestDeleteScheduleUseCase_Forbidden(t *testing.T) {
 	}
 	uc := NewDeleteScheduleUseCase(repo, logger)
 
-	assertOwnerOnly(t, buf, func(caller auth.Caller) error {
-		_, err := uc.Execute(context.Background(), dto.DeleteScheduleInput{Caller: caller, ProfessionalID: "p1", DayOfWeek: 3})
-		return err
-	})
+	// B8 f1: the use case MUST pass through auth.RequireRole's own error
+	// (code and message) instead of collapsing it into a generic wrapper —
+	// layer 2 of the double-RBAC keeps the specific role semantics.
+	for _, caller := range maintenanceNonOwners() {
+		err := func() error {
+			_, err := uc.Execute(context.Background(), dto.DeleteScheduleInput{
+				Caller: caller, ProfessionalID: "p1", DayOfWeek: 3,
+			})
+			return err
+		}()
+		var sem *domain.SemanticError
+		if !errors.As(err, &sem) {
+			t.Fatalf("caller %q: expected *domain.SemanticError, got %T: %v", caller.Role, err, err)
+		}
+		if sem.Code != domain.ErrCodeForbidden {
+			t.Errorf("caller %q: code = %q, want %q", caller.Role, sem.Code, domain.ErrCodeForbidden)
+		}
+		wantMsg := fmt.Sprintf("Rol %q no tiene permiso para esta operación", caller.Role)
+		if sem.Message != wantMsg {
+			t.Errorf("caller %q: message = %q, want RequireRole passthrough %q", caller.Role, sem.Message, wantMsg)
+		}
+	}
 	if called {
 		t.Error("repository was reached for a non-owner caller")
+	}
+	if records := auditRecords(t, buf); len(records) != 0 {
+		t.Fatalf("denied mutations emitted %d audit records, want 0", len(records))
 	}
 }
 

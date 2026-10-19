@@ -191,7 +191,7 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 				return err
 			}
 		}
-		return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes, stdinSecretLine(stdin))
+		return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes)
 	}
 
 	// R4-deactivated-owner-seed-deadend: "no ACTIVE owner" does not mean "no
@@ -206,7 +206,7 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 		if err := runSeedDeadendRecovery(flowCtx, identity, input, stdout, inactiveOwners); err != nil {
 			return err
 		}
-		return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes, stdinSecretLine(stdin))
+		return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes)
 	}
 
 	if err := writeConsole(stdout,
@@ -249,7 +249,7 @@ func runAdminTUIFlow(ctx context.Context, stdin io.Reader, stdout io.Writer) err
 		return err
 	}
 
-	return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes, stdinSecretLine(stdin))
+	return runAdminMenu(flowCtx, identity, input, stdout, resolveHermes)
 }
 
 // runSeedDeadendRecovery closes finding R4-deactivated-owner-seed-deadend: the
@@ -409,7 +409,7 @@ type adminMenuOption struct {
 // reading them from a package-level path. resolveHermes is the shared
 // tui.HermesResolver, so the console and the Bubble Tea program consume the same
 // shape and the same retry contract (R2-02, R4-001).
-func adminMenuOptions(resolveHermes tui.HermesResolver, secretLine secretLineReader) []adminMenuOption {
+func adminMenuOptions(resolveHermes tui.HermesResolver) []adminMenuOption {
 	return []adminMenuOption{
 		{key: "1", label: "Add Staff", action: runAddStaffFlow},
 		{key: "2", label: "Desactivar cuenta", action: runDeactivateAccountFlow},
@@ -425,7 +425,7 @@ func adminMenuOptions(resolveHermes tui.HermesResolver, secretLine secretLineRea
 			if err != nil {
 				return err
 			}
-			return runConfigureHermesFlow(ctx, identity, input, stdout, hermes, secretLine)
+			return runConfigureHermesFlow(ctx, identity, input, stdout, hermes)
 		}},
 		{key: "8", label: "Ver audit log", action: runAuditTrailFlow},
 		{key: "9", label: "Purgar cuentas desactivadas", action: runPurgeInactiveFlow},
@@ -504,11 +504,26 @@ func runPurgeInactiveFlow(ctx context.Context, identity identityDeps, input *con
 	// must read WHICH accounts were already permanently deleted, then the error.
 	// The per-outcome report comes first (masked ids), THEN the sanitized
 	// error: raw causes stay server-side, mirroring the TUI flow.
-	summary := fmt.Sprintf("Purga completa: %s.\n", purgeReportLine(outcomes, len(ids)))
+	return writeConsole(stdout, purgeConsoleReport(outcomes, len(ids), err))
+}
+
+// purgeConsoleReport composes the console report text: the per-outcome rows
+// (masked ids) first, then the sanitized hint on a failed batch. It is split
+// out so the wording is unit-testable — identityDeps carries the concrete
+// repository, so the flow itself cannot be driven into the error branch.
+func purgeConsoleReport(outcomes []admin.PurgeOutcome, requested int, err error) string {
+	// B8 f9b (GGA round 2): the count line claims completeness ONLY when the
+	// batch finished; a mid-batch abort is a PARTIAL purge (the rows above stay
+	// the completed ones, the hint below points at the service log).
+	state := "completa"
+	if err != nil {
+		state = "parcial"
+	}
+	summary := fmt.Sprintf("Purga %s: %s.\n", state, purgeReportLine(outcomes, requested))
 	if err != nil {
 		summary += "Resultado parcial: la purga no se completó; revisá el log del servicio.\n"
 	}
-	return writeConsole(stdout, summary)
+	return summary
 }
 
 // purgeReportLine is the count + per-account phrasing shared with the TUI
@@ -535,8 +550,8 @@ func purgeReportLine(outcomes []admin.PurgeOutcome, requested int) string {
 // until they quit or the stream ends. End of input (Ctrl+D or a
 // non-interactive invocation) is a clean exit, not an error: an operator who
 // only needed the seed must not get a failure for not answering the menu.
-func runAdminMenu(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, resolveHermes tui.HermesResolver, secretLine secretLineReader) error {
-	options := adminMenuOptions(resolveHermes, secretLine)
+func runAdminMenu(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, resolveHermes tui.HermesResolver) error {
+	options := adminMenuOptions(resolveHermes)
 	for {
 		if err := writeMenu(stdout, options); err != nil {
 			return err
@@ -947,34 +962,16 @@ func promptSeedInput(input *consoleInput, stdout io.Writer) (admin.SeedInput, er
 // A stream that ends before a valid answer aborts the flow with a semantic
 // error: an interrupted questionnaire must not create a half-built account.
 // promptSecret reads one secret value without terminal echo (GGA round 14):
-// on a real terminal the read goes through term.ReadPassword (echo disabled,
-// newline consumed); with piped stdin the consoleSource path is echo-free by
-// construction. Injectability comes from the consoleSource/reader split: tests pipe
+// on a real terminal the read goes through input.Secret()'s term.ReadPassword
+// (echo disabled, newline consumed); with piped stdin the consoleSource path is
+// echo-free by construction. B8 f6 (owner: limpieza): the separate
+// secretLineReader/stdinSecretLine hook never ran — input.Secret() already owns
+// the tty/piped split, so the dead plumbing is removed and the single code path
+// stands. Injectability comes from the consoleSource/reader split: tests pipe
 // stdin, so no special hook is needed — a terminal exercise is a manual smoke.
 // Together with the Bubble Tea form's sensitive field this keeps both
 // presentations' secret handling symmetric.
-// secretLineReader reads one secret line with terminal echo disabled. The
-// console flow wires it ONLY when its input source is the process stdin AND
-// that stdin is a real terminal (GGA round 15: the secret must share the input
-// boundary of the injected consoleSource — never reach os.Stdin globals around it).
-// Piped stdin (tests, scripts) is echo-free by construction and keeps the
-// consoleSource path via a nil hook.
-type secretLineReader func() (string, error)
-
-// stdinSecretLine wires the terminal no-echo reader for the process stdin.
-// Its nil/false-nil distinction keeps unit tests (piped scanners) untouched.
-func stdinSecretLine(stdin io.Reader) secretLineReader {
-	if stdin != os.Stdin || !term.IsTerminal(os.Stdin.Fd()) {
-		return nil
-	}
-	fd := os.Stdin.Fd()
-	return func() (string, error) {
-		raw, err := term.ReadPassword(fd)
-		return string(raw), err
-	}
-}
-
-func promptSecret(input *consoleInput, stdout io.Writer, label string, validate func(string) error, secretLine secretLineReader) (string, error) {
+func promptSecret(input *consoleInput, stdout io.Writer, label string, validate func(string) error) (string, error) {
 	for {
 		if err := writeConsole(stdout, label+": "); err != nil {
 			return "", err
@@ -1318,7 +1315,7 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, input *c
 // the operator can finish the bootstrap by hand (ADR-0017 Decision 1). The chain
 // itself lives in tui.ApplyHermesConfigWithTelegram, the same helper the Bubble
 // Tea wizard runs, so the console never re-derives the path or the endpoint.
-func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, hermes tui.HermesConfig, secretLine secretLineReader) error {
+func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, hermes tui.HermesConfig) error {
 	owner, err := admin.ActiveOwner(ctx, identity.accounts)
 	if err != nil {
 		return err
@@ -1329,7 +1326,7 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *c
 		return err
 	}
 
-	token, err := promptSecret(input, stdout, "Token del bot de Telegram (formato <id>:<hash>) - no se verá al escribir", admin.ValidateTelegramBotToken, secretLine)
+	token, err := promptSecret(input, stdout, "Token del bot de Telegram (formato <id>:<hash>) - no se verá al escribir", admin.ValidateTelegramBotToken)
 	if err != nil {
 		return err
 	}

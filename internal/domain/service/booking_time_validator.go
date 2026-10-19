@@ -178,6 +178,16 @@ func ValidateBookingTimeSlot(ctx context.Context, slot SlotInput, deps BookingTi
 	if slot.Service == nil || slot.Service.Duration() <= 0 {
 		return internalValidationError(errors.New("slot.Service debe ser no nulo y con duración positiva"))
 	}
+	// B8 f4 (owner: fail-closed): a start that is not exact to the minute
+	// carries sub-minute information Format("15:04") below silently drops —
+	// a 15:00:30 start would pass a 15:00 close bound. Reject instead of
+	// truncating; the caller keeps its full-precision instant.
+	if slot.Start.Second() != 0 || slot.Start.Nanosecond() != 0 {
+		return &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "la hora de inicio debe ser exacta al minuto (sin segundos)",
+		}
+	}
 	slotStartHHMM := slot.Start.Format("15:04")
 	durationMin := int(slot.Service.Duration() / time.Minute)
 

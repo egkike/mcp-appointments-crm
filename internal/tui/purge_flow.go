@@ -71,11 +71,18 @@ func purgeCmd(ctx context.Context, deps Deps, ids []string) tea.Cmd {
 		// A mid-batch failure must not swallow the completed outcomes: the
 		// operator reads WHICH accounts were already deleted, then the error.
 		raw := purgeSummary(outcomes, len(ids))
-		line := fmt.Sprintf("Purga completa: %s.", raw)
+		// B8 f9b (GGA round 2): the count headline claims completeness ONLY
+		// when the batch finished. A mid-batch abort is a PARTIAL purge, so the
+		// row must not read "Purga completa" next to the failure hint.
+		state := "completa"
 		if err != nil {
-			return resultMsg{lines: []string{line, "Resultado parcial: " + purgeDoesNotComplete}}
+			state = "parcial"
 		}
-		return resultMsg{lines: []string{line}}
+		lines := []string{fmt.Sprintf("Purga %s: %s.", state, raw)}
+		if err != nil {
+			lines = append(lines, "Resultado parcial: "+purgeDoesNotComplete)
+		}
+		return resultMsg{lines: lines}
 	}
 }
 

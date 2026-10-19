@@ -122,6 +122,37 @@ func TestBusinessProfile_GetOpenClose(t *testing.T) {
 			t.Errorf(`GetOpenClose(7) = ok=%v err=%v; want legacy key "007" normalized to day 7`, ok, err)
 		}
 	})
+
+	// B8 f2 design amendment: a stored document with TWO distinct keys that
+	// normalize to the same DayKey is ambiguous corrupt data — the sorted-key
+	// order used to silently pick the last winner. Read normalization stays
+	// (single legacy form), but normalized duplicates fail closed.
+	t.Run("normalized duplicate day keys fail closed", func(t *testing.T) {
+		dupe := &BusinessProfile{BusinessHours: `{"01":{"open":"09:00","close":"18:00"},"1":{"open":"10:00","close":"20:00"}}`}
+		hours, err := dupe.parseBusinessHours()
+		if err == nil {
+			t.Fatal("parseBusinessHours() error = nil, want the ambiguity error")
+		}
+		if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("parseBusinessHours() error = %v, want wrapping domain.ErrInvalidInput", err)
+		}
+		for _, k := range []string{"1", "01"} {
+			if !strings.Contains(err.Error(), k) {
+				t.Errorf("parseBusinessHours() error = %q, want it to name legacy key %q", err, k)
+			}
+		}
+		if hours != nil {
+			t.Errorf("parseBusinessHours() hours = %v, want nil on ambiguous data", hours)
+		}
+	})
+	t.Run("normalized duplicate day keys fail closed even with identical values", func(t *testing.T) {
+		same := &BusinessProfile{BusinessHours: `{"1":{"open":"09:00","close":"18:00"},"01":{"open":"09:00","close":"18:00"}}`}
+		if _, err := same.parseBusinessHours(); err == nil {
+			t.Fatal("parseBusinessHours() error = nil; ambiguity is corrupt data even when values match")
+		} else if !errors.Is(err, domain.ErrInvalidInput) {
+			t.Errorf("parseBusinessHours() error = %v, want wrapping domain.ErrInvalidInput", err)
+		}
+	})
 }
 
 func TestBusinessProfile_parseBusinessHoursInvalidKey(t *testing.T) {

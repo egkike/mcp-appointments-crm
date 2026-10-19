@@ -1431,7 +1431,7 @@ func consoleIdentity(t *testing.T, dbPath string) identityDeps {
 func TestAdminMenuOptions_RegistersConfigureHermes(t *testing.T) {
 	options := adminMenuOptions(func() (tui.HermesConfig, error) {
 		return tui.HermesConfig{Path: "p", EndpointURL: "e"}, nil
-	}, nil)
+	})
 
 	if len(options) != 9 {
 		t.Fatalf("option count = %d, want 9", len(options))
@@ -1589,7 +1589,7 @@ func TestRunConfigureHermesFlow_RequiresAnActiveOwner(t *testing.T) {
 	var out bytes.Buffer
 	err := runConfigureHermesFlow(context.Background(), identity,
 		newConsoleInput(strings.NewReader("")), &out,
-		tui.HermesConfig{Path: filepath.Join(t.TempDir(), "config.yaml"), EndpointURL: consoleHermesEndpoint(t)}, nil)
+		tui.HermesConfig{Path: filepath.Join(t.TempDir(), "config.yaml"), EndpointURL: consoleHermesEndpoint(t)})
 
 	if err == nil {
 		t.Fatal("runConfigureHermesFlow() error = nil, want the no-active-owner failure")
@@ -1634,7 +1634,7 @@ func TestRunConfigureHermesFlow_FallsBackToSnippetWhenWriteFails(t *testing.T) {
 	stdin := newConsoleInput(strings.NewReader("\n" + telegramTestToken + "\n" + telegramTestChatID + "\n\ns\n"))
 
 	err := runConfigureHermesFlow(context.Background(), identity, stdin, &out,
-		tui.HermesConfig{Path: filepath.Join(readonlyParent, "config.yaml"), EndpointURL: consoleHermesEndpoint(t)}, nil)
+		tui.HermesConfig{Path: filepath.Join(readonlyParent, "config.yaml"), EndpointURL: consoleHermesEndpoint(t)})
 
 	if err == nil {
 		t.Fatal("runConfigureHermesFlow() error = nil, want the write failure")
@@ -1687,5 +1687,61 @@ func TestResolveHermesBootstrapRetriesAfterAFailure(t *testing.T) {
 	}
 	if got.Path == "" {
 		t.Error("Path is empty, want the resolved ~/.hermes/config.yaml path")
+	}
+}
+
+// TestPurgeConsoleReportPartialBatchSaysParcial pins B8 f9b (GGA round 2 of the
+// feat-b8-hygiene-triage commit): the console mirror of the purge must not
+// claim "Purga completa" when the batch aborted mid-way. The completed rows
+// stay first (masked ids), the sanitized hint follows, and only a clean batch
+// says "completa". The error branch is asserted here because identityDeps
+// carries the concrete repository, so runPurgeInactiveFlow cannot be driven
+// into a mid-batch failure.
+func TestPurgeConsoleReportPartialBatchSaysParcial(t *testing.T) {
+	completed := "+5491100000001"
+	report := purgeConsoleReport(
+		[]admin.PurgeOutcome{{
+			Account: admin.AccountView{ID: entity.MaskPhone(completed)},
+			Purged:  true,
+		}},
+		2,
+		errors.New("sqlite: disk I/O error"),
+	)
+
+	if !strings.Contains(report, "Purga parcial: ") {
+		t.Errorf("report = %q, want the partial batch labelled \"Purga parcial\"", report)
+	}
+	if strings.Contains(report, "Purga completa") {
+		t.Errorf("report = %q, must never claim a complete purge after a failed batch", report)
+	}
+	if !strings.Contains(report, "1 cuenta(s) eliminada(s) permanentemente de 2 pedidas") {
+		t.Errorf("report = %q, want the honest count of the completed rows", report)
+	}
+	if !strings.Contains(report, "  "+entity.MaskPhone(completed)+": eliminada permanente") {
+		t.Errorf("report = %q, want the completed masked row", report)
+	}
+	if strings.Contains(report, completed) {
+		t.Errorf("report = %q, must carry masked ids only", report)
+	}
+	// The sanitized hint closes the report: rows first, then the cause pointer.
+	hint := "Resultado parcial: la purga no se completó; revisá el log del servicio.\n"
+	if !strings.HasSuffix(report, hint) {
+		t.Errorf("report = %q, want the sanitized hint last", report)
+	}
+
+	// Triangulation: a clean batch keeps the complete wording and no hint.
+	clean := purgeConsoleReport(
+		[]admin.PurgeOutcome{{
+			Account: admin.AccountView{ID: entity.MaskPhone(completed)},
+			Purged:  true,
+		}},
+		1,
+		nil,
+	)
+	if !strings.Contains(clean, "Purga completa: 1 cuenta(s) eliminada(s) permanentemente de 1 pedidas") {
+		t.Errorf("clean report = %q, want the complete wording", clean)
+	}
+	if strings.Contains(clean, "Resultado parcial") {
+		t.Errorf("clean report = %q, want no partial hint on a clean batch", clean)
 	}
 }

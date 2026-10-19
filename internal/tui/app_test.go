@@ -1928,3 +1928,77 @@ func TestAppModelPurgeDoubleGateDeactivatesThenPurges(t *testing.T) {
 		t.Errorf("staff row must be hard-deleted, got %v", err)
 	}
 }
+
+// purgeOutcomeStub is the narrowest AccountsPort the purge command needs: the
+// batch drives PurgeInactive only, so the embedded zero AccountsPort satisfies
+// the rest of the union for the compiler and is never reached at runtime.
+type purgeOutcomeStub struct {
+	AccountsPort
+	failOn string
+	err    error
+}
+
+// PurgeInactive models a batch that deletes one id and then hits the failure,
+// which is exactly the shape PurgeInactiveAccounts returns on a mid-batch
+// abort: the accumulated outcomes survive the error.
+func (s purgeOutcomeStub) PurgeInactive(_ context.Context, id string) (bool, error) {
+	if id == s.failOn {
+		return false, s.err
+	}
+	return true, nil
+}
+
+// TestPurgeCmdPartialBatchSaysParcial pins B8 f9b (GGA round 2 of the
+// feat-b8-hygiene-triage commit): a mid-batch failure must NOT label the
+// report "Purga completa". The completed rows stay visible before the
+// sanitized hint, and only a clean batch claims completeness.
+func TestPurgeCmdPartialBatchSaysParcial(t *testing.T) {
+	const otherPhone = "+5491100000009"
+	deps := Deps{Accounts: purgeOutcomeStub{
+		failOn: otherPhone,
+		err:    errors.New("sqlite: disk I/O error"),
+	}}
+
+	msg := purgeCmd(context.Background(), deps, []string{staffPhone, otherPhone})()
+	result, ok := msg.(resultMsg)
+	if !ok {
+		t.Fatalf("msg = %T, want resultMsg", msg)
+	}
+	if len(result.lines) != 2 {
+		t.Fatalf("lines = %q, want the report line plus the sanitized hint", result.lines)
+	}
+
+	headline := result.lines[0]
+	if !strings.Contains(headline, "Purga parcial: ") {
+		t.Errorf("headline = %q, want the partial batch labelled \"Purga parcial\"", headline)
+	}
+	if strings.Contains(headline, "Purga completa") {
+		t.Errorf("headline = %q, must never claim a complete purge after a failed batch", headline)
+	}
+	if !strings.Contains(headline, "1 cuenta(s) eliminada(s) permanentemente de 2 pedidas") {
+		t.Errorf("headline = %q, want the honest count of the completed rows", headline)
+	}
+	if !strings.Contains(headline, entity.MaskPhone(staffPhone)+": eliminada permanente") {
+		t.Errorf("headline = %q, want the completed masked row", headline)
+	}
+	if strings.Contains(headline, staffPhone) || strings.Contains(headline, otherPhone) {
+		t.Errorf("headline = %q, must carry masked ids only", headline)
+	}
+	if got, want := result.lines[1], "Resultado parcial: "+purgeDoesNotComplete; got != want {
+		t.Errorf("hint = %q, want %q", got, want)
+	}
+
+	// Triangulation: a clean batch keeps the complete wording and no hint.
+	clean := Deps{Accounts: purgeOutcomeStub{failOn: ""}}
+	cleanMsg := purgeCmd(context.Background(), clean, []string{staffPhone})()
+	cleanResult, ok := cleanMsg.(resultMsg)
+	if !ok {
+		t.Fatalf("clean msg = %T, want resultMsg", cleanMsg)
+	}
+	if len(cleanResult.lines) != 1 {
+		t.Fatalf("clean lines = %q, want the report line only", cleanResult.lines)
+	}
+	if !strings.Contains(cleanResult.lines[0], "Purga completa: ") {
+		t.Errorf("clean headline = %q, want the complete wording", cleanResult.lines[0])
+	}
+}
