@@ -15,7 +15,7 @@ review_budget_lines: 400
 context: |
   Project: mcp-appointments-crm
   Module: github.com/egkike/mcp-appointments-crm
-  Language: Go 1.27.2
+  Language: Go 1.27.3
   Database: SQLite via modernc.org/sqlite (pure Go, no CGo) with WAL mode and busy_timeout=5000
   Search: SQLite FTS5 (clients_fts, services_fts)
   TUI: Charm Bubble Tea ecosystem (bubbletea, bubbles, lipgloss) for native setup
