@@ -1,8 +1,8 @@
 # Design: feat-owner-chat
 
 **Change:** feat-owner-chat
-**Inputs:** `proposal.md` (S1–S6, Evidence Inventory E1–E48), `odd/tasks/feat-owner-chat-b12.md:10-23`, `docs/gateway-contract.md`, ADR-0018, ADR-0020, ADR-0013, ADR-0015
-**Constraint:** este documento es doc-first. Fija diseño y decisiones; la reescritura del template de skill, la actualización del contrato del gateway y el runbook se aplican en un change posterior (T2–T4 de `odd/tasks/feat-owner-chat-b12.md:28-31`). **No hay cambios de código en esta fase.**
+**Inputs:** `proposal.md` (S1–S8, Evidence Inventory E1–E64), `odd/tasks/feat-owner-chat-b12.md:10-23,40`, `docs/gateway-contract.md`, ADR-0018, ADR-0020, ADR-0013, ADR-0015, `internal/mcp/tools_search.go`, `internal/repository/services.go`, `internal/db/schema.go`
+**Constraint:** este documento es doc-first. Fija diseño y decisiones; la reescritura del template de skill, la actualización del contrato del gateway, el runbook y **las dos tools read de S7** se aplican en un change posterior (T2.0–T4.1 de `odd/tasks/feat-owner-chat-b12.md`). **No hay cambios de código en esta fase.**
 
 ---
 
@@ -10,16 +10,17 @@
 
 | Capa | Ubicación | Este change |
 |---|---|---|
-| Dominio | `internal/domain/**` | **Nada** |
-| Aplicación | `internal/application/**` | **Nada** |
-| Transporte MCP | `internal/mcp/**` | **Nada** |
-| Persistencia | `internal/repository/**`, `internal/db/**` | **Nada** (sin schema, sin migración) |
-| Adapter UI | `internal/tui/**`, `internal/admin/**` | **Nada** (sólo se citan como precedente) |
-| Datos de runtime | `setup/templates/recepcionista-negocio/SKILL.md` | **Rewrite en T2** (persona dual + bump `1.1.0`) |
-| Docs contrato | `docs/gateway-contract.md` | **Update en T3** (reglas owner + checklist) |
-| Docs operador | `docs/gateway-contract.md` §7 | **Update en T4** (runbook S5/S6) |
+| Dominio | `internal/domain/**` | **Puertos nuevos (S7)**: `ProfessionalsRepo.FindAllActive`, `SchedulesRepo.FindByProfessional`. Entidades sin cambios |
+| Aplicación | `internal/application/**` | **DTOs + 2 use cases read (S7)**: `search_professionals_advanced`, `get_professional_schedules` |
+| Transporte MCP | `internal/mcp/**` | **2 tools read (S7)** en un archivo nuevo `tools_professionals.go` + `ports.go`/`config.go`/`server.go` |
+| Persistencia | `internal/repository/**`, `internal/db/**` | **2 métodos de lectura (S7)** en los adaptadores existentes. **Sin DDL, sin migración, sin tabla FTS nueva** |
+| Adapter UI | `internal/tui/**`, `internal/admin/**` | **Nada** (sólo se citan como precedente y se verifica que el form de Add Staff no aplica, E61) |
+| Datos de runtime | `setup/templates/recepcionista-negocio/SKILL.md` | **Rewrite en T2.3** (persona dual + bump `1.1.0` + flujo servicio→profesionales filtrados) |
+| Docs contrato | `docs/gateway-contract.md` | **Update en T3.1** (reglas owner + checklist) |
+| Docs operador | `docs/gateway-contract.md` §7 | **Update en T4.1** (runbook S5/S6 + carga de `specialties` de S8) |
+| Composition root | `cmd/mcp-server/main.go` | **Wiring de S7**: 2 use cases, 1 entrada `ToolRBAC` (S7b), 2 campos de `Config` |
 
-> **Server code impact: none expected.** El set de tools que la persona owner necesita ya existe y ya está gateado dos veces: mapa owner-only en el composition root (`cmd/mcp-server/main.go:437-450`, E28) y `auth.RequireRole(auth.RoleOwner)` dentro de cada use case (E29). Las cuatro operaciones excluidas **no existen** como tools (E28): la frontera TUI-only es física, no textual. Cualquier necesidad de código que aparezca al aplicar este change debe registrarse como una **S nueva con evidencia** (`odd/tasks/feat-owner-chat-b12.md:21-22`) antes de implementarse; no se asume ni se improvisa en T2–T4.
+> **Server code impact:** **ninguno** para S1–S6 (el set de tools de la persona owner ya existe y ya está gateado dos veces: `cmd/mcp-server/main.go:437-450`, E28, y `auth.RequireRole(auth.RoleOwner)` en cada use case, E29; las cuatro operaciones excluidas **no existen** como tools). **Sí** para S7: dos tools **read** que nacieron exactamente del camino previsto por el feature doc (`odd/tasks/feat-owner-chat-b12.md:21-22`): primero el read-gap del `delete_schedule` (L4) y después el bug del booking flow (L6, `:40`). Su superficie está inventariada en §10 y su diseño en §8–§9. Cualquier necesidad de código **distinta** de S7/S8 sigue la regla: se registra como **S nueva con evidencia `path:line`** antes de implementarse.
 
 ### 0.1 Por qué la frontera de seguridad no cambia
 
@@ -107,14 +108,26 @@ Evidencia: formas de input de los tres deletes (E46) e inventario real de tools 
 | Delete | Identidad que recibe la tool | Lectura previa (G0) | Verificación posterior (G4) |
 |---|---|---|---|
 | `delete_service` | `service_id` (`internal/mcp/tools_maintenance.go:205-207`) | `search_services_advanced` → nombre + id reales | `search_services_advanced`: el servicio ya no aparece |
-| `delete_schedule` | `professional_id` + `day_of_week` (`:246-249`) | **ninguna**: no existe tool MCP de lectura de profesionales ni de agendas (E47) | **ninguna** más allá del payload de la tool (`professional_id`, `day_of_week`, `status`, E48) |
+| `delete_schedule` | `professional_id` + `day_of_week` (`:246-249`) | **ninguna hoy**: no existe tool MCP de lectura de profesionales ni de agendas (E47, E56) — **se cierra con S7b**, §2.4 | **ninguna** más allá del payload de la tool (`professional_id`, `day_of_week`, `status`, E48) — **se cierra con S7b** |
 | `delete_hours_exception` | `exception_id` (`internal/mcp/tools_hours_exception.go:45-48`) | `list_hours_exceptions` sobre el rango que incluya la fecha | `list_hours_exceptions`: la excepción ya no aparece |
 
-**Consecuencia de diseño (honesta):** para `delete_schedule` el gate no puede "resolver el lote" como hace la TUI; sólo puede repetir el par declarado por el owner (`professional_id` + día) y exigir las dos confirmaciones sobre ese par. Reglas derivadas:
+**Consecuencia de diseño (honesta) mientras S7b no esté desplegada:** para `delete_schedule` el gate no puede "resolver el lote" como hace la TUI; sólo puede repetir el par declarado por el owner (`professional_id` + día) y exigir las dos confirmaciones sobre ese par. Reglas derivadas:
 
 - La skill MUST NOT afirmar que verificó la agenda, ni inventar el `professional_id` ni el nombre del profesional.
-- Si el owner no puede dar el par exacto (o duda entre dos profesionales), el gate se abre igual pero con la advertencia explícita de que el chat no puede listar agendas: es la única salida honesta sin una tool de lectura nueva.
-- **Si el owner quiere verificación real de agendas por chat, eso es una S nueva** (candidata: una tool de lectura de profesionales/agendas) con su evidencia — no se inventa acá ni se implementa en T2 (`odd/tasks/feat-owner-chat-b12.md:21-22`).
+- Si el owner no puede dar el par exacto (o duda entre dos profesionales), el gate se abre igual pero con la advertencia explícita de que el chat no puede listar agendas.
+- **El read-gap se cierra en S7b** (`get_professional_schedules`, §8.3), no con una heurística: es la "S nueva con evidencia" que el doc-first había anticipado (`odd/tasks/feat-owner-chat-b12.md:21-22`). Orden duro: el texto de la skill v1.1 (T2.3) **después** de S7b (T2.0b), porque es el texto el que afirma la verificación.
+
+### 2.4 Matriz de verificabilidad tras S7 (estado objetivo del change)
+
+Evidencia: diseños §8.2 y §8.3.
+
+| Delete | Lectura previa (G0) | Verificación posterior (G4) |
+|---|---|---|
+| `delete_service` | `search_services_advanced` → nombre + id reales | el servicio ya no aparece |
+| `delete_schedule` | `get_professional_schedules(professional_id)` → nombre + las filas de agenda reales, más `search_professionals_advanced` para resolver el id cuando el owner nombra a la persona | `get_professional_schedules`: el par (profesional, día) ya no aparece; si el profesional no existía, error semántico |
+| `delete_hours_exception` | `list_hours_exceptions` sobre el rango | la excepción ya no aparece |
+
+**Lo que sigue sin poder verificarse:** nada de los tres deletes queda sin lectura. Lo que **no** cambia es la naturaleza del gate: sigue siendo una garantía de **UX**, no un control de seguridad (§2.2, último párrafo). S7 sólo elimina el "confirmás a ciegas".
 
 **Reglas duras del gate** (todas verificables en el texto de la skill):
 
@@ -248,21 +261,154 @@ No hay código nuevo: el mecanismo está entregado y verificado.
 
 ---
 
-## 8. Impacto en código del servidor
+## 8. S7 — Tools MCP de lectura (aprobada 2026-10-19)
 
-**Ninguno esperado**, y este diseño es explícito sobre por qué:
+### 8.1 Motivo y frontera
+
+El smoke del booking flow demostró que el agente **no puede resolver la relación servicio↔profesional**: la relación existe en el modelo (`professionals.specialties`, array JSON de service_ids, `internal/db/schema.go:47-58`, E53) pero (a) no hay tool de lectura de profesionales ni de agendas (E47, E55, E56) y (b) los datos demo están vacíos y toda instalación nueva lo reproduce (E60). Resultado observado: Hermes ofreció todos los profesionales para un servicio y llegó a ofrecer a Romina para Corte de Cabello (`odd/tasks/feat-owner-chat-b12.md:40`).
+
+Frontera de diseño: **S7 agrega lectura, no reglas nuevas de escritura**. El servidor seguirá aceptando un booking con un profesional que no declara el servicio (E57); el filtro mejora **lo que el agente ofrece**, no lo que el servidor admite. Exigir la intersección en escritura sería una S nueva (no aprobada, ver §11).
+
+### 8.2 S7a — `search_professionals_advanced`
+
+| Aspecto | Decisión | Evidencia |
+|---|---|---|
+| Rol | **cualquier caller autenticado** (cliente incluido). Sin entrada en `ToolRBAC`; `auth.RequireAuthenticated` en el use case. Molde: `search_clients_advanced` / `check_availability` | E49; `cmd/mcp-server/main.go:409-421` |
+| Diferencia deliberada | **No** copia el `RequireRole(owner, admin)` de `search_services_advanced`: el flujo de reserva es del cliente | E49 (`search_services_advanced.go:26-33`) |
+| Input | `query_text` opcional (≤ 200 runas, mismo validador) + `service_id` opcional. Sin ambos: catálogo activo | E50, E52 |
+| Output | `{"results":[{id, name, role_specialty?, specialties[]}]}` — `{results:[…]}` como servicios, **sin PII** | E50; contraste `tools_maintenance.go:277-299` |
+| Filtro por servicio | `entity.Professional.HasSpecialty` sobre el JSON de `specialties` | E54, E53 |
+| Búsqueda textual | coincidencia por substring case-insensitive sobre `name` y `role_specialty`, en Go sobre el catálogo activo (**no hay `professionals_fts`**) | E51 |
+| `role_specialty` | dato descriptivo y superficie de match; **nunca** clave de filtrado (texto libre sin validación) | E58 |
+| Puerto nuevo | `ProfessionalsRepo.FindAllActive` — no reusa `FindActive` porque éste scopea al staff a su propia fila | E55 |
+
+**D1 — Por qué la salida no lleva `email`/`phone`.** La tool es legible por clientes; publicar el contacto del staff en un canal conversacional viola la regla de privacidad de la persona cliente (ADR-0020 Decisión 4, E24) y regala PII a cualquier número que escriba. El owner que necesite inspeccionar contacto usa `update_professional` con el mismo payload (idempotente) o la TUI. Consecuencia aceptada: la tool es un catálogo de agenda, no un directorio de personal.
+
+**D2 — Por qué un método de puerto nuevo y no `FindActive`.** `FindActive` recorta la lista al propio staff (`professionals.go:119-135`, E55): reusarlo dejaría a un staff viendo sólo su nombre en el flujo de reserva. `FindAllActive` devuelve todos los activos sin scoping y su doc de puerto obliga a proyectar a un DTO PII-free (defensa en profundidad: el recorte no es la única barrera).
+
+**D3 — Por qué no se crea `professionals_fts`.** Sería DDL + triggers + migración (E51) para un catálogo de decenas de filas. Se filtra en Go, con el validador de consulta compartido reutilizado (`validation.go:83,96-126`, E52) para no inventar una segunda política de texto. Evolución registrada (no hecha): si el catálogo crece, `professionals_fts` + triggers calcados de `services_fts` (`schema.go:152-158`, `:182-198`) es la vía.
+
+**Edge fail-closed (registrado, no un defecto oculto):** hoy, sin tool, el agente ofrece **todos** los profesionales (ese es el bug observado); con S7a el filtro por `service_id` es fail-closed: `specialties` vacío → `HasSpecialty` devuelve `false` → el profesional **no** aparece. La tool **no** hace fallback a "todos": el fallback reintroduce exactamente el bug del smoke. Hasta S8, el resultado esperado es **vacío**, y la skill debe decirlo ("no tengo cargada la relación para este servicio") en lugar de inventar profesionales. **S8 es prerrequisito del filtrado productivo.**
+
+### 8.3 S7b — `get_professional_schedules`
+
+| Aspecto | Decisión | Evidencia |
+|---|---|---|
+| Rol | **owner-only doble capa**: `ToolRBAC{owner}` en el composition root + `auth.RequireRole(RoleOwner)` en el use case | E28, E29; molde `delete_schedule.go:41-51` |
+| Input | `{"professional_id": "…"}` | — |
+| Output | `{"professional":{id, name, status}, "schedules":[{id, day_of_week, start_time, end_time}]}` — la fila reusa la forma de `upsert_schedule` (`scheduleOut`, `tools_maintenance.go:319-333`) | E50-like: un solo shape de schedule en el wire |
+| Puerto nuevo | `SchedulesRepo.FindByProfessional(ctx, professionalID) ([]*entity.Schedule, error)`, ordenado por `day_of_week`; hoy sólo existe `FindByProfessionalAndDay` | E56 |
+| Semántica | profesional inexistente → `ErrCodeNotFound` ("el profesional indicado no existe"); existe sin filas → lista vacía. El gate **necesita** esa distinción ("no tiene ese día" ≠ "ese id no existe") | §2.4 |
+| Día | `entity.ScheduleWeekday` (0=domingo…6=sábado), nunca `entity.DayKey` | `internal/domain/repository/schedules.go` |
+
+**D4 — Por qué devuelve también la identidad del profesional.** El defecto del §2.3 era que el gate no podía nombrar al profesional ni distinguir un id inventado de una agenda vacía. Devolver `{id, name, status}` + las filas cierra el G0/G4 sin una segunda tool y sin filtrar PII (nombre y estado ya son visibles en S7a).
+
+**D5 — Por qué owner-only y no "cualquier autenticado".** La agenda es información operativa del negocio; el cliente ya consulta disponibilidad por `check_availability` (que resuelve la agenda server-side). Abrirla a clientes ampliaría el wire sin necesidad y duplicaría el read path de disponibilidad. Si en el futuro el cliente necesita ver horarios, es una decisión de producto nueva.
+
+### 8.4 Orden de apply (duro)
+
+| # | Paso | Por qué |
+|---|---|---|
+| 1 | S7a + S7b (code, T2.0a/T2.0b) | Son las tools que el texto de la skill va a citar |
+| 2 | S8.1 (datos, sin código) o en paralelo | Sin datos, el filtro de S7a devuelve vacío (no rompe, pero no sirve) |
+| 3 | Skill v1.1 (T2.3) | El procedimiento owner/booking cita las tools y la matriz §2.4 ya es real |
+| 4 | Gateway + runbook (T3.1/T4.1) | Sin dependencia de S7 (sin impacto de protocolo) |
+
+### 8.5 Tests por capa (contrato para las slices de T2.0)
+
+| Capa | Archivo | Qué prueba |
+|---|---|---|
+| Dominio | `internal/domain/entity/professional_test.go:26-95` | `HasSpecialty` ya cubierto (incluye JSON inválido/nil): **no requiere cambio**; sirve de línea base |
+| Puertos | `internal/domain/repository/professionals.go`, `schedules.go` | contrato documentado (fail-closed, orden, scoping) |
+| Repositorio | `internal/repository/professionals_test.go`, `schedules_test.go` (sqlmock) | `FindAllActive` devuelve activos **sin** scoping de staff; `FindByProfessional` ordenado por día, `ErrNotFound` (id inexistente) vs lista vacía |
+| Use case | `internal/application/usecase/search_professionals_advanced_test.go` (nuevo), `get_professional_schedules_test.go` (nuevo) | cliente pasa S7a y es rechazado con `ErrCodeForbidden` en S7b; `service_id` inexistente → NotFound semántico; sin `specialties` → resultado vacío (nunca "todos") |
+| Transporte | `internal/mcp/tools_professionals_test.go` (nuevo) | mapeo de input (trim de `query_text`, passthrough de `service_id`), `nil` result → `{results:[]}`, caller propagado con rol cliente, errores semánticos sin fuga de internos (`internal/mcp/errors.go`) |
+| Integración MCP | `internal/mcp/server_integration_search_test.go`, `server_integration_maintenance_test.go` | cliente → 200 con resultados en S7a; `admin`/`staff`/`client` → `-32002` en S7b; `tools/list` = 25 (E62) |
+| FTS sync | — | **No aplica**: `professionals` no tiene tabla FTS ni triggers (E51). Se registra el negativo explícito para que nadie agregue un test de sincronización que no existe |
+
+## 9. S8 — Data hygiene de `specialties` (aprobada 2026-10-19)
+
+### 9.1 Origen del dato vacío (no es un bug aleatorio)
+
+| Hecho | Evidencia |
+|---|---|
+| Los 3 profesionales demo tienen `specialties = "[]"` | `odd/tasks/feat-owner-chat-b12.md:40` (smoke, datos del VM) |
+| El generador del setup escribe `"specialties": []` hardcodeado | `scripts/install.sh:930` |
+| El tipo del wizard lo documenta como invariante ("wizard always emits []") | `internal/config/setup_types.go:49` |
+| El seed inserta **staff antes** de services y genera los ids al insertar → el JSON de staff no puede referenciar un service_id real | `internal/config/setup_seeder.go:151-152`, `:178` |
+| La escritura de specialties ya existe y valida existencia de cada servicio | E59, E53 |
+
+Conclusión: **no** es un dato olvidado una vez; es el comportamiento por defecto de toda instalación nueva. Por eso S8 se divide en datos (ahora) y origen (decisión del owner).
+
+### 9.2 S8.1 — Cargar los valores reales (sin código)
+
+| Paso | Herramienta | Post-condición verificable |
+|---|---|---|
+| 1 | `search_services_advanced` (owner/admin, E49) para obtener `id` + `name` de Lavado de Cabello y de los cortes | ids reales del host, no inventados |
+| 2 | `update_professional(professional_id, specialties: [ids])` por cada profesional (E59) | la tool valida que cada id exista (E53) y devuelve el profesional con la lista |
+| 3 | `search_professionals_advanced(service_id = Lavado)` | devuelve **sólo** a Romina |
+| 4 | `search_professionals_advanced(service_id = Corte de Cabello)` | **no** devuelve a Romina |
+
+Mapeo aprobado (valores exactos: **OQ-4**): Romina → Lavado de Cabello; Santiago → corte(s); Joaquín → corte(s). El operador decide el conjunto exacto (¿Corte de Cabello y/o Corte de barba?) según los datos reales del VM.
+
+### 9.3 S8.2 — Superficie de carga: el Add Staff no aplica (verificado)
+
+**Hallazgo:** el flujo "Add Staff" de la TUI de administración **crea una cuenta**, no un profesional: `admin.StaffInput{ProfessionalID, Phone, DisplayName}` (`internal/admin/staff.go:37-41`, E61), con un form de dos campos (teléfono, display name) más el picker de profesionales existentes (`internal/tui/model.go:501-507`, `:559-563`). El picker sólo expone `id`/`name`/`phone` (`PickableProfessional`, `staff.go:29-36`). **No existe ninguna pantalla TUI que cree o edite profesionales**: hoy la única escritura son las tools MCP (E59) y el seed.
+
+Consecuencia de diseño: **no hay slice "agregar el campo specialties al form de Add Staff"** — el form no crea profesionales, así que agregarlo ahí sería incoherente. Slices derivadas:
+
+| Slice | Alcance | Estado |
+|---|---|---|
+| S8.2a — editor TUI de profesionales (multiselect de servicios) | superficie nueva: `internal/tui` + `internal/admin/professionals.go` + ports; ~250–350 líneas → chained PR y probablemente su propio change | **No aprobada** (candidata) |
+| S8.2b — que las instalaciones nuevas emitan specialties reales | exige invertir el orden del seed (services antes de staff, E60) y un contrato nuevo tipo `specialties_by_service_name` en `setup_staff.json` | **OQ-5** |
+
+### 9.4 Lo que S8 no cambia
+
+- **No** hace cumplir la intersección en escritura (E57): `create_booking` sigue aceptando cualquier par profesional/servicio. S8 sólo hace que el filtro de lectura tenga datos.
+- **No** toca `role_specialty` (texto libre libre, E58): sigue siendo descripción, nunca llave.
+- **No** agrega validación de specialties en el seed (`setup_seeder.go` inserta directo, sin `validateSpecialtiesExist`), porque los ids no existen todavía en ese orden: es exactamente lo que hace OQ-5 no trivial.
+
+## 10. Impacto en código del servidor
+
+**Ninguno para S1–S6; sí para S7 (dos tools read) y ninguno para S8** (datos + registro). El razonamiento por punto:
 
 1. Todas las tools de la persona owner ya existen (`cmd/mcp-server/main.go:437-450`, E28).
 2. Todas ya exigen owner dos veces (E29).
 3. Las cuatro operaciones excluidas no existen como tools (E28), así que la exclusión no necesita gate de servidor: es imposible alcanzarlas por MCP.
 4. El doble gate de deletes es conversacional por diseño (§2), y agregarlo al servidor exigiría estado de sesión de chat, que rompe ADR-0013/ADR-0020 Decisión 1 (E21).
 5. El gateway es de otro repo (§4.3).
+6. **S7 es la excepción planificada**: el doc-first ya había declarado que "si aparece una necesidad de lectura, es una S nueva con evidencia" (L4), y el smoke la confirmó (L6). Su superficie es la siguiente tabla — **ninguna otra capa se toca**.
 
-**Si el apply descubre lo contrario** (por ejemplo: una tool de lectura que la persona owner necesita y no existe, o un gap de RBAC), la regla es la del feature doc: se registra como **S nueva con evidencia `path:line`** antes de escribir código (`odd/tasks/feat-owner-chat-b12.md:21-22`, E9). No se resuelve "de paso" en T2–T4.
+### 10.1 Superficie exacta de S7 (edit surfaces previstos para las slices de código)
+
+| Archivo | Cambio | Slice |
+|---|---|---|
+| `internal/domain/repository/professionals.go` | `+FindAllActive(ctx)` con doc de contrato (sin scoping de rol, proyección PII-free obligatoria) | T2.0a |
+| `internal/domain/repository/schedules.go` | `+FindByProfessional(ctx, professionalID)` ordenada por día | T2.0b |
+| `internal/repository/professionals.go` | implementación de `FindAllActive` (prepared statement, `status='active'`, `ORDER BY name`) | T2.0a |
+| `internal/repository/schedules.go` | implementación de `FindByProfessional` (`WHERE professional_id = ? ORDER BY day_of_week`) | T2.0b |
+| `internal/application/dto/search.go` | `+ProfessionalSearchEntry` (sin PII), `+SearchProfessionalsAdvancedInput/Result` | T2.0a |
+| `internal/application/dto/maintenance.go` | `+GetProfessionalSchedulesInput/Result` (familia schedule) | T2.0b |
+| `internal/application/usecase/search_professionals_advanced.go` | **nuevo**: `RequireAuthenticated` → validación de `service_id` → `FindAllActive` → filtro `HasSpecialty` + match textual → DTO | T2.0a |
+| `internal/application/usecase/get_professional_schedules.go` | **nuevo**: `RequireRole(owner)` → `FindByID` del profesional → `FindByProfessional` → DTO | T2.0b |
+| `internal/mcp/ports.go` | `+SearchProfessionalsAdvancedPort`, `+GetProfessionalSchedulesPort` (consumer-side, E64) | T2.0a/b |
+| `internal/mcp/config.go` | `+2` campos de puerto | T2.0a/b |
+| `internal/mcp/tools_professionals.go` | **nuevo**: `registerProfessionalsReadTools` con las dos tools (input structs con JSON tags, descripciones ES, mapeo de errores vía `s.toMCPError`) | T2.0a/b |
+| `internal/mcp/server.go` | `+ s.registerProfessionalsReadTools()` (junto a `registerSearchTools`, `:62`) | T2.0a/b |
+| `cmd/mcp-server/main.go` | `+2` use cases (junto a `:377-378`), `+1` entrada `ToolRBAC` para `get_professional_schedules` (junto al mapa owner-only `:437-450`), `+2` campos de `Config` (junto a `:469`), actualizar el comentario del open-set (`:409-421`) para incluir `search_professionals_advanced` | T2.0a/b |
+| `internal/mcp/test_helpers_test.go:10` | `expectedToolCount` 23 → 25 | T2.0a |
+| `internal/mcp/tools_test.go:358`, mock ports (`:171-230`) | lista de nombres + mocks de los dos puertos nuevos | T2.0a/b |
+| `internal/mcp/tools_professionals_test.go` (nuevo), `internal/application/usecase/*_test.go` (2 nuevos), `internal/repository/*_test.go` | tests por capa (§8.5) | T2.0a/b |
+| `docs/PRD.md:492,1054,1271,1285,1362`; `docs/SDD.md:400`; `docs/demo-plan.md:202` | inventario/discovery de tools (25 tools; RF3 ampliado a profesionales **sin** FTS) | T2.0a/b |
+| `docs/gateway-contract.md` | **sin cambios por S7**: no hay impacto de identidad ni de protocolo; la única mención es la persona owner usando las tools nuevas (T3.1) | T3.1 |
+
+**No se tocan**: `internal/db/**` (sin DDL), `internal/auth/**`, `internal/tui/**`, `internal/admin/**`, `scripts/**` (OQ-5 no ejecutada).
+
+**Si el apply descubre lo contrario** (por ejemplo: una tool de lectura que la persona owner necesita y **no** es S7, o un gap de RBAC), la regla es la del feature doc: se registra como **S nueva con evidencia `path:line`** antes de escribir código (`odd/tasks/feat-owner-chat-b12.md:21-22`, E9). No se resuelve "de paso" en T2.0–T4.1.
 
 ---
 
-## 9. Riesgos y mitigaciones
+## 11. Riesgos y mitigaciones
 
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
@@ -275,9 +421,25 @@ No hay código nuevo: el mecanismo está entregado y verificado.
 | Inyección por el nombre del negocio | markdown/instrucciones inyectadas en la skill | gates existentes en dominio y render (E33, E34, E35) — la v1.1 no agrega placeholders |
 | El operador interpreta el warning "modificada" como pérdida de edición | reemplazo no consentido o cancelación innecesaria | §6 lo documenta explícitamente en el runbook |
 | La description de la skill anuncia la persona owner | insinúa capacidad a todo interlocutor | restricción de la `description` en §7 |
+| **S7a filtra sin datos**: mientras S8 no se ejecute, `search_professionals_advanced(service_id)` devuelve vacío | el agente no puede ofrecer profesionales y el flujo de reserva se degrada a "no tengo esa relación cargada" | fail-closed explícito (§8.2) + S8.1 como paso de operador + orden de apply §8.4. **No** se hace fallback a "todos" |
+| **El filtro es informativo, no una barrera**: `create_booking` acepta un par profesional/servicio inválido (E57) | un cliente puede reservar con quien no hace el servicio (el bug vuelve por otra puerta) | registrado como riesgo aceptado; exigirlo en escritura es una S nueva (no aprobada). El filtro reduce probabilidad, no garantiza |
+| **PII en la lectura nueva**: nombres de staff visibles para cualquier caller autenticado | exposición de directorio de personal | wire PII-free (sin `email`/`phone`, D1); nombres y especialidades son información de agenda pública |
+| `FindAllActive` relaja el scoping staff→propia fila de `FindActive` (E55) | un futuro consumidor podría filtrar PII usando la entidad cruda | doc del puerto + DTO PII-free + test de wire (§8.5) |
+| **Gap adyacente**: un cliente **no puede listar servicios** (`search_services_advanced` es owner/admin, E49) | el flujo de reserva de cliente puede carecer de catálogo, aun con S7a | registrado, **fuera de alcance**; si el owner lo quiere es una S nueva (fuera de S7/S8) |
+| Instalaciones nuevas nacen con `specialties` vacío (E60) | S7a inútil en hosts recién instalados hasta que el owner cargue datos | S8.1 en el runbook (T4.1) + **OQ-5** para el origen |
+| El texto de la skill v1.1 se escribe antes de S7b | la skill afirmaría una verificación que todavía no existe | orden de apply duro (§8.4) + escenario de regresión en `specs/owner-chat/spec.md` |
 
 ---
 
-## 10. Open questions diferidas (no bloquean este doc; bloquean el texto literal de T2)
+## 12. Open questions
 
-Ver `tasks.md` §Phase 1 — OQ. Todas son de **redacción**, no de alcance: las decisiones de producto (doble gate, TUI-only, selección por canal/rol, fail-closed) están cerradas por el owner (`odd/tasks/feat-owner-chat-b12.md:10-15,35-36`, E3–E9).
+### 12.1 Diferidas de redacción (S1–S6)
+
+Ver `tasks.md` — OQ-1/OQ-2/OQ-3 (**resueltas** el 2026-10-19: saludo neutro, fraseo default del precedente, writes no-delete sin gate). Eran de redacción, no de alcance: las decisiones de producto (doble gate, TUI-only, selección por canal/rol, fail-closed) están cerradas por el owner (`odd/tasks/feat-owner-chat-b12.md:10-15`, E3–E9).
+
+### 12.2 Abiertas de S7/S8 (no bloquean S7; el owner decide)
+
+| ID | Pregunta | Bloquea | Default si no hay respuesta |
+|---|---|---|---|
+| **OQ-4** | Valores exactos de `specialties` de los tres demo: ¿Romina = sólo Lavado de Cabello? ¿Santiago y Joaquín = Corte de Cabello, Corte de barba o ambos? | El paso S8.1 del runbook (los ids salen del host, no de este doc) | Romina → Lavado de Cabello; Santiago y Joaquín → Corte de Cabello **y** Corte de barba (el operador puede corregir en el chat antes de aplicar) |
+| **OQ-5** | ¿Se corrige el origen en **este** change? Es decir: que el setup/`install.sh` emita specialties reales (invierte el orden del seed + mapeo nombre→id, E60) o queda como change propio | La promesa "instalación nueva ya trae la relación cargada" | **No** en este change: queda registrado como follow-up; S8.1 cubre el host existente |
