@@ -293,3 +293,18 @@ La reescritura MUST conservar sin cambios de comportamiento el procedimiento cli
 - GIVEN la skill v1.1 cargada y un emisor en persona cliente
 - WHEN el emisor pide borrar datos del negocio
 - THEN la respuesta MUST ofrecer contacto del titular y MUST NOT abrir el doble gate de deletes
+### Requirement: Telegram is an optional channel in the Hermes-config flow
+La opción 7 (consola y TUI) DEBE permitir completar la configuración de Hermes sin datos de Telegram (campos vacíos → server-entry sin bloque Telegram, summary "no configurado (canal deshabilitado)") y DEBE ofrecer un path explícito para REMOVER un bloque Telegram ya cargado, preservando url/headers y claves ajenas (garantía sin-clobber del merge).
+
+- **GIVEN** la opción 7 con los 3 campos Telegram en blanco
+- **WHEN** el write confirma
+- **THEN** la entrada mcp_servers.mcp-appointments se escribe sin env MCP_TELEGRAM_* y el resumen declara el canal deshabilitado.
+
+- **GIVEN** una entrada con bloque Telegram cargado
+- **WHEN** el operator elige "sin Telegram"
+- **THEN** el bloque MCP_TELEGRAM_* se elimina byte-limpio y url/headers quedan intactos.
+
+- **GIVEN** un run posterior con token válido
+- **WHEN** el write confirma
+- **THEN** el bloque se (re)escribe igual que hoy (idempotente).
+
