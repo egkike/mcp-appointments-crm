@@ -89,6 +89,8 @@
 ---
 
 ## Phase 2 — Apply (change posterior; una unidad por T)
+- [ ] **TASK-2.4 (S11)** · Telegram opcional en opción 7 (skip + deshabilitar) — decisión owner 2026-10-19
+
 
 > **Gate de apply:** native review (S7 introduce tools con RBAC; el resto afecta el comportamiento conversacional del canal). Cada unidad se revisa y commitea por separado; el worker autor reporta rondas GGA y log path.
 >
@@ -161,6 +163,17 @@
 - **Slice estimate:** ~130–170 líneas
 
 > **Nota de ID:** este bloque era `TASK-2.2` antes de la expansión S7/S8 (ver la nota de renumeración al inicio de Phase 2).
+
+
+### TASK-2.4 (S11 — Telegram opcional, decisión owner 2026-10-19: skip + deshabilitar)
+
+- [ ] Campos Telegram de la opción 7 pasan a OPCIONALES: token/chat id vacíos → el write del server-entry se hace SIN bloque Telegram ("Telegram: no configurado (canal deshabilitado)" en summary), en consola y TUI (Validate pasa a semantics skip-aware: empty = skip, no error)
+- [ ] Tercer path explícito "sin Telegram": borra el bloque MCP_TELEGRAM_* existente de la entrada mcp_servers (nuevo admin function tipo RemoveHermesTelegramOwnerBot + wiring consola/TUI) — para negocios que lo cargaron y lo retiran
+- [ ] Tests: unit de Validate (vacío = skip/no error), unit de remove (bloque borrado byte-limpio, url/headers preservados — espejo del contract merge sin clobber), flujo consola happy-path sin Telegram + textos de summary
+- [ ] Pipeline completo Go (code touched) + sloths de reescritura de labels "campo X de N" dinámico según grupo tocado
+
+**Edit surface:** `cmd/mcp-server/admin_tui.go`, `internal/tui/telegram.go`, `internal/tui/model.go` (form fields), `internal/admin/hermes.go` (Remove), tests correspondientes
+**Slice estimate:** ~220-300 líneas
 
 ### TASK-3.1 (T3, S4) — Gateway contract: reglas owner + checklist de aceptación
 
