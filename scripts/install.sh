@@ -887,6 +887,121 @@ count_services() {
   printf '%s' "$i"
 }
 
+# services_name_exists NAME: exact, case-sensitive match against the service
+# names already entered in the wizard store (OQ-5).
+services_name_exists() {
+  local name="$1" i=0 total
+  total=$(count_services)
+  while [ "$i" -lt "$total" ]; do
+    [ "$(store_get "services.$i.name")" = "$name" ] && return 0
+    i=$((i + 1))
+  done
+  return 1
+}
+
+store_clear_staff_specialties() {
+  local i="$1" j=0
+  while store_has "staff.$i.spec.$j"; do
+    store_unset "staff.$i.spec.$j"
+    j=$((j + 1))
+  done
+}
+
+# prompt_staff_specialties I: OQ-5. Ask which of the already-entered services
+# professional I works on (by index or exact name, space or comma separated;
+# Enter = none with an explicit aviso). Skipped entirely when no services were
+# entered. Idempotent on resume via the staff.I.specset marker.
+prompt_staff_specialties() {
+  local i="$1" total j list rest part tok raw idx name picks seen invalid
+  local RE_NUM_ONLY='^[0-9 ]+$'
+  store_has "staff.$i.specset" && return 0
+  if ! store_has "services.0.name"; then
+    store_set "staff.$i.specset" "1"
+    return 0
+  fi
+  total=$(count_services)
+  list=""
+  j=0
+  while [ "$j" -lt "$total" ]; do
+    list="${list}($(( j + 1 ))) $(store_get "services.$j.name")   "
+    j=$(( j + 1 ))
+  done
+  printf 'Servicios del negocio:   %s\n' "$list"
+  while true; do
+    printf 'Servicios que atiende %s (números o nombres separados por espacio o comas, Enter = ninguno): ' "$(store_get "staff.$i.name")"
+    if ! read -r raw; then
+      printf '\n' >&2
+      echo 'Instalación cancelada. El checkpoint se conserva.' >&2
+      exit 1
+    fi
+    raw=$(trim_value "$raw")
+    if is_blank "$raw"; then
+      echo '  Aviso: sin especialidades. Podés cargarlas después con update_professional.' >&2
+      store_clear_staff_specialties "$i"
+      store_set "staff.$i.specset" "1"
+      checkpoint_save
+      return 0
+    fi
+    picks=""
+    seen=""
+    invalid=0
+    rest="${raw},"
+    while [ -n "$rest" ]; do
+      part="${rest%%,*}"
+      rest="${rest#*,}"
+      part=$(trim_value "$part")
+      [ -z "$part" ] && continue
+      if [[ $part =~ $RE_NUM_ONLY ]]; then
+        for tok in $part; do
+          idx=$((10#$tok))
+          if [ "$idx" -ge 1 ] && [ "$idx" -le "$total" ]; then
+            name=$(store_get "services.$((idx - 1)).name")
+          else
+            echo "Error: la entrada \"$tok\" no corresponde a ningún servicio ingresado (índices 1..$total)." >&2
+            invalid=1
+            break
+          fi
+          [[ $'\n'"$seen" == *$'\n'"$name"$'\n'* ]] && continue
+          seen="${seen}${name}"$'\n'
+          picks="${picks}${name}"$'\n'
+        done
+      elif services_name_exists "$part"; then
+        [[ $'\n'"$seen" == *$'\n'"$part"$'\n'* ]] && continue
+        seen="${seen}${part}"$'\n'
+        picks="${picks}${part}"$'\n'
+      else
+        echo "Error: la entrada \"$part\" no corresponde a ningún servicio ingresado (índices 1..$total o nombre exacto)." >&2
+        invalid=1
+      fi
+      [ "$invalid" -eq 1 ] && break
+    done
+    [ "$invalid" -eq 1 ] && continue
+    store_clear_staff_specialties "$i"
+    j=0
+    while IFS= read -r name; do
+      [ -z "$name" ] && continue
+      store_set "staff.$i.spec.$j" "$name"
+      j=$((j + 1))
+    done <<< "$picks"
+    store_set "staff.$i.specset" "1"
+    checkpoint_save
+    return 0
+  done
+}
+
+# run_staff_specialties_pass: OQ-5. Ask specialties for every professional
+# without an answer, AFTER the services section (so service names exist).
+run_staff_specialties_pass() {
+  local i=0
+  store_has "staff.0.name" || return 0
+  echo 'Especialidades por profesional (opcional):'
+  while store_has "staff.$i.name"; do
+    prompt_staff_specialties "$i"
+    i=$((i + 1))
+  done
+  return 0
+}
+
 render_setup_business() {
   local i=0 field key value
   printf '{\n'
@@ -916,7 +1031,7 @@ render_setup_business() {
 }
 
 render_setup_staff() {
-  local i=0 first=1 idx day value open close day_first
+  local i=0 first=1 idx day value open close day_first j spec_first
   printf '[\n'
   while store_has "staff.$i.name"; do
     [ "$first" -eq 0 ] && printf ',\n'
@@ -930,7 +1045,16 @@ render_setup_staff() {
     printf '    "email": %s,\n' "$(json_value "$value" s)"
     value=$(store_get "staff.$i.phone")
     printf '    "phone": %s,\n' "$(json_value "$value" s)"
-    printf '    "specialties": [],\n'
+    printf '    "specialties": ['
+    j=0
+    spec_first=1
+    while store_has "staff.$i.spec.$j"; do
+      [ "$spec_first" -eq 0 ] && printf ', '
+      spec_first=0
+      printf '"%s"' "$(json_escape "$(store_get "staff.$i.spec.$j")")"
+      j=$((j + 1))
+    done
+    printf '],\n'
     printf '    "schedule": ['
     day_first=1
     for day in 0 1 2 3 4 5 6; do
@@ -1722,6 +1846,7 @@ run_setup() {
   run_hours_section
   run_staff_section
   run_services_section
+  run_staff_specialties_pass
   run_summary_confirm
   finalize || return 1
   install_receptionist_skill

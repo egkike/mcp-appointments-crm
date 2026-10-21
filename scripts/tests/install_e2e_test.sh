@@ -82,11 +82,18 @@ _services_input() {
     ""
 }
 
+# _specialties_input: one empty answer per staff member (the specialties pass
+# consumes one line per professional after the services section).
+_specialties_input() {
+  printf '\n'
+}
+
 _full_input() {
   _business_input
   _hours_input
   _staff_input
   _services_input
+  _specialties_input
   printf 's\n'
 }
 
@@ -202,7 +209,7 @@ test_finalize_write_failure_preserves_checkpoint() {
 
 test_hours_malformed_reasks() {
   local out rc
-  out=$({ _business_input; printf '9:00 AM\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-13:00\ncerrado\n'; _staff_input; _services_input; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; printf '9:00 AM\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-13:00\ncerrado\n'; _staff_input; _services_input; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit after full flow' 0 "$rc"
   assertTrue 'spanish hhmm error' "printf '%s' \"$out\" | grep -q 'HH:MM'"
@@ -211,7 +218,7 @@ test_hours_malformed_reasks() {
 
 test_hours_inverted_range_reasks() {
   local out rc
-  out=$({ _business_input; printf '18:00-09:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-13:00\ncerrado\n'; _staff_input; _services_input; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; printf '18:00-09:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-13:00\ncerrado\n'; _staff_input; _services_input; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit after full flow' 0 "$rc"
   assertTrue 'spanish range error' "printf '%s' \"$out\" | grep -q 'anterior'"
@@ -221,7 +228,7 @@ test_hours_inverted_range_reasks() {
 # closed day and written as a null business_hours entry.
 test_hours_no_trabaja_closes_day() {
   local out rc
-  out=$({ _business_input; printf 'no trabaja\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-13:00\ncerrado\n'; _staff_input; _services_input; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; printf 'no trabaja\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-13:00\ncerrado\n'; _staff_input; _services_input; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit after full flow' 0 "$rc"
   assertTrue 'monday closed as null' "grep -q '\"monday\": null' \"$SETUP_DIR/setup_business.json\""
@@ -251,7 +258,7 @@ test_blank_optional_and_defaults() {
 
 test_staff_one_professional() {
   local out rc count
-  out=$({ _business_input; _hours_input; _staff_input; _services_input; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; _hours_input; _staff_input; _services_input; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit' 0 "$rc"
   count=$(grep -c '"day_of_week"' "$SETUP_DIR/setup_staff.json")
@@ -263,7 +270,7 @@ test_staff_one_professional() {
 
 test_staff_zero_refused() {
   local out rc
-  out=$({ _business_input; _hours_input; printf '\nAna\n\n\n\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\nno\nno\n\n'; _services_input; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; _hours_input; printf '\nAna\n\n\n\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\nno\nno\n\n'; _services_input; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit' 0 "$rc"
   assertTrue 'refusal message' "printf '%s' \"$out\" | grep -q 'al menos un profesional'"
@@ -271,7 +278,7 @@ test_staff_zero_refused() {
 
 test_staff_invalid_schedule_reasks() {
   local out rc
-  out=$({ _business_input; _hours_input; printf 'Ana\n\n\n\n18:00-09:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\nno\nno\n\n'; _services_input; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; _hours_input; printf 'Ana\n\n\n\n18:00-09:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\nno\nno\n\n'; _services_input; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit' 0 "$rc"
   assertTrue 'schedule error' "printf '%s' \"$out\" | grep -q 'anterior'"
@@ -281,7 +288,7 @@ test_staff_invalid_schedule_reasks() {
 
 test_services_one_service() {
   local out rc
-  out=$({ _business_input; _hours_input; _staff_input; _services_input; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; _hours_input; _staff_input; _services_input; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit' 0 "$rc"
   assertTrue 'service name' "grep -q 'Corte' \"$SETUP_DIR/setup_services.json\""
@@ -290,7 +297,7 @@ test_services_one_service() {
 
 test_services_zero_refused() {
   local out rc
-  out=$({ _business_input; _hours_input; _staff_input; printf '\nCorte\n\n30\n1500\n\n'; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; _hours_input; _staff_input; printf '\nCorte\n\n30\n1500\n\n'; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit' 0 "$rc"
   assertTrue 'refusal message' "printf '%s' \"$out\" | grep -q 'al menos un servicio'"
@@ -298,7 +305,7 @@ test_services_zero_refused() {
 
 test_services_negative_price_reasks() {
   local out rc
-  out=$({ _business_input; _hours_input; _staff_input; printf 'Corte\n\n30\n-100\n1500\n\n'; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; _hours_input; _staff_input; printf 'Corte\n\n30\n-100\n1500\n\n'; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit' 0 "$rc"
   assertTrue 'price error' "printf '%s' \"$out\" | grep -q 'precio'"
@@ -306,7 +313,7 @@ test_services_negative_price_reasks() {
 
 test_services_zero_duration_reasks() {
   local out rc
-  out=$({ _business_input; _hours_input; _staff_input; printf 'Corte\n\n0\n30\n1500\n\n'; printf 's\n'; } | _run_install 2>&1)
+  out=$({ _business_input; _hours_input; _staff_input; printf 'Corte\n\n0\n30\n1500\n\n'; _specialties_input; printf 's\n'; } | _run_install 2>&1)
   rc=$?
   assertEquals 'exit' 0 "$rc"
   assertTrue 'duration error' "printf '%s' \"$out\" | grep -q 'mayor a cero'"
@@ -316,7 +323,7 @@ test_services_zero_duration_reasks() {
 
 test_summary_decline_preserves_checkpoint() {
   local out rc
-  out=$({ _business_input; _hours_input; _staff_input; _services_input; printf 'n\n'; } | _run_install 2>&1)
+  out=$({ _business_input; _hours_input; _staff_input; _services_input; _specialties_input; printf 'n\n'; } | _run_install 2>&1)
   rc=$?
   assertNotEquals 'decline exit non-zero' 0 "$rc"
   assertTrue 'checkpoint preserved' "[ -f \"$CHECKPOINT_PATH\" ]"
@@ -340,6 +347,7 @@ test_resume_mid_staff() {
     printf 'R\n'
     printf '09:00-18:00\n09:00-18:00\n09:00-18:00\n09:00-18:00\nno\nno\n\n'
     _services_input
+    _specialties_input
     printf 's\n'
   } | _run_install 2>&1)
   rc=$?
@@ -374,6 +382,7 @@ CP
     _hours_input
     _staff_input
     _services_input
+    _specialties_input
     printf 's\n'
   } | _run_install 2>&1)
   rc=$?
@@ -434,7 +443,7 @@ CP
   mkdir -p "$SETUP_DIR"
   printf '{}' > "$SETUP_DIR/setup_business.json"
   out=$({
-    printf 'R\n\n\ns\n'
+    printf 'R\n\n\n\ns\n'
   } | _run_install 2>&1)
   rc=$?
   assertEquals 'resume finalize exit' 0 "$rc"

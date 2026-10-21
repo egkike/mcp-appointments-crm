@@ -16,7 +16,7 @@ Fix de seed antes de v0.8.1: B11 (run_deploy siembra el template de la skill) + 
 | ID | Spec | Route | Nota |
 |---|---|---|---|
 | T1 | S14 | doc-first | abre `openspec/changes/fix-v081-skill-seed-oq5/` |
-| T2 | S11 | code | run_deploy: `seed_config_template` + test en install_deploy_test.sh + shellcheck |
+| T2 | S11 | code | run_deploy: `seed_skill_pristine` + test en install_deploy_test.sh + shellcheck — **DONE 2026-10-21, commit `4d53ad1`** (92 lines: seed nonfatal + summary line + 5 tests deploy + harness save/restore stub atomic_write) |
 | T3 | S13/S14 | code | wizard: secciones invertidas (services → staff) + prompt specialties multi-select + render |
 | T4 | S13/S14 | code | seeder Go: inserta services primero, resuelve nombre→id fail-closed, error semántico con nombres válidos |
 | T5 | S15 | test | tests bash sintéticos (setup/skill/deploy) + tests Go config (RED→GREEN) |
@@ -27,3 +27,5 @@ Fix de seed antes de v0.8.1: B11 (run_deploy siembra el template de la skill) + 
 ## Log
 
 - **L1** 2026-10-21 — owner: "Hola capo, veamos el cuadro de pendientes del proyecto para luego ver cómo seguimos" → cuadro presentado (B11, B12 apply, B6 pasivo). Owner elige "B11 + OQ-5 juntos". Exploración: `run_deploy` (install.sh:1584-1698) no llama seed de template; `seed_config_template`/`resolve_skill_template` ya reutilizables (:1044-1106); `render_setup_staff` hardcodea `"specialties": []` (:930); `seed()` inserta staff antes de services (setup_seeder.go:151-184); `prof.Validate()` no inspecciona specialties (professional.go:50-58) → nombres pueden atravessar `validateForSeed` y resolverse dentro de la transacción. Doc-first creado.
+- **L2** 2026-10-21 — doc-first commiteado y mergeado a main ff-only (`552954b`, docs lane; owner aprobó vía cuestionario). B11 (T2) aplicado inline: RED (tests fallos) → función `seed_skill_pristine` + call en run_deploy tras ensure_dirs + summary line → GREEN 42/42 deploy tests, 6/6 suites bash, shellcheck findings idénticos a main. Hallazgos de harness: stub de atomic_write sin restaurar (preexistente), subshell `$(fn)` pierde asignaciones. Commit `4d53ad1` en `feat/b11-oq5-seed-fixes` (GGA: bash no evaluable). OQ-5 (T3-T7) delegado a worker en background con commit pre-autorizado.
+- **L3** 2026-10-21 — CORRECCIÓN de diseño del change (propia, previa al apply): la primera redacción de OQ5-1 invertía las secciones del wizard (services antes de staff). Se mantiene el orden canónico y las specialties se piden en una **pasada separada al final** (run_staff_specialties_pass después de run_services_section), porque minimiza la rotura de ~15 flujos canned del e2e y del checkpoint; la inversión de orden que exige S14 vive exclusivamente en el seeder Go (services antes de staff, resolución nombre→id). design.md §2.1/§2.2, spec.md OQ5-1 y proposal Scope reescritos; S11–S16 del owner intactas.
