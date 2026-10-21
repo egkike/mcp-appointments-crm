@@ -336,6 +336,32 @@ func toScheduleOut(s *entity.Schedule) scheduleOut {
 	}
 }
 
+// deleteServiceOut and deleteScheduleOut are the WIRE shapes of the two delete
+// maintenance tools (ADR-0013 boundary contract 4): the json tags live here, in
+// the transport, and the application carriers (dto.DeleteServiceResult /
+// dto.DeleteScheduleResult) stay transport-neutral. The serialized bytes are
+// identical to the previous shape — only the owner of the tags moved.
+type deleteServiceOut struct {
+	ServiceID string `json:"service_id"`
+	Status    string `json:"status"`
+}
+
+type deleteScheduleOut struct {
+	ProfessionalID string `json:"professional_id"`
+	DayOfWeek      int    `json:"day_of_week"`
+	Status         string `json:"status"`
+}
+
+// toDeleteServiceOut / toDeleteScheduleOut map the use case result into the wire
+// shape. They take the already-validated pointer (the nil guard runs before).
+func toDeleteServiceOut(r *dto.DeleteServiceResult) deleteServiceOut {
+	return deleteServiceOut{ServiceID: r.ServiceID, Status: r.Status}
+}
+
+func toDeleteScheduleOut(r *dto.DeleteScheduleResult) deleteScheduleOut {
+	return deleteScheduleOut{ProfessionalID: r.ProfessionalID, DayOfWeek: r.DayOfWeek, Status: r.Status}
+}
+
 // registerMaintenanceTools wires the eight owner-only maintenance WRITE tools
 // onto the SDK server, one sub-registrar per entity family. Each sub-registrar
 // skips its tools when the matching port is nil, keeping the skeleton behavior
@@ -436,22 +462,22 @@ func (s *Server) registerServiceWriteTools() {
 
 	if s.cfg.DeleteService != nil {
 		mcp.AddTool(s.impl, s.mcpTool("delete_service", "Elimina un servicio del catálogo. Falla si el servicio tiene reservas asociadas. Solo disponible para owner"),
-			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteServiceIn) (*mcp.CallToolResult, dto.DeleteServiceResult, error) {
+			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteServiceIn) (*mcp.CallToolResult, deleteServiceOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.DeleteServiceResult{}, s.toMCPError(err)
+					return nil, deleteServiceOut{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.DeleteService.Execute(ctx, dto.DeleteServiceInput{
 					Caller:    *caller,
 					ServiceID: in.ServiceID,
 				})
 				if err != nil {
-					return nil, dto.DeleteServiceResult{}, s.toMCPError(err)
+					return nil, deleteServiceOut{}, s.toMCPError(err)
 				}
 				if result == nil {
-					return nil, dto.DeleteServiceResult{}, s.toMCPError(errNilMaintenanceEntity)
+					return nil, deleteServiceOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
-				return nil, *result, nil
+				return nil, toDeleteServiceOut(result), nil
 			})
 		s.toolNames["delete_service"] = struct{}{}
 	}
@@ -566,13 +592,13 @@ func (s *Server) registerScheduleWriteTools() {
 
 	if s.cfg.DeleteSchedule != nil {
 		mcp.AddTool(s.impl, s.mcpTool("delete_schedule", "Elimina el horario de un profesional para un día de la semana. day_of_week usa el encoding de Go: 0=domingo, 1=lunes, ..., 6=sábado. Solo disponible para owner"),
-			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteScheduleIn) (*mcp.CallToolResult, dto.DeleteScheduleResult, error) {
+			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteScheduleIn) (*mcp.CallToolResult, deleteScheduleOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.DeleteScheduleResult{}, s.toMCPError(err)
+					return nil, deleteScheduleOut{}, s.toMCPError(err)
 				}
 				if err := validateDayOfWeek(in.DayOfWeek); err != nil {
-					return nil, dto.DeleteScheduleResult{}, s.toMCPError(err)
+					return nil, deleteScheduleOut{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.DeleteSchedule.Execute(ctx, dto.DeleteScheduleInput{
 					Caller:         *caller,
@@ -580,12 +606,12 @@ func (s *Server) registerScheduleWriteTools() {
 					DayOfWeek:      in.DayOfWeek,
 				})
 				if err != nil {
-					return nil, dto.DeleteScheduleResult{}, s.toMCPError(err)
+					return nil, deleteScheduleOut{}, s.toMCPError(err)
 				}
 				if result == nil {
-					return nil, dto.DeleteScheduleResult{}, s.toMCPError(errNilMaintenanceEntity)
+					return nil, deleteScheduleOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
-				return nil, *result, nil
+				return nil, toDeleteScheduleOut(result), nil
 			})
 		s.toolNames["delete_schedule"] = struct{}{}
 	}

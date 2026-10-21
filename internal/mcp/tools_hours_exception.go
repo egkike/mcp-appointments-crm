@@ -81,6 +81,16 @@ func toHoursExceptionOut(e *entity.BusinessHoursException) hoursExceptionOut {
 	}
 }
 
+// deleteHoursExceptionOut is the WIRE shape of delete_hours_exception
+// (ADR-0013 boundary contract 4): the json tags live in the transport, the
+// application carrier (dto.DeleteHoursExceptionResult) stays transport-neutral.
+// The serialized bytes are identical to the previous shape — only the owner of
+// the tags moved.
+type deleteHoursExceptionOut struct {
+	ExceptionID int    `json:"exception_id"`
+	Status      string `json:"status"`
+}
+
 // registerHoursExceptionTools wires the three owner-only exception tools. Like
 // every other sub-registrar it skips its tools when the matching port is nil,
 // keeping the skeleton behavior (tool absent) that transport-level tests rely
@@ -114,22 +124,22 @@ func (s *Server) registerHoursExceptionTools() {
 
 	if s.cfg.DeleteHoursException != nil {
 		mcp.AddTool(s.impl, s.mcpTool("delete_hours_exception", "Elimina una excepción de horario por su id. Un id inexistente devuelve un error semántico. Solo disponible para owner"),
-			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteHoursExceptionIn) (*mcp.CallToolResult, dto.DeleteHoursExceptionResult, error) {
+			func(ctx context.Context, _ *mcp.CallToolRequest, in deleteHoursExceptionIn) (*mcp.CallToolResult, deleteHoursExceptionOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, dto.DeleteHoursExceptionResult{}, s.toMCPError(err)
+					return nil, deleteHoursExceptionOut{}, s.toMCPError(err)
 				}
 				result, err := s.cfg.DeleteHoursException.Execute(ctx, dto.DeleteHoursExceptionInput{
 					Caller:      *caller,
 					ExceptionID: in.ExceptionID,
 				})
 				if err != nil {
-					return nil, dto.DeleteHoursExceptionResult{}, s.toMCPError(err)
+					return nil, deleteHoursExceptionOut{}, s.toMCPError(err)
 				}
 				if result == nil {
-					return nil, dto.DeleteHoursExceptionResult{}, s.toMCPError(errNilMaintenanceEntity)
+					return nil, deleteHoursExceptionOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
-				return nil, *result, nil
+				return nil, deleteHoursExceptionOut{ExceptionID: result.ExceptionID, Status: result.Status}, nil
 			})
 		s.toolNames["delete_hours_exception"] = struct{}{}
 	}
@@ -158,6 +168,13 @@ func (s *Server) registerHoursExceptionTools() {
 				}
 				out := make([]hoursExceptionOut, 0, len(rows))
 				for _, row := range rows {
+					// A nil row would panic inside toHoursExceptionOut: the
+					// repository never produces one, so its presence is an
+					// infrastructure failure, not a row to skip (same fail-closed
+					// class as the nil-slice guard above).
+					if row == nil {
+						return nil, nil, s.toMCPError(errNilMaintenanceEntity)
+					}
 					out = append(out, toHoursExceptionOut(row))
 				}
 				return nil, out, nil

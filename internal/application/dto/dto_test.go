@@ -219,20 +219,33 @@ func TestDTOFieldTags(t *testing.T) {
 			},
 		},
 		{
+			// The delete RESULT carriers are wire-free too, exactly like the
+			// exception inputs below: the transport owns the response shapes
+			// (deleteServiceOut / deleteScheduleOut /
+			// deleteHoursExceptionOut), so no data-field tag survives here
+			// (ADR-0013 boundary contract 4).
 			name:   "DeleteServiceResult",
 			target: DeleteServiceResult{},
 			fields: []fieldSpec{
-				{"ServiceID", "service_id"},
-				{"Status", "status"},
+				{"ServiceID", ""},
+				{"Status", ""},
 			},
 		},
 		{
 			name:   "DeleteScheduleResult",
 			target: DeleteScheduleResult{},
 			fields: []fieldSpec{
-				{"ProfessionalID", "professional_id"},
-				{"DayOfWeek", "day_of_week"},
-				{"Status", "status"},
+				{"ProfessionalID", ""},
+				{"DayOfWeek", ""},
+				{"Status", ""},
+			},
+		},
+		{
+			name:   "DeleteHoursExceptionResult",
+			target: DeleteHoursExceptionResult{},
+			fields: []fieldSpec{
+				{"ExceptionID", ""},
+				{"Status", ""},
 			},
 		},
 		{

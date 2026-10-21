@@ -605,7 +605,7 @@ func TestIntegrationMaintenanceServiceLifecycle(t *testing.T) {
 
 	// delete_service removes the row (no bookings reference it).
 	result = mustCallTool(t, mux, "owner-1", "delete_service", fmt.Sprintf(`{"service_id":%q}`, created.ID))
-	var deleted dto.DeleteServiceResult
+	var deleted deleteServiceOut
 	decodeToolStructured(t, result, &deleted)
 	if deleted.ServiceID != created.ID || deleted.Status != "deleted" {
 		t.Errorf("delete result = %+v; want {%s deleted}", deleted, created.ID)
@@ -742,7 +742,7 @@ func TestIntegrationMaintenanceScheduleLifecycle(t *testing.T) {
 
 	// delete_schedule removes exactly that slot.
 	result = mustCallTool(t, mux, "owner-1", "delete_schedule", `{"professional_id":"p1","day_of_week":3}`)
-	var deleted dto.DeleteScheduleResult
+	var deleted deleteScheduleOut
 	decodeToolStructured(t, result, &deleted)
 	if deleted.ProfessionalID != "p1" || deleted.DayOfWeek != 3 || deleted.Status != "deleted" {
 		t.Errorf("delete result = %+v; want {p1 3 deleted}", deleted)
