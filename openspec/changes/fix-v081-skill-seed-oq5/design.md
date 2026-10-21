@@ -12,19 +12,24 @@
 
 ## 2. OQ-5 — wizard emite specialties reales
 
-### 2.1 Orden del wizard
+### 2.1 Pasada de specialties al final del wizard (CORREGIDO 2026-10-21)
 
-`run_setup` pasa a `run_services_section` **antes** de `run_staff_section` (misma lógica de checkpoint: `store_has`/continuations por índice funcionan igual en cualquier orden, son espacios de keys disjuntos `services.N.*` vs `staff.N.*`). `revalidate_all` conserva la invbilidad por sección por key-prefix, no por orden de UI.
+> La primera redacción invertía el orden de las secciones del wizard (services antes que staff). Se mantiene el orden canónico `business → hours → staff → services` y las specialties se piden en una **pasada separada después de la sección de servicios**, porque: (a) cumple S13 (el wizard pregunta specialties por profesional), (b) minimiza la rotura de los ~15 flujos canned de `scripts/tests/install_e2e_test.sh` y del contrato de checkpoint, y (c) el orden del SEED (services antes de staff) que exige S14 se resuelve en el seeder Go, donde vive el requisito real (resolución nombre→id).
 
-### 2.2 Prompt specialties (dentro de run_staff_section)
+`run_setup` agrega, después de `run_services_section`:
 
-Por profesional, después del horario:
-1. Si la tienda no tiene servicios (`store_has services.0.name` falla) → no se pregunta (vacío, como hoy).
-2. Se lista numeración: `(1) Lavado de Cabello (2) Corte de Cabello ...` por cada `services.N.name`.
-3. Prompt: `Servicios que atiende <nombre> (números o nombres separados por espacio/comas, Enter = ninguno): `
-4. Se parsea y normaliza a **nombres exactos** (input números → lookup por índice; irrelevantes/inválidos → re-prompt; duplicados → se filtran).
-5. Enter vacío = sin specialties (aviso explícito en el prompt; la relación va legible por operador después con `update_professional` si quedara vacío).
-6. Se guarda en `staff.$i.spec.$j` (índice j dentro de la lista de nombres elegidos) y va al checkpoint; `render_setup_staff` lo renderiza como JSON con los **nombres**.
+```bash
+run_staff_specialties_pass   # pregunta specialties a cada profesional sin responder
+```
+
+La pasada itera `store_has "staff.N.name"` y por cada profesional pide (idempotente vía marcador `staff.N.specset`, verificado en checkpoint/reanudación):
+1. Si no hay servicios (`store_has "services.0.name"` falla) → no pregunta (marcador automático, legacy `[]`).
+2. Lista numerada `(N) nombre` y prompt: `Servicios que atiende <nombre> (números o nombres separados por espacio o comas, Enter = ninguno): `.
+3. Parseo por coma y por espacio: números → nombre por índice (base `10#`), nombres exactos case-sensitive los fragmentos no numéricos; entrada inválida → re-pregunta sin perder datos; duplicados (por nombre ya visto) → ignorados preservando orden.
+4. Enter vacío → aviso explícito ("podés cargarlas después con update_professional") y relación vacía (permitido para el operador, no es barrera).
+5. Nombres en `staff.N.spec.J` consecutivos + marcador + `checkpoint_save` al confirmar.
+
+Sin validador para `staff.*.spec.*` en `validator_for_key`: los nombres ya se validan al pedirlos; `revalidate_all` los deja intactos.
 
 ### 2.3 Contrato setup_staff.json
 
@@ -56,7 +61,7 @@ En `seed()`, reordenar dentro de la MISMA transacción:
 
 ## 4. Riesgos
 
-- El cambio de orden del wizard rompe checkpoints viejos a mitad de tabla (revisar: son efímeros, una instalación incompleta; se documenta el reset R/S/Q).
+- La pasada de specialties a mitad de un checkpoint viejo re-pregunta a los profesionales sin marcador `specset` (efímero: es una instalación incompleta; el reset R/S/Q igual la borra).
 - Respuestas del LLM (Hermes) no tocan el wizard.
 - El nuevo contracto (nombres) solo toma efecto en instalaciones nuevas (seed en DB vacía); hosts existentes no re-seedeameamean (seed es no-op cuando la DB ya está configurada, setup_seeder.go:24-26).
 
