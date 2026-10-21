@@ -43,6 +43,15 @@ Completá los prompts. Al finalizar se guardarán:
 
 Si cancelás a mitad de camino, el script deja un checkpoint `setup.json.tmp` para reanudar la próxima vez que corras `bash install.sh`.
 
+Al final de la configuración (después de los servicios) el wizard pregunta **por cada profesional** qué servicios atiende:
+
+```text
+Servicios del negocio:   (1) Corte de Cabello   (2) Lavado de Cabello   (3) ...
+Servicios que atiende Romina (números o nombres separados por espacio o comas, Enter = ninguno):
+```
+
+La respuesta acepta índices (`1 2`), nombres exactos (`Corte de Cabello`) o una mezcla separada por comas (`Corte de Cabello, 2`); duplicados se ignoran. `Enter` vacío deja la relación vacía (podés cargarla después con `update_professional`). El wizard vuelca esos nombres a `"specialties"` en `setup_staff.json` y el primer arranque del servidor los registra con los ids reales de `setup_services.json`, así que una instalación nueva nace con la relación profesional↔servicio ya cargada (hoy se consulta con `update_professional`/SQL y la lectura por servicio la trae un change posterior).
+
 > **Nota sobre el primer arranque:** el servidor siembra la base de datos automáticamente en el primer arranque si el perfil del negocio está vacío, leyendo los tres archivos JSON generados arriba. En los arranques siguientes la importación se omite gracias al guarda que detecta que el perfil ya existe, por lo que las modificaciones que hagas en tiempo de ejecución (desde las herramientas MCP o directamente en la base de datos) no se sobrescriben. Conservá los JSON como respaldo o para reprovisionar el sistema; ya no son solo artefactos finales sin consumidor.
 
 ---
@@ -57,6 +66,8 @@ Una vez que los tres JSONs de setup existen, desplegá la versión que quieras. 
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh \
   | bash -s -- --version v0.8.0
 ```
+
+> El despliegue por `--version` siembra el **template pristino** de la skill de recepcionista en `<CONFIG_DIR>/templates/recepcionista-negocio/SKILL.md` (0600/0700). El wizard interactivo sí instala la skill renderizada; el deploy nunca la renderiza ni la reescribe — el cascade de la TUI (opción 7) es quien regenera la skill instalada a partir de ese template.
 
 ### Opción B — Descarga previa del script (recomendada para auditar)
 

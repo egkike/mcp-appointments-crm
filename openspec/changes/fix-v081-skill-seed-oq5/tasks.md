@@ -12,13 +12,13 @@
 
 ## Phase 2 — apply
 
-- [ ] **TASK-2.1 (B11)** — `seed_skill_pristine` + invocación en `run_deploy` + summary line; RED→GREEN test en `scripts/tests/install_deploy_test.sh` (existe, es copia del pristine, 0600/0700, no render en `~/.hermes/skills`)
-- [ ] **TASK-2.2 (OQ-5 wizard, RED bash)** — test sintético de `render_setup_staff` con specialties elegidas emite nombres; test de re-prompt ante inválido
-- [ ] **TASK-2.3 (OQ-5 wizard, GREEN)** — invertir secciones en `run_setup`; prompt multi-select en `run_staff_section` (válido/re-prompt/vacío con aviso/duplicados); `render_setup_staff` con nombres actualizados; checkpoint keys `staff.N.spec.J`
-- [ ] **TASK-2.4 (OQ-5 seeder, RED Go)** — test de integración: specialties en DB = uuids de services同名; nombre desconocido → error semántico español con lista válida; rollback: DB sin profissionais/ni servicios
-- [ ] **TASK-2.5 (OQ-5 seeder, GREEN)** — reordenar `seed()`: services primero + mapa nombre→id + resolver specialties + `stringSliceToJSON`; comentario de campo en `setup_types.go` actualizado
-- [ ] **TASK-2.6 (S16 regresión)** — JSON legacy `specialties: []` importa y queda vacío; pipeline Go completo (`go build ./...`, `go test -race ./internal/config/...`, `-race ./...` al final); `bash scripts/tests/run_tests.sh` + shellcheck
-- [ ] **TASK-2.7 (docs)** — PRD (contrato wizard/setup JSON), changelog 1.24 v0.8.1, README si mentiona flujo wizard
+- [x] **TASK-2.1 (B11)** — `seed_skill_pristine` en run_deploy (no fatal + summary line) — commit `4d53ad1`; 42/42 deploy tests (5 nuevos: byte-copy 0600/0700, template ausente no fatal, CONFIG_DIR no escribible no fatal, sin skill renderizada, línea de summary); harness fix: stub `atomic_write` con save/restore
+- [x] **TASK-2.2 (OQ-5 wizard, RED bash)** — `scripts/tests/install_specialties_test.sh` 11 casos, RED observado (31 fallos antes de implementar); render con nombres y vacío; re-prompt inválido
+- [x] **TASK-2.3 (OQ-5 wizard, GREEN)** — pasada `run_staff_specialties_pass` después de servicios (diseño §2.1 corregido); prompt índices/nombres/comas, dedup ordenado, Enter vacío con aviso, marcador `staff.N.specset`; render emite nombres escapados; e2e canned +1 línea por profesional (26/26); commit `95cf1ee`
+- [x] **TASK-2.4 (OQ-5 seeder, RED Go)** — `internal/config/setup_specialties_seeder_test.go` RED: specialties guardan ids reales / nombre desconocido = error semántico español con nombres válidos / rollback completo
+- [x] **TASK-2.5 (OQ-5 seeder, GREEN)** — `seed()` inserta servicios primero + mapa nombre→id + resolución fail-closed dentro de la misma tx; comentario de campo en `setup_types.go` actualizado; commit `17fcd3c` (GGA PASSED r1 tras `gga cache clear`)
+- [x] **TASK-2.6 (S16 regresión)** — JSON legacy `specialties: []` importa vacío; pipeline completo verde: `golangci-lint run ./...` 0 issues, `go build ./...`, `go test -race ./...` (go los grep 'ok'), bash suites 7/7 (`run_tests.sh`), shellcheck sin hallazgos nuevos vs main (3 SC2015 preexistentes ensure_dirs)
+- [x] **TASK-2.7 (docs)** — PRD changelog 1.24 + header; `docs/installation.md`: pasada de specialties en Paso 1 + seed del template pristino en Paso 2
 - [ ] **TASK-2.8 (delivery fecha del merge)** — PR code-lane, review nativo, tras merge: tag `v0.8.1` (GoReleaser), smoke por defensor del cambio en VM upgradeado
 
 ## Forecast
