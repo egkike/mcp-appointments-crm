@@ -145,8 +145,8 @@
 
 ### TASK-2.2 (T2.2, S1–S3) — RED: escenarios de la skill v1.1 como checklist de verificación
 
-- [ ] Convertir los escenarios de `specs/owner-chat/spec.md` en una checklist ejecutable manual (smoke guiado) o en asserts del seed cuando aplique (`scripts/tests/install_skill_test.sh` cubre el render, no la conducta)
-- [ ] Registrar la línea base: la v1.0.0 **falla** los escenarios de persona owner (evidencia: regla 5 deriva deletes al titular, `setup/templates/recepcionista-negocio/SKILL.md:40-43`) — RED documentado
+- [x] Convertir los escenarios de `specs/owner-chat/spec.md` en una checklist ejecutable manual (smoke guiado) o en asserts del seed cuando aplique (`scripts/tests/install_skill_test.sh` cubre el render, no la conducta) — **hecho**: `odd/tasks/feat-owner-chat-b12.md` §`## Verification — checklist de persona`, bloques A–F (A = R1–R5, B = alcance operativo + flujo de reserva S7a, C = G0–G4 + matriz §2.4, D = exclusiones TUI-only, E = fence cliente, F = render/entrega). Cada fila: acción concreta + resultado observable + columna `v1.1.0` a completar en el smoke del host (L17)
+- [x] Registrar la línea base: la v1.0.0 **falla** los escenarios de persona owner (evidencia: regla 5 deriva deletes al titular, `setup/templates/recepcionista-negocio/SKILL.md:40-43`) — RED documentado en **L18** (lectura estática; los `PASS` de la línea base quedan marcados como “por accidente”, escalamiento genérico)
 - **Edit surface:** `odd/tasks/feat-owner-chat-b12.md` (sección de verificación) o `scripts/tests/install_skill_test.sh` si se agrega assert de render
 - **Slice estimate:** ~30–50 líneas
 
