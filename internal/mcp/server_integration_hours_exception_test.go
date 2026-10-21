@@ -155,7 +155,7 @@ func TestIntegrationHoursExceptionLifecycle(t *testing.T) {
 	// Delete it and prove only the exception is gone: the weekly schedule rules.
 	result = mustCallTool(t, mux, "owner-1", "delete_hours_exception",
 		fmt.Sprintf(`{"exception_id":%d}`, created.ID))
-	var deleted dto.DeleteHoursExceptionResult
+	var deleted deleteHoursExceptionOut
 	decodeToolStructured(t, result, &deleted)
 	if deleted.ExceptionID != created.ID || deleted.Status != "deleted" {
 		t.Fatalf("deleted = %+v; want %d/deleted", deleted, created.ID)

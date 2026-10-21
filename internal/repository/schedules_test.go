@@ -442,3 +442,148 @@ func TestSchedulesRepo_Delete(t *testing.T) {
 
 // Verify that auth.Caller is used (prevent unused import)
 var _ = auth.RoleAdmin
+
+// ── S7b (feat-owner-chat): FindByProfessional ──
+
+// TestSchedulesRepo_FindByProfessional pins the weekly read contract: rows come
+// back in calendar order and the two "no data" cases stay distinguishable —
+// an unknown professional is NOT_FOUND, a professional with no slot loaded is an
+// empty list.
+func TestSchedulesRepo_FindByProfessional(t *testing.T) {
+	scheduleColumns := []string{"id", "professional_id", "day_of_week", "start_time", "end_time"}
+
+	t.Run("returns the week ordered by day_of_week", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		rows := sqlmock.NewRows(scheduleColumns).
+			AddRow(3, "pro-1", 1, "09:00", "13:00").
+			AddRow(7, "pro-1", 3, "14:00", "18:00").
+			AddRow(9, "pro-1", 6, "09:00", "12:00")
+		// The ORDER BY lives in the SQL: the adapter must not leave the ordering
+		// to the caller (design §8.3).
+		mock.ExpectQuery(`SELECT id, professional_id, day_of_week, start_time, end_time\s+FROM schedules WHERE professional_id = \? ORDER BY day_of_week ASC`).
+			WithArgs("pro-1").
+			WillReturnRows(rows)
+
+		schedules, err := repo.FindByProfessional(ownerCtx(), "pro-1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(schedules) != 3 {
+			t.Fatalf("got %d rows, want 3: %+v", len(schedules), schedules)
+		}
+		wantDays := []int{1, 3, 6}
+		for i, want := range wantDays {
+			if schedules[i].DayOfWeek != want {
+				t.Errorf("row %d DayOfWeek = %d, want %d", i, schedules[i].DayOfWeek, want)
+			}
+		}
+		if schedules[0].StartTime != "09:00" || schedules[0].EndTime != "13:00" {
+			t.Errorf("row 0 = %+v; want 09:00-13:00", schedules[0])
+		}
+		if schedules[0].ProfessionalID != "pro-1" || schedules[0].ID != 3 {
+			t.Errorf("row 0 identity = %+v; want id=3 pro-1", schedules[0])
+		}
+	})
+
+	t.Run("professional without rows returns an empty list, not NOT_FOUND", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		mock.ExpectQuery(`SELECT id, professional_id, day_of_week, start_time, end_time\s+FROM schedules WHERE professional_id = \? ORDER BY day_of_week ASC`).
+			WithArgs("pro-2").
+			WillReturnRows(sqlmock.NewRows(scheduleColumns))
+		// The existence probe is what separates "no agenda" from "no such id".
+		mock.ExpectQuery(`SELECT 1 FROM professionals WHERE id = \?`).
+			WithArgs("pro-2").
+			WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+
+		schedules, err := repo.FindByProfessional(ownerCtx(), "pro-2")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if schedules == nil {
+			t.Fatal("schedules = nil; want an empty (non-nil) slice")
+		}
+		if len(schedules) != 0 {
+			t.Fatalf("got %d rows, want 0", len(schedules))
+		}
+	})
+
+	t.Run("unknown professional_id returns domain.ErrNotFound", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		mock.ExpectQuery(`SELECT id, professional_id, day_of_week, start_time, end_time\s+FROM schedules WHERE professional_id = \? ORDER BY day_of_week ASC`).
+			WithArgs("pro-missing").
+			WillReturnRows(sqlmock.NewRows(scheduleColumns))
+		mock.ExpectQuery(`SELECT 1 FROM professionals WHERE id = \?`).
+			WithArgs("pro-missing").
+			WillReturnError(sql.ErrNoRows)
+
+		_, err := repo.FindByProfessional(ownerCtx(), "pro-missing")
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("expected domain.ErrNotFound, got %v", err)
+		}
+	})
+
+	t.Run("row scan error is propagated", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		mock.ExpectQuery(`SELECT id, professional_id, day_of_week, start_time, end_time\s+FROM schedules WHERE professional_id = \? ORDER BY day_of_week ASC`).
+			WithArgs("pro-1").
+			WillReturnError(errors.New("disk I/O error"))
+
+		_, err := repo.FindByProfessional(ownerCtx(), "pro-1")
+		if err == nil {
+			t.Fatal("expected an error, got nil")
+		}
+		if errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("infrastructure failure collapsed into NOT_FOUND: %v", err)
+		}
+	})
+
+	// ── TRIANGULATE ──
+
+	t.Run("admin caller is rejected with ErrCodeForbidden", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		_, err := repo.FindByProfessional(adminCtx(), "pro-1")
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+	})
+
+	t.Run("no caller returns ErrCodeUnauthenticated", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		_, err := repo.FindByProfessional(context.Background(), "pro-1")
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeUnauthenticated {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+		}
+	})
+}
+
+// TestSchedulesRepo_UpsertNilSlot pins the fail-closed guard added after the
+// GGA round on the S7b slice: a nil slot is an invalid input, never a panic.
+func TestSchedulesRepo_UpsertNilSlot(t *testing.T) {
+	db, _ := newMockDB(t)
+	repo := NewSchedulesRepo(db)
+
+	_, err := repo.Upsert(adminCtx(), nil)
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("expected domain.ErrInvalidInput for a nil slot, got %v", err)
+	}
+}

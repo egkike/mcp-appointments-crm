@@ -402,6 +402,8 @@ El binario en Go debe exponer las siguientes funciones al protocolo MCP:
 - `search_professionals_advanced(query_text?, service_id?)`: Devuelve el catálogo activo de profesionales (`{results:[{id, name, role_specialty?, specialties[]}]}`) con filtro opcional por servicio. Cierra el read-gap del flujo de reserva conversacional: con `service_id` sólo aparecen los profesionales que lo declaran en `specialties` (fail-closed: sin datos relación cargada ⇒ lista vacía, nunca el catálogo entero). Legible por cualquier caller autenticado (cliente incluido) y por eso **sin** `email`/`phone` en el wire; filtra en Go, sin tabla FTS5 (feat-owner-chat S7a).
     
 
+- `get_professional_schedules(professional_id)`: Devuelve la agenda semanal de un profesional (`{professional:{id, name, status}, schedules:[{id, day_of_week, start_time, end_time}]}`) con las franjas ordenadas por día (0=domingo..6=sábado). Cierra el read-gap del doble gate conversacional de `delete_schedule`: el agente resuelve y verifica la agenda antes y después del borrado en vez de repetir un par declarado. **Owner-only a doble capa** (`ToolRBAC` + `auth.RequireRole`); id inexistente ⇒ error semántico de no encontrado, profesional sin franjas ⇒ lista vacía; sin datos de clientes ni reservas (feat-owner-chat S7b).
+
 #### B. Módulo de Configuración y Gestión de Recursos (Solo Rol Administrador)
 
 - `add_professional()`, `add_service()`, `set_professional_schedule()`.

@@ -1,6 +1,9 @@
 package dto
 
-import "github.com/egkike/mcp-appointments-crm/internal/auth"
+import (
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
+)
 
 // Maintenance DTOs (ADR-0015): the input/output contract for the eight
 // operational-maintenance operations Hermes drives over business data
@@ -79,10 +82,13 @@ type DeleteServiceInput struct {
 	ServiceID string
 }
 
-// DeleteServiceResult is the response body for delete_service.
+// DeleteServiceResult is the cross-layer result carrier of delete_service.
+// Transport-neutral by contract (ADR-0013 boundary contract 4): the wire shape
+// and its json tags live in internal/mcp (deleteServiceOut), which maps this
+// carrier field by field. Do not add json tags here.
 type DeleteServiceResult struct {
-	ServiceID string `json:"service_id"`
-	Status    string `json:"status"`
+	ServiceID string
+	Status    string
 }
 
 // CreateProfessionalInput is the full payload for create_professional.
@@ -131,11 +137,14 @@ type DeleteScheduleInput struct {
 	DayOfWeek      int
 }
 
-// DeleteScheduleResult is the response body for delete_schedule.
+// DeleteScheduleResult is the cross-layer result carrier of delete_schedule.
+// Transport-neutral by contract (ADR-0013 boundary contract 4): the wire shape
+// and its json tags live in internal/mcp (deleteScheduleOut), which maps this
+// carrier field by field. Do not add json tags here.
 type DeleteScheduleResult struct {
-	ProfessionalID string `json:"professional_id"`
-	DayOfWeek      int    `json:"day_of_week"`
-	Status         string `json:"status"`
+	ProfessionalID string
+	DayOfWeek      int
+	Status         string
 }
 
 // CreateHoursExceptionInput is the full payload for create_hours_exception
@@ -170,14 +179,47 @@ type DeleteHoursExceptionInput struct {
 	ExceptionID int
 }
 
-// DeleteHoursExceptionResult is the response body for delete_hours_exception
-// (mirrors dto.DeleteScheduleResult / dto.DeleteServiceResult). Unlike the
-// input carriers above, this struct IS the live wire shape: the transport
-// handler returns it directly as the tool result, so the SDK marshals these
-// exact json tags — do not drop them.
+// DeleteHoursExceptionResult is the cross-layer result carrier of
+// delete_hours_exception (mirrors dto.DeleteScheduleResult /
+// dto.DeleteServiceResult). Transport-neutral by contract (ADR-0013 boundary
+// contract 4): the wire shape and its json tags live in internal/mcp
+// (deleteHoursExceptionOut), which maps this carrier field by field. Do not add
+// json tags here.
 type DeleteHoursExceptionResult struct {
-	ExceptionID int    `json:"exception_id"`
-	Status      string `json:"status"`
+	ExceptionID int
+	Status      string
+}
+
+// GetProfessionalSchedulesInput identifies the professional whose weekly agenda
+// is read (feat-owner-chat S7b). Application-layer carrier only — the transport
+// owns getProfessionalSchedulesIn on the wire, so this struct carries no data
+// json tags; Caller stays `json:"-"` protectively.
+type GetProfessionalSchedulesInput struct {
+	Caller         auth.Caller `json:"-"`
+	ProfessionalID string
+}
+
+// ProfessionalScheduleSubject is the identity the agenda read returns next to
+// the rows (design §8.3 D4): the conversational delete gate must be able to name
+// whom it is about to confirm instead of repeating a raw id. Only id, name and
+// status cross into this carrier — email/phone never do, even though the entity
+// carries them.
+type ProfessionalScheduleSubject struct {
+	ID     string
+	Name   string
+	Status string
+}
+
+// GetProfessionalSchedulesResult is the response carrier of
+// get_professional_schedules: the professional identity plus every stored weekly
+// slot, already ordered by day_of_week by the repository port. Schedules is
+// never nil on success so the transport always renders an array (a professional
+// without an agenda answers [] and not NOT_FOUND). Rows travel as entities
+// because the transport reuses the pinned scheduleOut wire shape, keeping one
+// schedule shape on the wire (design §8.3).
+type GetProfessionalSchedulesResult struct {
+	Professional ProfessionalScheduleSubject
+	Schedules    []*entity.Schedule
 }
 
 // ListHoursExceptionsInput is the required inclusive range for

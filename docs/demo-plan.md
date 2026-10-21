@@ -203,6 +203,12 @@ Secuencia mínima sugerida, con negocio demo:
 6b. `search_professionals_advanced({"service_id": "<id de servicio>"})` → sólo los
    profesionales que declaran ese servicio (sin `email`/`phone`). Sin specialties
    cargadas devuelve `{"results": []}`: decirlo, nunca completar con todo el staff.
+6c. `get_professional_schedules({"professional_id": "<id>"})` → identidad del
+   profesional (`id`, `name`, `status`) + sus franjas ordenadas por día. Con un id
+   inexistente responde error semántico de no encontrado; un profesional sin agenda
+   responde `{"schedules": []}`. Es owner-only: con admin/staff/cliente la respuesta
+   es el error de permiso. Es la lectura que habilita el doble gate del
+   `delete_schedule`.
 7. `get_loyalty_report` → reporte con datos agregados.
 8. Mantenimiento de datos vía Hermes chat (owner-only): `update_business_profile`
    (p. ej. cambiar el teléfono), `create_service`/`update_service`/`delete_service`,

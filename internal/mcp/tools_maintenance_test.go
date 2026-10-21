@@ -428,7 +428,7 @@ func TestToolDeleteService(t *testing.T) {
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "delete_service", `{"service_id":"s1"}`))
 
-	var out dto.DeleteServiceResult
+	var out deleteServiceOut
 	if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
@@ -560,7 +560,7 @@ func TestToolDeleteSchedule(t *testing.T) {
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "delete_schedule",
 		`{"professional_id":"p1","day_of_week":6}`))
 
-	var out dto.DeleteScheduleResult
+	var out deleteScheduleOut
 	if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}

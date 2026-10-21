@@ -29,7 +29,18 @@ type searchProfessionalsAdvancedIn struct {
 // booking flow belongs to the client, and the output shape is PII-free
 // (dto.ProfessionalSearchEntry has no email/phone), so exposing it to a client is
 // safe by construction.
+//
+// get_professional_schedules is the opposite case (S7b): OWNER ONLY, gated twice
+// (ToolRBAC entry in the composition root + auth.RequireRole inside the use
+// case). The transport still only resolves the caller and maps errors; the
+// agenda belongs to the business, not to the client (design §8.3 D5).
 func (s *Server) registerProfessionalsReadTools() {
+	s.registerSearchProfessionalsAdvancedTool()
+	s.registerGetProfessionalSchedulesTool()
+}
+
+// registerSearchProfessionalsAdvancedTool wires the PII-free catalog read.
+func (s *Server) registerSearchProfessionalsAdvancedTool() {
 	if s.cfg.SearchProfessionalsAdvanced == nil {
 		return
 	}
@@ -60,4 +71,81 @@ func (s *Server) registerProfessionalsReadTools() {
 			return nil, out, nil
 		})
 	s.toolNames["search_professionals_advanced"] = struct{}{}
+}
+
+// getProfessionalSchedulesIn is the input of get_professional_schedules. The
+// field is required (no omitempty): an agenda read without a professional is
+// always a client bug, not a valid request.
+type getProfessionalSchedulesIn struct {
+	ProfessionalID string `json:"professional_id"`
+}
+
+// professionalIdentityOut is the identity half of the agenda read output
+// (design §8.3 D4): id, name and status only. email/phone never cross here even
+// though the entity carries them — the gate needs to name the professional, not
+// to expose the roster's contacts.
+type professionalIdentityOut struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// getProfessionalSchedulesOut is the pinned output contract of
+// get_professional_schedules. Rows reuse scheduleOut (the upsert_schedule
+// read-back), so there is exactly ONE schedule shape on the wire (design §8.3);
+// professional_id is therefore present on every row and equals
+// professional.id.
+type getProfessionalSchedulesOut struct {
+	Professional professionalIdentityOut `json:"professional"`
+	Schedules    []scheduleOut           `json:"schedules"`
+}
+
+// registerGetProfessionalSchedulesTool wires the owner-only agenda read.
+func (s *Server) registerGetProfessionalSchedulesTool() {
+	if s.cfg.GetProfessionalSchedules == nil {
+		return
+	}
+	mcp.AddTool(s.impl, s.mcpTool("get_professional_schedules",
+		"Devuelve la agenda semanal de un profesional (identidad + franjas ordenadas por día, 0=domingo..6=sábado). Solo disponible para owner"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, in getProfessionalSchedulesIn) (*mcp.CallToolResult, getProfessionalSchedulesOut, error) {
+			caller, err := auth.RequireCaller(ctx)
+			if err != nil {
+				return nil, getProfessionalSchedulesOut{}, s.toMCPError(err)
+			}
+			result, err := s.cfg.GetProfessionalSchedules.Execute(ctx, dto.GetProfessionalSchedulesInput{
+				Caller:         *caller,
+				ProfessionalID: strings.TrimSpace(in.ProfessionalID),
+			})
+			if err != nil {
+				return nil, getProfessionalSchedulesOut{}, s.toMCPError(err)
+			}
+			// Fail closed: a port that answers success without a result is a bug, and
+			// a zero-value identity plus an empty agenda would be a malformed
+			// response the gate could mistake for real (same guard class as
+			// errNilMaintenanceEntity; the list read above CAN answer empty, this
+			// one cannot — "no result" is not "no agenda").
+			if result == nil {
+				return nil, getProfessionalSchedulesOut{}, s.toMCPError(errNilMaintenanceEntity)
+			}
+			out := getProfessionalSchedulesOut{
+				Professional: professionalIdentityOut{
+					ID:     result.Professional.ID,
+					Name:   result.Professional.Name,
+					Status: result.Professional.Status,
+				},
+				Schedules: make([]scheduleOut, 0, len(result.Schedules)),
+			}
+			for _, row := range result.Schedules {
+				// Skipping a nil row would answer with a silently incomplete
+				// agenda — the exact failure mode this read exists to prevent
+				// (the gate would verify a week that is not the stored one), so
+				// it fails closed like a nil result.
+				if row == nil {
+					return nil, getProfessionalSchedulesOut{}, s.toMCPError(errNilMaintenanceEntity)
+				}
+				out.Schedules = append(out.Schedules, toScheduleOut(row))
+			}
+			return nil, out, nil
+		})
+	s.toolNames["get_professional_schedules"] = struct{}{}
 }

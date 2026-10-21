@@ -76,6 +76,16 @@ type SearchProfessionalsAdvancedPort interface {
 	Execute(context.Context, dto.SearchProfessionalsAdvancedInput) (*dto.SearchProfessionalsAdvancedResult, error)
 }
 
+// GetProfessionalSchedulesPort reads one professional's weekly agenda together
+// with the professional identity (feat-owner-chat S7b). ToolRBAC entry: owner
+// only. Unlike the reads above, this port is NOT an open set: the agenda is
+// business-operational data, so the transport gate and the use case's
+// auth.RequireRole(RoleOwner) are both required (double enforcement, design
+// §8.3 D5).
+type GetProfessionalSchedulesPort interface {
+	Execute(context.Context, dto.GetProfessionalSchedulesInput) (*dto.GetProfessionalSchedulesResult, error)
+}
+
 // GetPendingAlertsPort returns due pending alerts ordered oldest first.
 // ToolRBAC entry: owner/admin only.
 type GetPendingAlertsPort interface {

@@ -190,15 +190,15 @@ func staffCallerPtr() *auth.Caller {
 	return &c
 }
 
-// ── registration (REQ-MT-005: 20 → 23 → 24) ──
+// ── registration (REQ-MT-005: 20 → 23 → 24 → 25) ──
 
 func TestHoursExceptionToolsRegistered(t *testing.T) {
 	srv, _ := newHoursExceptionUseCaseServer(t)
 
-	// 24 = the 20 tools shipped before this change + the 3 exception tools + the
-	// professionals read tool (feat-owner-chat S7a).
-	if got := srv.ToolCount(); got != 24 {
-		t.Errorf("ToolCount() = %d; want 24", got)
+	// 25 = the 20 tools shipped before this change + the 3 exception tools + the
+	// two professionals read tools (feat-owner-chat S7a catalog + S7b agenda).
+	if got := srv.ToolCount(); got != 25 {
+		t.Errorf("ToolCount() = %d; want 25", got)
 	}
 
 	rec := callMethod(srv.Handler(), "tools/list", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
@@ -212,8 +212,8 @@ func TestHoursExceptionToolsRegistered(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal tools/list: %v; body=%s", err, rec.Body.String())
 	}
-	if len(resp.Result.Tools) != 24 {
-		t.Fatalf("tools/list returned %d tools; want 24 (REQ-MT-005)", len(resp.Result.Tools))
+	if len(resp.Result.Tools) != 25 {
+		t.Fatalf("tools/list returned %d tools; want 25 (REQ-MT-005)", len(resp.Result.Tools))
 	}
 	got := make(map[string]bool, len(resp.Result.Tools))
 	for _, tool := range resp.Result.Tools {
@@ -289,7 +289,7 @@ func TestToolDeleteHoursException(t *testing.T) {
 	}
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "delete_hours_exception", `{"exception_id":42}`))
-	var out dto.DeleteHoursExceptionResult
+	var out deleteHoursExceptionOut
 	if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
@@ -527,7 +527,7 @@ func TestHoursExceptionUseCasesThroughTransport(t *testing.T) {
 
 	resp = decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "delete_hours_exception",
 		fmt.Sprintf(`{"exception_id":%d}`, first.ID)))
-	var deleted dto.DeleteHoursExceptionResult
+	var deleted deleteHoursExceptionOut
 	if err := json.Unmarshal(wantStructured(t, resp), &deleted); err != nil {
 		t.Fatalf("unmarshal delete output: %v", err)
 	}

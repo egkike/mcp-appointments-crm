@@ -81,6 +81,14 @@ func (m *mockSchedulesRepo) Upsert(context.Context, *entity.Schedule) (*entity.S
 }
 func (m *mockSchedulesRepo) Delete(context.Context, string, entity.ScheduleWeekday) error { return nil }
 
+// FindByProfessional satisfies the S7b weekly read. The availability service
+// never consumes it (its read path is FindByProfessionalAndDay), so a test in
+// this package asking for a week means the double is wired wrong: fail loudly
+// rather than answering with a fabricated agenda.
+func (m *mockSchedulesRepo) FindByProfessional(context.Context, string) ([]*entity.Schedule, error) {
+	panic("mockSchedulesRepo.FindByProfessional: the availability read path uses FindByProfessionalAndDay")
+}
+
 type mockBookingsRepo struct {
 	OnFindOverlapping func(context.Context, string, time.Time, time.Time) ([]*entity.Booking, error)
 }

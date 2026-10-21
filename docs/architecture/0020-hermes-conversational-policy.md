@@ -54,8 +54,10 @@ Motivos (consecuencia directa del punto 3 del Context):
   le dio. La seguridad real sigue siendo: loopback + `X-Caller-Id` + RBAC + rate limits.
 - **El server queda sin cambios**: no hay nuevas tools MCP ni schema. La superficie MCP que la
   skill usa ya existe (`get_business_profile`, `get_services`, `check_availability`,
-  `get_professionals`, herramientas de bookings/archivos; el set completo de 24 tools —
-  `search_professionals_advanced` se sumó después, por feat-owner-chat S7a).
+  `get_professionals`, herramientas de bookings/archivos; el set completo de 25 tools —
+  `search_professionals_advanced` se sumó después, por feat-owner-chat S7a, y
+  `get_professional_schedules` (owner-only, doble capa) por S7b, que cierra el
+  read-gap del `delete_schedule` en el doble gate).
 
 ### Decisión 2 — Rol e identidad: asistente del negocio, no asistente general
 
