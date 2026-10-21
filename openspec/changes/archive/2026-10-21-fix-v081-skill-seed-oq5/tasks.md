@@ -19,7 +19,7 @@
 - [x] **TASK-2.5 (OQ-5 seeder, GREEN)** — `seed()` inserta servicios primero + mapa nombre→id + resolución fail-closed dentro de la misma tx; comentario de campo en `setup_types.go` actualizado; commit `17fcd3c` (GGA PASSED r1 tras `gga cache clear`)
 - [x] **TASK-2.6 (S16 regresión)** — JSON legacy `specialties: []` importa vacío; pipeline completo verde: `golangci-lint run ./...` 0 issues, `go build ./...`, `go test -race ./...` (go los grep 'ok'), bash suites 7/7 (`run_tests.sh`), shellcheck sin hallazgos nuevos vs main (3 SC2015 preexistentes ensure_dirs)
 - [x] **TASK-2.7 (docs)** — PRD changelog 1.24 + header; `docs/installation.md`: pasada de specialties en Paso 1 + seed del template pristino en Paso 2
-- [ ] **TASK-2.8 (delivery fecha del merge)** — PR code-lane, review nativo, tras merge: tag `v0.8.1` (GoReleaser), smoke por defensor del cambio en VM upgradeado
+- [x] **TASK-2.8 (delivery fecha del merge)** — PR #142 squash `827355f` (CI post-merge success run 39653970522; owner merge); docs release `78ff444` (CI success run 39654596731); tag `v0.8.1` → release.yml run 39654698849 SUCCESS (6 assets: 5 plataformas + checksums); smoke del deploy en VM kike@100.95.242.72: healthz `{"version":"0.8.1"}`, servicio systemd user-level active, template pristino re-sembrado byte-idéntico sha `b9d94d84…` perms 0600/0700 (B11 PASSED), skill instalada sin re-render (deploy nunca la toca), DB íntegra (151552B)
 
 ## Forecast
 
