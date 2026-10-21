@@ -456,6 +456,11 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 // SetHermesTelegramOwnerBot is preserved, so the two flows compose in either
 // order.
 //
+// The Telegram owner-bot channel is OPTIONAL (S11): when it was never configured
+// — and the flow skips it — the entry renders as {url, headers{X-Caller-Id}}
+// alone, with no env block. That is the shape Hermes boots with, so the server
+// entry is never conditional on the channel and no write path requires it.
+//
 // The entry is replaced wholesale, so re-running the flow is idempotent and
 // stale keys inside the previous entry cannot survive. The pointer receiver is
 // required because a zero-value HermesDocument lazily allocates its backing

@@ -971,7 +971,11 @@ func promptSeedInput(input *consoleInput, stdout io.Writer) (admin.SeedInput, er
 // stdin, so no special hook is needed — a terminal exercise is a manual smoke.
 // Together with the Bubble Tea form's sensitive field this keeps both
 // presentations' secret handling symmetric.
-func promptSecret(input *consoleInput, stdout io.Writer, label string, validate func(string) error) (string, error) {
+// promptSecret collects a credential (the Telegram bot token). allowEmpty marks
+// the answer as optional: an empty line returns "" without validation, which the
+// caller reads as "skip this optional field group" (S11). Any other answer must
+// pass validate before it is accepted.
+func promptSecret(input *consoleInput, stdout io.Writer, label string, validate func(string) error, allowEmpty bool) (string, error) {
 	for {
 		if err := writeConsole(stdout, label+": "); err != nil {
 			return "", err
@@ -981,6 +985,10 @@ func promptSecret(input *consoleInput, stdout io.Writer, label string, validate 
 			return "", serr
 		}
 
+		value := strings.TrimSpace(line)
+		if value == "" && allowEmpty {
+			return "", nil
+		}
 		if err := validate(line); err != nil {
 			if err := writeConsole(stdout, fmt.Sprintf("Error: %v\n", err)); err != nil {
 				return "", err
@@ -1298,14 +1306,19 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, input *c
 
 // runConfigureHermesFlow drives the "Configurar Hermes" capability (ADR-0017,
 // ADR-0018 Decision 3b): it prefills the server phone from the ACTIVE owner,
-// collects the Telegram owner-bot field group (bot token, allowlist chat id and
-// owner phone) with the same admin validators the Bubble Tea wizard uses, shows
-// the bootstrap facts with the token masked, asks for an explicit confirmation
-// and then merges and writes the mcp_servers.mcp-appointments entry. The server
-// entry and the Telegram env block are merged in one atomic write through the
-// shared tui.ApplyHermesConfigWithTelegram chain. It mirrors the Bubble Tea
-// wizard 1:1; the resolved Hermes facts arrive through the menu closure, so the
-// console never re-derives the path or the endpoint.
+// collects the OPTIONAL Telegram owner-bot field group (bot token, allowlist chat
+// id and owner phone) with the same admin validators the Bubble Tea wizard uses,
+// shows the bootstrap facts with the token masked, asks for an explicit
+// confirmation and then merges and writes the mcp_servers.mcp-appointments entry.
+// The server entry and the Telegram env block are merged in one atomic write
+// through the shared tui.ApplyHermesConfigWithTelegram chain. It mirrors the
+// Bubble Tea wizard 1:1; the resolved Hermes facts arrive through the menu
+// closure, so the console never re-derives the path or the endpoint.
+//
+// Skip semantics (S11): an empty bot token disables the Telegram group, so the
+// flow asks nothing else about it, writes the entry WITHOUT the MCP_TELEGRAM_*
+// block and reports "Telegram: no configurado (canal deshabilitado)". A token
+// present keeps the chat id and the owner phone mandatory.
 //
 // Without an ACTIVE owner the flow has nothing to prefill and no owner id Hermes
 // could send, so it reports the semantic failure and the menu reopens.
@@ -1326,19 +1339,30 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *c
 		return err
 	}
 
-	token, err := promptSecret(input, stdout, "Token del bot de Telegram (formato <id>:<hash>) - no se verá al escribir", admin.ValidateTelegramBotToken)
+	token, err := promptSecret(input, stdout,
+		"Token del bot de Telegram (formato <id>:<hash>) - no se verá al escribir (Enter para omitir: canal deshabilitado)",
+		admin.ValidateTelegramBotToken, true)
 	if err != nil {
 		return err
 	}
-	chatID, err := promptValidated(input, stdout, "Chat id de la allowlist de Telegram (ej. 987654321)", "", admin.ValidateTelegramChatID)
-	if err != nil {
-		return err
+
+	// S11 (owner 2026-10-19 "skip + deshabilitar"): the Telegram owner bot is an
+	// optional channel, so an empty token closes the whole group — the chat id and
+	// the Telegram owner phone are not asked and the entry is written without the
+	// MCP_TELEGRAM_* block. A token that is present keeps today's required pair:
+	// the chat id and the owner phone stay mandatory and are validated as before.
+	telegram := tui.TelegramFields{}
+	if strings.TrimSpace(token) != "" {
+		chatID, err := promptValidated(input, stdout, "Chat id de la allowlist de Telegram (ej. 987654321)", "", admin.ValidateTelegramChatID)
+		if err != nil {
+			return err
+		}
+		telegramPhone, err := promptValidated(input, stdout, "Teléfono del owner para Telegram (X-Caller-Id)", owner.ID, admin.ValidatePhone)
+		if err != nil {
+			return err
+		}
+		telegram = tui.NewTelegramFields(token, chatID, telegramPhone)
 	}
-	telegramPhone, err := promptValidated(input, stdout, "Teléfono del owner para Telegram (X-Caller-Id)", owner.ID, admin.ValidatePhone)
-	if err != nil {
-		return err
-	}
-	telegram := tui.NewTelegramFields(token, chatID, telegramPhone)
 
 	if err := writeHermesFacts(stdout, hermes, phone, telegram); err != nil {
 		return err

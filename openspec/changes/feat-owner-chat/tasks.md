@@ -176,6 +176,8 @@
 **Edit surface:** `cmd/mcp-server/admin_tui.go`, `internal/tui/telegram.go`, `internal/tui/model.go` (form fields), `internal/admin/hermes.go` (Remove), tests correspondientes
 **Slice estimate:** ~220-300 líneas
 
+> **UNIT A (steps 1/3/4) landed 2026-10-21** — campos Telegram opcionales + semantics skip-aware (`TelegramFields.Disabled()/Validate()/Summary()`, cadena `ApplyHermesConfigWithTelegram` sin merge del bloque cuando el grupo está vacío), consola (`promptSecret(..., allowEmpty)`) y TUI (`afterFormAdvance` corta el grupo en el token vacío, notice de opcionalidad, índices de paso nombrados). RED/GREEN: `internal/tui/tui_test.go` + `TestRunAdminTUIFlow_ConfigureHermesSkipsTelegram`; pines del camino requerido (app_test/telegram_test/hermes_test/hermes_telegram_test/presentation_test) verdes sin debilitar. **Step 2 (Remove path) = Unit B pendiente**: hoy saltear preserva un bloque `MCP_TELEGRAM_*` preexistente (`SetHermesServer` lo conserva), así que el tercer path explícito sigue sin existir.
+
 ### TASK-3.1 (T3, S4) — Gateway contract: reglas owner + checklist de aceptación
 
 - [ ] Nueva subsección de la persona owner en `docs/gateway-contract.md`: activación (canal en Telegram, rol resuelto en WhatsApp), alcance operativo, doble gate de deletes como contrato conversacional, exclusiones TUI-only

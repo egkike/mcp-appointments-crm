@@ -51,6 +51,24 @@ const (
 	screenAuditTrail
 )
 
+// Step indexes of the Hermes wizard. The steps themselves are built by
+// hermesSteps (view.go), because the label and validator copy is shared with the
+// console presentation; the indexes are named here because the skip semantics of
+// the optional Telegram group (afterFormAdvance) and runForm reason about them.
+// TestHermesStepIndexesMatchTheSharedWizard pins the two against each other.
+const (
+	hermesServerPhoneStep = 0
+	hermesTokenStep       = 1
+	hermesChatIDStep      = 2
+	hermesOwnerPhoneStep  = 3
+)
+
+// hermesTelegramOptionalNotice tells the operator, before the Telegram question
+// is asked, that the channel is optional: the token field cannot carry that word
+// (its label is the shared console/wizard copy), and without the hint an empty
+// answer would look like a mistake instead of a decision.
+const hermesTelegramOptionalNotice = "El bot de Telegram es opcional: dejá el token vacío y Enter para deshabilitar el canal."
+
 // confirmAction identifies the write the confirmation screen gates. One screen
 // with an explicit action keeps every destructive flow behind the same gate
 // instead of four copies of the same yes/no handler.
@@ -475,16 +493,62 @@ func (m AppModel) runConfirmed() (tea.Model, tea.Cmd) {
 }
 
 // submitForm validates the current wizard step: an invalid answer keeps the
-// operator on the step with the semantic error rendered, and the last valid
-// answer dispatches the core call of the flow.
+// operator on the step with the semantic error rendered, an accepted answer that
+// completes an optional field group may close the wizard early (see
+// afterFormAdvance) and the last valid answer dispatches the core call of the
+// flow.
 func (m AppModel) submitForm() (tea.Model, tea.Cmd) {
 	switch result := m.form.submit(); result {
-	case formRejected, formAdvanced:
+	case formRejected:
 		return m, nil
+	case formAdvanced:
+		return m.afterFormAdvance(), nil
 	case formDone:
 		return m.runForm()
 	default:
 		return m, nil
+	}
+}
+
+// afterFormAdvance applies the skip semantics of an optional field group (S11).
+// The Hermes wizard collects the Telegram owner-bot group in its last three
+// steps; an EMPTY token closes that group, so the two remaining Telegram
+// questions are never asked and the wizard goes straight to the confirmation
+// with the group disabled. Reaching the chat-id step is what proves the token
+// answer was accepted, and the value at that index is that answer.
+//
+// Every other advance keeps the wizard on the next step, so the required pair
+// (token + chat id + owner phone) is still collected and validated whole.
+func (m AppModel) afterFormAdvance() tea.Model {
+	if m.screen != screenHermesForm || m.form.index != hermesChatIDStep {
+		return m
+	}
+	if m.form.value(hermesTokenStep) != "" {
+		return m
+	}
+
+	m.hermesPhone = m.form.value(hermesServerPhoneStep)
+	// The group stays empty on purpose: no token, no chat id and no owner phone
+	// are written, and the summary reports the disabled channel.
+	m.hermesTelegram = TelegramFields{}
+	return m.askConfirm(m.hermesConfirmState())
+}
+
+// hermesConfirmState builds the confirmation the operator reads before the
+// Hermes write from the drafts collected so far. It is shared by the complete
+// wizard path and the skipped-Telegram path, so the two can never render
+// different facts for the same write.
+func (m AppModel) hermesConfirmState() confirmState {
+	return confirmState{
+		action:   confirmHermesConfig,
+		title:    confirmHermesTitle,
+		question: confirmHermesQuestion,
+		details: []string{
+			"Endpoint: " + m.deps.Hermes.EndpointURL,
+			"Teléfono (X-Caller-Id): " + m.hermesPhone,
+			"Telegram: " + m.hermesTelegram.Summary(),
+			"Archivo: " + m.deps.Hermes.Path,
+		},
 	}
 }
 
@@ -523,19 +587,13 @@ func (m AppModel) runForm() (tea.Model, tea.Cmd) {
 		return m.started(addSelfCmd(m.ctx, m.deps, m.owner.ID, m.form.value(0)))
 
 	case screenHermesForm:
-		m.hermesPhone = m.form.value(0)
-		m.hermesTelegram = NewTelegramFields(m.form.value(1), m.form.value(2), m.form.value(3))
-		return m.askConfirm(confirmState{
-			action:   confirmHermesConfig,
-			title:    confirmHermesTitle,
-			question: confirmHermesQuestion,
-			details: []string{
-				"Endpoint: " + m.deps.Hermes.EndpointURL,
-				"Teléfono (X-Caller-Id): " + m.hermesPhone,
-				"Telegram: " + m.hermesTelegram.Summary(),
-				"Archivo: " + m.deps.Hermes.Path,
-			},
-		}), nil
+		m.hermesPhone = m.form.value(hermesServerPhoneStep)
+		m.hermesTelegram = NewTelegramFields(
+			m.form.value(hermesTokenStep),
+			m.form.value(hermesChatIDStep),
+			m.form.value(hermesOwnerPhoneStep),
+		)
+		return m.askConfirm(m.hermesConfirmState()), nil
 
 	default:
 		return m, nil
@@ -817,7 +875,14 @@ func (m AppModel) onHermesData(msg hermesDataMsg) (tea.Model, tea.Cmd) {
 	m.deps.Hermes.HermesConfig = msg.hermes
 	m.owner = msg.owner
 	m = m.withScreen(screenHermesForm)
-	m.form = newForm(hermesTitle, hermesSteps(msg.owner.ID))
+	steps := hermesSteps(msg.owner.ID)
+	// S11: the Telegram owner-bot token step accepts an empty answer (the
+	// operator disabling the channel). The shared label stays untouched, so the
+	// console prompt and the wizard keep reading the same field name; the hint
+	// rides on the notice line, which this screen renders above the question.
+	steps[hermesTokenStep].validate = optionalTelegramToken
+	m.form = newForm(hermesTitle, steps)
+	m.noticeLine = hermesTelegramOptionalNotice
 	return m, nil
 }
 

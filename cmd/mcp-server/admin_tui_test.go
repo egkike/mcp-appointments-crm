@@ -1520,6 +1520,54 @@ func TestRunAdminTUIFlow_ConfigureHermesWritesMergedConfig(t *testing.T) {
 	}
 }
 
+// TestRunAdminTUIFlow_ConfigureHermesSkipsTelegram locks the S11 decision
+// (owner 2026-10-19: "skip + deshabilitar") on the console path: an empty bot
+// token is a skip, not a rejection, so the flow never asks the chat id and the
+// write emits the server entry WITHOUT the MCP_TELEGRAM_* block.
+func TestRunAdminTUIFlow_ConfigureHermesSkipsTelegram(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	hermesPath := prepareHermesConsole(t)
+
+	var out bytes.Buffer
+	// Menu -> Configure Hermes -> accept the prefilled server phone (blank line)
+	// -> empty token (skip the optional group) -> confirm -> quit. The single
+	// blank line for the token is the whole Telegram questionnaire.
+	stdin := strings.NewReader("7\n\n\ns\nq\n")
+
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"Teléfono (X-Caller-Id): " + ownerPhone,
+		"Telegram: no configurado (canal deshabilitado)",
+		"Configuración de Hermes actualizada.",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+
+	// #nosec G304 -- hermesPath is under a throwaway t.TempDir() home.
+	content, err := os.ReadFile(hermesPath)
+	if err != nil {
+		t.Fatalf("read written Hermes config: %v", err)
+	}
+	for _, want := range []string{
+		admin.HermesServerName,
+		consoleHermesEndpoint(t),
+		`X-Caller-Id: "` + ownerPhone + `"`,
+	} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("written Hermes config missing %q\n%s", want, content)
+		}
+	}
+	if strings.Contains(string(content), "MCP_TELEGRAM") {
+		t.Errorf("skipped Telegram group wrote an env block\n%s", content)
+	}
+}
+
 // TestRunAdminTUIFlow_ConfigureHermesRejectsInvalidPhone locks the input
 // validation: an invalid phone is re-prompted and never reaches the write. With
 // no further input the questionnaire aborts and the config file is not created.
