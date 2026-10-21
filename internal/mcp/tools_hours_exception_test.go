@@ -190,14 +190,15 @@ func staffCallerPtr() *auth.Caller {
 	return &c
 }
 
-// ── registration (REQ-MT-005: 20 → 23) ──
+// ── registration (REQ-MT-005: 20 → 23 → 24) ──
 
 func TestHoursExceptionToolsRegistered(t *testing.T) {
 	srv, _ := newHoursExceptionUseCaseServer(t)
 
-	// 23 = the 20 tools shipped before this change + the 3 new ones.
-	if got := srv.ToolCount(); got != 23 {
-		t.Errorf("ToolCount() = %d; want 23", got)
+	// 24 = the 20 tools shipped before this change + the 3 exception tools + the
+	// professionals read tool (feat-owner-chat S7a).
+	if got := srv.ToolCount(); got != 24 {
+		t.Errorf("ToolCount() = %d; want 24", got)
 	}
 
 	rec := callMethod(srv.Handler(), "tools/list", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
@@ -211,8 +212,8 @@ func TestHoursExceptionToolsRegistered(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal tools/list: %v; body=%s", err, rec.Body.String())
 	}
-	if len(resp.Result.Tools) != 23 {
-		t.Fatalf("tools/list returned %d tools; want 23 (REQ-MT-005)", len(resp.Result.Tools))
+	if len(resp.Result.Tools) != 24 {
+		t.Fatalf("tools/list returned %d tools; want 24 (REQ-MT-005)", len(resp.Result.Tools))
 	}
 	got := make(map[string]bool, len(resp.Result.Tools))
 	for _, tool := range resp.Result.Tools {

@@ -28,6 +28,35 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 }
 
+// TestLoadConfigNoHomeSkipsDotEnvTier pins the fail-safe branch of LoadConfig:
+// when the home directory is unknown the .env tier is unavailable, so the
+// resolver MUST ignore any CWD-relative .config/mcp-appointments-crm/.env
+// instead of silently loading a file from the process working directory.
+// LoadConfig routes that case to loadConfigFrom(""), which this test exercises
+// directly (no dependence on os.UserHomeDir behavior, so it is portable).
+func TestLoadConfigNoHomeSkipsDotEnvTier(t *testing.T) {
+	dir := t.TempDir()
+	rel := filepath.Join(dir, ".config", "mcp-appointments-crm")
+	if err := os.MkdirAll(rel, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rel, ".env"), []byte("MCP_PORT=9999\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	cfg, err := loadConfigFrom("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Port != defaultPort {
+		t.Errorf("Port = %q, want default %q: a CWD-relative .env must never be read when the home directory is unknown", cfg.Port, defaultPort)
+	}
+	if cfg.Bind != defaultBind {
+		t.Errorf("Bind = %q, want default %q", cfg.Bind, defaultBind)
+	}
+}
+
 // TestLoadConfigDotEnvTier covers the .env tier (ADR-0007 §D5): values from
 // the file are used when no environment variable is set.
 func TestLoadConfigDotEnvTier(t *testing.T) {

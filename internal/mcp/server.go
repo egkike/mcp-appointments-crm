@@ -60,6 +60,7 @@ func (s *Server) registerTools() {
 	s.registerBookingTools()
 	s.registerProfileTool()
 	s.registerSearchTools()
+	s.registerProfessionalsReadTools()
 	s.registerAlertTools()
 	s.registerLoyaltyTools()
 	s.registerMaintenanceTools()

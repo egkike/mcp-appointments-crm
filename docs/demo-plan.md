@@ -200,6 +200,9 @@ Secuencia mínima sugerida, con negocio demo:
 4. `get_pending_alerts` → hay alerta por la reserva; `mark_alert_as_sent` → la consume.
 5. `reschedule_booking` → mueve la reserva; `cancel_booking` → la cancela.
 6. `search_clients_advanced` + `search_services_advanced` → FTS5 responde.
+6b. `search_professionals_advanced({"service_id": "<id de servicio>"})` → sólo los
+   profesionales que declaran ese servicio (sin `email`/`phone`). Sin specialties
+   cargadas devuelve `{"results": []}`: decirlo, nunca completar con todo el staff.
 7. `get_loyalty_report` → reporte con datos agregados.
 8. Mantenimiento de datos vía Hermes chat (owner-only): `update_business_profile`
    (p. ej. cambiar el teléfono), `create_service`/`update_service`/`delete_service`,

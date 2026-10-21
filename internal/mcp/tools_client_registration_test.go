@@ -18,13 +18,31 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
+	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
+
+// TestRegisterClientPortCarrierLivesInDTO pins the ADR-0013 boundary this port
+// used to violate: RegisterClientPort MUST be declared in terms of the
+// internal/application/dto carrier, never a use-case package type. The move is
+// compile-time visible, but a future re-declaration in a use case would also
+// compile, so the boundary is asserted structurally here.
+func TestRegisterClientPortCarrierLivesInDTO(t *testing.T) {
+	method, ok := reflect.TypeOf((*RegisterClientPort)(nil)).Elem().MethodByName("Execute")
+	if !ok {
+		t.Fatal("RegisterClientPort.Execute not found")
+	}
+	got := method.Type.Out(0).Elem().PkgPath()
+	want := reflect.TypeOf(dto.GetOrCreateClientResult{}).PkgPath()
+	if got != want {
+		t.Errorf("RegisterClientPort result carrier package = %q; want %q (dto, per ADR-0013)", got, want)
+	}
+}
 
 // Spanish registration messages the use case owns and this suite pins through
 // the transport (design.md §1.2 error table). They are literals here on purpose:
@@ -40,10 +58,10 @@ const (
 // mockRegisterClientPort is the fn-table mock of RegisterClientPort, the same
 // shape the other tool mocks use (tools_test.go).
 type mockRegisterClientPort struct {
-	executeFn func(ctx context.Context, callerID, displayName string) (*usecase.GetOrCreateClientResult, error)
+	executeFn func(ctx context.Context, callerID, displayName string) (*dto.GetOrCreateClientResult, error)
 }
 
-func (m *mockRegisterClientPort) Execute(ctx context.Context, callerID, displayName string) (*usecase.GetOrCreateClientResult, error) {
+func (m *mockRegisterClientPort) Execute(ctx context.Context, callerID, displayName string) (*dto.GetOrCreateClientResult, error) {
 	return m.executeFn(ctx, callerID, displayName)
 }
 
@@ -110,9 +128,9 @@ func toolErrorTextOf(t *testing.T, resp *toolResponse) string {
 
 // mustNotRun is the port body for the cases where reaching the use case is the
 // bug under test: it fails the test instead of returning a value.
-func mustNotRun(t *testing.T) func(context.Context, string, string) (*usecase.GetOrCreateClientResult, error) {
+func mustNotRun(t *testing.T) func(context.Context, string, string) (*dto.GetOrCreateClientResult, error) {
 	t.Helper()
-	return func(context.Context, string, string) (*usecase.GetOrCreateClientResult, error) {
+	return func(context.Context, string, string) (*dto.GetOrCreateClientResult, error) {
 		t.Error("the registration use case must not run for this request")
 		return nil, errors.New("unreachable")
 	}
@@ -125,14 +143,14 @@ func mustNotRun(t *testing.T) func(context.Context, string, string) (*usecase.Ge
 func TestToolRegisterClientUsesHeaderPhone(t *testing.T) {
 	const phone = "+5491100999999"
 	port := &mockRegisterClientPort{}
-	port.executeFn = func(_ context.Context, callerID, displayName string) (*usecase.GetOrCreateClientResult, error) {
+	port.executeFn = func(_ context.Context, callerID, displayName string) (*dto.GetOrCreateClientResult, error) {
 		if callerID != phone {
 			t.Errorf("callerID = %q; want the trimmed X-Caller-Id header %q", callerID, phone)
 		}
 		if displayName != "  Ana Gómez  " {
 			t.Errorf("displayName = %q; want the verbatim payload value", displayName)
 		}
-		return &usecase.GetOrCreateClientResult{ClientID: callerID, DisplayName: "Ana Gómez", Created: true}, nil
+		return &dto.GetOrCreateClientResult{ClientID: callerID, DisplayName: "Ana Gómez", Created: true}, nil
 	}
 	srv := newRegistrationToolServer(t, port)
 
@@ -152,7 +170,7 @@ func TestToolRegisterClientUsesHeaderPhone(t *testing.T) {
 	// middleware answers 401 before the seam, so this is defense in depth; the
 	// empty phone is then rejected by the use case's own validation).
 	var seen string
-	port.executeFn = func(_ context.Context, callerID, _ string) (*usecase.GetOrCreateClientResult, error) {
+	port.executeFn = func(_ context.Context, callerID, _ string) (*dto.GetOrCreateClientResult, error) {
 		seen = callerID
 		return nil, &domain.SemanticError{Code: domain.ErrCodeInvalidInput, Message: msgRegisterInvalidPhone}
 	}
@@ -174,10 +192,10 @@ func TestToolRegisterClientDisplayNameAbsent(t *testing.T) {
 				got   string
 				calls int
 			)
-			port := &mockRegisterClientPort{executeFn: func(_ context.Context, callerID, displayName string) (*usecase.GetOrCreateClientResult, error) {
+			port := &mockRegisterClientPort{executeFn: func(_ context.Context, callerID, displayName string) (*dto.GetOrCreateClientResult, error) {
 				calls++
 				got = displayName
-				return &usecase.GetOrCreateClientResult{ClientID: callerID, DisplayName: "Cliente " + callerID, Created: true}, nil
+				return &dto.GetOrCreateClientResult{ClientID: callerID, DisplayName: "Cliente " + callerID, Created: true}, nil
 			}}
 			srv := newRegistrationToolServer(t, port)
 
@@ -200,8 +218,8 @@ func TestToolRegisterClientDisplayNameAbsent(t *testing.T) {
 // false for an already-registered phone and the response echoes the STORED
 // name, never the name the request tried to change.
 func TestToolRegisterClientReportsExistingRow(t *testing.T) {
-	port := &mockRegisterClientPort{executeFn: func(_ context.Context, callerID, _ string) (*usecase.GetOrCreateClientResult, error) {
-		return &usecase.GetOrCreateClientResult{ClientID: callerID, DisplayName: "Cliente Existente", Created: false}, nil
+	port := &mockRegisterClientPort{executeFn: func(_ context.Context, callerID, _ string) (*dto.GetOrCreateClientResult, error) {
+		return &dto.GetOrCreateClientResult{ClientID: callerID, DisplayName: "Cliente Existente", Created: false}, nil
 	}}
 	srv := newRegistrationToolServer(t, port)
 
@@ -302,7 +320,7 @@ func TestToolRegisterClientSemanticErrorPassesThrough(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			port := &mockRegisterClientPort{executeFn: func(context.Context, string, string) (*usecase.GetOrCreateClientResult, error) {
+			port := &mockRegisterClientPort{executeFn: func(context.Context, string, string) (*dto.GetOrCreateClientResult, error) {
 				return nil, &domain.SemanticError{Code: domain.ErrCodeConflict, Message: tc.message}
 			}}
 			srv := newRegistrationToolServer(t, port)
@@ -320,7 +338,7 @@ func TestToolRegisterClientSemanticErrorPassesThrough(t *testing.T) {
 // non-semantic failure is answered with the generic -32603, never with driver
 // text or internal details.
 func TestToolRegisterClientInternalErrorCollapses(t *testing.T) {
-	port := &mockRegisterClientPort{executeFn: func(context.Context, string, string) (*usecase.GetOrCreateClientResult, error) {
+	port := &mockRegisterClientPort{executeFn: func(context.Context, string, string) (*dto.GetOrCreateClientResult, error) {
 		return nil, errors.New("registrar cliente: buscar por teléfono: sql: database is locked")
 	}}
 	srv := newRegistrationToolServer(t, port)
@@ -336,7 +354,7 @@ func TestToolRegisterClientInternalErrorCollapses(t *testing.T) {
 // returning (nil, nil) must not dereference the result nor emit a half-empty
 // payload (same class of guard as the get_business_profile nil check).
 func TestToolRegisterClientNilResultFailsClosed(t *testing.T) {
-	port := &mockRegisterClientPort{executeFn: func(context.Context, string, string) (*usecase.GetOrCreateClientResult, error) {
+	port := &mockRegisterClientPort{executeFn: func(context.Context, string, string) (*dto.GetOrCreateClientResult, error) {
 		return nil, nil
 	}}
 	srv := newRegistrationToolServer(t, port)

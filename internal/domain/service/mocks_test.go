@@ -37,6 +37,9 @@ func (m *mockProfessionalsRepo) FindByID(ctx context.Context, id string) (*entit
 func (m *mockProfessionalsRepo) FindActive(context.Context) ([]*entity.Professional, error) {
 	return nil, nil
 }
+func (m *mockProfessionalsRepo) FindAllActive(context.Context) ([]*entity.Professional, error) {
+	return nil, nil
+}
 func (m *mockProfessionalsRepo) Save(context.Context, *entity.Professional) error   { return nil }
 func (m *mockProfessionalsRepo) Update(context.Context, *entity.Professional) error { return nil }
 

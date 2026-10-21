@@ -17,9 +17,11 @@
 // JSON-RPC auth translator) and the tool registration that consumes the use
 // cases below.
 //
-// This file is the first production caller of the 7-arg use case constructors
-// introduced in feat-booking-validator-service (TASK-FU.3). No DI containers,
-// reflection, or init() functions — all wiring is explicit in main().
+// This file is the first production caller of the multi-dependency booking use
+// case constructors (the dependency list grew after
+// feat-booking-validator-service, TASK-FU.3 — see the constructor signatures in
+// internal/application/usecase). No DI containers, reflection, or init()
+// functions — all wiring is explicit in main().
 //
 // Design decisions documented per refactor-clean-architecture P4.1:
 //
@@ -323,9 +325,12 @@ func run(ctx context.Context) error {
 	getBookingUC := usecase.NewGetBookingUseCase(bookingsRepo)
 	cancelBookingUC := usecase.NewCancelBookingUseCase(bookingsRepo, alertStore, logger)
 
-	// 7-arg use cases: bookings + 5 resolution repos + shared validator + alert store.
-	// These are the first production callers of the expanded constructors
-	// from feat-booking-validator-service.
+	// Booking use cases with the widest dependency set: bookings + the resolution
+	// repos + the shared validator + the alert store. These are the first
+	// production callers of the expanded constructors from
+	// feat-booking-validator-service (the argument list is what the constructor
+	// signatures in internal/application/usecase declare — do not restate a
+	// count here, it drifts).
 	createBookingUC := usecase.NewCreateBookingUseCase(
 		bookingsRepo, servicesRepo, prosRepo,
 		bizProfRepo, bizHoursExRepo, schedulesRepo,
@@ -377,6 +382,16 @@ func run(ctx context.Context) error {
 	searchClientsAdvancedUC := usecase.NewSearchClientsAdvancedUseCase(clientsRepo)
 	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)
 
+	// feat-owner-chat (S7a): professionals catalog read. Any authenticated caller
+	// (clients included) — the conversational booking flow needs to resolve which
+	// professionals offer a service. The query validator is the repository adapter
+	// over the SHARED FTS5 text policy (validateFTSQuery): the use case filters in
+	// Go because there is no professionals_fts table, but it must reject the same
+	// operator syntax as the two FTS search tools.
+	searchProfessionalsAdvancedUC := usecase.NewSearchProfessionalsAdvancedUseCase(
+		prosRepo, servicesRepo, repository.QueryValidator{},
+	)
+
 	// PR 2 (Phase 2): alert lifecycle use cases.
 	getPendingAlertsUC := usecase.NewGetPendingAlertsUseCase(pendingAlertsRepo)
 	markAlertAsSentUC := usecase.NewMarkAlertAsSentUseCase(pendingAlertsRepo)
@@ -409,11 +424,14 @@ func run(ctx context.Context) error {
 
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
-	// Every /mcp request must carry X-Caller-Id. Three tools deliberately have
+	// Every /mcp request must carry X-Caller-Id. Four tools deliberately have
 	// no entry here and enforce role downstream:
-	//   - check_availability       → any authenticated caller
-	//   - search_clients_advanced  → row scope by caller role (repository/clients.go)
-	//   - search_services_advanced → auth.RequireRole(RoleOwner, RoleAdmin) in the use case
+	//   - check_availability            → any authenticated caller
+	//   - search_clients_advanced       → row scope by caller role (repository/clients.go)
+	//   - search_services_advanced      → auth.RequireRole(RoleOwner, RoleAdmin) in the use case
+	//   - search_professionals_advanced → auth.RequireAuthenticated only (the client
+	//     booking flow is the consumer; feat-owner-chat S7a, design §8.2). Output is
+	//     PII-free by construction, so no owner/admin gate applies.
 	// register_client also has NO entry, for a different reason: it is reached
 	// through the anonymous allowlist seam before resolution and carries no role in
 	// either layer (its guards are the accounts collision and the rate limit inside
@@ -467,10 +485,12 @@ func run(ctx context.Context) error {
 		GetBusinessProfile:     getBusinessProfileUC,
 		SearchClientsAdvanced:  searchClientsAdvancedUC,
 		SearchServicesAdvanced: searchServicesAdvancedUC,
-		GetPendingAlerts:       getPendingAlertsUC,
-		MarkAlertAsSent:        markAlertAsSentUC,
-		GetLoyaltyReport:       getLoyaltyReportUC,
-		RegisterClient:         registerClientUC,
+
+		SearchProfessionalsAdvanced: searchProfessionalsAdvancedUC,
+		GetPendingAlerts:            getPendingAlertsUC,
+		MarkAlertAsSent:             markAlertAsSentUC,
+		GetLoyaltyReport:            getLoyaltyReportUC,
+		RegisterClient:              registerClientUC,
 
 		UpdateBusinessProfile: updateBusinessProfileUC,
 		CreateService:         createServiceUC,
