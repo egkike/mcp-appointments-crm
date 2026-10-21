@@ -53,21 +53,27 @@ const (
 
 // Step indexes of the Hermes wizard. The steps themselves are built by
 // hermesSteps (view.go), because the label and validator copy is shared with the
-// console presentation; the indexes are named here because the skip semantics of
-// the optional Telegram group (afterFormAdvance) and runForm reason about them.
-// TestHermesStepIndexesMatchTheSharedWizard pins the two against each other.
+// console presentation; the indexes are named here because the skip and removal
+// semantics of the optional Telegram group (afterFormAdvance) and runForm reason
+// about them. TestHermesStepIndexesMatchTheSharedWizard pins the two against each
+// other.
 const (
 	hermesServerPhoneStep = 0
 	hermesTokenStep       = 1
-	hermesChatIDStep      = 2
-	hermesOwnerPhoneStep  = 3
+	// hermesRemoveStep is the explicit "sin Telegram" question (S11 unit B). It
+	// is only reached when the token answer was empty; afterFormAdvance jumps
+	// over it otherwise.
+	hermesRemoveStep     = 2
+	hermesChatIDStep     = 3
+	hermesOwnerPhoneStep = 4
 )
 
 // hermesTelegramOptionalNotice tells the operator, before the Telegram question
 // is asked, that the channel is optional: the token field cannot carry that word
 // (its label is the shared console/wizard copy), and without the hint an empty
-// answer would look like a mistake instead of a decision.
-const hermesTelegramOptionalNotice = "El bot de Telegram es opcional: dejá el token vacío y Enter para deshabilitar el canal."
+// answer would look like a mistake instead of a decision. It also announces the
+// removal question, so the next screen is never a surprise (S11 unit B).
+const hermesTelegramOptionalNotice = "El bot de Telegram es opcional: dejá el token vacío y Enter para deshabilitar el canal (después elegís si retirar el bloque existente o conservarlo)."
 
 // confirmAction identifies the write the confirmation screen gates. One screen
 // with an explicit action keeps every destructive flow behind the same gate
@@ -510,28 +516,58 @@ func (m AppModel) submitForm() (tea.Model, tea.Cmd) {
 	}
 }
 
-// afterFormAdvance applies the skip semantics of an optional field group (S11).
-// The Hermes wizard collects the Telegram owner-bot group in its last three
-// steps; an EMPTY token closes that group, so the two remaining Telegram
-// questions are never asked and the wizard goes straight to the confirmation
-// with the group disabled. Reaching the chat-id step is what proves the token
-// answer was accepted, and the value at that index is that answer.
+// afterFormAdvance applies the skip and removal semantics of the optional field
+// group (S11). The Hermes wizard collects the Telegram owner-bot group in the
+// steps that follow the server phone; the token answer decides which shape the
+// group takes.
 //
-// Every other advance keeps the wizard on the next step, so the required pair
-// (token + chat id + owner phone) is still collected and validated whole.
+//   - A TOKEN answer means the operator configures the channel: the explicit
+//     removal question does not apply, so the wizard jumps over it and keeps
+//     collecting the required pair (chat id + owner phone).
+//   - An EMPTY token closes the group, so the chat id and the owner phone are
+//     never asked and the removal question decides between skipping (keep what
+//     the config has) and removing (delete the block). Reaching the chat-id step
+//     from the removal question is what proves the group was closed.
+//
+// Every other advance keeps the wizard on the next step, so the required pair is
+// still collected and validated whole.
 func (m AppModel) afterFormAdvance() tea.Model {
-	if m.screen != screenHermesForm || m.form.index != hermesChatIDStep {
+	if m.screen != screenHermesForm {
 		return m
 	}
-	if m.form.value(hermesTokenStep) != "" {
+
+	// The token step was just answered: a token means the channel is being
+	// configured, so the removal question does not apply and the wizard jumps to
+	// the chat id.
+	if m.form.index == hermesRemoveStep && m.form.value(hermesTokenStep) != "" {
+		return m.formJump(hermesChatIDStep)
+	}
+	// Only a closed group (empty token) that just left the removal question
+	// reaches this point with the chat-id index focused; every other advance
+	// keeps walking the wizard.
+	if m.form.index != hermesChatIDStep || m.form.value(hermesTokenStep) != "" {
 		return m
 	}
 
 	m.hermesPhone = m.form.value(hermesServerPhoneStep)
-	// The group stays empty on purpose: no token, no chat id and no owner phone
-	// are written, and the summary reports the disabled channel.
-	m.hermesTelegram = TelegramFields{}
+	if telegramRemovalRequested(m.form.value(hermesRemoveStep)) {
+		m.hermesTelegram = TelegramRemoval()
+	} else {
+		// The group stays empty on purpose: no token, no chat id and no owner
+		// phone are written, so a configured block is preserved untouched.
+		m.hermesTelegram = TelegramFields{}
+	}
 	return m.askConfirm(m.hermesConfirmState())
+}
+
+// formJump moves the wizard to a later step, reusing the form's own focus so the
+// echoed value, the sensitive mask and the step error are reset exactly like a
+// normal advance. It exists for the one conditional question of the Hermes
+// wizard (the removal path), which must not be asked when a token was typed.
+func (m AppModel) formJump(index int) AppModel {
+	m.form.index = index
+	m.form.focus()
+	return m
 }
 
 // hermesConfirmState builds the confirmation the operator reads before the

@@ -1531,9 +1531,11 @@ func TestRunAdminTUIFlow_ConfigureHermesSkipsTelegram(t *testing.T) {
 
 	var out bytes.Buffer
 	// Menu -> Configure Hermes -> accept the prefilled server phone (blank line)
-	// -> empty token (skip the optional group) -> confirm -> quit. The single
-	// blank line for the token is the whole Telegram questionnaire.
-	stdin := strings.NewReader("7\n\n\ns\nq\n")
+	// -> empty token (skip the optional group) -> answer "n" to the explicit
+	// removal question, so an existing block would be preserved -> confirm ->
+	// quit. The token and the removal answer are the whole Telegram
+	// questionnaire.
+	stdin := strings.NewReader("7\n\n\nn\ns\nq\n")
 
 	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
 		t.Fatalf("runAdminTUIFlow() error = %v", err)
@@ -1541,6 +1543,7 @@ func TestRunAdminTUIFlow_ConfigureHermesSkipsTelegram(t *testing.T) {
 
 	for _, want := range []string{
 		"Teléfono (X-Caller-Id): " + ownerPhone,
+		"¿Retirar el canal Telegram del bot",
 		"Telegram: no configurado (canal deshabilitado)",
 		"Configuración de Hermes actualizada.",
 	} {
@@ -1565,6 +1568,86 @@ func TestRunAdminTUIFlow_ConfigureHermesSkipsTelegram(t *testing.T) {
 	}
 	if strings.Contains(string(content), "MCP_TELEGRAM") {
 		t.Errorf("skipped Telegram group wrote an env block\n%s", content)
+	}
+}
+
+// TestRunAdminTUIFlow_ConfigureHermesRemovesTelegram locks the THIRD explicit
+// path of option 7 (S11 unit B): a business that configured the owner bot and
+// retires it leaves the token empty, answers yes to "Retirar el canal Telegram
+// del bot" and the write DELETES the MCP_TELEGRAM_* block while preserving the
+// url, the headers and every foreign byte of the file.
+func TestRunAdminTUIFlow_ConfigureHermesRemovesTelegram(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	hermesPath := prepareHermesConsole(t)
+
+	if err := os.MkdirAll(filepath.Dir(hermesPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	seed := strings.Join([]string{
+		"model: hermes-default",
+		"mcp_servers:",
+		"  openai:",
+		"    url: https://api.example/mcp",
+		"  " + admin.HermesServerName + ":",
+		"    url: " + consoleHermesEndpoint(t),
+		"    headers:",
+		`      X-Caller-Id: "` + ownerPhone + `"`,
+		"    env:",
+		`      MCP_TELEGRAM_BOT_TOKEN: "` + telegramTestToken + `"`,
+		`      MCP_TELEGRAM_ALLOWED_CHAT_ID: "` + telegramTestChatID + `"`,
+		`      MCP_TELEGRAM_OWNER_PHONE: "` + ownerPhone + `"`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(hermesPath, []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed hermes config: %v", err)
+	}
+
+	var out bytes.Buffer
+	// Menu -> Configure Hermes -> accept the prefilled server phone (blank line)
+	// -> empty token -> "s" to retirar el canal -> confirm the write -> quit.
+	stdin := strings.NewReader("7\n\n\ns\ns\nq\n")
+
+	if err := runAdminTUIFlow(context.Background(), stdin, &out); err != nil {
+		t.Fatalf("runAdminTUIFlow() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"¿Retirar el canal Telegram del bot",
+		"Telegram: canal deshabilitado (bloque MCP_TELEGRAM eliminado)",
+		"Configuración de Hermes actualizada.",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output = %q, want it to contain %q", out.String(), want)
+		}
+	}
+	// The skip line belongs to the OTHER path: a removal must never report the
+	// channel as merely "not configured".
+	if strings.Contains(out.String(), "Telegram: no configurado (canal deshabilitado)") {
+		t.Errorf("output = %q, the removal path must not print the skip line", out.String())
+	}
+
+	// #nosec G304 -- hermesPath is under a throwaway t.TempDir() home.
+	content, err := os.ReadFile(hermesPath)
+	if err != nil {
+		t.Fatalf("read written Hermes config: %v", err)
+	}
+	if strings.Contains(string(content), "MCP_TELEGRAM") {
+		t.Errorf("removal left the Telegram block behind\n%s", content)
+	}
+	if strings.Contains(string(content), "env:") {
+		t.Errorf("removal left an empty env block behind\n%s", content)
+	}
+	for _, want := range []string{
+		"model: hermes-default",
+		"openai",
+		admin.HermesServerName,
+		consoleHermesEndpoint(t),
+		`X-Caller-Id: "` + ownerPhone + `"`,
+	} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("written Hermes config missing %q\n%s", want, content)
+		}
 	}
 }
 

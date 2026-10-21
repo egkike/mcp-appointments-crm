@@ -1315,10 +1315,14 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, input *c
 // Bubble Tea wizard 1:1; the resolved Hermes facts arrive through the menu
 // closure, so the console never re-derives the path or the endpoint.
 //
-// Skip semantics (S11): an empty bot token disables the Telegram group, so the
-// flow asks nothing else about it, writes the entry WITHOUT the MCP_TELEGRAM_*
-// block and reports "Telegram: no configurado (canal deshabilitado)". A token
-// present keeps the chat id and the owner phone mandatory.
+// Skip and removal semantics (S11): an empty bot token disables the Telegram
+// group, so the flow asks nothing else about the token/chat pair and writes the
+// entry WITHOUT the MCP_TELEGRAM_* block, reporting "Telegram: no configurado
+// (canal deshabilitado)". The closed group is then resolved explicitly: the flow
+// asks "¿Retirar el canal Telegram del bot?", and a yes DELETES a pre-existing
+// block ("Telegram: canal deshabilitado (bloque MCP_TELEGRAM eliminado)") while a
+// no preserves it. A token present keeps the chat id and the owner phone
+// mandatory.
 //
 // Without an ACTIVE owner the flow has nothing to prefill and no owner id Hermes
 // could send, so it reports the semantic failure and the menu reopens.
@@ -1351,6 +1355,14 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *c
 	// the Telegram owner phone are not asked and the entry is written without the
 	// MCP_TELEGRAM_* block. A token that is present keeps today's required pair:
 	// the chat id and the owner phone stay mandatory and are validated as before.
+	//
+	// A closed group still has TWO shapes, and the flow asks which one the
+	// operator means (S11 unit B): skipping preserves a block the config already
+	// has (SetHermesServer carries it over), while the explicit removal deletes
+	// it. The question is asked for every closed group because the answer is the
+	// operator's intent — the removal is idempotent, so answering "s" on a host
+	// that never configured the bot changes nothing and the summary stays
+	// accurate as a post-condition.
 	telegram := tui.TelegramFields{}
 	if strings.TrimSpace(token) != "" {
 		chatID, err := promptValidated(input, stdout, "Chat id de la allowlist de Telegram (ej. 987654321)", "", admin.ValidateTelegramChatID)
@@ -1362,6 +1374,14 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *c
 			return err
 		}
 		telegram = tui.NewTelegramFields(token, chatID, telegramPhone)
+	} else {
+		remove, err := promptConfirm(input, stdout, "¿Retirar el canal Telegram del bot? (sí borra el bloque MCP_TELEGRAM_* del config; no conserva el que ya existía)")
+		if err != nil {
+			return err
+		}
+		if remove {
+			telegram = tui.TelegramRemoval()
+		}
 	}
 
 	if err := writeHermesFacts(stdout, hermes, phone, telegram); err != nil {

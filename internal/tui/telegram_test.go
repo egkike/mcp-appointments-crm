@@ -1,8 +1,12 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/egkike/mcp-appointments-crm/internal/admin"
 )
 
 // Telegram owner-bot fixtures. They mirror the admin core fixtures: a valid
@@ -119,5 +123,150 @@ func TestTelegramFieldsSummaryNeverEchoesAMalformedToken(t *testing.T) {
 	}
 	if !strings.Contains(summary, "***") {
 		t.Errorf("Summary() = %q, want the fail-closed mask", summary)
+	}
+}
+
+// ── S11 unit B: the explicit "sin Telegram" removal path ──────────────────
+//
+// Skipping the optional group PRESERVES a configured block; retiring the channel
+// is a THIRD, explicit path. TelegramRemoval() carries that intent, and the
+// shared write chain deletes the block instead of merging it.
+
+// TestTelegramRemovalSummaryStatesTheRemovedBlock pins the operator copy of the
+// removal path: the channel reads as disabled and the summary states the block
+// is gone, in the wording family of the skip line.
+func TestTelegramRemovalSummaryStatesTheRemovedBlock(t *testing.T) {
+	removal := TelegramRemoval()
+
+	if !removal.Disabled() {
+		t.Error("Disabled() = false, want true for the removal path")
+	}
+	if err := removal.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil (the removal collects no value)", err)
+	}
+	if got, want := removal.Summary(), "canal deshabilitado (bloque MCP_TELEGRAM eliminado)"; got != want {
+		t.Errorf("Summary() = %q, want %q", got, want)
+	}
+}
+
+// TestTelegramRemovalRejectsCollectedValues pins the fail-closed guard of a
+// contradictory group: a removal that also carries a token or chat id would
+// silently discard the values and report a removal, so it must be rejected
+// instead of guessed.
+func TestTelegramRemovalRejectsCollectedValues(t *testing.T) {
+	contradictory := TelegramRemoval()
+	contradictory.Token = telegramToken
+	contradictory.ChatID = telegramChatID
+
+	if err := contradictory.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want a rejection for a removal carrying Telegram values")
+	}
+}
+
+// TestValidateTelegramRemovalAnswer pins the wizard-level rule of the removal
+// question: "s" (with or without accent) removes, "n" and the empty answer keep
+// the block, and anything else is re-prompted instead of interpreted.
+func TestValidateTelegramRemovalAnswer(t *testing.T) {
+	accepted := map[string]bool{
+		"s": true, "sí": true, "si": true, "S": true,
+		"n": false, "no": false, "": false,
+	}
+	for answer, wantRemove := range accepted {
+		if err := validateTelegramRemovalAnswer(answer); err != nil {
+			t.Errorf("validateTelegramRemovalAnswer(%q) error = %v, want it accepted", answer, err)
+		}
+		if got := telegramRemovalRequested(answer); got != wantRemove {
+			t.Errorf("telegramRemovalRequested(%q) = %v, want %v", answer, got, wantRemove)
+		}
+	}
+
+	if err := validateTelegramRemovalAnswer("quizás"); err == nil {
+		t.Error("validateTelegramRemovalAnswer(\"quizás\") error = nil, want a re-prompt")
+	}
+	if telegramRemovalRequested("quizás") {
+		t.Error("telegramRemovalRequested(\"quizás\") = true, want false for an uninterpretable answer")
+	}
+}
+
+// TestApplyHermesConfigWithTelegramRemovesTheExistingBlock pins the write chain
+// of the removal path end to end: a config that already carries the owner-bot
+// block ends up WITHOUT it, while the url/headers and every foreign byte stay.
+func TestApplyHermesConfigWithTelegramRemovesTheExistingBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".hermes", admin.HermesConfigFileName)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	seed := strings.Join([]string{
+		"model: hermes-default",
+		"mcp_servers:",
+		"  mcp-appointments:",
+		"    url: http://127.0.0.1:3000/mcp",
+		"    headers:",
+		`      X-Caller-Id: "` + telegramPhone + `"`,
+		"    env:",
+		`      MCP_TELEGRAM_BOT_TOKEN: "` + telegramToken + `"`,
+		`      MCP_TELEGRAM_ALLOWED_CHAT_ID: "` + telegramChatID + `"`,
+		`      MCP_TELEGRAM_OWNER_PHONE: "` + telegramPhone + `"`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	hermes := HermesConfig{Path: path, EndpointURL: "http://127.0.0.1:3000/mcp"}
+	snippet, err := ApplyHermesConfigWithTelegram(hermes, telegramPhone, TelegramRemoval())
+	if err != nil {
+		t.Fatalf("ApplyHermesConfigWithTelegram() error = %v, want nil", err)
+	}
+	if snippet != "" {
+		t.Errorf("snippet = %q, want the empty snippet of a successful write", snippet)
+	}
+
+	// #nosec G304 -- path is under a throwaway t.TempDir() home.
+	content, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("read written config: %v", readErr)
+	}
+	if strings.Contains(string(content), "MCP_TELEGRAM") {
+		t.Errorf("removal left the Telegram block behind\n%s", content)
+	}
+	for _, want := range []string{
+		"model: hermes-default",
+		"mcp-appointments",
+		"http://127.0.0.1:3000/mcp",
+		`X-Caller-Id: "` + telegramPhone + `"`,
+	} {
+		if !strings.Contains(string(content), want) {
+			t.Errorf("removal dropped %q\n%s", want, content)
+		}
+	}
+	if strings.Contains(string(content), "env:") {
+		t.Errorf("removal left an empty env block\n%s", content)
+	}
+}
+
+// TestApplyHermesConfigWithTelegramRejectsAContradictoryGroup pins the chain
+// boundary: the field group is re-validated BEFORE the document is touched, so a
+// contradictory group can never reach the removal branch (which would silently
+// discard the values it carries). The caller still gets the manual fallback
+// snippet, the same degradation of every failed chain.
+func TestApplyHermesConfigWithTelegramRejectsAContradictoryGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".hermes", admin.HermesConfigFileName)
+	contradictory := TelegramRemoval()
+	contradictory.ChatID = telegramChatID
+
+	hermes := HermesConfig{Path: path, EndpointURL: "http://127.0.0.1:3000/mcp"}
+	snippet, err := ApplyHermesConfigWithTelegram(hermes, telegramPhone, contradictory)
+	if err == nil {
+		t.Fatal("ApplyHermesConfigWithTelegram() error = nil, want the contradictory-group rejection")
+	}
+	if !strings.Contains(err.Error(), "no lleva token, chat id ni teléfono") {
+		t.Errorf("error = %q, want the fail-closed group message", err)
+	}
+	if snippet == "" {
+		t.Error("snippet = \"\", want the manual fallback the failed chain always renders")
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Errorf("stat written config = %v, want no file after a rejected group", statErr)
 	}
 }
