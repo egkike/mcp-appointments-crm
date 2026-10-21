@@ -911,6 +911,19 @@ store_clear_staff_specialties() {
 # professional I works on (by index or exact name, space or comma separated;
 # Enter = none with an explicit aviso). Skipped entirely when no services were
 # entered. Idempotent on resume via the staff.I.specset marker.
+# picks_seen_has LIST WANT: exact string equality over the newline-delimited
+# list. Never glob matching: a pattern-membership check treats glob
+# metacharacters in service names as wildcards and can silently discard a
+# distinct pick (finding R3-001).
+picks_seen_has() {
+  local list="$1" want="$2" entry
+  while IFS= read -r entry; do
+    [ -z "$entry" ] && continue
+    [ "$entry" = "$want" ] && return 0
+  done <<< "$list"
+  return 1
+}
+
 prompt_staff_specialties() {
   local i="$1" total j list rest part tok raw idx name picks seen invalid
   local RE_NUM_ONLY='^[0-9 ]+$'
@@ -961,12 +974,12 @@ prompt_staff_specialties() {
             invalid=1
             break
           fi
-          [[ $'\n'"$seen" == *$'\n'"$name"$'\n'* ]] && continue
+          picks_seen_has "$seen" "$name" && continue
           seen="${seen}${name}"$'\n'
           picks="${picks}${name}"$'\n'
         done
       elif services_name_exists "$part"; then
-        [[ $'\n'"$seen" == *$'\n'"$part"$'\n'* ]] && continue
+        picks_seen_has "$seen" "$part" && continue
         seen="${seen}${part}"$'\n'
         picks="${picks}${part}"$'\n'
       else

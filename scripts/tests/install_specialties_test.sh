@@ -142,4 +142,19 @@ test_render_specialties_empty_by_default() {
   assertTrue 'legacy empty array preserved' "$ok"
 }
 
+
+test_specialties_dedup_with_glob_metacharacters() {
+  # R3-001: a pattern-membership dedup treated names with glob
+  # metacharacters as wildcards, silently discarding a distinct pick.
+  _seed_staff
+  store_set "services.0.name" "Dibujo *?"
+  store_set "services.1.name" "Dibujo *? y"
+  prompt_staff_specialties 0 <  <(printf '1 2\n')
+  assertEquals 0 $?
+  assertEquals 'both distinct names kept' 'Dibujo *?' "$(store_get 'staff.0.spec.0')"
+  assertEquals 'both distinct names kept (2)' 'Dibujo *? y' "$(store_get 'staff.0.spec.1')"
+  ok=0; [ -n "$(store_get 'staff.0.spec.2' 2>/dev/null)" ] && ok=1
+  assertTrue 'no third pick' "$ok"
+}
+
 . "$(dirname "$0")/lib/shunit2" || exit 1
