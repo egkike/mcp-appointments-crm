@@ -28,6 +28,9 @@ SHA256_CMD=""
 # final summary. See install_receptionist_skill / print_skill_summary.
 SKILL_SLUG="recepcionista-negocio"
 SKILL_INSTALL_OUTCOME=""
+# SKILL_SEED_OUTCOME carries the pristine-skill-template seed result printed
+# by the deploy summary (B11: run_deploy must seed the config template).
+SKILL_SEED_OUTCOME=""
 # BASH_SOURCE is unset when the script is read from stdin (`curl | bash -s`);
 # the :-$0 fallback keeps `set -u` from aborting before main() in pipe mode.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -1129,6 +1132,29 @@ install_receptionist_skill() {
   return 0
 }
 
+# seed_skill_pristine: siembra el template pristino de la skill en
+# $CONFIG_DIR/templates/$SKILL_SLUG/SKILL.md durante un deploy (--version).
+# El wizard ya lo hace vía install_receptionist_skill, pero run_deploy no lo
+# invocaba (B11: upgrades dejaban el cascade de la TUI sin template, que
+# falla fail-secure). Reusa resolve_skill_template (EXTRACT_DIR primero) +
+# seed_config_template. No fatal: cualquier fallo deja aviso y continúa el
+# deploy; SKILL_SEED_OUTCOME lleva el resultado al summary.
+seed_skill_pristine() {
+  local template
+  template=$(resolve_skill_template) || {
+    SKILL_SEED_OUTCOME="template ausente"
+    echo 'Aviso: no se pudo sembrar el template de la skill (template ausente).' >&2
+    return 0
+  }
+  if seed_config_template "$template"; then
+    SKILL_SEED_OUTCOME="sembrado"
+  else
+    SKILL_SEED_OUTCOME="error de escritura"
+    echo 'Aviso: no se pudo sembrar el template de la skill en el directorio de configuración.' >&2
+  fi
+  return 0
+}
+
 print_skill_summary() {
   printf 'Skill recepcionista: %s\n' "$SKILL_INSTALL_OUTCOME"
 }
@@ -1563,6 +1589,7 @@ print_post_install_summary() {
   echo "Despliegue completado: $INSTALL_TAG"
   echo "  Endpoint MCP: http://${bind}:${port}/mcp"
   echo "  MCP_DB_PATH: $DATA_DIR/reservas.db"
+  printf '  Template de la skill (pristino): %s\n' "$SKILL_SEED_OUTCOME"
   printf '\n'
   echo "Comando de backup:"
   echo "  bash $backup_cmd \"$DATA_DIR/reservas.db\""
@@ -1590,6 +1617,7 @@ run_deploy() {
   download_and_verify || return 1
   extract_archive || return 1
   ensure_dirs || return 1
+  seed_skill_pristine
   ensure_env_file || return 1
   install_binary || return 1
   install_backup_script || return 1

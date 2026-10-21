@@ -558,10 +558,13 @@ test_install_service_write_failure() {
   # R3-ATOMICWRITE-UNCHECKED: a failed unit write must stop the deploy
   # before daemon-reload. Fake systemctl exits 0, so only the write
   # failure can fail this call.
+  # Save/restore: an unset function here would poison every later test.
+  local restored
+  restored=$(declare -f atomic_write)
   atomic_write() { return 1; }
   local rc=0
   install_service_linux >/dev/null 2>&1 || rc=$?
-  unset -f atomic_write
+  eval "$restored"
   assertTrue 'install_service_linux fails when unit write fails' "[ \${rc:-0} -ne 0 ]"
 }
 
@@ -594,6 +597,65 @@ test_verify_install_hints_rollback() {
   assertTrue 'verify fails on version mismatch' "[ \${rc:-0} -ne 0 ]"
   assertTrue 'error points at the preserved binary' "printf '%s' \"$out\" | grep -q 'mcp-server.prev'"
   rm -rf "$bin_dir"
+}
+
+# ---------------------------------------------------------------------------
+# B11 — run_deploy seeds the pristine skill template
+# ---------------------------------------------------------------------------
+
+test_seed_skill_pristine_seeds_template() {
+  seed_skill_pristine
+  assertEquals 'seed_skill_pristine nonfatal' 0 $?
+  local dest="$CONFIG_DIR/templates/$SKILL_SLUG/SKILL.md"
+  assertTrue 'template seeded' "[ -f '$dest' ]"
+  assertEquals 'outcome seeded' 'sembrado' "$SKILL_SEED_OUTCOME"
+  assertEquals 'file perms 0600' '600' "$(stat -c %a "$dest")"
+  assertEquals 'dir perms 0700' '700' "$(stat -c %a "${dest%/*}")"
+}
+
+test_seed_skill_pristine_missing_template_nonfatal() {
+  local saved_script_dir="$SCRIPT_DIR"
+  SCRIPT_DIR="$TEST_HOME/no-repo"
+  EXTRACT_DIR=""
+  SKILL_SEED_OUTCOME=""
+  local out rc=0
+  out="$TEST_HOME/out.txt"
+  seed_skill_pristine >"$out" 2>&1 || rc=$?
+  assertEquals 'missing template is nonfatal' 0 "$rc"
+  assertEquals 'outcome missing' 'template ausente' "$SKILL_SEED_OUTCOME"
+  assertTrue 'aviso printed' "grep -q 'template de la skill' \"$out\""
+  SCRIPT_DIR="$saved_script_dir"
+}
+
+test_seed_skill_pristine_write_failure_nonfatal() {
+  # CONFIG_DIR is unwritable: seed fails but deploy continues.
+  CONFIG_DIR="/proc/no-write"
+  SKILL_SEED_OUTCOME=""
+  local out rc=0
+  out="$TEST_HOME/out.txt"
+  seed_skill_pristine >"$out" 2>&1 || rc=$?
+  assertEquals 'write failure is nonfatal' 0 "$rc"
+  assertEquals 'outcome error' 'error de escritura' "$SKILL_SEED_OUTCOME"
+  assertTrue 'config aviso printed' "grep -q 'director' \"$out\""
+}
+
+test_deploy_does_not_install_rendered_skill() {
+  # B11 scope: deploy seeds the pristine template only; the rendered skill
+  # under HERMES_HOME is the TUI cascade's job.
+  seed_skill_pristine >/dev/null 2>&1
+  local hermes_home="${HERMES_HOME:-$HOME/.hermes}"
+  assertFalse 'rendered skill absent after deploy' "[ -e '$hermes_home/skills/$SKILL_SLUG/SKILL.md' ]"
+}
+
+test_post_install_summary_prints_skill_seed() {
+  INSTALL_TAG="v0.3.0"
+  DATA_DIR="$TEST_HOME/data"
+  mkdir -p "$DATA_DIR"
+  SKILL_SEED_OUTCOME='sembrado'
+  local out
+  out=$(print_post_install_summary 2>&1)
+  assertTrue 'summary reports skill seed outcome' \
+    "printf '%s' \"$out\" | grep -q 'Template de la skill'"
 }
 
 . "$(dirname "$0")/lib/shunit2" || exit 1
