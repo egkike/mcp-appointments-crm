@@ -52,6 +52,43 @@ test_render_replaces_every_occurrence() {
   assertEquals 'all occurrences replaced' 'A Mi Negocio B Mi Negocio C' "$out"
 }
 
+# feat-owner-chat (S6 + R4): the shipped template version is pinned to 1.1.0 and
+# the indexable description never advertises the owner persona. The frontmatter is
+# what every interlocutor sees in the skill index, so persona detail must live in
+# the body only (design §7).
+test_template_frontmatter_v11_contract() {
+  local version_line desc desc_len frontmatter
+  version_line=$(grep -m1 '^version: ' "$TEMPLATE")
+  assertEquals 'template version 1.1.0' 'version: 1.1.0' "$version_line"
+  desc=$(grep -m1 '^description: ' "$TEMPLATE")
+  desc=${desc#description: }
+  desc_len=$(printf '%s' "$desc" | wc -m)
+  assertTrue "description <= 60 chars (got $desc_len)" "[ $desc_len -le 60 ]"
+  assertFalse 'description does not advertise the owner persona' \
+    "printf '%s' \"$desc\" | grep -qiE 'owner|dueño|dueno'"
+  frontmatter=$(awk 'NR==1 && $0=="---"{in_fm=1; next} in_fm && $0=="---"{exit} in_fm{print}' "$TEMPLATE")
+  assertFalse 'frontmatter free of persona wording' \
+    "printf '%s' \"$frontmatter\" | grep -qiE 'owner|dueño|dueno'"
+}
+
+# The rendered skill keeps the v1.1.0 persona contract: {business_name} is the
+# only rendered placeholder, {nombre} survives verbatim, and the persona selection
+# block sits in the body, before the two procedures.
+test_rendered_skill_persona_contract() {
+  local dest
+  store_set "business.name" "Negocio"
+  install_receptionist_skill >/dev/null 2>&1
+  dest=$(_skill_dest)
+  assertTrue 'version 1.1.0 rendered' "grep -qx 'version: 1.1.0' \"$dest\""
+  assertTrue 'persona selection block in body' "grep -q '^## Persona' \"$dest\""
+  assertTrue 'client procedure kept' \
+    "grep -q '^## Procedure — persona cliente' \"$dest\""
+  assertTrue 'owner procedure present' \
+    "grep -q '^## Procedure — persona owner' \"$dest\""
+  assertFalse 'no {business_name} left' "grep -q '{business_name}' \"$dest\""
+  assertTrue '{nombre} stays a runtime variable' "grep -q '{nombre}' \"$dest\""
+}
+
 # An existing file equal to the rendered template is not rewritten (same inode)
 # and is reported as already installed.
 test_existing_identical_file_is_not_rewritten() {
