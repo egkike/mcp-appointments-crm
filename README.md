@@ -19,9 +19,12 @@ Windows support is pending (see the scope note below).
 next up: Fase N (support & improvements, ongoing). See the
 [implementation roadmap](./docs/PRD.md#8-roadmap-por-fases) in the PRD.
 
-The MCP server currently exposes 23 tools: `check_availability`, `create_booking`,
+The MCP server currently exposes 24 tools: `check_availability`, `create_booking`,
 `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`,
-`search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`,
+`search_clients_advanced`, `search_services_advanced`,
+`search_professionals_advanced` (active professionals catalog, any authenticated
+caller — the booking flow resolves service → professionals with it; PII-free),
+`get_pending_alerts`,
 `mark_alert_as_sent`, `get_loyalty_report`, plus the owner-only maintenance tools
 `update_business_profile`, `create_service`, `update_service`, `delete_service`,
 `create_professional`, `update_professional`, `upsert_schedule` and `delete_schedule`,

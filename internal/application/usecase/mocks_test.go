@@ -263,10 +263,11 @@ func (m *mockBookingValidator) Validate(ctx context.Context, input service.Valid
 // --- mockProfessionalsRepo (PR #B entity resolution + T2 maintenance) ---
 
 type mockProfessionalsRepo struct {
-	FindByIDFn   func(ctx context.Context, id string) (*entity.Professional, error)
-	FindActiveFn func(ctx context.Context) ([]*entity.Professional, error)
-	SaveFn       func(ctx context.Context, p *entity.Professional) error
-	UpdateFn     func(ctx context.Context, p *entity.Professional) error
+	FindByIDFn      func(ctx context.Context, id string) (*entity.Professional, error)
+	FindActiveFn    func(ctx context.Context) ([]*entity.Professional, error)
+	FindAllActiveFn func(ctx context.Context) ([]*entity.Professional, error)
+	SaveFn          func(ctx context.Context, p *entity.Professional) error
+	UpdateFn        func(ctx context.Context, p *entity.Professional) error
 }
 
 func (m *mockProfessionalsRepo) FindByID(ctx context.Context, id string) (*entity.Professional, error) {
@@ -281,6 +282,13 @@ func (m *mockProfessionalsRepo) FindActive(ctx context.Context) ([]*entity.Profe
 		panic("mockProfessionalsRepo.FindActiveFn not set")
 	}
 	return m.FindActiveFn(ctx)
+}
+
+func (m *mockProfessionalsRepo) FindAllActive(ctx context.Context) ([]*entity.Professional, error) {
+	if m.FindAllActiveFn == nil {
+		panic("mockProfessionalsRepo.FindAllActiveFn not set")
+	}
+	return m.FindAllActiveFn(ctx)
 }
 
 func (m *mockProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) error {

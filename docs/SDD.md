@@ -398,6 +398,8 @@ El binario en Go debe exponer las siguientes funciones al protocolo MCP:
 - `search_clients_advanced(query_text)`: Ejecuta una consulta sobre la tabla virtual `clients_fts` para búsquedas complejas por relevancia (ej. "alergia", "tijera").
     
 - `search_services_advanced(query_text)`: Ejecuta una consulta sobre `services_fts` para localizar servicios específicos dentro de catálogos extensos mediante lenguaje natural.
+
+- `search_professionals_advanced(query_text?, service_id?)`: Devuelve el catálogo activo de profesionales (`{results:[{id, name, role_specialty?, specialties[]}]}`) con filtro opcional por servicio. Cierra el read-gap del flujo de reserva conversacional: con `service_id` sólo aparecen los profesionales que lo declaran en `specialties` (fail-closed: sin datos relación cargada ⇒ lista vacía, nunca el catálogo entero). Legible por cualquier caller autenticado (cliente incluido) y por eso **sin** `email`/`phone` en el wire; filtra en Go, sin tabla FTS5 (feat-owner-chat S7a).
     
 
 #### B. Módulo de Configuración y Gestión de Recursos (Solo Rol Administrador)

@@ -37,9 +37,16 @@ type Config struct {
 	GetBusinessProfile     BusinessProfilePort
 	SearchClientsAdvanced  SearchClientsAdvancedPort
 	SearchServicesAdvanced SearchServicesAdvancedPort
-	GetPendingAlerts       GetPendingAlertsPort
-	MarkAlertAsSent        MarkAlertAsSentPort
-	GetLoyaltyReport       GetLoyaltyReportPort
+
+	// SearchProfessionalsAdvanced is the readable-by-any-authenticated-caller
+	// professionals catalog (feat-owner-chat S7a). Like the two search ports
+	// above it has no ToolRBAC entry; unlike SearchServicesAdvanced the use case
+	// does NOT narrow the role, because the booking flow is the client's.
+	SearchProfessionalsAdvanced SearchProfessionalsAdvancedPort
+
+	GetPendingAlerts GetPendingAlertsPort
+	MarkAlertAsSent  MarkAlertAsSentPort
+	GetLoyaltyReport GetLoyaltyReportPort
 
 	// RegisterClient is the anonymous self-registration port (feat-whatsapp-bot
 	// D2). It is the only port reached without a resolved caller: its tool has no
@@ -74,21 +81,28 @@ type Config struct {
 // error — the tier is optional.
 func LoadConfig() (Config, error) {
 	home, err := os.UserHomeDir()
-	if err != nil {
-		// No home directory means no .env tier is available; the tier is
-		// optional by design (ADR-0007 §D5), so fall through to defaults.
-		home = ""
+	if err != nil || home == "" {
+		// No home directory means the .env tier is unavailable; the tier is
+		// optional by design (ADR-0007 §D5), so resolve from environment
+		// variables and defaults only. Do NOT build a relative path here:
+		// filepath.Join("", ".config", ...) yields ./.config/... and could load
+		// an unintended file from the process working directory.
+		return loadConfigFrom("")
 	}
-	envPath := filepath.Join(home, ".config", "mcp-appointments-crm", ".env")
-	return loadConfigFrom(envPath)
+	return loadConfigFrom(filepath.Join(home, ".config", "mcp-appointments-crm", ".env"))
 }
 
 // loadConfigFrom resolves the configuration using envPath as the .env file.
-// It is split from LoadConfig so tests can point at a temporary file.
+// It is split from LoadConfig so tests can point at a temporary file. An empty
+// envPath disables the .env tier (the no-home case): never read a relative path.
 func loadConfigFrom(envPath string) (Config, error) {
-	vars, err := config.LoadDotEnv(envPath)
-	if err != nil {
-		return Config{}, fmt.Errorf("load dotenv: %w", err)
+	vars := make(map[string]string)
+	if envPath != "" {
+		loaded, err := config.LoadDotEnv(envPath)
+		if err != nil {
+			return Config{}, fmt.Errorf("load dotenv: %w", err)
+		}
+		vars = loaded
 	}
 	return Config{
 		Bind:    firstNonEmpty(os.Getenv("MCP_BIND"), vars["MCP_BIND"], defaultBind),

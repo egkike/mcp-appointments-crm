@@ -57,9 +57,11 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 - WHEN `initialize` is called
 - THEN response includes `protocolVersion`, `serverInfo.name`, `serverInfo.version`, and `capabilities.tools`
 
-### REQ-MT-005 — tools/list returns 23 tools
+### REQ-MT-005 — tools/list returns 24 tools
 
-`tools/list` MUST return exactly 23 tool descriptors (see REQ-MT-015 for names and schemas).
+`tools/list` MUST return exactly 24 tool descriptors (see REQ-MT-015 for names and schemas).
+
+(Previously: 23 tools — `feat-owner-chat` S7a adds the read tool `search_professionals_advanced`, readable by ANY authenticated caller and PII-free.)
 
 (Previously: 20 tools — `feat-whatsapp-bot` adds `register_client` (19 → 20); that delta was backported into the base spec as a pre-step of this change; owner decision 2026-10-11.)
 
@@ -71,11 +73,13 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 
 This change adds `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions` (20 → 23).
 
+`feat-owner-chat` S7a adds `search_professionals_advanced` (23 → 24).
+
 #### Scenario: List returns all tools
 
 - GIVEN a connected client
 - WHEN `tools/list` is called
-- THEN the response MUST contain 23 tools: `check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`
+- THEN the response MUST contain 24 tools: `check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `search_professionals_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`
 ### REQ-MT-006 — tools/call dispatch
 
 `tools/call` MUST dispatch to the registered handler and return a JSON-RPC 2.0 result or error.
@@ -195,6 +199,7 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 | `get_business_profile` | owner, admin, staff | `{}` | `BusinessProfile` serialised via SDK output-schema inference from `entity.BusinessProfile` fields: `{id, name, industry?, country?, address?, latitude?, longitude?, cover_photo_url?, public_phone?, messenger_platform?, messenger_id?, contact_email?, website_url?, general_description?, currency_code, currency_symbol, accepted_payment_methods?, timezone, slot_interval_minutes, business_hours, created_at, updated_at, maps_url?}` (field SET pinned here) |
 | `search_clients_advanced` | any authenticated (scoping in the use case/repo per the `get_booking` precedent — admin/owner all, client own row, staff bookings-scoped; see clients REQ-CL-AUTH-004) | `{query_text}` | `[]ClientSearchEntry` — `{id, name, phone, preferences?}` ordered by FTS relevance (bm25 ASC) |
 | `search_services_advanced` | any authenticated (use case enforces owner/admin; other roles get a semantic forbidden error) | `{query_text}` | `[]ServiceSearchEntry` — `{id, name, description?, duration_minutes, price, is_active}` ordered by FTS relevance |
+| `search_professionals_advanced` | any authenticated (no RBAC entry; the use case enforces only `auth.RequireAuthenticated` — deliberately NOT the owner/admin gate of `search_services_advanced`, because the client booking flow consumes it) | `{query_text?, service_id?}` (both optional; neither ⇒ full active catalog) | `{results: [{id, name, role_specialty?, specialties: [service_id…]}]}` — PII-free: `email`/`phone` MUST NOT appear. `service_id` filters fail-closed through `entity.Professional.HasSpecialty` (empty/unreadable `specialties` ⇒ empty list, never the full catalog); `query_text` is a case-insensitive substring over `name`/`role_specialty` validated by the shared FTS query validator; no FTS5 table is added |
 | `get_pending_alerts` | owner, admin | `{}` | `[]PendingAlertView` — `{alert_id, type, message, scheduled_datetime, related_booking_id?}`: due pending only, oldest first |
 | `mark_alert_as_sent` | owner, admin | `{alert_id}` | `{alert_id, status: "sent"}` |
 | `get_loyalty_report` | owner, admin | `{period?, top_n?}` (defaults `last_month`, 10; see loyalty-report spec) | `[]LoyaltyReportEntry` — `{client_id, name, phone, booking_count}` ordered by `booking_count` DESC |

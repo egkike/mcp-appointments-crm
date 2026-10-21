@@ -65,6 +65,17 @@ type SearchServicesAdvancedPort interface {
 	Execute(context.Context, dto.SearchServicesAdvancedInput) (*dto.SearchServicesAdvancedResult, error)
 }
 
+// SearchProfessionalsAdvancedPort reads the active professionals catalog with an
+// optional service filter and an optional text query (feat-owner-chat S7a).
+// No RBAC entry: ANY authenticated caller (client included) is admitted at the
+// transport, and the use case enforces only auth.RequireAuthenticated. The
+// deliberate difference from SearchServicesAdvancedPort is the product contract:
+// the conversational booking flow runs as the client, so the client must be able
+// to resolve which professionals offer a service. The output carries no PII.
+type SearchProfessionalsAdvancedPort interface {
+	Execute(context.Context, dto.SearchProfessionalsAdvancedInput) (*dto.SearchProfessionalsAdvancedResult, error)
+}
+
 // GetPendingAlertsPort returns due pending alerts ordered oldest first.
 // ToolRBAC entry: owner/admin only.
 type GetPendingAlertsPort interface {

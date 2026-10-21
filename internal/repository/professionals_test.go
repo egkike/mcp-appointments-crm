@@ -510,3 +510,103 @@ func TestProfessionalsRepo_Update(t *testing.T) {
 
 // Verify that auth.Caller is used (prevent unused import)
 var _ = auth.RoleAdmin
+
+// TestProfessionalsRepo_FindAllActive covers the catalog read behind
+// search_professionals_advanced (S7a): unlike FindActive it must NOT scope the
+// result to the caller (a staff caller sees the whole active catalog, not only
+// its own row), and it must never return inactive rows.
+func TestProfessionalsRepo_FindAllActive(t *testing.T) {
+	t.Run("staff caller receives every active row (no caller scoping)", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+
+		rows := sqlmock.NewRows([]string{
+			"id", "name", "role_specialty", "status", "email", "phone",
+			"specialties", "created_at", "updated_at",
+		}).
+			AddRow("pro-1", "Joaquín", "Barbero", "active", nil, nil, `["svc-1"]`,
+				"2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z").
+			AddRow("pro-2", "Romina", "Estilista", "active", nil, nil, `["svc-2"]`,
+				"2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z")
+		// No `AND id = ?` and no args: FindAllActive ignores the caller entirely.
+		mock.ExpectQuery(`SELECT .+ FROM professionals WHERE status = .active. ORDER BY name`).
+			WillReturnRows(rows)
+
+		pros, err := repo.FindAllActive(staffCtx("pro-1"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(pros) != 2 {
+			t.Fatalf("got %d professionals, want 2 (FindActive would return 1 here)", len(pros))
+		}
+		if pros[0].ID != "pro-1" || pros[1].ID != "pro-2" {
+			t.Errorf("got ids %q/%q; want pro-1/pro-2", pros[0].ID, pros[1].ID)
+		}
+		if pros[1].RoleSpecialty == nil || *pros[1].RoleSpecialty != "Estilista" {
+			t.Errorf("RoleSpecialty = %v; want Estilista", pros[1].RoleSpecialty)
+		}
+		if pros[0].Specialties == nil || !pros[0].HasSpecialty("svc-1") {
+			t.Errorf("Specialties = %v; want the stored JSON array", pros[0].Specialties)
+		}
+	})
+
+	t.Run("empty catalog returns empty slice", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+
+		mock.ExpectQuery(`SELECT .+ FROM professionals WHERE status = .active. ORDER BY name`).
+			WillReturnRows(sqlmock.NewRows([]string{
+				"id", "name", "role_specialty", "status", "email", "phone",
+				"specialties", "created_at", "updated_at",
+			}))
+
+		pros, err := repo.FindAllActive(adminCtx())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(pros) != 0 {
+			t.Errorf("got %d professionals, want 0", len(pros))
+		}
+	})
+
+	t.Run("DB error propagates", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+
+		mock.ExpectQuery(`SELECT .+ FROM professionals WHERE status = .active. ORDER BY name`).
+			WillReturnError(errors.New("disk full"))
+
+		if _, err := repo.FindAllActive(adminCtx()); err == nil {
+			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
+// TestQueryValidator covers the adapter that exposes the shared FTS5 query
+// validator (validateFTSQuery) to the application layer, so
+// search_professionals_advanced rejects exactly the same text the FTS tools
+// reject (design §8.2 D3: one text policy, no professionals_fts table).
+func TestQueryValidator(t *testing.T) {
+	t.Run("plain and accented terms are accepted", func(t *testing.T) {
+		for _, query := range []string{"romina", "Corte de Cabello", "María", "geo-local"} {
+			if err := (QueryValidator{}).Validate(query); err != nil {
+				t.Errorf("Validate(%q) = %v; want nil", query, err)
+			}
+		}
+	})
+
+	t.Run("empty query is rejected semantically", func(t *testing.T) {
+		err := (QueryValidator{}).Validate("")
+		assertSemanticInvalidInput(t, err)
+	})
+
+	t.Run("FTS operators are rejected semantically", func(t *testing.T) {
+		for _, query := range []string{"corte* OR algo", "romina AND santiago", "-romina", "corte + lavado"} {
+			assertSemanticInvalidInput(t, (QueryValidator{}).Validate(query))
+		}
+	})
+
+	t.Run("over-long query is rejected semantically", func(t *testing.T) {
+		assertSemanticInvalidInput(t, (QueryValidator{}).Validate(strings.Repeat("a", MaxFTSQueryLen+1)))
+	})
+}

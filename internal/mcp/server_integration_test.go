@@ -114,6 +114,11 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 
 	searchClientsAdvancedUC := usecase.NewSearchClientsAdvancedUseCase(clientsRepo)
 	searchServicesAdvancedUC := usecase.NewSearchServicesAdvancedUseCase(servicesRepo)
+	// feat-owner-chat S7a: composed exactly like the composition root, including
+	// the shared query validator adapter (one text policy for every *_advanced tool).
+	searchProfessionalsAdvancedUC := usecase.NewSearchProfessionalsAdvancedUseCase(
+		prosRepo, servicesRepo, repository.QueryValidator{},
+	)
 	getPendingAlertsUC := usecase.NewGetPendingAlertsUseCase(pendingAlertsRepo)
 	markAlertAsSentUC := usecase.NewMarkAlertAsSentUseCase(pendingAlertsRepo)
 	getLoyaltyReportUC := usecase.NewGetLoyaltyReportUseCase(bookingsRepo)
@@ -136,7 +141,7 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 	deleteHoursExceptionUC := usecase.NewDeleteHoursExceptionUseCase(bizHoursExRepo, discardLogger())
 	listHoursExceptionsUC := usecase.NewListHoursExceptionsUseCase(bizHoursExRepo)
 
-	// The 23-port Config literal is composed by hand here on purpose: the
+	// The 24-port Config literal is composed by hand here on purpose: the
 	// integration suite wires REAL use cases over REAL repositories, while
 	// configFromMockPorts (tools_test.go) only renders the mock bundle — this
 	// literal is the composition-root mirror, not a mock variant. The compiler
@@ -153,10 +158,12 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		GetBusinessProfile:     getBusinessProfileUC,
 		SearchClientsAdvanced:  searchClientsAdvancedUC,
 		SearchServicesAdvanced: searchServicesAdvancedUC,
-		GetPendingAlerts:       getPendingAlertsUC,
-		MarkAlertAsSent:        markAlertAsSentUC,
-		GetLoyaltyReport:       getLoyaltyReportUC,
-		RegisterClient:         registerClientUC,
+
+		SearchProfessionalsAdvanced: searchProfessionalsAdvancedUC,
+		GetPendingAlerts:            getPendingAlertsUC,
+		MarkAlertAsSent:             markAlertAsSentUC,
+		GetLoyaltyReport:            getLoyaltyReportUC,
+		RegisterClient:              registerClientUC,
 
 		UpdateBusinessProfile: updateBusinessProfileUC,
 		CreateService:         createServiceUC,
@@ -292,7 +299,7 @@ func TestIntegrationHappyPath(t *testing.T) {
 		t.Errorf("protocolVersion = %q; want 2025-11-25", init.ProtocolVersion)
 	}
 
-	// tools/list exposes the twenty-three registered tools (8 original + 2 alerts
+	// tools/list exposes the twenty-four registered tools (8 original + 2 alerts
 	// + 1 loyalty + 8 maintenance writes + 3 hours-exception + register_client).
 	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	result, code, msg = decodeRPCEnvelope(t, rec)

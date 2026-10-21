@@ -22,6 +22,19 @@ type ServiceSearchEntry struct {
 	IsActive        bool    `json:"is_active"`
 }
 
+// ProfessionalSearchEntry is the pinned output contract for
+// search_professionals_advanced (feat-owner-chat S7a). It is deliberately
+// PII-free: the tool is readable by ANY authenticated caller (clients
+// included), so the staff contact fields (email/phone) never cross into this
+// carrier — email/phone stay reachable only through the owner-only write shape
+// (professionalOut in the transport layer).
+type ProfessionalSearchEntry struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	RoleSpecialty *string  `json:"role_specialty,omitempty"`
+	Specialties   []string `json:"specialties"`
+}
+
 // SearchClientsAdvancedInput carries the authenticated caller and the FTS query.
 type SearchClientsAdvancedInput struct {
 	Caller    auth.Caller `json:"-"`
@@ -42,6 +55,23 @@ type SearchServicesAdvancedInput struct {
 // SearchServicesAdvancedResult is the response body for search_services_advanced.
 type SearchServicesAdvancedResult struct {
 	Results []ServiceSearchEntry `json:"results"`
+}
+
+// SearchProfessionalsAdvancedInput carries the authenticated caller, the
+// optional text query and the optional service filter. Without both filters the
+// use case returns the whole active catalog.
+type SearchProfessionalsAdvancedInput struct {
+	Caller    auth.Caller `json:"-"`
+	QueryText string
+	ServiceID string
+}
+
+// SearchProfessionalsAdvancedResult is the response body for
+// search_professionals_advanced. Results is never nil on success, so the wire
+// always renders an array (fail-closed: no relations loaded means [], never the
+// full catalog).
+type SearchProfessionalsAdvancedResult struct {
+	Results []ProfessionalSearchEntry `json:"results"`
 }
 
 // LoyaltyReportEntry is a single row in the get_loyalty_report output.

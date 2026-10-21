@@ -152,6 +152,52 @@ func (r *ProfessionalsRepo) FindActive(ctx context.Context) ([]*entity.Professio
 	return professionals, nil
 }
 
+// FindAllActive returns every professional with status='active', ordered by name.
+// Unlike FindActive it does NOT scope the result to the caller: the catalog
+// behind search_professionals_advanced must be complete for every authenticated
+// role (a staff caller included), because the booking flow is the client's
+// (feat-owner-chat S7a, design §8.2 D2).
+//
+// Authorization is the use case's job (auth.RequireAuthenticated); the projection
+// to a PII-free DTO is the use case's job too — the entities returned here still
+// carry email and phone.
+func (r *ProfessionalsRepo) FindAllActive(ctx context.Context) ([]*entity.Professional, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, name, role_specialty, status, email, phone, specialties, created_at, updated_at
+		 FROM professionals WHERE status = 'active' ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("listar profesionales activos: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+
+	var professionals []*entity.Professional
+	for rows.Next() {
+		p := &entity.Professional{}
+		if err := rows.Scan(&p.ID, &p.Name, &p.RoleSpecialty, &p.Status, &p.Email,
+			&p.Phone, &p.Specialties, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("listar profesionales activos: escaneo: %w", err)
+		}
+		professionals = append(professionals, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("listar profesionales activos: iteración: %w", err)
+	}
+	return professionals, nil
+}
+
+// QueryValidator adapts the shared FTS5 query validator (validateFTSQuery in
+// validation.go) to the application-layer usecase.SearchQueryValidator contract.
+//
+// search_professionals_advanced filters text in Go because there is no
+// professionals_fts table (design §8.2 D3: no DDL), but it must reject exactly
+// the same operator syntax the FTS tools reject, so Hermes sees one text policy
+// instead of two (E52). The adapter is deliberately stateless: it owns no rules,
+// only the seam.
+type QueryValidator struct{}
+
+// Validate reports whether query is acceptable as a search query.
+func (QueryValidator) Validate(query string) error { return validateFTSQuery(query) }
+
 // Update updates an existing professional. Returns domain.ErrInvalidInput for invalid
 // fields, domain.ErrNotFound if a specialty references a non-existent service, and
 // domain.ErrRowGone when the row disappears between a read and this write.
