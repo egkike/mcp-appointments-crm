@@ -94,6 +94,61 @@ func (r *SchedulesRepo) FindByProfessionalAndDay(ctx context.Context, profession
 	return s, nil
 }
 
+// FindByProfessional returns the whole weekly agenda of one professional,
+// ordered by day_of_week (0=Sunday .. 6=Saturday).
+//
+// Returns domain.ErrNotFound when the professional itself does not exist, and an
+// empty slice when the professional exists without any slot loaded: the two
+// answers are different questions for the conversational delete gate
+// (feat-owner-chat S7b, design §8.3). The empty case costs one extra indexed
+// probe on professionals, paid only when the week is empty — the common case
+// (agenda loaded) stays a single query.
+// Requires owner role: the agenda is business-operational data and the only
+// consumer is the owner-only read tool (design §8.3 D5).
+func (r *SchedulesRepo) FindByProfessional(ctx context.Context, professionalID string) ([]*entity.Schedule, error) {
+	if _, err := auth.RequireRole(ctx, auth.RoleOwner); err != nil {
+		return nil, fmt.Errorf("obtener agendas del profesional: %w", err)
+	}
+
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, professional_id, day_of_week, start_time, end_time
+		 FROM schedules WHERE professional_id = ? ORDER BY day_of_week ASC`,
+		professionalID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("obtener agendas del profesional %s: %w", professionalID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	schedules := make([]*entity.Schedule, 0, 7)
+	for rows.Next() {
+		s := &entity.Schedule{}
+		if err := rows.Scan(&s.ID, &s.ProfessionalID, &s.DayOfWeek, &s.StartTime, &s.EndTime); err != nil {
+			return nil, fmt.Errorf("obtener agendas del profesional %s: leer fila: %w", professionalID, err)
+		}
+		schedules = append(schedules, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("obtener agendas del profesional %s: %w", professionalID, err)
+	}
+	if len(schedules) > 0 {
+		return schedules, nil
+	}
+
+	// No slot loaded: distinguish "professional without agenda" from "no such
+	// professional". LIMIT 1 keeps the probe on the primary key and independent
+	// of how many columns professionals carries.
+	var exists int
+	err = r.db.QueryRowContext(ctx, `SELECT 1 FROM professionals WHERE id = ?`, professionalID).Scan(&exists)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("obtener agendas del profesional %s: %w", professionalID, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("obtener agendas del profesional %s: verificar existencia: %w", professionalID, err)
+	}
+	return schedules, nil
+}
+
 // scheduleReturningColumns is the read-back projection shared by both upsert
 // branches, so the INSERT and UPDATE paths always scan the same shape.
 const scheduleReturningColumns = ` RETURNING id, professional_id, day_of_week, start_time, end_time`
@@ -124,6 +179,12 @@ func scanStoredSchedule(row *sql.Row) (*entity.Schedule, error) {
 func (r *SchedulesRepo) Upsert(ctx context.Context, s *entity.Schedule) (*entity.Schedule, error) {
 	if _, err := auth.RequireRole(ctx, auth.RoleAdmin, auth.RoleOwner); err != nil {
 		return nil, fmt.Errorf("upsert horario: %w", err)
+	}
+
+	// Fail secure on a nil slot: every field access below would panic, and a
+	// panic on a port method is not a valid answer for any caller.
+	if s == nil {
+		return nil, fmt.Errorf("upsert horario: la franja no puede ser nula: %w", domain.ErrInvalidInput)
 	}
 
 	if err := validateDayOfWeek(entity.ScheduleWeekday(s.DayOfWeek)); err != nil {

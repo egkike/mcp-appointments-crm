@@ -17,6 +17,19 @@ type SchedulesRepo interface {
 	// when no schedule exists.
 	FindByProfessionalAndDay(ctx context.Context, professionalID string, day entity.ScheduleWeekday) (*entity.Schedule, error)
 
+	// FindByProfessional returns every weekly slot of one professional, ordered
+	// by day_of_week ascending in the entity.ScheduleWeekday encoding
+	// (0=Sunday .. 6=Saturday), so the caller reads the week in calendar order
+	// without sorting. Built for the owner-only agenda read
+	// (get_professional_schedules, feat-owner-chat S7b).
+	//
+	// The two "no data" answers are deliberately distinct and MUST NOT be
+	// collapsed into one (design §8.3): the professional does not exist →
+	// domain.ErrNotFound; the professional exists but has no slot loaded →
+	// empty slice with a nil error. The conversational delete gate needs the
+	// difference ("no tiene ese día" is not "ese id no existe").
+	FindByProfessional(ctx context.Context, professionalID string) ([]*entity.Schedule, error)
+
 	// Upsert inserts or replaces the schedule for the professional+day combination
 	// and returns the row as persisted by this call.
 	//

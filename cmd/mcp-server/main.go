@@ -413,6 +413,13 @@ func run(ctx context.Context) error {
 	upsertScheduleUC := usecase.NewUpsertScheduleUseCase(schedulesRepo, logger)
 	deleteScheduleUC := usecase.NewDeleteScheduleUseCase(schedulesRepo, logger)
 
+	// feat-owner-chat (S7b): owner-only agenda read. It closes the read-gap of
+	// delete_schedule — the conversational gate can now name the professional and
+	// verify the slot it is about to remove instead of repeating a declared pair
+	// (feature doc L4, design §8.3). The owner-only gate is enforced twice: the
+	// ToolRBAC row below and auth.RequireRole(RoleOwner) inside the use case.
+	getProfessionalSchedulesUC := usecase.NewGetProfessionalSchedulesUseCase(prosRepo, schedulesRepo)
+
 	// feat-hours-exception-tool (PR2): the three owner-only exception use cases
 	// over the SAME BusinessHoursExceptionRepo the availability read path already
 	// consumes (no repository, schema or read-path change). The owner-only gate
@@ -466,6 +473,12 @@ func run(ctx context.Context) error {
 		"create_hours_exception": {auth.RoleOwner},
 		"delete_hours_exception": {auth.RoleOwner},
 		"list_hours_exceptions":  {auth.RoleOwner},
+
+		// Professionals agenda read (feat-owner-chat S7b): owner-only here AND
+		// inside the use case, closing the delete_schedule read-gap. Note that
+		// search_professionals_advanced (S7a) deliberately has NO row: that read
+		// is the client's booking flow.
+		"get_professional_schedules": {auth.RoleOwner},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
 
@@ -487,6 +500,7 @@ func run(ctx context.Context) error {
 		SearchServicesAdvanced: searchServicesAdvancedUC,
 
 		SearchProfessionalsAdvanced: searchProfessionalsAdvancedUC,
+		GetProfessionalSchedules:    getProfessionalSchedulesUC,
 		GetPendingAlerts:            getPendingAlertsUC,
 		MarkAlertAsSent:             markAlertAsSentUC,
 		GetLoyaltyReport:            getLoyaltyReportUC,

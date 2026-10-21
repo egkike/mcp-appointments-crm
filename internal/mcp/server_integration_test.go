@@ -134,6 +134,8 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 	updateProfessionalUC := usecase.NewUpdateProfessionalUseCase(prosRepo, discardLogger())
 	upsertScheduleUC := usecase.NewUpsertScheduleUseCase(schedulesRepo, discardLogger())
 	deleteScheduleUC := usecase.NewDeleteScheduleUseCase(schedulesRepo, discardLogger())
+	// feat-owner-chat S7b: owner-only agenda read over the real repositories.
+	getProfessionalSchedulesUC := usecase.NewGetProfessionalSchedulesUseCase(prosRepo, schedulesRepo)
 
 	// Business-hours exception use cases (feat-hours-exception-tool), composed
 	// like the composition root over the shared exception repository.
@@ -141,7 +143,7 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 	deleteHoursExceptionUC := usecase.NewDeleteHoursExceptionUseCase(bizHoursExRepo, discardLogger())
 	listHoursExceptionsUC := usecase.NewListHoursExceptionsUseCase(bizHoursExRepo)
 
-	// The 24-port Config literal is composed by hand here on purpose: the
+	// The 25-port Config literal is composed by hand here on purpose: the
 	// integration suite wires REAL use cases over REAL repositories, while
 	// configFromMockPorts (tools_test.go) only renders the mock bundle — this
 	// literal is the composition-root mirror, not a mock variant. The compiler
@@ -160,6 +162,7 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		SearchServicesAdvanced: searchServicesAdvancedUC,
 
 		SearchProfessionalsAdvanced: searchProfessionalsAdvancedUC,
+		GetProfessionalSchedules:    getProfessionalSchedulesUC,
 		GetPendingAlerts:            getPendingAlertsUC,
 		MarkAlertAsSent:             markAlertAsSentUC,
 		GetLoyaltyReport:            getLoyaltyReportUC,
@@ -206,6 +209,10 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		"create_hours_exception": {auth.RoleOwner},
 		"delete_hours_exception": {auth.RoleOwner},
 		"list_hours_exceptions":  {auth.RoleOwner},
+
+		// Professionals agenda read (feat-owner-chat S7b): owner-only, mirroring
+		// the composition root. search_professionals_advanced (S7a) has no row.
+		"get_professional_schedules": {auth.RoleOwner},
 	}
 	authMW := auth.NewAuthMiddleware(resolver, rbac, discardLogger())
 
@@ -435,5 +442,79 @@ func TestToolSearchClientsAdvancedRejectsEmptyQuery(t *testing.T) {
 	}
 	if msg != "la consulta de búsqueda está vacía." {
 		t.Errorf("message = %q; want the repository empty-query message", msg)
+	}
+}
+
+// TestIntegrationProfessionalSchedules runs get_professional_schedules through
+// the real composition (real SQLite → repositories → use case → tool → real
+// RBAC map) and pins the S7b double gate end to end:
+//   - the owner reads the seeded agenda (identity + rows ordered by day);
+//   - a professional with no slot answers [] and stays distinguishable from a
+//     non-existent id, which answers the semantic NOT_FOUND;
+//   - admin, staff and client are stopped by the ToolRBAC layer with -32001
+//     before the handler runs, while the use case's own owner gate (the second
+//     layer, which answers the -32002 semantic forbidden) is pinned in
+//     tools_professionals_test.go + get_professional_schedules_test.go.
+func TestIntegrationProfessionalSchedules(t *testing.T) {
+	mux, conn := newIntegrationMuxWithDB(t)
+
+	var seeded struct {
+		Professional struct {
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"professional"`
+		Schedules []struct {
+			ID        int    `json:"id"`
+			DayOfWeek int    `json:"day_of_week"`
+			StartTime string `json:"start_time"`
+			EndTime   string `json:"end_time"`
+		} `json:"schedules"`
+	}
+	decodeToolStructured(t, mustCallTool(t, mux, "owner-1", "get_professional_schedules", `{"professional_id":"p1"}`), &seeded)
+
+	if seeded.Professional.ID != "p1" || seeded.Professional.Name != "Profesional Uno" || seeded.Professional.Status != "active" {
+		t.Errorf("professional = %+v; want p1/Profesional Uno/active", seeded.Professional)
+	}
+	if len(seeded.Schedules) != 1 {
+		t.Fatalf("schedules = %+v; want the single seeded Monday slot", seeded.Schedules)
+	}
+	if seeded.Schedules[0].DayOfWeek != 1 || seeded.Schedules[0].StartTime != "09:00" || seeded.Schedules[0].EndTime != "17:00" {
+		t.Errorf("row = %+v; want day 1 09:00-17:00", seeded.Schedules[0])
+	}
+
+	// A professional without any slot: [] is not an error, and the identity still
+	// comes back so the delete gate can name whom it confirms.
+	if _, err := conn.ExecContext(context.Background(),
+		`INSERT INTO professionals (id, name, status) VALUES ('p-sin-agenda', 'Sin Agenda', 'inactive')`); err != nil {
+		t.Fatalf("seed professional without agenda: %v", err)
+	}
+	var empty struct {
+		Professional struct {
+			Status string `json:"status"`
+		} `json:"professional"`
+		Schedules []struct {
+			DayOfWeek int `json:"day_of_week"`
+		} `json:"schedules"`
+	}
+	decodeToolStructured(t, mustCallTool(t, mux, "owner-1", "get_professional_schedules", `{"professional_id":"p-sin-agenda"}`), &empty)
+	if len(empty.Schedules) != 0 {
+		t.Errorf("schedules = %+v; want [] for a professional without agenda", empty.Schedules)
+	}
+	if empty.Professional.Status != "inactive" {
+		t.Errorf("status = %q; want inactive (inactive professionals are returned, not hidden)", empty.Professional.Status)
+	}
+
+	// Unknown id → semantic NOT_FOUND (-32002), never an empty list.
+	if _, code, msg := callMCPTool(t, mux, "owner-1", "get_professional_schedules", `{"professional_id":"p-missing"}`); code != -32002 || msg != "el profesional indicado no existe" {
+		t.Errorf("unknown id: code=%d msg=%q; want -32002 %q", code, msg, "el profesional indicado no existe")
+	}
+
+	// Layer 1 of the double gate: the RBAC map rejects every non-owner role.
+	for _, caller := range []string{"admin-1", "staff-1", "c1"} {
+		_, code, msg := callMCPTool(t, mux, caller, "get_professional_schedules", `{"professional_id":"p1"}`)
+		if code != -32001 || msg != "no tienes permiso para realizar esta acción" {
+			t.Errorf("caller %s: code=%d msg=%q; want -32001 %q", caller, code, msg, "no tienes permiso para realizar esta acción")
+		}
 	}
 }
