@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/repository"
@@ -18,13 +19,31 @@ import (
 // in depth: the transport rejects nothing, it only documents the limit).
 const registrationMaxNameRunes = 80
 
-// GetOrCreateClientResult is the registration outcome handed to the transport
-// adapter: the resolved client id (byte-identical to the header phone), the
-// stored display name and whether this call created the row.
-type GetOrCreateClientResult struct {
-	ClientID    string
-	DisplayName string
-	Created     bool
+// registrationMaxRawNameBytes bounds the display name BEFORE any processing.
+// Truncation caps what is stored, but a defensive raw bound keeps an oversized
+// payload from being trimmed/scanned at all: past this size the use case rejects
+// with a semantic invalid-input error (the LLM gets an actionable message instead
+// of a silent store of a truncated name). 4 KiB is far above the documented
+// 80-rune contract and still bounded.
+const registrationMaxRawNameBytes = 4096
+
+// truncateRunes caps s at max runes without allocating a slice proportional to
+// the whole input: it walks the rune starts and slices at the byte offset where
+// the cap is reached. The transport does not enforce the documented limit, so an
+// oversized display name must not cost memory proportional to its full length.
+// It reports false when s already fits (or is empty).
+func truncateRunes(s string, max int) (string, bool) {
+	if max <= 0 {
+		return "", s != ""
+	}
+	count := 0
+	for i := range s {
+		if count == max {
+			return s[:i], true
+		}
+		count++
+	}
+	return s, false
 }
 
 // GetOrCreateClientUseCase implements the anonymous self-registration path for
@@ -70,8 +89,9 @@ func NewGetOrCreateClientUseCase(clients repository.ClientsRepo, lookup reposito
 //
 // Order of operations (design §1.3, fail closed: no write happens before every
 // check passes):
-//  1. phone validation via the entity-owned E.164 subset rule (optional '+',
-//     4–15 digits);
+//  1. validation: phone via the entity-owned E.164 subset rule (optional '+',
+//     4–15 digits) + the display-name byte bound, both stateless so they run
+//     before the lookup and the limiter;
 //  2. accounts collision check (read-only; active and inactive accounts);
 //  3. existing-client short-circuit (id == phone) and legacy-row conflict
 //     (id != phone) — the pinned legacy-row decision for this change;
@@ -80,13 +100,24 @@ func NewGetOrCreateClientUseCase(clients repository.ClientsRepo, lookup reposito
 //  6. adapter call GetOrCreateByPhone (creates/returns id == phone);
 //  7. audit event client_registered / client_registration_noop;
 //  8. return the result DTO.
-func (uc *GetOrCreateClientUseCase) Execute(ctx context.Context, callerID, displayName string) (*GetOrCreateClientResult, error) {
+func (uc *GetOrCreateClientUseCase) Execute(ctx context.Context, callerID, displayName string) (*dto.GetOrCreateClientResult, error) {
 	// 1. Validation: the entity-owned E.164 subset rule (optional '+', 4–15
-	// digits) is the single source of truth for the registration format.
+	// digits) is the single source of truth for the registration format. The
+	// display-name byte bound lives here too, because both checks are stateless:
+	// running them BEFORE the account lookup and the limiter means oversized input
+	// (a) costs nothing to process and (b) never consumes the phone's registration
+	// allowance, so it cannot lock a legitimate caller out.
 	if !validRegistrationPhone(callerID) {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: "el teléfono no tiene un formato válido (se esperan entre 4 y 15 dígitos, con + opcional).",
+		}
+	}
+	if len(displayName) > registrationMaxRawNameBytes {
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "el nombre para mostrar es demasiado largo.",
+			Cause:   fmt.Errorf("display_name excede %d bytes: %w", registrationMaxRawNameBytes, domain.ErrInvalidInput),
 		}
 	}
 
@@ -113,7 +144,7 @@ func (uc *GetOrCreateClientUseCase) Execute(ctx context.Context, callerID, displ
 		if identity.ID == callerID {
 			// Idempotent registration: no insert, report created=false.
 			logRegistrationEvent(uc.logger, registrationEventNoop, callerID)
-			return &GetOrCreateClientResult{ClientID: identity.ID, DisplayName: identity.Name, Created: false}, nil
+			return &dto.GetOrCreateClientResult{ClientID: identity.ID, DisplayName: identity.Name, Created: false}, nil
 		}
 		// Legacy row: its id is a UUID, but the resolver chain matches
 		// clients.id == phone, so that row could never be resolved again.
@@ -138,13 +169,14 @@ func (uc *GetOrCreateClientUseCase) Execute(ctx context.Context, callerID, displ
 		}
 	}
 
-	// 5. Stored-name computation: trimmed display name, else the placeholder.
+	// 5. Stored-name computation: trimmed display name (already byte-bounded in
+	// step 1), else the placeholder, then the rune cap.
 	storedName := strings.TrimSpace(displayName)
 	if storedName == "" {
 		storedName = fmt.Sprintf("Cliente %s", callerID)
 	}
-	if runes := []rune(storedName); len(runes) > registrationMaxNameRunes {
-		storedName = string(runes[:registrationMaxNameRunes])
+	if truncated, ok := truncateRunes(storedName, registrationMaxNameRunes); ok {
+		storedName = truncated
 	}
 
 	// 6. Adapter call: inserts or returns the row with id == phone.
@@ -162,7 +194,7 @@ func (uc *GetOrCreateClientUseCase) Execute(ctx context.Context, callerID, displ
 	logRegistrationEvent(uc.logger, event, callerID)
 
 	// 8. Result DTO.
-	return &GetOrCreateClientResult{ClientID: client.ID, DisplayName: client.Name, Created: created}, nil
+	return &dto.GetOrCreateClientResult{ClientID: client.ID, DisplayName: client.Name, Created: created}, nil
 }
 
 // validRegistrationPhone reports whether phone satisfies the registration

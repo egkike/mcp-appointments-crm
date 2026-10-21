@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
@@ -339,6 +340,60 @@ func TestGetOrCreateClientUseCase(t *testing.T) {
 		}
 		if got := len([]rune(*storedName)); got != 80 {
 			t.Errorf("stored name has %d runes; want 80 (deterministic cap)", got)
+		}
+	})
+
+	t.Run("name beyond the raw byte cap is rejected semantically", func(t *testing.T) {
+		var called bool
+		clients, lookup, _, _ := captureClientStore(func(_ context.Context, phone, name string) (entity.Client, bool, error) {
+			called = true
+			return entity.Client{ID: phone, Name: name, Phone: phone}, true, nil
+		})
+		uc := newTestUsecase(clients, lookup)
+
+		oversized := strings.Repeat("á", registrationMaxRawNameBytes)
+		_, err := uc.Execute(context.Background(), validPhone, oversized)
+		assertSemanticError(t, err, domain.ErrCodeInvalidInput, "el nombre para mostrar es demasiado largo.")
+		if called {
+			t.Error("the store must not be reached for an oversized display name")
+		}
+	})
+
+	t.Run("oversized name does not consume the registration allowance", func(t *testing.T) {
+		clients, lookup, _, storedName := captureClientStore(func(_ context.Context, phone, name string) (entity.Client, bool, error) {
+			return entity.Client{ID: phone, Name: name, Phone: phone}, true, nil
+		})
+		// Limit 1: if the rejected call charged the allowance, the legitimate
+		// registration below would fail with the rate-limit conflict.
+		uc := NewGetOrCreateClientUseCase(clients, lookup, newRegistrationRateLimiter(1, time.Now), nil)
+
+		oversized := strings.Repeat("á", registrationMaxRawNameBytes)
+		if _, err := uc.Execute(context.Background(), validPhone, oversized); err == nil {
+			t.Fatal("expected the oversized name to be rejected")
+		}
+		if _, err := uc.Execute(context.Background(), validPhone, "Ana"); err != nil {
+			t.Fatalf("legitimate registration after a rejected oversized name: %v", err)
+		}
+		if got := *storedName; got != "Ana" {
+			t.Errorf("stored name = %q; want Ana", got)
+		}
+	})
+
+	t.Run("multi-byte truncation stays on a rune boundary", func(t *testing.T) {
+		// GGA guard: the cap must not allocate proportional to the full input, so
+		// it slices at a rune start. A byte-boundary cut would produce invalid
+		// UTF-8; this pins the rune boundary for 4-byte runes (emoji).
+		clients, lookup, _, storedName := captureClientStore(func(_ context.Context, phone, name string) (entity.Client, bool, error) {
+			return entity.Client{ID: phone, Name: name, Phone: phone}, true, nil
+		})
+		uc := newTestUsecase(clients, lookup)
+
+		long := strings.Repeat("🎉", 85)
+		if _, err := uc.Execute(context.Background(), validPhone, long); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := *storedName; !utf8.ValidString(got) || strings.Count(got, "🎉") != 80 {
+			t.Errorf("stored name = %q (%d runes, valid=%v); want 80 complete emoji", got, utf8.RuneCountInString(got), utf8.ValidString(got))
 		}
 	})
 

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
-	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
@@ -90,15 +89,34 @@ type GetLoyaltyReportPort interface {
 // the phone and the optional display name and there is deliberately no
 // caller/role parameter, so the transport cannot pass a role into the
 // registration path (compile-time guarantee; client-registration "the seam
-// grants no role"). The result carrier is the application layer's
-// usecase.GetOrCreateClientResult — a DTO designed to cross to the transport,
-// exactly like the dto.* carriers above.
+// grants no role").
+//
+// The result carrier is dto.GetOrCreateClientResult — a cross-layer DTO, exactly
+// like the dto.* carriers above. It was originally declared in
+// internal/application/usecase (feat-whatsapp-bot), which made this transport
+// contract depend on a concrete use-case package; the carrier moved to
+// internal/application/dto in the follow-up refactor that closed that ADR-0013
+// deviation (flagged by GGA round 4 on the S7a slice, PR #108 legacy). Keep the
+// carrier in dto: this port must never import a use case again.
 
 // RegisterClientPort resolves or creates the client row identified by the
 // anonymous caller phone. Roles: none — reachable ONLY through the anonymous
 // allowlist in AuthMiddleware (no ToolRBAC entry in either layer).
+//
+// Reconciliation with the "double RBAC enforcement" standard (AGENTS.md,
+// Boundary contract 1): that rule governs AUTHENTICATED tools, and this tool is
+// the documented exception — a phone that has never registered has no caller to
+// authorize, so RBAC is inapplicable by construction (ADR-0018; the
+// register_client requirement in openspec/specs/client-registration, D2). The
+// compensating controls are the ones the spec pins and the code implements:
+// the static path allowlist evaluated BEFORE caller resolution, the accounts
+// collision rejection (an owner/admin/staff phone can never become a client),
+// the per-phone rate limit, and the masked-phone audit trail. The use case takes
+// no caller/role parameter at all, so no code path can grant a role here. Any
+// future change that makes this tool reachable with a resolved caller MUST add
+// the double gate; until then, do not "fix" this by inventing a RequireRole.
 type RegisterClientPort interface {
-	Execute(ctx context.Context, callerID, displayName string) (*usecase.GetOrCreateClientResult, error)
+	Execute(ctx context.Context, callerID, displayName string) (*dto.GetOrCreateClientResult, error)
 }
 
 // ── Maintenance WRITE ports (ADR-0015, T3) ──
