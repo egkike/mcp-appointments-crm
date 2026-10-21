@@ -148,13 +148,47 @@ func seed(ctx context.Context, conn *sql.DB, data *SetupData) error {
 		return fmt.Errorf("actualizar perfil del negocio: no se encontró la fila singleton")
 	}
 
+	// Services first (OQ-5): the specialties of setup_staff.json carry service
+	// NAMES, so services must exist (and their ids collected) before the
+	// professionals are inserted in the same transaction.
+	serviceIDsByName := make(map[string]string, len(data.Services))
+	serviceNames := make([]string, 0, len(data.Services))
+	for _, svc := range data.Services {
+		svcID := idgen.NewUUID()
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO services
+				(id, name, description, duration_minutes, price, is_active)
+			VALUES (?, ?, ?, ?, ?, ?)`,
+			svcID, svc.Name, svc.Description,
+			svc.DurationMinutes, svc.Price, svc.IsActive); err != nil {
+			return fmt.Errorf("insertar servicio %q: %w", svc.Name, translateConstraint(err))
+		}
+		serviceIDsByName[svc.Name] = svcID
+		serviceNames = append(serviceNames, svc.Name)
+	}
+
 	for _, m := range data.Staff {
-		profID := idgen.NewUUID()
-		specialtiesJSON, err := stringSliceToJSON(m.Specialties)
+		// Resolve specialty names to the ids just inserted; an unknown name is
+		// a semantic failure with the valid alternatives (full rollback).
+		specialtyIDs := make([]string, 0, len(m.Specialties))
+		seen := make(map[string]bool, len(m.Specialties))
+		for _, spName := range m.Specialties {
+			id, ok := serviceIDsByName[spName]
+			if !ok {
+				return fmt.Errorf("la especialidad %q del profesional %q no corresponde a ningún servicio del setup (servicios válidos: %s)",
+					spName, m.Name, strings.Join(serviceNames, ", "))
+			}
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			specialtyIDs = append(specialtyIDs, id)
+		}
+		specialtiesJSON, err := stringSliceToJSON(specialtyIDs)
 		if err != nil {
 			return fmt.Errorf("serializar especialidades de %q: %w", m.Name, err)
 		}
-
+		profID := idgen.NewUUID()
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO professionals
 				(id, name, role_specialty, status, email, phone, specialties)
@@ -172,17 +206,6 @@ func seed(ctx context.Context, conn *sql.DB, data *SetupData) error {
 				return fmt.Errorf("insertar horario del profesional %q (día %d): %w",
 					m.Name, s.DayOfWeek, translateConstraint(err))
 			}
-		}
-	}
-
-	for _, svc := range data.Services {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO services
-				(id, name, description, duration_minutes, price, is_active)
-			VALUES (?, ?, ?, ?, ?, ?)`,
-			idgen.NewUUID(), svc.Name, svc.Description,
-			svc.DurationMinutes, svc.Price, svc.IsActive); err != nil {
-			return fmt.Errorf("insertar servicio %q: %w", svc.Name, translateConstraint(err))
 		}
 	}
 

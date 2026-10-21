@@ -46,7 +46,7 @@ type SetupStaffMember struct {
 	Status        string               `json:"status"` // wizard emits "active"
 	Email         *string              `json:"email"`
 	Phone         *string              `json:"phone"`
-	Specialties   []string             `json:"specialties"` // wizard always emits []
+	Specialties   []string             `json:"specialties"` // service names, resolved to IDs by the seeder (OQ-5)
 	Schedule      []SetupScheduleEntry `json:"schedule"`
 }
 
