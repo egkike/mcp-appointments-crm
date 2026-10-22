@@ -316,15 +316,15 @@ func TestToolListHoursExceptions(t *testing.T) {
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "list_hours_exceptions",
 		`{"from":"2026-12-01","to":"2026-12-31"}`))
-	var out []hoursExceptionOut
+	var out hoursExceptionsOut
 	if err := json.Unmarshal(wantStructured(t, resp), &out); err != nil {
 		t.Fatalf("unmarshal output: %v", err)
 	}
 	if got.Caller != ownerCaller() || got.From != "2026-12-01" || got.To != "2026-12-31" {
 		t.Errorf("input = %+v; want owner-1/2026-12-01..2026-12-31 forwarded verbatim", got)
 	}
-	if len(out) != 2 || out[0].ExceptionDate != "2026-12-01" || out[1].ExceptionDate != "2026-12-25" {
-		t.Errorf("out = %+v; want the rows in exception_date ASC order", out)
+	if len(out.Exceptions) != 2 || out.Exceptions[0].ExceptionDate != "2026-12-01" || out.Exceptions[1].ExceptionDate != "2026-12-25" {
+		t.Errorf("out = %+v; want the rows in exception_date ASC order", out.Exceptions)
 	}
 }
 
@@ -512,12 +512,12 @@ func TestHoursExceptionUseCasesThroughTransport(t *testing.T) {
 
 	resp = decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "list_hours_exceptions",
 		`{"from":"2026-12-01","to":"2027-01-31"}`))
-	var listed []hoursExceptionOut
+	var listed hoursExceptionsOut
 	if err := json.Unmarshal(wantStructured(t, resp), &listed); err != nil {
 		t.Fatalf("unmarshal list output: %v", err)
 	}
-	if len(listed) != 2 || listed[0].ExceptionDate != "2026-12-25" || listed[1].ExceptionDate != "2026-12-31" {
-		t.Fatalf("listed = %+v; want the two rows in exception_date ASC order", listed)
+	if len(listed.Exceptions) != 2 || listed.Exceptions[0].ExceptionDate != "2026-12-25" || listed.Exceptions[1].ExceptionDate != "2026-12-31" {
+		t.Fatalf("listed = %+v; want the two rows in exception_date ASC order", listed.Exceptions)
 	}
 	wantFrom := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	wantTo := time.Date(2027, 1, 31, 0, 0, 0, 0, time.UTC)
@@ -539,15 +539,17 @@ func TestHoursExceptionUseCasesThroughTransport(t *testing.T) {
 	}
 }
 
-// TestHoursExceptionListEmptyRangeIsArray pins "empty range is [] and not an
-// error": List (unlike Get) has no not-found outcome.
-func TestHoursExceptionListEmptyRangeIsArray(t *testing.T) {
+// TestHoursExceptionListEmptyRangeIsEmptyList pins "empty range is [] and not an
+// error": List (unlike Get) has no not-found outcome. The empty collection
+// travels nested under the exceptions carrier, so the root stays an object (the
+// Hermes MCP client contract, defect-outputschema-array-root-contract).
+func TestHoursExceptionListEmptyRangeIsEmptyList(t *testing.T) {
 	srv, _ := newHoursExceptionUseCaseServer(t)
 
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "list_hours_exceptions",
 		`{"from":"2030-01-01","to":"2030-12-31"}`))
-	if got := string(wantStructured(t, resp)); got != "[]" {
-		t.Errorf("empty range = %s; want []", got)
+	if got := string(wantStructured(t, resp)); got != `{"exceptions":[]}` {
+		t.Errorf("empty range = %s; want {\"exceptions\":[]}", got)
 	}
 }
 

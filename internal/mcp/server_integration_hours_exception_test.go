@@ -40,14 +40,16 @@ func checkAvailabilitySlot(t *testing.T, h http.Handler, callerID, startRFC3339 
 }
 
 // listHoursExceptions runs list_hours_exceptions through the mux and decodes
-// its structuredContent (a top-level JSON array of hoursExceptionOut).
+// its structuredContent (an object carrier with the rows nested under
+// "exceptions"; the root must stay an object for the Hermes MCP client,
+// defect-outputschema-array-root-contract).
 func listHoursExceptions(t *testing.T, h http.Handler, callerID, from, to string) []hoursExceptionOut {
 	t.Helper()
 	result := mustCallTool(t, h, callerID, "list_hours_exceptions",
 		fmt.Sprintf(`{"from":%q,"to":%q}`, from, to))
-	var rows []hoursExceptionOut
-	decodeToolStructured(t, result, &rows)
-	return rows
+	var out hoursExceptionsOut
+	decodeToolStructured(t, result, &out)
+	return out.Exceptions
 }
 
 // ── registration over the real mux (REQ-MT-005) ──

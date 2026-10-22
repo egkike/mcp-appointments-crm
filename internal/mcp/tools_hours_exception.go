@@ -69,6 +69,22 @@ type hoursExceptionOut struct {
 	Reason        *string `json:"reason,omitempty"`
 }
 
+// hoursExceptionsOut is the pinned WIRE shape of list_hours_exceptions: the
+// rows travel nested under "exceptions" instead of as a bare JSON array.
+//
+// Why a carrier (defect-outputschema-array-root-contract, v0.9.1): the SDK's
+// JSON Schema generator renders a bare-slice output type with the root
+// {"type":["null","array"]}. Hermes' MCP client (pydantic mcp-types, protocol
+// 2025-11-25) validates EVERY tool's outputSchema root as Literal["object"], so
+// a single array-rooted tool rejects the whole ListToolsResult and the server
+// stays parked without tools. The other reads already answer an object root
+// ({schedules:[…]} in get_professional_schedules, {results:[…]} in the search
+// tools); this carrier gives the list tool the same root shape. Only the
+// nesting changed: every row still uses hoursExceptionOut unchanged.
+type hoursExceptionsOut struct {
+	Exceptions []hoursExceptionOut `json:"exceptions"`
+}
+
 // toHoursExceptionOut maps a stored row to the pinned wire shape.
 func toHoursExceptionOut(e *entity.BusinessHoursException) hoursExceptionOut {
 	return hoursExceptionOut{
@@ -146,10 +162,10 @@ func (s *Server) registerHoursExceptionTools() {
 
 	if s.cfg.ListHoursExceptions != nil {
 		mcp.AddTool(s.impl, s.mcpTool("list_hours_exceptions", "Lista las excepciones de horario dentro de un rango de fechas inclusivo [from, to], ordenadas por fecha ascendente. Ambas fechas son obligatorias y usan formato YYYY-MM-DD; un rango sin excepciones devuelve una lista vacía. Solo disponible para owner"),
-			func(ctx context.Context, _ *mcp.CallToolRequest, in listHoursExceptionsIn) (*mcp.CallToolResult, []hoursExceptionOut, error) {
+			func(ctx context.Context, _ *mcp.CallToolRequest, in listHoursExceptionsIn) (*mcp.CallToolResult, hoursExceptionsOut, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
-					return nil, nil, s.toMCPError(err)
+					return nil, hoursExceptionsOut{}, s.toMCPError(err)
 				}
 				rows, err := s.cfg.ListHoursExceptions.Execute(ctx, dto.ListHoursExceptionsInput{
 					Caller: *caller,
@@ -157,25 +173,25 @@ func (s *Server) registerHoursExceptionTools() {
 					To:     in.To,
 				})
 				if err != nil {
-					return nil, nil, s.toMCPError(err)
+					return nil, hoursExceptionsOut{}, s.toMCPError(err)
 				}
 				// A nil slice would break the port contract and serialize as
 				// JSON null; the use case already returns an empty slice, so a
 				// nil here is an infrastructure failure (fail closed, same
 				// class as errNilMaintenanceEntity).
 				if rows == nil {
-					return nil, nil, s.toMCPError(errNilMaintenanceEntity)
+					return nil, hoursExceptionsOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
-				out := make([]hoursExceptionOut, 0, len(rows))
+				out := hoursExceptionsOut{Exceptions: make([]hoursExceptionOut, 0, len(rows))}
 				for _, row := range rows {
 					// A nil row would panic inside toHoursExceptionOut: the
 					// repository never produces one, so its presence is an
 					// infrastructure failure, not a row to skip (same fail-closed
 					// class as the nil-slice guard above).
 					if row == nil {
-						return nil, nil, s.toMCPError(errNilMaintenanceEntity)
+						return nil, hoursExceptionsOut{}, s.toMCPError(errNilMaintenanceEntity)
 					}
-					out = append(out, toHoursExceptionOut(row))
+					out.Exceptions = append(out.Exceptions, toHoursExceptionOut(row))
 				}
 				return nil, out, nil
 			})

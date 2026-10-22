@@ -224,7 +224,7 @@ The tools MUST be backed by the existing `BusinessHoursExceptionRepo` methods (`
 
 ### REQ-BHE-MCP-003 — `list_hours_exceptions` reads an inclusive range
 
-`list_hours_exceptions` MUST require both `from` and `to` (`YYYY-MM-DD`), MUST treat the range as inclusive, and MUST return the matching rows ordered by `exception_date` ascending. An empty range MUST return an empty array, never an error. A malformed bound MUST fail with a Spanish `-32002` `ErrCodeInvalidInput` message.
+`list_hours_exceptions` MUST require both `from` and `to` (`YYYY-MM-DD`), MUST treat the range as inclusive, and MUST return the matching rows ordered by `exception_date` ascending, nested under the `exceptions` key of the response object. The response object is the **carrier** that keeps the tool's `outputSchema` root `{"type": "object"}`: the Hermes MCP client (pydantic `mcp-types`, protocol `2025-11-25`) validates that root as `Literal["object"]`, while a bare-slice output renders as the root `{"type": ["null", "array"]}`, which rejects the whole `ListToolsResult` and leaves the server without tools (defect `defect-outputschema-array-root-contract`, v0.9.1). An empty range MUST return `{"exceptions": []}`, never an error. A malformed bound MUST fail with a Spanish `-32002` `ErrCodeInvalidInput` message.
 
 > The repository's `REQ-BHE-AUTH-002` (Get/List open to any authenticated caller because they sit on the availability hot path) is **unchanged**; only the MCP tool surface is owner-only (REQ-BHE-MCP-001).
 
@@ -232,13 +232,13 @@ The tools MUST be backed by the existing `BusinessHoursExceptionRepo` methods (`
 
 - GIVEN exceptions for `2026-12-24`, `2026-12-25` and `2026-12-26`
 - WHEN an owner calls `list_hours_exceptions {from: "2026-12-24", to: "2026-12-26"}`
-- THEN all three rows MUST be returned ordered by `exception_date` ascending
+- THEN all three rows MUST be returned under `exceptions`, ordered by `exception_date` ascending
 
 #### Scenario: Empty range is not an error
 
 - GIVEN no exception in the requested range
 - WHEN an owner calls `list_hours_exceptions` for that range
-- THEN the response MUST be an empty array and MUST NOT be an error
+- THEN the response MUST be `{"exceptions": []}` and MUST NOT be an error
 
 #### Scenario: Malformed bound is rejected
 
