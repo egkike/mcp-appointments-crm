@@ -182,19 +182,19 @@
 
 ### TASK-3.1 (T3, S4) — Gateway contract: reglas owner + checklist de aceptación
 
-- [ ] Nueva subsección de la persona owner en `docs/gateway-contract.md`: activación (canal en Telegram, rol resuelto en WhatsApp), alcance operativo, doble gate de deletes como contrato conversacional, exclusiones TUI-only
-- [ ] Checklist de aceptación C1–C10 (design §4.2) con referencia explícita a que el build vive en el repo del gateway
-- [ ] Verificar que el protocolo de identidad (§1–§3) y §5 quedan **sin cambios** de semántica
+- [x] Nueva subsección de la persona owner en `docs/gateway-contract.md`: activación (canal en Telegram, rol resuelto en WhatsApp), alcance operativo, doble gate de deletes como contrato conversacional, exclusiones TUI-only — **DONE `82e8a10`**: `§8.1` con R1–R5 (tabla de contrato), scope tools owner-only + `search_professionals_advanced`/`get_professional_schedules`, gate G0–G4 en tabla (semántica TUI purge; confirmación = turno entrante nuevo) y derivación TUI-only de las cuatro operaciones excluidas
+- [x] Checklist de aceptación C1–C10 (design §4.2) con referencia explícita a que el build vive en el repo del gateway — **DONE `82e8a10`**: `§9` verbatim de design §4.2 con nota "deliverable of the gateway repo, not this one"
+- [x] Verificar que el protocolo de identidad (§1–§3) y §5 quedan **sin cambios** de semántica — **DONE**: zero diff en §1–§5 (diff `82e8a10` toca solo §7.4→§7.5/§8/§9 + References); readback estructural de tablas y refs OK
 - **Edit surface:** `docs/gateway-contract.md`
 - **Slice estimate:** ~120–160 líneas
 
 ### TASK-4.1 (T4, S5–S6) — Runbook de operador
 
-- [ ] Secuencia numerada: Transfer Ownership (`+5491100000000` → `+5492617132740`) → `messenger_platform`/`messenger_id` → opción 7 (cascada v1.1), con post-condiciones y la restricción de orden (transfer antes de persistir el teléfono del owner)
-- [ ] **Paso S8.1 (datos):** cargar `specialties` con `search_services_advanced` + `update_professional` (valores: OQ-4) y verificar con `search_professionals_advanced`; dejar dicho que en una instalación **nueva** la relación nace vacía (E60) hasta que se resuelva OQ-5
-- [ ] Nota de rollback honesta (transferencia se revierte repitiéndola; no hay "undo")
-- [ ] Nota de fricción esperada de la cascada: `SkillStateModified` con la v1.0.0 instalada no significa edición del usuario
-- [ ] Verificar que §7.1/§7.2 existentes quedan coherentes (sin duplicar el protocolo)
+- [x] Secuencia numerada: Transfer Ownership (`+5491100000000` → `+5492617132740`) → `messenger_platform`/`messenger_id` → opción 7 (cascada v1.1), con post-condiciones y la restricción de orden (transfer antes de persistir el teléfono del owner) — **DONE `82e8a10`**: `§7.5` tabla de 5 pasos (incluye S8.1 + smoke persona) con restricción de orden explícita (paso 1 precede a paso 3; 2/3/4 independientes entre sí) y post-condiciones verificables por paso
+- [x] **Paso S8.1 (datos):** cargar `specialties` con `search_services_advanced` + `update_professional` (valores: OQ-4) y verificar con `search_professionals_advanced`; dejar dicho que en una instalación **nueva** la relación nace vacía (E60) hasta que se resuelva OQ-5 — **DONE `82e8a10`**: S8.1 con valores OQ-4 verbatim + verificación; el registro S8.2 se inscribió **actualizado a la realidad post-v0.8.1**: OQ-5 ya aterrizó (seed services-before-staff + segunda pasada del wizard), así que la relación nace vacía solo si el wizard saltea categorías — form Add Staff no lleva specialties (crea cuentas) queda documentado; ejecución de datos del host demo ya hecha en L16 del feature doc
+- [x] Nota de rollback honesta (transferencia se revierte repitiéndola; no hay "undo") — **DONE `82e8a10`** (§7.5 Rollback honesty, con el CHECK del `messenger_platform`)
+- [x] Nota de fricción esperada de la cascada: `SkillStateModified` con la v1.0.0 instalada no significa edición del usuario — **DONE `82e8a10`** (§7.5 Cascade friction con el texto de design §6)
+- [x] Verificar que §7.1/§7.2 existentes quedan coherentes (sin duplicar el protocolo) — **DONE**: `§7.5` ordena por referencia a §7.1/§7.2 sin redeclarar sus contratos
 - **Edit surface:** `docs/gateway-contract.md` §7
 - **Slice estimate:** ~60–100 líneas
 
