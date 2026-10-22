@@ -50,9 +50,12 @@ The project follows Clean Architecture with a Hexagonal / Ports-and-Adapters sha
 | Shared edges | `internal/auth`, `internal/validation`, `internal/config` | RBAC helpers (`RequireCaller`/`RequireRole`), input validation, app setup |
 | Composition root | `cmd/mcp-server` | Wiring/DI, RBAC tool map, CLI entrypoints (`mcp-server`, `admin tui`, `hermes chat`). No business rules |
 
-**Boundary contracts (no exceptions):**
+**Boundary contracts (documented exceptions live inline with their rule):**
 
-1. Business logic lives in use cases and entities. Transport adapters only map DTOs → call the use case. **Double RBAC enforcement**: permission map at the composition root + in-usecase `auth.RequireRole`.
+1. Business logic lives in use cases and entities. Transport adapters only map DTOs → call the use case. **Double RBAC enforcement** applies to authenticated tools: permission map at the composition root + in-usecase `auth.RequireRole`.
+   - **Sole documented exception — anonymous registration seam `register_client`** (feat-whatsapp-bot D2; specs `openspec/specs/mcp-transport/` → `auth-middleware` + `client-registration`; ADR-0018): the tool carries **no** RBAC role entry and derives **no** role from configuration, headers, or body — it accepts **no role parameter**; its only identity signal is a non-empty `X-Caller-Id` header, and it is reachable **only** through the static path allowlist evaluated before caller resolution.
+   - **Compensating controls (the actual security boundary):** static path allowlist in the auth middleware; `accounts` collision rejection (`docs/gateway-contract.md` §4.1); per-phone registration rate limit (`docs/gateway-contract.md` §7.3); masked audit events (`internal/repository/accounts_audit.go` — `MaskPhone`, caller-supplied mask strings are discarded, never trusted); rejections are Spanish `*domain.SemanticError`s, never raw dumps.
+   - A finding accusing `register_client` of violating this contract reports an accepted design, not a defect: cite this exception in the review response instead of burning the fix budget on it.
 2. Only `*domain.SemanticError` messages reach the client/LLM; every other error collapses to a generic `-32603` — never leak internals through `internal/mcp/errors.go`.
 3. SQL only in `internal/repository` adapters; prepared statements (`?`); schema changes only via `internal/db/schema.go` canonical DDL.
 4. Wire shapes (JSON tags, `omitempty`) stay in `internal/mcp` structs; entities stay wire-free; DTOs bridge layers and carry cross-layer contracts in doc comments.
