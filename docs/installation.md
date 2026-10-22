@@ -2,7 +2,7 @@
 
 > Esta guía lleva un VPS limpio (Ubuntu 22.04+ o macOS) hasta tener el servicio `mcp-appointments-crm` activo y respondiendo en `http://127.0.0.1:3000/mcp`.
 >
-> ⚠️ **Assets publicados**: el release publicado más reciente es **v0.8.1** (2026-10-21: fix de seed B11 — despliegue vía `--version` que siembra el template pristino de la skill — y OQ-5 — wizard pide specialties por profesional para instalaciones nuevas; v0.8.0 2026-10-19: skill de recepcionista de Hermes, vista TUI "Ver audit log", `Purgar cuentas desactivadas` con doble confirmación; v0.7.0: tools 20→23 hours-exceptions + backend del bot; v0.6.1 y v0.6.0 anteriores); todos los releases desde v0.4.0 salen del pipeline GoReleaser y traen la matriz completa de 5 plataformas (`Darwin_arm64/x86_64`, `Linux_arm64/x86_64`, `Windows_x86_64`) + `checksums.txt`. El camino macOS de `install.sh` está implementado y descarga el asset `Darwin` correspondiente. Windows tiene asset pero **no path de instalación** todavía ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3). `v0.3.0` fue el último armado a mano.
+> ⚠️ **Assets publicados**: el release publicado más reciente es **v0.9.0** (2026-10-22: minor de 25 tools — paquete B12 owner-in-chat: 2 tools de lectura nuevas, skill v1.1.0 dual persona, Telegram opcional/removible, fix de consola B14; v0.8.1 2026-10-21: fix de seed B11 — despliegue vía `--version` que siembra el template pristino de la skill — y OQ-5 — wizard pide specialties por profesional para instalaciones nuevas; v0.8.0 2026-10-19: skill de recepcionista de Hermes, vista TUI "Ver audit log", `Purgar cuentas desactivadas` con doble confirmación; v0.7.0: tools 20→23 hours-exceptions + backend del bot; v0.6.1 y v0.6.0 anteriores); todos los releases desde v0.4.0 salen del pipeline GoReleaser y traen la matriz completa de 5 plataformas (`Darwin_arm64/x86_64`, `Linux_arm64/x86_64`, `Windows_x86_64`) + `checksums.txt`. El camino macOS de `install.sh` está implementado y descarga el asset `Darwin` correspondiente. Windows tiene asset pero **no path de instalación** todavía ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3). `v0.3.0` fue el último armado a mano.
 >
 > El flujo tiene dos partes: (1) configuración inicial interactiva con el wizard (`curl -fsSLO ... && bash install.sh`, requiere TTY) y (2) despliegue pinned del binario con `install.sh --version vX.Y.Z`. Si ya generaste los JSONs de setup en otra máquina, podés saltar directo al despliegue copiando los archivos al directorio de configuración del host destino.
 
@@ -64,7 +64,7 @@ Una vez que los tres JSONs de setup existen, desplegá la versión que quieras. 
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh \
-  | bash -s -- --version v0.8.1
+  | bash -s -- --version v0.9.0
 ```
 
 > El despliegue por `--version` siembra el **template pristino** de la skill de recepcionista en `<CONFIG_DIR>/templates/recepcionista-negocio/SKILL.md` (0600/0700). El wizard interactivo sí instala la skill renderizada; el deploy nunca la renderiza ni la reescribe — el cascade de la TUI (opción 7) es quien regenera la skill instalada a partir de ese template.
@@ -73,10 +73,10 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh
-bash install.sh --version v0.8.1
+bash install.sh --version v0.9.0
 ```
 
-Reemplazá `v0.8.1` por el tag exacto que querés instalar. El formato obligatorio es `vMAJOR.MINOR.PATCH` (por ejemplo `v0.8.1`). No se acepta `latest` ni pre-releases desde el instalador.
+Reemplazá `v0.9.0` por el tag exacto que querés instalar. El formato obligatorio es `vMAJOR.MINOR.PATCH` (por ejemplo `v0.9.0`). No se acepta `latest` ni pre-releases desde el instalador.
 
 ### Qué hace el despliegue
 
