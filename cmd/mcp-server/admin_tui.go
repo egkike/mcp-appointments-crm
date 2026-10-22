@@ -1034,26 +1034,54 @@ func promptValidated(input *consoleInput, stdout io.Writer, label, defaultValue 
 // consoleInput is the single input abstraction of the console flows (GGA
 // round 17): it owns BOTH ordinary lines and no-echo secret reads, so a
 // secret prompt can never bypass input another prompt already has buffered.
-// All prompts share the same *consoleInput; a secret on a real terminal is
-// read through term.ReadPassword on that terminal's fd (echo disabled, no
-// third-party buffering in between), and with piped stdin it is an ordinary
-// Line (echo-free by construction).
+//
+// Which reader owns the stream depends on the mode (B14):
+//
+//   - piped stdin has exactly one consumer, so the buffered *bufio.Reader is
+//     safe and a secret is an ordinary Line (echo-free by construction).
+//   - a real terminal has two consumers — the text prompt and
+//     term.ReadPassword — draining ONE kernel queue through the same fd. Any
+//     read-ahead in the text path would swallow bytes the secret prompt must
+//     read (and vice versa: a secret can never leave stale buffered state
+//     behind), so the terminal path never buffers: it reads the fd byte by
+//     byte and the no-echo read takes the same fd raw. Text → secret → text
+//     therefore behaves exactly like text → text.
+//
+// All prompts share the same *consoleInput, so the ownership decision is made
+// once per flow and cannot drift between prompt kinds.
 type consoleInput struct {
-	src *bufio.Reader
-	tty bool
-	fd  uintptr
+	src  *bufio.Reader
+	term *consoleTerm // nil unless stdin is the process terminal
 }
 
 // newConsoleInput wraps the console/pipe input source. Only a real process
-// stdin that is a terminal marks the tty mode; tests and scripts keep the
+// stdin that is a terminal marks the terminal mode; tests and scripts keep the
 // plain reader path.
 func newConsoleInput(stdin io.Reader) *consoleInput {
 	c := &consoleInput{src: bufio.NewReader(stdin)}
 	if f, ok := stdin.(*os.File); ok && f == os.Stdin && term.IsTerminal(f.Fd()) {
-		c.tty = true
-		c.fd = f.Fd()
+		c.term = newConsoleTerm(f)
 	}
 	return c
+}
+
+// consoleTerm is the terminal-side read path: the shared, non-prefetching
+// owner of the terminal fd. read and password are fields (not method bodies)
+// because a real termios read cannot be faked in a unit test without a pty; the
+// production wiring below is the only place that touches the kernel, and the
+// B14 regression test injects the same fd contract over a shared queue.
+type consoleTerm struct {
+	read     func([]byte) (int, error)
+	password func() ([]byte, error)
+}
+
+// newConsoleTerm binds the terminal read path to the process terminal file.
+func newConsoleTerm(f *os.File) *consoleTerm {
+	fd := f.Fd()
+	return &consoleTerm{
+		read:     f.Read,
+		password: func() ([]byte, error) { return term.ReadPassword(fd) },
+	}
 }
 
 // consoleInputLineMax bounds one operator line: every prompt value the
@@ -1061,31 +1089,68 @@ func newConsoleInput(stdin io.Reader) *consoleInput {
 // make ReadString allocate unbounded memory (GGA round 21).
 const consoleInputLineMax = 4096
 
+// errConsoleLineTooLong is the semantic rejection of an over-long operator
+// line; it never echoes the rejected bytes.
+func errConsoleLineTooLong() *domain.SemanticError {
+	return &domain.SemanticError{
+		Code:    domain.ErrCodeInvalidInput,
+		Message: "la entrada del operador excede la longitud máxima permitida",
+	}
+}
+
 // Line reads one bounded operator line incrementally (GGA round 23): no
-// single unbounded read happens — ReadSlice peeks the 4 KiB budget at a
-// time, an oversized line is rejected with its remainder drained (so it
-// cannot become the next prompt's answer), and EOF without a newline still
-// returns the carried text. The shared input-abort contract covers EOF and
-// reader failures.
+// single unbounded read happens, an oversized line is rejected with its
+// remainder drained (so it cannot become the next prompt's answer), and EOF
+// without a newline still returns the carried text. The shared input-abort
+// contract covers EOF and reader failures.
+//
+// On a terminal the read is byte-wise (B14): the terminal fd is the shared
+// queue of the text and the secret prompts, so the text path must never hold
+// bytes the secret path has to read.
 func (c *consoleInput) Line() (string, error) {
+	if c.term != nil {
+		return c.term.Line()
+	}
+	return collectConsoleLine(func() ([]byte, error) {
+		return c.src.ReadSlice('\n')
+	})
+}
+
+// Line reads one bounded operator line from the terminal, one byte at a time.
+// The extra syscalls are bounded by consoleInputLineMax per line and only
+// happen on the interactive path, which is the price of never owning bytes the
+// no-echo read still needs (B14).
+func (t *consoleTerm) Line() (string, error) {
+	return collectConsoleLine(func() ([]byte, error) {
+		var one [1]byte
+		n, rerr := t.read(one[:])
+		return one[:n], rerr
+	})
+}
+
+// collectConsoleLine accumulates one bounded line from successive pieces. The
+// piece source decides the prefetch behaviour: bufio chunks for the single-
+// consumer pipe path, single bytes for the shared terminal fd (B14).
+func collectConsoleLine(next func() ([]byte, error)) (string, error) {
 	var collected []byte
 	oversized := false
 	for {
-		piece, ferr := c.src.ReadSlice('\n')
-		if len(piece) > 0 && oversized {
-			// Drain: the chunk is counted but not kept.
-		} else if len(collected)+len(piece) > consoleInputLineMax {
-			oversized = true
-		} else {
-			collected = append(collected, piece...)
+		piece, ferr := next()
+		// A line ends when the piece carries the delimiter; the byte-wise
+		// terminal path therefore signals the end of a line with the same
+		// predicate the buffered path gets from ReadSlice.
+		newline := len(piece) > 0 && piece[len(piece)-1] == '\n'
+		if len(piece) > 0 && !oversized {
+			if len(collected)+len(piece) > consoleInputLineMax {
+				oversized = true
+			} else {
+				collected = append(collected, piece...)
+			}
 		}
 		if ferr != nil {
-			if ferr == io.EOF {
+			if errors.Is(ferr, io.EOF) {
 				if oversized {
-					return "", &domain.SemanticError{
-						Code:    domain.ErrCodeInvalidInput,
-						Message: "la entrada del operador excede la longitud máxima permitida",
-					}
+					return "", errConsoleLineTooLong()
 				}
 				// A carried final line without newline is still content.
 				if len(collected) > 0 {
@@ -1098,24 +1163,26 @@ func (c *consoleInput) Line() (string, error) {
 			}
 			return "", fmt.Errorf("leer la entrada del operador: %w", ferr)
 		}
+		if !newline {
+			continue
+		}
 		if oversized {
-			return "", &domain.SemanticError{
-				Code:    domain.ErrCodeInvalidInput,
-				Message: "la entrada del operador excede la longitud máxima permitida",
-			}
+			return "", errConsoleLineTooLong()
 		}
 		return strings.TrimSpace(string(collected)), nil
 	}
 }
 
-// Secret reads one secret value. On a terminal it is the no-echo path; on
-// piped stdin it is an ordinary Line (echo-free by construction, and no
-// buffered line can be bypassed because both kinds share this reader).
+// Secret reads one secret value. On a terminal it is the no-echo path on the
+// same fd the text path reads (no buffering in between, so a secret can never
+// be starved by a previous text prompt nor leave stale bytes behind); on piped
+// stdin it is an ordinary Line (echo-free by construction, and no buffered
+// line can be bypassed because both kinds share this reader).
 func (c *consoleInput) Secret() (string, error) {
-	if !c.tty {
+	if c.term == nil {
 		return c.Line()
 	}
-	raw, err := term.ReadPassword(c.fd)
+	raw, err := c.term.password()
 	if err != nil {
 		return "", fmt.Errorf("leer la entrada secreta: %w", err)
 	}
