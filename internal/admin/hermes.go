@@ -174,6 +174,22 @@ func childValue(parent *yaml.Node, key string) (*yaml.Node, bool) {
 	return nil, false
 }
 
+// dropChild removes the key/value pair stored at key under parent, reporting
+// whether the key was present. Siblings keep their order, so a removal never
+// reorders the bytes it does not touch.
+func dropChild(parent *yaml.Node, key string) bool {
+	if parent == nil {
+		return false
+	}
+	for i := 0; i+1 < len(parent.Content); i += 2 {
+		if parent.Content[i].Value == key {
+			parent.Content = append(parent.Content[:i], parent.Content[i+2:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // HermesDir resolves the Hermes DIRECTORY: HERMES_HOME when set, which — per
 // the install.sh contract scripts/tests/install_skill_test.sh pins — IS the
 // Hermes directory itself (never a parent that contains .hermes). Without the
@@ -456,6 +472,11 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 // SetHermesTelegramOwnerBot is preserved, so the two flows compose in either
 // order.
 //
+// The Telegram owner-bot channel is OPTIONAL (S11): when it was never configured
+// — and the flow skips it — the entry renders as {url, headers{X-Caller-Id}}
+// alone, with no env block. That is the shape Hermes boots with, so the server
+// entry is never conditional on the channel and no write path requires it.
+//
 // The entry is replaced wholesale, so re-running the flow is idempotent and
 // stale keys inside the previous entry cannot survive. The pointer receiver is
 // required because a zero-value HermesDocument lazily allocates its backing
@@ -587,6 +608,61 @@ func (d *HermesDocument) SetHermesTelegramOwnerBot(token, chatID, phone string) 
 	putChild(env, hermesTelegramChatIDKey, hermesQuotedScalar(strings.TrimSpace(chatID)))
 	putChild(env, hermesTelegramPhoneKey, hermesQuotedScalar(phone))
 	return nil
+}
+
+// RemoveHermesTelegramOwnerBot deletes the Telegram owner-bot env block of the
+// mcp_servers.<HermesServerName> entry: the explicit "sin Telegram" path of
+// option 7 (S11, TASK-2.4 step 2). Skipping the optional group PRESERVES a
+// configured block (SetHermesServer carries it over by contract, see there), so
+// a business that configured the owner bot and retires it needs this separate,
+// explicit removal instead of a hand-edited YAML.
+//
+// Contract:
+//   - Byte-clean. Only the three MCP_TELEGRAM_* keys this repo writes are
+//     dropped; url, headers (including the quoted X-Caller-Id), any foreign env
+//     key (pollers, other integrations) and every other byte of the document —
+//     key order, comments, scalar styles — survive verbatim. A removal never
+//     reorders or rewrites what it does not own; the merge-without-clobber
+//     robustness of ApplyHermesConfig applies to deletion as well.
+//   - The env mapping itself is dropped only when it becomes EMPTY, so the entry
+//     ends up in exactly the shape a never-configured channel renders
+//     ({url, headers}), never an empty `env: {}` shell.
+//   - Idempotent. A document without the block (no env, no entry, no servers
+//     section, empty document) marshals back byte-identical: the flow can run on
+//     every host without producing a diff. The same holds for a malformed entry
+//     or env (a scalar), which can never carry the block: it is left untouched
+//     rather than rewritten into a shape this flow does not own.
+//
+// It cannot fail, so it returns no error: every path either edits the owned keys
+// or leaves the document alone. The zero value of the document is not
+// materialized either — removal never creates a document.
+func (d *HermesDocument) RemoveHermesTelegramOwnerBot() {
+	servers, ok := childValue(d.fields.root, hermesServersSection)
+	if !ok || servers.Kind != yaml.MappingNode {
+		return
+	}
+	entry, ok := childValue(servers, HermesServerName)
+	if !ok || entry.Kind != yaml.MappingNode {
+		return
+	}
+	env, ok := childValue(entry, hermesEnvKey)
+	if !ok || env.Kind != yaml.MappingNode {
+		return
+	}
+
+	removed := false
+	for _, key := range []string{
+		hermesTelegramTokenKey,
+		hermesTelegramChatIDKey,
+		hermesTelegramPhoneKey,
+	} {
+		if dropChild(env, key) {
+			removed = true
+		}
+	}
+	if removed && len(env.Content) == 0 {
+		dropChild(entry, hermesEnvKey)
+	}
 }
 
 // ValidateTelegramBotToken validates the Telegram bot token shape

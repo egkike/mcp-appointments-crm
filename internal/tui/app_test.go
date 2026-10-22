@@ -1372,8 +1372,8 @@ func TestAppModelHermesConfigRejectsAnInvalidTelegramField(t *testing.T) {
 		value    string
 		wantCopy string
 	}{
-		{name: "token", step: 1, value: "not-a-token", wantCopy: "token del bot de Telegram"},
-		{name: "chat id", step: 2, value: "abc", wantCopy: "chat id"},
+		{name: "token", step: hermesTokenStep, value: "not-a-token", wantCopy: "token del bot de Telegram"},
+		{name: "chat id", step: hermesChatIDStep, value: "abc", wantCopy: "chat id"},
 	}
 
 	for _, tc := range cases {
@@ -1385,7 +1385,7 @@ func TestAppModelHermesConfigRejectsAnInvalidTelegramField(t *testing.T) {
 			d.press("7")
 			d.press("enter") // accept the prefilled server phone
 
-			if tc.step == 2 {
+			if tc.step == hermesChatIDStep {
 				d.typeText(telegramToken)
 				d.press("enter")
 			}

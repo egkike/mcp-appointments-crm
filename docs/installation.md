@@ -214,6 +214,27 @@ prefillado con el del owner activo (editable). Si el archivo no se puede
 escribir, la opción muestra el bloque exacto para copiar a mano
 ([ADR-0017](./architecture/0017-hermes-config-tui.md)).
 
+El grupo del **bot privado de Telegram** (token, chat id de la allowlist y
+teléfono del owner) es **opcional**: los canales oficiales son el número de
+WhatsApp del negocio y el chat local de Hermes, y Telegram es un canal aditivo
+owner-only. Dejá el token vacío (Enter) y la opción escribe la entrada
+`mcp_servers.mcp-appointments` **sin** el bloque `MCP_TELEGRAM_*`, informando
+`Telegram: no configurado (canal deshabilitado)`; el server arranca igual. Si
+cargás el token, el chat id y el teléfono siguen siendo obligatorios (par
+completo), y re-correr la opción 7 sin tocar el grupo preserva el bot que ya
+estaba configurado.
+
+Con el token vacío el flujo pregunta además **`¿Retirar el canal Telegram del
+bot?`**, porque un grupo vacío tiene dos formas distintas y la decisión es tuya:
+responder que no (o Enter) **conserva** el bloque `MCP_TELEGRAM_*` que el config
+ya tuviera; responder que sí lo **elimina** y la opción informa
+`Telegram: canal deshabilitado (bloque MCP_TELEGRAM eliminado)`. El retiro es
+byte-limpio e idempotente: borra sólo las tres claves `MCP_TELEGRAM_*` del
+`env` de `mcp_servers.mcp-appointments` (el bloque `env` desaparece si queda
+vacío) y preserva el `url`, los `headers` con el `X-Caller-Id` entre comillas y
+cualquier otra clave del archivo; si el canal nunca estuvo configurado, la
+opción no cambia un solo byte.
+
 **Archivo `caller-id`:** el teléfono del owner queda en
 `~/.config/mcp-appointments-crm/caller-id` con permisos `0600` (el directorio se
 crea `0700`), y `MCP_CONFIG_DIR` reemplaza ese directorio cuando la definís. El

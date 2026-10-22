@@ -41,11 +41,13 @@ const (
 	confirmTransferQuestion = "El owner actual quedará desactivado. ¿Confirmar?"
 	busyLabel               = "Operación en curso…"
 
-	hermesTitle           = "Configurar Hermes"
-	hermesPhoneLabel      = "Teléfono del owner (X-Caller-Id)"
-	hermesTokenLabel      = "Token del bot de Telegram (formato <id>:<hash>)" // #nosec G101 -- operator-facing field label, never a credential value
+	hermesTitle      = "Configurar Hermes"
+	hermesPhoneLabel = "Teléfono del owner (X-Caller-Id)"
+	hermesTokenLabel = "Token del bot de Telegram (formato <id>:<hash>)" // #nosec G101 -- operator-facing field label, never a credential value
+
 	hermesChatIDLabel     = "Chat id de la allowlist de Telegram (ej. 987654321)"
 	hermesOwnerPhoneLabel = "Teléfono del owner para Telegram (X-Caller-Id)"
+
 	confirmHermesTitle    = "Confirmar configuración de Hermes"
 	confirmHermesQuestion = "Se escribirá la entrada mcp-appointments en el config de Hermes. ¿Confirmar?"
 
@@ -56,6 +58,14 @@ const (
 	hermesSnippetTitle        = "Configuración manual de Hermes"
 	hermesSnippetIntro        = "No se pudo escribir el archivo automáticamente. Copiá este bloque en el archivo indicado. El bloque de Telegram quedó sin aplicar: re-corre la opción 7 para completar esos tres campos."
 )
+
+// hermesTelegramRemovalLabel is the explicit "sin Telegram" question of the
+// wizard (S11 unit B), placed outside the label block above so its doc comment
+// does not break the group's alignment. The empty answer keeps the channel state
+// the config already has, so the skip path costs one Enter and never deletes a
+// configured bot by accident; the console asks the same question with the same
+// wording.
+const hermesTelegramRemovalLabel = "¿Retirar el canal Telegram del bot? (s/n; Enter conserva el bloque si existía)"
 
 // capability identifies one operator capability of the menu (ADR-0016
 // Decision 1). The menu is declarative so the dispatch (openMenuItem) and the
@@ -136,15 +146,20 @@ func transferSteps() []formStep {
 }
 
 // hermesSteps is the Hermes questionnaire: the server entry's owner phone and
-// the Telegram owner-bot field group (token, allowlist chat id and owner phone).
-// The two phone steps are prefilled from the active owner and validated by
-// admin.ValidatePhone; the token and the chat id use the admin Telegram
-// validators. The validators are the single validation point the reviewed core
-// re-applies before writing.
+// the Telegram owner-bot field group (token, the explicit removal question, the
+// allowlist chat id and the owner phone). The two phone steps are prefilled from
+// the active owner and validated by admin.ValidatePhone; the token, the removal
+// answer and the chat id use the admin/group validators. The validators are the
+// single validation point the reviewed core re-applies before writing.
+//
+// The removal question sits right after the token because it only applies when
+// the group closes (an empty token): afterFormAdvance jumps over it when a token
+// was typed, and stops on it — instead of leaving the form — when it was not.
 func hermesSteps(defaultPhone string) []formStep {
 	return []formStep{
 		{label: hermesPhoneLabel, defaultValue: defaultPhone, validate: admin.ValidatePhone},
 		{label: hermesTokenLabel, validate: admin.ValidateTelegramBotToken, sensitive: true},
+		{label: hermesTelegramRemovalLabel, validate: validateTelegramRemovalAnswer},
 		{label: hermesChatIDLabel, validate: admin.ValidateTelegramChatID},
 		{label: hermesOwnerPhoneLabel, defaultValue: defaultPhone, validate: admin.ValidatePhone},
 	}
