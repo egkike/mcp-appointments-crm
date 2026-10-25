@@ -1,0 +1,111 @@
+# PR governance gate — issue-first workflow (owner-approved issues only).
+#
+# Enforces the AGENTS.md issue-first delivery contract: every pull request
+# into main must
+#   1. close or resolve at least one issue of THIS repository via a body
+#      keyword (`Closes #N`, `Fixes #N`, `Resolves #N` — case-insensitive),
+#   2. that issue must carry the `status:approved` label (owner approval),
+#   3. carry EXACTLY ONE `type:*` label for the PR-type summary.
+#
+# The job name "Validate issue linkage, approval, and type label" is
+# registered as a required status check in the main-ci-gate ruleset, so the
+# merge into main stays blocked until all three validations pass.
+#
+# NOTE: removing `status:approved` from a linked issue does not re-run this
+# gate by itself: the approval-revocation-alarm job below immediately re-flags
+# the linked open PRs as failing. Re-run the check after re-approval.
+#
+# Runners ship `gh` and `jq` preinstalled.
+
+name: pr-gate
+
+on:
+  # pull_request_target takes this definition from the base commit, so PR
+  # edits can never replace the validation steps to bypass the gate. The
+  # steps only read PR/issue metadata via gh; no PR code is checked out.
+  pull_request_target:
+    branches: [main]
+    types: [opened, edited, synchronize, labeled, unlabeled]
+  issues:
+    types: [unlabeled]
+
+concurrency:
+  # Per-PR (pull_request_target makes github.ref the base ref for every PR,
+  # so the group key must come from the PR number; issue events get a
+  # unique per-run group).
+  group: pr-gate-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  issue-gate:
+    if: github.event_name == 'pull_request_target'
+    name: Validate issue linkage, approval, and type label
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Validate issue linkage, approval, and type label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+
+          fail() { echo "::error::$*" >&2; exit 1; }
+
+          body="$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json body -q '.body // ""')"
+          [ -n "$body" ] || fail "PR body is empty: link an approved issue with 'Closes #N'."
+
+          # 1) at least one closing keyword with an issue number
+          issues="$(printf '%s\n' "$body" \
+            | grep -ioE '\b(closes|fixes|resolves)\b[^[:alnum:]]*#[0-9]+' \
+            | grep -oE '#[0-9]+' | tr -d '#' | sort -u)" || true
+          [ -n "$issues" ] || \
+            fail "no issue linkage: the body must contain 'Closes #N' referencing an issue of this repository."
+
+          # 2) every linked issue exists HERE and carries status:approved
+          for n in $issues; do
+            gh issue view "$n" --repo "$GITHUB_REPOSITORY" --json number,labels >/dev/null 2>&1 \
+              || fail "Closes #$n: issue #$n does not exist in $GITHUB_REPOSITORY."
+            gh issue view "$n" --repo "$GITHUB_REPOSITORY" --json labels \
+              -q '.labels[].name' | grep -qx 'status:approved' \
+              || fail "issue #$n is linked but lacks the owner-granted 'status:approved' label."
+          done
+
+          # 3) exactly one type:* label
+          types="$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json labels -q '[.labels[].name | select(startswith("type:"))] | join("\n")')"
+          count="$(printf '%s' "$types" | grep -c '^type:' || true)"
+          [ "$count" -eq 1 ] || \
+            fail "PR must carry EXACTLY ONE 'type:*' label (found $count: $(printf '%s' "$types" | tr '\n' ' '))"
+
+          echo "pr-gate: OK — linked issues: $(printf '%s' "$issues" | tr '\n' ' '); labels ok."
+
+  approval-revocation-alarm:
+    name: Re-flag linked open PRs when status:approved is revoked
+    if: github.event_name == 'issues' && github.event.action == 'unlabeled' && github.event.label.name == 'status:approved'
+    runs-on: ubuntu-24.04
+    permissions:
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Fail the required gate check on linked open PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -eu
+          linked="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 500 --json number,headRefOid,body \
+            -q '.[] | select((.body // "") | test("(?i)\\b(closes|fixes|resolves)\\b[^0-9]*#'"$ISSUE"'\\b")) | [.number, .headRefOid] | @tsv')"
+          while IFS=$'\t' read -r num sha; do
+            gh api "repos/$GITHUB_REPOSITORY/check-runs" \
+              -f name="Validate issue linkage, approval, and type label" \
+              -f head_sha="$sha" -f status=completed -f conclusion=failure \
+              -f "output[title]=status:approved revoked on issue #$ISSUE" \
+              -f "output[summary]=Issue #$ISSUE lost the owner-granted 'status:approved' label; re-run pr-gate after re-approval." >/dev/null
+            echo "PR #$num: gate check re-flagged as failing"
+          done <<< "$linked"

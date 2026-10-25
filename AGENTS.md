@@ -65,6 +65,18 @@ The project follows Clean Architecture with a Hexagonal / Ports-and-Adapters sha
 ## Pre-Flight Git & GitHub Rules
 Before staging, committing, or pushing any code to the repository, you **MUST** execute and pass the following verification pipeline. 
 
+### Issue-First PR Gate (obligatorio)
+Every pull request into `main` must pass the `pr-gate` required status check
+(`.github/workflows/pr-gate.yml`, enforced by the `main-ci-gate` ruleset):
+
+1. **Issue linkage:** the PR body must close or resolve at least one issue of this repository via a body keyword (`Closes #N`, `Fixes #N`, `Resolves #N` — case-insensitive).
+2. **Owner approval:** every linked issue must carry the `status:approved` label (owner-granted, protected label — never self-assigned by agents).
+3. **Type label:** the PR must carry EXACTLY ONE `type:*` label (`type:feature`, `type:bug`, `type:docs`, `type:refactor`).
+
+Docs-only changes that follow the direct-merge docs workflow (no PR) are unaffected.
+
+**If the gate fails after you relabel the linked issue:** re-run the failed check (Actions → pr-gate → Re-run), or toggle any PR label — relabeling the issue does not re-trigger the gate.
+
 ### Pre-Commit Checklist:
 1. **Formatting & Linting:** Run `go fmt ./...` and `go vet ./...` and `golangci-lint run ./...` — ensure no linting issues exist.
 2. **Compilation:** Verify the project builds flawlessly:
