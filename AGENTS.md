@@ -373,3 +373,4 @@ Verification routing is **exclusive**: one path per change, never both by defaul
 ### Proactivity
 - Add or update tests for any modified logic
 - Tests are mandatory for new features
+<!-- pr-gate e2e bootstrap test marker -->
