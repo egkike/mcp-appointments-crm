@@ -77,6 +77,15 @@ Docs-only changes that follow the direct-merge docs workflow (no PR) are unaffec
 
 **If the gate fails after you relabel the linked issue:** re-run the failed check (Actions → pr-gate → Re-run), or toggle any PR label — relabeling the issue does not re-trigger the gate.
 
+### Issue Creation Protocol (owner pre-approval, standing grant)
+
+The `status:approved` label is owner-granted and protected — it is NEVER self-assigned by agents. Issues follow the ask-first protocol:
+
+1. **Draft (agent).** Before any code work, the agent proposes the title, body (problem, invariants/evidence, scope, risk) and the exact label list: exactly ONE `type:*` label; `size:exception` only with a documented owner reason.
+2. **Authorization (owner).** Reviewing the draft IS the approval act. The standing grant (established 2026-10-25; issue #149 is the working model) authorizes creating the issue already carrying `status:approved` — it only pre-labels a scope the owner already green-lit in conversation; it NEVER self-authorizes. A grant for one cycle never extends to another: without a current owner instruction for that issue, it opens unlabeled and waits for owner approval.
+3. **Create (agent).** Verify the owner's host capability first (target-host `viewerPermission` MAINTAIN or ADMIN; TRIAGE never suffices), make ONE create attempt with the authorized labels (no blind retry), and require the host read-back (identity, title, body, labels, state) as evidence before reporting. Classify the result exactly `confirmed | no_write | unknown`; `unknown` stops every later mutation.
+4. **Creation is pre-validation only.** Labels stamped at birth avoid the late-relabel case (which does not re-trigger the `pr-gate` check). Gate linkage, CI, native review and owner merge remain unaffected.
+
 ### Pre-Commit Checklist:
 1. **Formatting & Linting:** Run `go fmt ./...` and `go vet ./...` and `golangci-lint run ./...` — ensure no linting issues exist.
 2. **Compilation:** Verify the project builds flawlessly:
