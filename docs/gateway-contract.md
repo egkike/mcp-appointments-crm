@@ -140,6 +140,40 @@ TUI option 7 writes these into `mcp_servers.mcp-appointments.env` in `~/.hermes/
 
 **Data-hygiene record (S8.2):** the Add Staff form carries no specialties because it creates **accounts**, not professionals (`internal/admin/staff.go`). Historical void: hosts seeded **before v0.8.1** (including the demo host) were born with the relation empty — install scripts hardcoded it and the seed inserted staff before services. Since v0.8.1 (OQ-5, `feat-b11-oq5-seed-fixes`), the seed inserts services **before** staff and the installer wizard asks specialties in a second pass — so a fresh install carries relations only when services were entered before staff (conjunto vacío si el wizard saltea ese paso). The step-4 bootstrap remains the explicit corrector for any host whose relation is empty; a clean install does not have "Romina atiende Corte de Cabello" out of the box unless the wizard captured it.
 
+### 7.6 Telegram owner persona via native DM-topics binding (verified 2026-10-27)
+
+> Telegram-only, owner-opcional (the business channel stays WhatsApp). Verified live on gateway runtime Hermes v0.22.5 (`bf0203a7`) against server v0.9.1: the native `dm_topics` binding satisfies the §9 C4/C5 persona intent for the owner topic lane **config-only** — no gateway plugin and no upstream issue needed.
+
+**Prerequisite (the step that fails silently):** DM topics for the bot are enabled in the **BotFather Mini App** (not the `/mybots` text menu, not the DM chat): *Open BotFather → Mini App → My bots → this bot → Bot Settings → Threads Settings* → enable **Threaded Mode**, and leave **“Disallow users to create new threads”** OFF. Verify with Bot API `getMe`: `has_topics_enabled: true` and `allows_users_to_create_topics: true`.
+
+**Config** (`~/.hermes/config.yaml`). Note the loader reads the block under `platforms.telegram.extra.dm_topics`; the gateway adapter also writes there itself (runtime-owned — hand edits outside this block are lost on the next config persist):
+
+```yaml
+platforms:
+  telegram:
+    channel_prompts:
+      '<owner_chat_id>': <channel identity prompt (already in place; not the binding)>
+    extra:
+      dm_topics:
+        - chat_id: <owner_chat_id>
+          topics:
+            - name: dueño          # exact topic name shown in the app
+              thread_id: <auto-persisted by the adapter>
+              skill: recepcionista-negocio
+```
+
+**Behavior verified live:**
+
+- On gateway restart, the adapter runs a topic ensure: it creates the configured topic itself (`Created DM topic 'dueño' … -> thread_id=N`), caches `name → thread_id`, and **persists the `thread_id` into `extra.dm_topics`** with `atomic_config_write`. Topic creation from the app is therefore not required.
+- The skill body auto-loads **only on a new session** (`_is_new_session`): a topic lane is a fresh session by design; an existing topic lane needs `/new` **inside the topic** before the test.
+- Evidence line in `gateway.log`: `[Gateway] Auto-loaded skill(s) ['recepcionista-negocio'] for session agent:main:telegram:dm:<chat_id>:<thread_id>`. Owner persona then applies on that lane (G-gates included); the root DM (no topic) stays generic.
+
+**Pitfalls:**
+
+- Telegram permits **duplicate topic names** in a bot DM; the adapter's ensure then creates a second lane. Keep one `dueño` topic (delete extras from the app) and let the persisted `thread_id` be the source of truth.
+- The bot does **not** receive its own `forum_topic_created` update, so a topic created via raw Bot API is invisible to the adapter until a config `thread_id` or the ensure step names it.
+- Hermes' `/topic` slash command reports the BotFather capability state and sends a setup screenshot when the switches are off — useful as a guided fallback.
+
 ## 8. Conversational policy — receptionist skill
 
 > **New (ADR-0020, 2026-10-16).** This contract covers **identity** (§1–§3); the conversational layer is specified separately.
@@ -199,3 +233,5 @@ Ambiguity, cancellation, a different object, or an off-topic message during G2 c
 | C8 | Skill v1.1 is installed and indexed **before** the first message of the conversation | §7.5 step 3 |
 | C9 | All traffic to the server goes through `127.0.0.1:3000` (loopback invariant) | §1 |
 | C10 | An owner chat delete produces **one single** tool call, after the two confirmations (G3 after G2) | §8.1 |
+
+**Implementation note (C4/C5, Telegram lane, verified 2026-10-27):** the native `dm_topics` binding (Hermes gateway v0.22.5+) delivers the C5 persona selection for the owner's Telegram topic lane config-only (skill auto-load on the bound topic's new sessions, §7.6). The C4 static identity (`MCP_TELEGRAM_OWNER_PHONE` + allowlist) and the WhatsApp path are unchanged.
