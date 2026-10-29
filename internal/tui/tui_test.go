@@ -30,8 +30,11 @@ func TestTelegramFieldsSkipSemantics(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want nil (an empty group skips the channel)", err)
 	}
 	// The exact operator copy both presentations render: an empty group must read
-	// as a decision, not as three blank values.
-	if got, want := skipped.Summary(), "no configurado (canal deshabilitado)"; got != want {
+	// as a decision, not as three blank values. The summary stays neutral about
+	// the file: the skip path never verified whether a MCP_TELEGRAM_* block was
+	// already on disk, and a surviving block must not be reported as "not
+	// configured" (B15 C3).
+	if got, want := skipped.Summary(), "omitido (sin cambios en el bloque de Telegram)"; got != want {
 		t.Errorf("Summary() = %q, want %q", got, want)
 	}
 }
@@ -176,8 +179,8 @@ func TestAppModelHermesConfigSkipsTheTelegramGroup(t *testing.T) {
 			d.model.screen, d.model.confirm.action)
 	}
 	confirmView := d.view()
-	if !strings.Contains(confirmView, "Telegram: no configurado (canal deshabilitado)") {
-		t.Errorf("confirmation = %q, want the disabled-channel summary line", confirmView)
+	if !strings.Contains(confirmView, "Telegram: omitido (sin cambios en el bloque de Telegram)") {
+		t.Errorf("confirmation = %q, want the skip summary line", confirmView)
 	}
 	if strings.Contains(confirmView, "campo 3 de 5") {
 		t.Errorf("confirmation = %q, the closed group must not ask a further Telegram question", confirmView)
@@ -189,8 +192,8 @@ func TestAppModelHermesConfigSkipsTheTelegramGroup(t *testing.T) {
 		t.Fatalf("screen = %v kind = %v, want the success info screen", d.model.screen, d.model.infoKind)
 	}
 	successView := d.view()
-	if !strings.Contains(successView, "Telegram: no configurado (canal deshabilitado)") {
-		t.Errorf("success = %q, want the disabled-channel summary line", successView)
+	if !strings.Contains(successView, "Telegram: omitido (sin cambios en el bloque de Telegram)") {
+		t.Errorf("success = %q, want the skip summary line", successView)
 	}
 
 	content := f.hermesFile(t)
