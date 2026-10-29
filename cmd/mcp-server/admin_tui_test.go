@@ -1876,3 +1876,31 @@ func TestPurgeConsoleReportPartialBatchSaysParcial(t *testing.T) {
 		t.Errorf("clean report = %q, want no partial hint on a clean batch", clean)
 	}
 }
+
+// TestConsoleErrorText pins the console error-sanitization contract (issue
+// #157, found by GGA during the #154 post-commit review): a semantic error
+// renders its Spanish message verbatim (the operator-facing copy stays a
+// pass-through), and any other error collapses to the generic console line —
+// no filesystem path, driver text or any other internal detail may cross the
+// console.
+func TestConsoleErrorText(t *testing.T) {
+	semErr := &domain.SemanticError{
+		Code:    domain.ErrCodeNotFound,
+		Message: "el servicio indicado no existe",
+	}
+	raw := fmt.Errorf("open /home/secret/hermes/config.yaml: no such file")
+
+	if got := consoleErrorText(semErr); got != "el servicio indicado no existe" {
+		t.Errorf("consoleErrorText(semantic) = %q, want the semantic message", got)
+	}
+	got := consoleErrorText(raw)
+	if got != "ocurrió un error inesperado: revisá el archivo de configuración del grupo y volvé a intentar" {
+		t.Errorf("consoleErrorText(raw) = %q, want the generic console line", got)
+	}
+	if strings.Contains(got, "/home") || strings.Contains(got, "config.yaml") {
+		t.Errorf("consoleErrorText(raw) leaked internal detail: %q", got)
+	}
+	if wrapped := fmt.Errorf("leer skill: %w", semErr); consoleErrorText(wrapped) != "el servicio indicado no existe" {
+		t.Errorf("consoleErrorText(wrapped semantic) = %q, want the wrapped semantic message", consoleErrorText(wrapped))
+	}
+}

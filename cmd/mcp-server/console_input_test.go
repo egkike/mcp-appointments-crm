@@ -248,3 +248,31 @@ func TestConsoleInputPipedModeKeepsBufferedBehaviour(t *testing.T) {
 		t.Fatalf("Secret() = %q, want %q", secret, "clave-secreta")
 	}
 }
+
+// TestConsoleInputNoProgressReadFailsSecure pins the (0,nil) guard of the text
+// prompt path (GGA round 1 of the #157 console round): a terminal read that
+// hands back neither bytes nor EOF is a no-progress read; the line collector
+// must fail the prompt IMMEDIATELY - without consulting the fd a second time,
+// which is where the unbounded spin would come from - instead of silently
+// skipping the piece and (even worse) looping forever when every read is
+// byte-less and error-less.
+func TestConsoleInputNoProgressReadFailsSecure(t *testing.T) {
+	var reads int
+	input := &consoleInput{term: &consoleTerm{
+		read: func(buf []byte) (int, error) {
+			reads++
+			return 0, nil // every read is the no-progress read: byte-less, error-less
+		},
+	}}
+
+	_, err := input.Line()
+	if err == nil {
+		t.Fatal("Line() err = nil, want a failure for the no-progress read")
+	}
+	if !errors.Is(err, io.ErrNoProgress) {
+		t.Fatalf("Line() err = %v, want io.ErrNoProgress after the first no-progress read", err)
+	}
+	if reads != 1 {
+		t.Fatalf("terminal reads = %d, want exactly 1 (the collector fails on the FIRST no-progress piece instead of reading again)", reads)
+	}
+}

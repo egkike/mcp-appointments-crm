@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -578,11 +577,29 @@ func runAdminMenu(ctx context.Context, identity identityDeps, input *consoleInpu
 		if err := option.action(ctx, identity, input, stdout); err != nil {
 			// Business errors reopen the menu; only a console that can no
 			// longer echo would fail here, and that failure is propagated.
-			if werr := writeConsole(stdout, fmt.Sprintf("Error: %v\n", err)); werr != nil {
+			// The rendered copy is sanitized (issue #157): a semantic error's
+			// message passes through, any other error collapses to the generic
+			// console line instead of exposing filesystem or driver detail.
+			if werr := writeConsole(stdout, fmt.Sprintf("Error: %s\n", consoleErrorText(err))); werr != nil {
 				return werr
 			}
 		}
 	}
+}
+
+// consoleErrorText is the operator-facing rendering of one console error
+// (issue #157): a *domain.SemanticError renders its Spanish message verbatim —
+// every business error copy of the admin flows keeps printing exactly as before
+// — and any other error collapses to a single generic line, so a filesystem
+// path, a driver message or any other internal detail can never reach the
+// console. The raw error itself stays at the caller for anything it already
+// logs server-side.
+func consoleErrorText(err error) string {
+	var semErr *domain.SemanticError
+	if errors.As(err, &semErr) {
+		return semErr.Message
+	}
+	return "ocurrió un error inesperado: revisá el archivo de configuración del grupo y volvé a intentar"
 }
 
 // writeMenu renders the numbered capability list plus the quit option.
@@ -1137,6 +1154,14 @@ func collectConsoleLine(next func() ([]byte, error)) (string, error) {
 	oversized := false
 	for {
 		piece, ferr := next()
+		// A read that yields neither bytes nor EOF is a no-progress read
+		// (GGA round 1 of the #157 console round, e.g. Ctrl+D at an empty
+		// line): silently skipping it would re-read forever on a source that
+		// keeps returning nothing, so the prompt fails immediately — the same
+		// fail-secure answer the secret path's consoleByteSource applies.
+		if len(piece) == 0 && ferr == nil {
+			return "", fmt.Errorf("leer la entrada del operador: %w", io.ErrNoProgress)
+		}
 		// A line ends when the piece carries the delimiter; the byte-wise
 		// terminal path therefore signals the end of a line with the same
 		// predicate the buffered path gets from ReadSlice.
@@ -1191,9 +1216,10 @@ func (c *consoleInput) Secret() (string, error) {
 		}
 		return "", fmt.Errorf("leer la entrada secreta: %w", err)
 	}
-	// The no-echo read is bounded while reading on POSIX; the Windows console
-	// read still collects the line itself, so the bound is re-checked here and
-	// an oversized value is rejected before it can be used (GGA round 1).
+	// The no-echo read is bounded while reading on both platforms (issue #154
+	// closed the Windows gap); this re-check stays as the second layer of
+	// defense in depth, so a future reader that collects the line itself cannot
+	// hand an oversized value to the caller (GGA round 1).
 	if len(raw) > consoleInputLineMax {
 		return "", errConsoleLineTooLong()
 	}
@@ -1204,31 +1230,48 @@ func (c *consoleInput) Secret() (string, error) {
 // (GGA round 1: a secret must be bounded while reading, not after the fact, so
 // an oversized paste can never allocate unbounded memory).
 //
-// On POSIX the terminal is switched to raw mode — echo off before the first
-// byte is read — and the accumulator below consumes the fd byte by byte, so an
-// oversized paste is drained instead of buffered. Raw mode also drops the line
-// discipline, so the accumulator emulates the erase key and maps Ctrl+C/Ctrl+D
-// to the shared cancellation error instead of a signal.
+// Both platforms run the same bounded accumulator (readSecretBounded) inside
+// the same orchestration (readSecretWithNoEcho); only the "no echo" primitive
+// is platform-specific and lives behind readSecretNoEcho in a build-tagged
+// sibling file (admin_console_secret_windows.go / admin_console_secret_other.go).
 //
-// Windows keeps term.ReadPassword: its no-echo read is a console-mode read with
-// no bounded variant. That residual is honest, not hidden — the length check in
-// Secret() still rejects an oversized value before it is used, and the console
-// only ever reads secrets from an interactive operator on the loopback box.
+// The no-echo mode drops the line discipline, so the accumulator emulates the
+// erase key and maps Ctrl+C/Ctrl+D to the shared cancellation error instead of
+// a signal — where the platform delivers those bytes as input (see the Windows
+// hook for the one place it does not, issue #154).
 func readTerminalSecret(f *os.File, limit int) ([]byte, error) {
-	if runtime.GOOS == "windows" {
-		return term.ReadPassword(f.Fd())
-	}
-	state, err := term.MakeRaw(f.Fd())
+	return readSecretNoEcho(f, limit)
+}
+
+// readSecretWithNoEcho is the one secret read both platforms execute: it
+// engages the platform no-echo mode before the first byte is read (a secret is
+// never collected with echo on), consumes the fd byte by byte through the
+// bounded accumulator, and restores the console mode on every exit path, error
+// included, through the deferred restore.
+func readSecretWithNoEcho(limit int, enter func() (func(), error), read func([]byte) (int, error)) ([]byte, error) {
+	restore, err := enter()
 	if err != nil {
 		// Without the no-echo mode the secret would be echoed: fail, never read.
-		return nil, fmt.Errorf("no se pudo desactivar el eco de la terminal: %w", err)
+		return nil, err
 	}
-	defer func() { _ = term.Restore(f.Fd(), state) }()
-	return readSecretBounded(limit, func() ([]byte, error) {
+	defer restore()
+	return readSecretBounded(limit, consoleByteSource(read))
+}
+
+// consoleByteSource turns an fd read into the single-byte piece source the
+// bounded accumulator consumes. A read that reports neither bytes nor an error
+// becomes io.ErrNoProgress instead of an empty piece: the accumulator would
+// otherwise spin forever on a console that keeps returning nothing, and a
+// no-progress read is a failure of the secret read, not an empty secret.
+func consoleByteSource(read func([]byte) (int, error)) func() ([]byte, error) {
+	return func() ([]byte, error) {
 		var one [1]byte
-		n, rerr := f.Read(one[:])
+		n, rerr := read(one[:])
+		if n == 0 && rerr == nil {
+			return nil, io.ErrNoProgress
+		}
 		return one[:n], rerr
-	})
+	}
 }
 
 // readSecretBounded accumulates one no-echo secret line from a raw byte source:
@@ -1239,24 +1282,38 @@ func readTerminalSecret(f *os.File, limit int) ([]byte, error) {
 func readSecretBounded(limit int, next func() ([]byte, error)) ([]byte, error) {
 	var collected []byte
 	oversized := false
+	aborted := false
 	for {
 		piece, ferr := next()
 		for _, b := range piece {
 			switch {
 			case b == '\r' || b == '\n':
-				// Raw mode delivers the Enter key as a bare CR on POSIX and Windows.
+				// Raw mode delivers the Enter key as a bare CR on POSIX and
+				// Windows. The abort drain ends at the aborted line's OWN
+				// terminator: bytes after it belonged to the NEXT prompt all
+				// along (GGA round 1 of issue #154 — a queued suffix can never
+				// become a later prompt's answer, the same isolation the
+				// oversized drain keeps).
+				if aborted {
+					return nil, errInputAborted
+				}
 				if oversized {
 					return nil, errConsoleLineTooLong()
 				}
 				return collected, nil
 			case b == 0x03 || b == 0x04: // Ctrl+C / Ctrl+D: no signal in raw mode
-				return nil, errInputAborted
+				// Aborting the line drops the rest of it too: until its own
+				// terminator, everything queued after the abort byte belongs to
+				// the aborted prompt and is drained, never stored or forwarded.
+				aborted = true
+				collected = nil // never keep a partial aborted secret
 			case b == 0x7f || b == 0x08: // erase key of the dropped line discipline
 				if len(collected) > 0 {
 					collected = collected[:len(collected)-1]
 				}
-			case oversized:
-				// Draining the rejected line: its bytes are dropped, never stored.
+			case oversized || aborted:
+				// Draining the rejected/aborted line: its bytes are dropped,
+				// never stored.
 			default:
 				if len(collected)+1 > limit {
 					oversized = true
@@ -1268,6 +1325,9 @@ func readSecretBounded(limit int, next func() ([]byte, error)) ([]byte, error) {
 		}
 		if ferr != nil {
 			if errors.Is(ferr, io.EOF) {
+				if aborted {
+					return nil, errInputAborted
+				}
 				if oversized {
 					return nil, errConsoleLineTooLong()
 				}
@@ -1577,7 +1637,9 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *c
 		if skillErr == nil {
 			return writeConsole(stdout, "Skill recepcionista: "+string(outcome)+"\nHermes recarga el índice de skills en su próximo arranque.\n")
 		}
-		if werr := writeConsole(stdout, "Error: "+skillErr.Error()+"\n"); werr != nil {
+		// Sanitized like every console print (issue #157): the regeneration
+		// failure may be a plain filesystem error with a config path on it.
+		if werr := writeConsole(stdout, fmt.Sprintf("Error: %s\n", consoleErrorText(skillErr))); werr != nil {
 			return werr
 		}
 		return nil
