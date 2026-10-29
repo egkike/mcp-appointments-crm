@@ -27,12 +27,22 @@ type AccountsRepo struct {
 	db     *sql.DB
 	logger *slog.Logger
 	audit  *AccountsAuditRepo
+	// digester produces the actor reference the durable audit row stores
+	// (ADR-0021). It defaults to auth.HashCallerID — the keyed digest the
+	// composition root configures at boot — and a nil digester means "not
+	// configured": the row is persisted WITHOUT actor_ref (the empty shape the
+	// sink already accepts) instead of falling back to the retired unkeyed
+	// digest.
+	digester auth.CallerIDDigester
 }
 
 // NewAccountsRepo creates a repo with an already-open *sql.DB and configured *slog.Logger.
-// It does NOT open connections or run migrations.
+// It does NOT open connections or run migrations. The audit emitter uses the
+// boot-configured keyed caller digest (auth.HashCallerID); tests in this package
+// override the digester field to pin a fixed key or to exercise the
+// unconfigured fail-closed seam.
 func NewAccountsRepo(db *sql.DB, logger *slog.Logger) *AccountsRepo {
-	return &AccountsRepo{db: db, logger: logger, audit: NewAccountsAuditRepo(db)}
+	return &AccountsRepo{db: db, logger: logger, audit: NewAccountsAuditRepo(db), digester: auth.HashCallerID}
 }
 
 // persistAuditEvent writes the durable audit row for a mutation outcome. The
@@ -48,18 +58,40 @@ func (r *AccountsRepo) persistAuditEvent(ctx context.Context, e *entity.AccountA
 }
 
 // newAccountAuditEvent assembles the masked, non-PII event every emission
-// site persists: actor hashed via auth.HashCallerID (the same decision the
-// middleware already made for its records), target phone always MaskPhone-ed,
-// detail JSON expected pre-masked by the caller (the transfer's
-// previous_owner_id) so no column ever carries a raw phone.
-func newAccountAuditEvent(actorID, eventID, action, targetID string, targetRole entity.AccountRole, detail *entity.AccountAuditDetail) *entity.AccountAuditEvent {
+// site persists: the actor is digested with the injected keyed digest
+// (HMAC-SHA-256, ADR-0021 — the same reference decision the middleware made for
+// its records), the target phone is always MaskPhone-ed, and detail JSON is
+// expected pre-masked by the caller (the transfer's previous_owner_id) so no
+// column ever carries a raw phone.
+//
+// Fail closed on an unconfigured digest: actor_ref is omitted and the
+// degradation is logged. The row is still written — a missing reference is an
+// audit-quality problem, while dropping the row would be an audit-completeness
+// problem — and the reference never degrades to the retired unkeyed SHA-256.
+func (r *AccountsRepo) newAccountAuditEvent(actorID, eventID, action, targetID string, targetRole entity.AccountRole, detail *entity.AccountAuditDetail) *entity.AccountAuditEvent {
 	role := ""
 	if targetRole != "" {
 		role = string(targetRole)
 	}
 	actorRef := ""
 	if actorID != "" {
-		actorRef = auth.HashCallerID(actorID)
+		var ref string
+		if r.digester != nil {
+			ref = r.digester(actorID)
+		}
+		// An empty reference means "not configured": either no digester was
+		// injected, or the process digest was never installed and HashCallerID
+		// answered "". Both are wiring bugs, both must be visible, and neither
+		// may degrade to the retired unkeyed digest.
+		if ref == "" {
+			r.logger.Error("audit digest unconfigured, actor_ref omitted",
+				"scheme", auth.AuditDigestScheme,
+				"event", eventID,
+				"action", action,
+			)
+		} else {
+			actorRef = ref
+		}
 	}
 	return &entity.AccountAuditEvent{
 		Ts:       time.Now().UTC().Format(time.RFC3339Nano),
@@ -91,15 +123,33 @@ func actorFromContext(ctx context.Context) string {
 }
 
 // auditAttrs builds the common audit log attributes, omitting actor_id when empty.
-func auditAttrs(actorID, targetID, targetRole string) []any {
-	attrs := make([]any, 0, 7)
+// The journal mirrors the persisted row's masking rule (ADR-0021 decision 6,
+// GGA round 1 of the #155 commit): actor_id and target_id carry MaskPhone-ed
+// identifiers - journal readers are not bound by the ephemeral trust of a TUI
+// session, and the slog lines are as PII-free as the columns they mirror.
+//
+// The attrs are TYPED (GGA round 3): the builder answers []slog.Attr, so the
+// compiler owns the key/value shape instead of a positional convention.
+func auditAttrs(actorID, targetID, targetRole string) []slog.Attr {
+	attrs := make([]slog.Attr, 0, 4)
 	if actorID != "" {
-		attrs = append(attrs, "actor_id", actorID)
+		attrs = append(attrs, slog.String("actor_id", entity.MaskPhone(actorID)))
 	}
-	attrs = append(attrs, "target_id", targetID)
-	attrs = append(attrs, "target_role", targetRole)
-	attrs = append(attrs, "ts", time.Now().UTC().Format(time.RFC3339Nano))
+	attrs = append(attrs,
+		slog.String("target_id", entity.MaskPhone(targetID)),
+		slog.String("target_role", targetRole),
+		slog.String("ts", time.Now().UTC().Format(time.RFC3339Nano)),
+	)
 	return attrs
+}
+
+// asAnyLifts promotes typed attrs to the slog method variadic form.
+func asAnyLifts(attrs []slog.Attr) []any {
+	anyAttrs := make([]any, 0, len(attrs))
+	for _, a := range attrs {
+		anyAttrs = append(anyAttrs, a)
+	}
+	return anyAttrs
 }
 
 // Create inserts a new account. Validates before touching the DB.
@@ -125,9 +175,9 @@ func (r *AccountsRepo) Create(ctx context.Context, a *entity.Account) error {
 			// audit row: the rejection leaves a trace and nothing else).
 			actorID := actorFromContext(ctx)
 			attrs := auditAttrs(actorID, a.ID, string(a.Role))
-			attrs = append(attrs, "result", "rejected")
-			r.logger.Warn("second active owner rejected", attrs...)
-			r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventRejected, entity.AccountAuditActionReject, a.ID, a.Role, nil))
+			attrs = append(attrs, slog.String("result", "rejected"))
+			r.logger.Warn("second active owner rejected", asAnyLifts(attrs)...)
+			r.persistAuditEvent(ctx, r.newAccountAuditEvent(actorID, entity.AccountAuditEventRejected, entity.AccountAuditActionReject, a.ID, a.Role, nil))
 			return fmt.Errorf("crear cuenta: %w: ya existe un owner activo; desactívalo antes de crear otro", domain.ErrConflict)
 		}
 	}
@@ -157,8 +207,8 @@ func (r *AccountsRepo) Create(ctx context.Context, a *entity.Account) error {
 	}
 
 	actorID := actorFromContext(ctx)
-	r.logger.Info("account created", auditAttrs(actorID, a.ID, string(a.Role))...)
-	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventCreated, entity.AccountAuditActionCreate, a.ID, a.Role, nil))
+	r.logger.Info("account created", asAnyLifts(auditAttrs(actorID, a.ID, string(a.Role)))...)
+	r.persistAuditEvent(ctx, r.newAccountAuditEvent(actorID, entity.AccountAuditEventCreated, entity.AccountAuditActionCreate, a.ID, a.Role, nil))
 	return nil
 }
 
@@ -300,8 +350,8 @@ func (r *AccountsRepo) PurgeInactive(ctx context.Context, id string) (bool, erro
 	committed = true
 
 	actorID := actorFromContext(ctx)
-	r.logger.Info("account purged", auditAttrs(actorID, id, role)...)
-	r.persistAuditEvent(ctx, newAccountAuditEvent(
+	r.logger.Info("account purged", asAnyLifts(auditAttrs(actorID, id, role))...)
+	r.persistAuditEvent(ctx, r.newAccountAuditEvent(
 		actorID, entity.AccountAuditEventPurged, entity.AccountAuditActionPurge,
 		id, entity.AccountRole(role), nil))
 	return true, nil
@@ -387,12 +437,22 @@ func (r *AccountsRepo) Update(ctx context.Context, a *entity.Account) error {
 		return fmt.Errorf("actualizar cuenta: %w", err)
 	}
 
-	// RowsAffected == 0 after a confirmed-existing row means no-op update (same values). Not an error.
-	_ = result
+	// GGA round 1 of the #155 commit (TOCTOU): RowsAffected == 0 here does NOT
+	// prove a no-op update - a concurrent purge can delete the row between the
+	// existence pre-check and the UPDATE (fetchAccounts/precheck are separate
+	// statements, not one atomic step). Fail closed: answer NotFound and emit
+	// NOTHING (no success slog, no audit row) instead of manufacturing history.
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("actualizar cuenta: medir la escritura: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("actualizar cuenta: %w: la fila desapareció durante la operación (purga concurrente)", domain.ErrNotFound)
+	}
 
 	actorID := actorFromContext(ctx)
-	r.logger.Info("account updated", auditAttrs(actorID, a.ID, string(a.Role))...)
-	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventUpdated, entity.AccountAuditActionUpdate, a.ID, a.Role, nil))
+	r.logger.Info("account updated", asAnyLifts(auditAttrs(actorID, a.ID, string(a.Role)))...)
+	r.persistAuditEvent(ctx, r.newAccountAuditEvent(actorID, entity.AccountAuditEventUpdated, entity.AccountAuditActionUpdate, a.ID, a.Role, nil))
 	return nil
 }
 
@@ -426,16 +486,26 @@ func (r *AccountsRepo) Deactivate(ctx context.Context, id string) error {
 		return nil
 	}
 
-	_, err = r.db.ExecContext(ctx,
+	result, err := r.db.ExecContext(ctx,
 		`UPDATE accounts SET is_active = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`, id,
 	)
 	if err != nil {
 		return fmt.Errorf("desactivar cuenta: %w", err)
 	}
+	// Same TOCTOU answer as Update (GGA round 1 of the #155 commit): the
+	// pre-check is not atomic with the write, so RowsAffected == 0 means the
+	// row was purged concurrently - NotFound, no success slog, no audit row.
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("desactivar cuenta: medir la escritura: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("desactivar cuenta: %w: la fila desapareció durante la operación (purga concurrente)", domain.ErrNotFound)
+	}
 
 	actorID := actorFromContext(ctx)
-	r.logger.Info("account deactivated", auditAttrs(actorID, id, role)...)
-	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventDeactive, entity.AccountAuditActionDeactivate, id, entity.AccountRole(role), nil))
+	r.logger.Info("account deactivated", asAnyLifts(auditAttrs(actorID, id, role))...)
+	r.persistAuditEvent(ctx, r.newAccountAuditEvent(actorID, entity.AccountAuditEventDeactive, entity.AccountAuditActionDeactivate, id, entity.AccountRole(role), nil))
 	return nil
 }
 
@@ -514,12 +584,12 @@ func (r *AccountsRepo) TransferOwnership(ctx context.Context, fromID, toID strin
 	// Detail is the typed audit payload: the sink marshals it, so no
 	// free-form JSON can bypass the mask rule (previous owner ships masked).
 	detail := &entity.AccountAuditDetail{PreviousOwnerMasked: entity.MaskPhone(fromID)}
-	// slog keeps the historical raw shape (existing pin): the "no raw PII"
-	// rule this slice adds binds the PERSISTED rows, not the journal.
+	// The journal mirrors the row's mask (ADR-0021 decision 6): the previous
+	// owner ships masked here too, instead of keeping the historical raw shape.
 	attrs := auditAttrs(actorID, toID, string(entity.RoleOwner))
-	attrs = append(attrs, "previous_owner_id", fromID)
-	r.logger.Info("ownership transferred", attrs...)
-	r.persistAuditEvent(ctx, newAccountAuditEvent(actorID, entity.AccountAuditEventTransfer, entity.AccountAuditActionTransfer, toID, entity.RoleOwner, detail))
+	attrs = append(attrs, slog.String("previous_owner_id", entity.MaskPhone(fromID)))
+	r.logger.Info("ownership transferred", asAnyLifts(attrs)...)
+	r.persistAuditEvent(ctx, r.newAccountAuditEvent(actorID, entity.AccountAuditEventTransfer, entity.AccountAuditActionTransfer, toID, entity.RoleOwner, detail))
 	return nil
 }
 

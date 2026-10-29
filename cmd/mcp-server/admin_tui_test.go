@@ -968,7 +968,12 @@ func TestRunAdminTUIFlow_TransferOwnershipPromotesStaffFromMenu(t *testing.T) {
 		"Owner actual:",
 		"Ana Staff (staff, " + staffPhone + ")",
 		"Paso 2 de 2: confirmar la transferencia.",
-		"El owner actual quedará desactivado. ¿Confirmar?",
+		// GGA round 2 of the follow-ups PR (the human-verification gate):
+		// the confirmation names the account that will RECEIVE ownership —
+		// with piped input the selection text is never echoed again, so the
+		// operator must read it in the exact question they answer.
+		"Ana Staff (staff, " + staffPhone + ") recibirá la propiedad.",
+		"El owner actual quedará desactivado y Ana Staff (staff, " + staffPhone + ") recibirá la propiedad. ¿Confirmar?",
 		"Ownership transferido:",
 		"caller-id actualizado en",
 	} {
@@ -1055,6 +1060,11 @@ func TestRunAdminTUIFlow_TransferToNewPhoneCreatesInactiveOwnerThenSwaps(t *test
 
 	if !strings.Contains(out.String(), "Otro teléfono (crear una cuenta de owner nueva)") {
 		t.Errorf("output = %q, want the new-phone successor option", out.String())
+	}
+	// Same human-verification gate for the new-phone path: the confirmation
+	// names the fresh operator-provided identity (name + phone).
+	if !strings.Contains(out.String(), "Dueño Nuevo ("+successorPhone+") recibirá la propiedad.") {
+		t.Errorf("output = %q, want the confirmation to name the chosen successor", out.String())
 	}
 
 	active := activeOwnerAccounts(t, dbPath)

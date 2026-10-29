@@ -1356,6 +1356,10 @@ type transferSuccessorOption struct {
 	phone       string
 	displayName string
 	label       string
+	// identity is the candidate's bare AccountLabel (no action suffix): the
+	// confirmation sentence must name WHO receives ownership, not what the
+	// menu entry prompts the operator to do (GGA round 2).
+	identity string
 }
 
 // runTransferOwnershipFlow drives the Transfer Ownership capability (ADR-0016
@@ -1416,6 +1420,7 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, input 
 		chosen.phone = phone
 		chosen.displayName = displayName
 		chosen.label = fmt.Sprintf("%s (%s)", displayName, phone)
+		chosen.identity = chosen.label
 	}
 
 	if chosen.kind == admin.SuccessorStaff {
@@ -1430,7 +1435,13 @@ func runTransferOwnershipFlow(ctx context.Context, identity identityDeps, input 
 	if err := writeConsole(stdout, "Paso 2 de 2: confirmar la transferencia.\n"); err != nil {
 		return err
 	}
-	confirmed, err := promptConfirm(input, stdout, "El owner actual quedará desactivado. ¿Confirmar?")
+	// The confirmation NAMES the successor (GGA round 2 of the follow-ups
+	// cycle, a human-verification gate on a consequential, irreversible
+	// role change): with piped input the selection text is never echoed
+	// again, so the operator must read the receiving identity in the exact
+	// question they answer.
+	confirmed, err := promptConfirm(input, stdout, fmt.Sprintf(
+		"El owner actual quedará desactivado y %s recibirá la propiedad. ¿Confirmar?", chosen.identity))
 	if err != nil {
 		return err
 	}
@@ -1478,9 +1489,10 @@ func transferSuccessorOptions(ctx context.Context, identity identityDeps) ([]tra
 	options := make([]transferSuccessorOption, 0, len(candidates))
 	for _, candidate := range candidates {
 		options = append(options, transferSuccessorOption{
-			kind:  candidate.Kind,
-			id:    candidate.ID,
-			label: candidate.Label,
+			kind:     candidate.Kind,
+			id:       candidate.ID,
+			label:    candidate.Label,
+			identity: candidate.Identity,
 		})
 	}
 	return options, nil

@@ -94,6 +94,12 @@ type SuccessorCandidate struct {
 	Kind  SuccessorKind
 	ID    string
 	Label string
+	// Identity names the account WITHOUT any action suffix (AccountLabel
+	// byte-for-byte): the menu label of an active staff account carries the
+	// "promote to owner" instruction, but a CONFIRMATION sentence needs the
+	// bare identity it confirms about. Both presentations use it when naming
+	// the chosen successor at the transfer confirmation (ADR-0016 Decision 1).
+	Identity string
 }
 
 // SuccessorCandidates builds the numbered successor list shared by both
@@ -111,7 +117,7 @@ func SuccessorCandidates(ctx context.Context, accounts AccountsAdmin) ([]Success
 		IncludeInactive: true,
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listar owners sucesores: %w", err)
 	}
 
 	candidates := make([]SuccessorCandidate, 0, len(owners)+1)
@@ -120,21 +126,23 @@ func SuccessorCandidates(ctx context.Context, accounts AccountsAdmin) ([]Success
 			continue
 		}
 		candidates = append(candidates, SuccessorCandidate{
-			Kind:  SuccessorInactiveOwner,
-			ID:    view.ID,
-			Label: AccountLabel(view),
+			Kind:     SuccessorInactiveOwner,
+			ID:       view.ID,
+			Label:    AccountLabel(view),
+			Identity: AccountLabel(view),
 		})
 	}
 
 	staff, err := ListAccounts(ctx, accounts, ListFilter{Role: entity.RoleStaff})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("listar cuentas staff sucesoras: %w", err)
 	}
 	for _, view := range staff {
 		candidates = append(candidates, SuccessorCandidate{
-			Kind:  SuccessorStaff,
-			ID:    view.ID,
-			Label: AccountLabel(view) + " — promover a owner",
+			Kind:     SuccessorStaff,
+			ID:       view.ID,
+			Label:    AccountLabel(view) + " — promover a owner",
+			Identity: AccountLabel(view),
 		})
 	}
 

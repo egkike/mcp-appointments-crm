@@ -53,7 +53,7 @@ type AccountAuditEvent struct {
 	ID          int64               // AUTOINCREMENT id; 0 until the row is committed.
 	Ts          string              // RFC3339Nano UTC, same shape as the current audit attrs.
 	Event       string              // catalog constant above.
-	ActorRef    string              // opaque hashed actor reference (auth.HashCallerID: 64 hex); "" when the flow has no Caller.
+	ActorRef    string              // opaque keyed actor reference (auth.HashCallerID: HMAC-SHA-256, 64 hex; histórico unkeyed aceptado por la ventana mixed de ADR-0021); "" cuando el flow no tiene Caller y también como falla cerrada sin clave configurada.
 	TargetID    string              // account id, ALWAYS via MaskPhone: the id is the phone, so the row stores the mask (spec: no raw PII in any column).
 	TargetRole  string              // owner | admin | staff; "" when the row exists without role.
 	Action      string              // action catalog above.

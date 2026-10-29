@@ -2,7 +2,11 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -324,5 +328,271 @@ func TestAdminPurgeInactiveAccounts_OutcomeIdsMasked(t *testing.T) {
 	}
 	if outcomes[0].Account.ID != "***4402" {
 		t.Errorf("outcome id = %q, want the masked phone ***4402", outcomes[0].Account.ID)
+	}
+}
+
+// ── ADR-0021: keyed caller-id digest in the durable audit row ───────────────
+//
+// The audit identity scheme is HMAC-SHA-256 keyed with an installation key. The
+// persisted actor_ref stays 64 lowercase hex chars, so the column, its
+// validation and every reader are untouched; what changes is that the reference
+// is no longer enumerable offline. These tests pin the adapter seam: the row is
+// built from the injected digester, and an unconfigured digester fails closed
+// instead of writing the retired unkeyed digest.
+
+const (
+	// repoAuditKeyHex is the fixed 32-byte test key (same vector as the auth
+	// package pin).
+	repoAuditKeyHex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+
+	// repoAuditActorID is the caller id adminCtx() attaches.
+	repoAuditActorID = "admin-1"
+
+	// repoAuditActorRefPinned is HMAC-SHA-256(key = repoAuditKeyHex,
+	// id = "admin-1"), computed once outside this code.
+	repoAuditActorRefPinned = "d2b4ead8ae8696b5aa906bde0b29bbb79c9a5a137b375bf7b8203342aab94b14"
+)
+
+// keyedAuditDigester builds the keyed digester for the fixed test key.
+func keyedAuditDigester(t *testing.T) auth.CallerIDDigester {
+	t.Helper()
+	key, err := hex.DecodeString(repoAuditKeyHex)
+	if err != nil {
+		t.Fatalf("decode test key: %v", err)
+	}
+	digester, err := auth.NewCallerIDDigester(key)
+	if err != nil {
+		t.Fatalf("NewCallerIDDigester: %v", err)
+	}
+	return digester
+}
+
+// TestAccountsAudit_ActorRefIsKeyedDigest pins the write path end to end: a
+// mutation performed by an admin leaves a row whose actor_ref is the keyed HMAC
+// of the actor id — the pinned vector, not the retired unkeyed SHA-256.
+func TestAccountsAudit_ActorRefIsKeyedDigest(t *testing.T) {
+	repo, audit := newAuditTestRepo(t)
+	repo.digester = keyedAuditDigester(t)
+
+	account := &entity.Account{ID: "+5491100000100", Role: entity.RoleAdmin, DisplayName: "Keyed", Active: true}
+	if err := repo.Create(adminCtx(), account); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	events, err := audit.LastAccountsAudit(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("LastAccountsAudit: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("audit rows = %d, want 1", len(events))
+	}
+
+	got := events[0].ActorRef
+	if got != repoAuditActorRefPinned {
+		t.Errorf("actor_ref = %q; want the pinned keyed digest %q", got, repoAuditActorRefPinned)
+	}
+	if len(got) != 64 || strings.ToLower(got) != got {
+		t.Errorf("actor_ref = %q; want 64 lowercase hex chars (audit column shape)", got)
+	}
+
+	unkeyed := sha256.Sum256([]byte(repoAuditActorID))
+	if got == hex.EncodeToString(unkeyed[:]) {
+		t.Error("actor_ref equals the retired unkeyed SHA-256 digest; the actor id stays enumerable")
+	}
+	if strings.Contains(got, repoAuditActorID) {
+		t.Errorf("actor_ref = %q; it must not carry the raw actor id", got)
+	}
+}
+
+// TestAccountsAudit_ActorRefOmittedWhenDigestUnconfigured pins the fail-closed
+// seam on both shapes of "not configured": no digester at all, and a digester
+// that answers "" because the process-wide keyed digest was never installed (the
+// production default when the boot seam is skipped). In both cases the row is
+// still written (audit completeness) but WITHOUT actor_ref, the degradation is
+// logged, and the retired unkeyed digest is never a fallback.
+func TestAccountsAudit_ActorRefOmittedWhenDigestUnconfigured(t *testing.T) {
+	seams := map[string]auth.CallerIDDigester{
+		"nil digester": nil,
+		"unconfigured process digest": func(string) string {
+			// Exactly what auth.HashCallerID answers when no key is installed.
+			return ""
+		},
+	}
+
+	for name, digester := range seams {
+		t.Run(name, func(t *testing.T) {
+			db, cleanup := newAggregateTestDB(t)
+			defer cleanup()
+			logger, handler := newTestLogger()
+			repo := NewAccountsRepo(db, logger)
+			repo.digester = digester
+
+			account := &entity.Account{ID: "+5491100000101", Role: entity.RoleAdmin, DisplayName: "Unkeyed", Active: true}
+			if err := repo.Create(adminCtx(), account); err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+
+			events, err := repo.LastAccountsAudit(context.Background(), 10)
+			if err != nil {
+				t.Fatalf("LastAccountsAudit: %v", err)
+			}
+			if len(events) != 1 {
+				t.Fatalf("audit rows = %d, want 1 (the row must not be dropped)", len(events))
+			}
+			if events[0].ActorRef != "" {
+				t.Errorf("actor_ref = %q; want it omitted while the digest is unconfigured", events[0].ActorRef)
+			}
+
+			if recs := handler.recordsByMsg("audit digest unconfigured, actor_ref omitted"); len(recs) != 1 {
+				t.Fatalf("digest-degradation records = %d; want exactly 1 (fail closed must be visible)", len(recs))
+			}
+
+			unkeyed := sha256.Sum256([]byte(repoAuditActorID))
+			if strings.Contains(events[0].Ts+events[0].Event+events[0].ActorRef+events[0].Action, hex.EncodeToString(unkeyed[:])) {
+				t.Error("the row carries the retired unkeyed SHA-256 digest")
+			}
+		})
+	}
+}
+
+// TestAccountsAudit_AppendAcceptsMixedSchemeActorRefs pins the mixed acceptance
+// window (ADR-0021): rows written before the keyed digest landed (unkeyed
+// SHA-256) and rows written after (keyed HMAC) are indistinguishable to the
+// column contract, so both persist and read back unchanged — no schema change,
+// no migration, no rewrite of historical rows.
+func TestAccountsAudit_AppendAcceptsMixedSchemeActorRefs(t *testing.T) {
+	_, audit := newAuditTestRepo(t)
+
+	legacyRef := sha256.Sum256([]byte("+5491100000500"))
+	keyedRef := repoAuditActorRefPinned
+
+	legacy := &entity.AccountAuditEvent{
+		Event: entity.AccountAuditEventCreated, Action: entity.AccountAuditActionCreate,
+		TargetID: "+5491100000500", TargetRole: string(entity.RoleStaff),
+		ActorRef: hex.EncodeToString(legacyRef[:]),
+	}
+	if err := audit.Append(context.Background(), legacy); err != nil {
+		t.Fatalf("Append (legacy unkeyed digest): %v", err)
+	}
+	keyed := &entity.AccountAuditEvent{
+		Event: entity.AccountAuditEventUpdated, Action: entity.AccountAuditActionUpdate,
+		TargetID: "+5491100000500", TargetRole: string(entity.RoleStaff),
+		ActorRef: keyedRef,
+	}
+	if err := audit.Append(context.Background(), keyed); err != nil {
+		t.Fatalf("Append (keyed digest): %v", err)
+	}
+
+	events, err := audit.LastAccountsAudit(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("LastAccountsAudit: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("audit rows = %d, want 2 (both schemes accepted)", len(events))
+	}
+
+	refs := map[string]bool{}
+	for _, e := range events {
+		refs[e.ActorRef] = true
+	}
+	if !refs[hex.EncodeToString(legacyRef[:])] || !refs[keyedRef] {
+		t.Errorf("persisted actor_refs = %v; want both the legacy unkeyed and the keyed digest", refs)
+	}
+}
+
+// TestAuditAttrs_MaskPhoneIds pins the operational-slog masking decision 6 of
+// ADR-0021 (GGA round 1 of the #155 commit): the journal lines the repo emits
+// are as PII-free as the persisted rows - actor_id, target_id and
+// previous_owner_id carry the same MaskPhone shape ("***<last4>"), never the
+// raw phone, because journal readers are not bound by the ephemeral-process
+// trust of a TUI session.
+func TestAuditAttrs_MaskPhoneIds(t *testing.T) {
+	attrs := auditAttrs("+5491100000001", "+5491100000002", "admin")
+
+	values := map[string]string{"actor_id": "***0001", "target_id": "***0002"}
+	lookup := map[string]string{}
+	for _, a := range attrs {
+		lookup[a.Key] = a.Value.String()
+	}
+	for key, want := range values {
+		if got := lookup[key]; got != want {
+			t.Errorf("%s = %v, want masked %v", key, got, want)
+		}
+	}
+}
+
+// TestAuditAttrs_BuriesNonPhoneIds reminds that MaskPhone buries anything that
+// is not an identifier-shaped value: a non-phone id never leaks its tail.
+func TestAuditAttrs_BuriesNonPhoneIds(t *testing.T) {
+	attrs := auditAttrs("uptime-pinger", "weird-key", "admin")
+	lookup := map[string]string{}
+	for _, a := range attrs {
+		lookup[a.Key] = a.Value.String()
+	}
+	for _, key := range []string{"actor_id", "target_id"} {
+		if got := lookup[key]; got != "***" {
+			t.Errorf("%s = %v, want fully buried ***", key, got)
+		}
+	}
+}
+
+// TestAccountsAudit_DetailWireBytesArePinned pins the exact detail-column
+// bytes of the ownership_transferred row (the single detail payload today):
+// the ban on free-form strings means the JSON key set and value shapes ARE
+// the contract, so any future field or rename shows up as a byte diff here
+// instead of drifting silently.
+func TestAccountsAudit_DetailWireBytesArePinned(t *testing.T) {
+	e := &entity.AccountAuditEvent{
+		Event: entity.AccountAuditEventTransfer,
+		Detail: &entity.AccountAuditDetail{
+			PreviousOwnerMasked: "***0101",
+		},
+	}
+	got, err := auditDetailJSON(e)
+	if err != nil {
+		t.Fatalf("auditDetailJSON error = %v", err)
+	}
+	if expected := `{"previous_owner_masked":"***0101"}`; got.String != expected {
+		t.Errorf("detail bytes = %s, want %s (both SCHEMES byte-stable)", got.String, expected)
+	}
+	if !got.Valid {
+		t.Error("detail row Valid = false, want true with a payload")
+	}
+}
+
+// TestAccountsAudit_DetailColumnShapesStayEquivalent pins BOTH persisted
+// shapes (the pre-refactor behavior, verified byte-for-byte): an event with no
+// detail renders the SQL NULL column, and an event carrying a set-but-empty
+// detail renders the one-key-less JSON "{}" as a non-NULL value - the same
+// bytes the tagged entity of B8 produced, preserved by the adapter DTO.
+func TestAccountsAudit_DetailColumnShapesStayEquivalent(t *testing.T) {
+	empty, err := auditDetailJSON(&entity.AccountAuditEvent{Event: entity.AccountAuditEventTransfer})
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if empty.Valid {
+		t.Errorf("value = %v, want SQL NULL for an event without detail", empty.String)
+	}
+
+	none := &entity.AccountAuditEvent{
+		Detail: &entity.AccountAuditDetail{},
+	}
+	empty2, err := auditDetailJSON(none)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if !empty2.Valid || empty2.String != "{}" {
+		t.Errorf("value = %q valid=%v, want the pre-refactor \"{}\" (valid), untouched by the DTO move", empty2.String, empty2.Valid)
+	}
+}
+
+// TestAuditAttrs_TypeIsTypedSlogAttr pins the typed-attrs contract (GGA round
+// 3 of the follow-ups commit): the audit attr builder returns []slog.Attr,
+// not the raw []any key-value pairs, so the compiler owns the shape instead of
+// the convention.
+func TestAuditAttrs_TypeIsTypedSlogAttr(t *testing.T) {
+	attrs := auditAttrs("+5491100000001", "+5491100000002", "admin")
+	if got := reflect.TypeOf(attrs); got.Kind() != reflect.Slice || got != reflect.TypeOf([]slog.Attr{}) {
+		t.Fatalf("auditAttrs type = %T, want []slog.Attr", attrs)
 	}
 }
