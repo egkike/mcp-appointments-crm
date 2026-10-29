@@ -90,14 +90,25 @@ type professionalIdentityOut struct {
 	Status string `json:"status"`
 }
 
+// professionalScheduleRow is the pinned FOUR-field agenda row of
+// get_professional_schedules (issue #153): the response already scopes every
+// row to professional.id at the top level, so per-row professional_id was
+// redundant there and is not rendered. The upsert_schedule read-back keeps the
+// full stored-row shape (scheduleOut) — its professional_id is not redundant
+// within its own response.
+type professionalScheduleRow struct {
+	ID        int    `json:"id"`
+	DayOfWeek int    `json:"day_of_week"`
+	StartTime string `json:"start_time"`
+	EndTime   string `json:"end_time"`
+}
+
 // getProfessionalSchedulesOut is the pinned output contract of
-// get_professional_schedules. Rows reuse scheduleOut (the upsert_schedule
-// read-back), so there is exactly ONE schedule shape on the wire (design §8.3);
-// professional_id is therefore present on every row and equals
-// professional.id.
+// get_professional_schedules: the identity of the one professional the read is
+// scoped to, plus the weekly agenda ordered by day_of_week (0=Sunday..6).
 type getProfessionalSchedulesOut struct {
-	Professional professionalIdentityOut `json:"professional"`
-	Schedules    []scheduleOut           `json:"schedules"`
+	Professional professionalIdentityOut   `json:"professional"`
+	Schedules    []professionalScheduleRow `json:"schedules"`
 }
 
 // registerGetProfessionalSchedulesTool wires the owner-only agenda read.
@@ -133,7 +144,7 @@ func (s *Server) registerGetProfessionalSchedulesTool() {
 					Name:   result.Professional.Name,
 					Status: result.Professional.Status,
 				},
-				Schedules: make([]scheduleOut, 0, len(result.Schedules)),
+				Schedules: make([]professionalScheduleRow, 0, len(result.Schedules)),
 			}
 			for _, row := range result.Schedules {
 				// Skipping a nil row would answer with a silently incomplete
@@ -143,7 +154,12 @@ func (s *Server) registerGetProfessionalSchedulesTool() {
 				if row == nil {
 					return nil, getProfessionalSchedulesOut{}, s.toMCPError(errNilMaintenanceEntity)
 				}
-				out.Schedules = append(out.Schedules, toScheduleOut(row))
+				out.Schedules = append(out.Schedules, professionalScheduleRow{
+					ID:        row.ID,
+					DayOfWeek: row.DayOfWeek,
+					StartTime: row.StartTime,
+					EndTime:   row.EndTime,
+				})
 			}
 			return nil, out, nil
 		})
