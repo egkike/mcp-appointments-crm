@@ -536,16 +536,21 @@ func (m AppModel) afterFormAdvance() tea.Model {
 		return m
 	}
 
+	// One name for the polarity both guards below share: the group is OPEN when
+	// the token step holds a value, and CLOSED when it was answered empty (B15
+	// C2 — the two guards used to re-derive it inline with opposite negations).
+	telegramTokenAnswered := m.form.value(hermesTokenStep) != ""
+
 	// The token step was just answered: a token means the channel is being
 	// configured, so the removal question does not apply and the wizard jumps to
 	// the chat id.
-	if m.form.index == hermesRemoveStep && m.form.value(hermesTokenStep) != "" {
+	if m.form.index == hermesRemoveStep && telegramTokenAnswered {
 		return m.formJump(hermesChatIDStep)
 	}
 	// Only a closed group (empty token) that just left the removal question
 	// reaches this point with the chat-id index focused; every other advance
 	// keeps walking the wizard.
-	if m.form.index != hermesChatIDStep || m.form.value(hermesTokenStep) != "" {
+	if m.form.index != hermesChatIDStep || telegramTokenAnswered {
 		return m
 	}
 
