@@ -84,6 +84,10 @@ const (
 	// same indent is used by the writer and the snippet renderer so the snippet
 	// is byte-identical to the block the writer emits.
 	hermesYAMLIndent = 2
+
+	// hermesDuplicateKeyLabelMaxLen caps the key text echoed into the duplicate-
+	// key operator message, so a hostile or pasted-garbage key cannot bloat it.
+	hermesDuplicateKeyLabelMaxLen = 64
 )
 
 // HermesDocument is the exported handle for a Hermes config.yaml. It wraps a
@@ -190,6 +194,174 @@ func dropChild(parent *yaml.Node, key string) bool {
 	return false
 }
 
+// rejectDuplicateHermesKeys is the fail-secure duplicate-key gate of
+// LoadHermesConfig (GGA round 1 on the B15 auth commit): it rejects a document
+// that carries duplicated mapping keys in the scopes this flow reads or writes.
+//
+// Why a gate and not a "winner": the node helpers above are first-match by
+// construction (childValue/childMapping/putChild/dropChild all stop at the first
+// occurrence), so with a duplicated key this flow validates and writes ONE of
+// the values while another YAML consumer — or a later yaml.v3 map decode, which
+// resolves the LAST occurrence — may see the other. The effective endpoint or
+// credential would stop being what this code validated. A duplicate is therefore
+// an ambiguity to reject, never something to repair: the load fails with a
+// semantic error and not a single byte of the operator's file is rewritten.
+//
+// Scope is deliberately narrow: the top-level mapping, the mcp_servers mapping,
+// each server entry mapping, and each env mapping of an entry. Every other
+// section of the document stays unconstrained — this flow neither reads nor
+// writes them, and a blanket recursion would reject configs Hermes itself
+// accepts.
+func rejectDuplicateHermesKeys(root *yaml.Node) error {
+	if err := rejectMergeKeyInScope(root, ""); err != nil {
+		return err
+	}
+	if err := rejectDuplicateMappingKeys(root, ""); err != nil {
+		return err
+	}
+	servers, ok := childValue(root, hermesServersSection)
+	if !ok || servers.Kind != yaml.MappingNode {
+		return nil
+	}
+	// First-match is safe here: a duplicated mcp_servers key already failed the
+	// top-level check above, so this IS the only occurrence.
+	if err := rejectMergeKeyInScope(servers, hermesServersSection); err != nil {
+		return err
+	}
+	if err := rejectDuplicateMappingKeys(servers, hermesServersSection); err != nil {
+		return err
+	}
+	for i := 0; i+1 < len(servers.Content); i += 2 {
+		entry := servers.Content[i+1]
+		if entry.Kind != yaml.MappingNode {
+			continue
+		}
+		// Same reasoning: a duplicated entry key failed the check above.
+		entryScope := hermesServersSection + "." + hermesKeyLabel(servers.Content[i].Value)
+		if err := rejectMergeKeyInScope(entry, entryScope); err != nil {
+			return err
+		}
+		if err := rejectDuplicateMappingKeys(entry, entryScope); err != nil {
+			return err
+		}
+		env, ok := childValue(entry, hermesEnvKey)
+		if !ok || env.Kind != yaml.MappingNode {
+			continue
+		}
+		if err := rejectMergeKeyInScope(env, entryScope+"."+hermesEnvKey); err != nil {
+			return err
+		}
+		if err := rejectDuplicateMappingKeys(env, entryScope+"."+hermesEnvKey); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// yamlMergeKey is the YAML implicit merge key. Declared as a constant so the
+// gate never depends on yaml.v3's decode-time resolution of merges.
+const yamlMergeKey = "<<"
+
+// rejectMergeKeyInScope rejects a YAML merge key (`<<`) inside one guarded
+// mapping without resolving it. yaml.v3 keeps merge keys UNRESOLVED at the
+// Node level, so the first-match helpers never inherit anything: a merge under
+// a guarded scope means the operated view and the serializer's view fan the
+// same map, and a direct sibling key written later shadows the merge (GGA
+// round 2 of the duplicate-key commit). The gate rejects instead of rewriting
+// the document, so the operator's file keeps every byte it had.
+func rejectMergeKeyInScope(mapping *yaml.Node, scope string) error {
+	if mapping == nil || mapping.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == yamlMergeKey {
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeInvalidInput,
+				Message: "la configuración de Hermes tiene una clave de fusión YAML (<<) en (" + scope + ")",
+			}
+		}
+	}
+	return nil
+}
+
+// rejectDuplicateMappingKeys reports the FIRST duplicated key of one mapping
+// node, in document order, so the operator message is deterministic. scope is
+// the dotted path of the mapping inside the document ("" for the root) and the
+// message names both the scope and the offending key.
+func rejectDuplicateMappingKeys(mapping *yaml.Node, scope string) error {
+	if mapping == nil || mapping.Kind != yaml.MappingNode {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(mapping.Content)/2)
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		identity, ok := hermesKeyIdentity(mapping.Content[i])
+		if !ok {
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeInvalidInput,
+				Message: "la configuración de Hermes contiene una clave YAML no resuelta (" + scope + ")",
+			}
+		}
+		if _, dup := seen[identity]; dup {
+			path := hermesKeyLabel(identity)
+			if scope != "" {
+				path = scope + "." + path
+			}
+			return &domain.SemanticError{
+				Code:    domain.ErrCodeInvalidInput,
+				Message: "la configuración de Hermes tiene claves duplicadas (" + path + ")",
+			}
+		}
+		seen[identity] = struct{}{}
+	}
+	return nil
+}
+
+// hermesKeyIdentity returns the comparison identity of a mapping key node. A
+// scalar key compares by its literal text, so two keys with the same text but
+// different tags (the integer 1 and the string "1") count as the same key: the
+// gate fails closed instead of picking a winner. A complex key compares by its
+// emitted YAML so it cannot hide a duplicate either. An alias used AS a key and
+// a complex key that cannot be rendered have no safe identity at all (ok=false):
+// config loading treats that as an unresolved ambiguity and fails closed —
+// yaml.v3 loads such keys without error, so they would otherwise silently skip
+// the duplicate gate they cannot pass (GGA round 1 of this commit).
+func hermesKeyIdentity(key *yaml.Node) (string, bool) {
+	if key == nil {
+		return "", false
+	}
+	if key.Kind == yaml.ScalarNode {
+		return key.Value, true
+	}
+	if key.Kind == yaml.AliasNode {
+		return "", false
+	}
+	rendered, err := yaml.Marshal(key)
+	if err != nil || strings.TrimSpace(string(rendered)) == "" {
+		return "", false
+	}
+	return string(rendered), true
+}
+
+// hermesKeyLabel renders one key for the operator message: control characters
+// (a quoted key could otherwise inject lines into the console output), an empty
+// key and an over-long key are neutralized, so the message is always a single
+// deterministic line of natural Spanish.
+func hermesKeyLabel(key string) string {
+	if key == "" {
+		return `""`
+	}
+	label := strings.Map(func(r rune) rune {
+		if r < ' ' || r == 0x7f {
+			return '?'
+		}
+		return r
+	}, key)
+	if runes := []rune(label); len(runes) > hermesDuplicateKeyLabelMaxLen {
+		return string(runes[:hermesDuplicateKeyLabelMaxLen]) + "..."
+	}
+	return label
+}
+
 // HermesDir resolves the Hermes DIRECTORY: HERMES_HOME when set, which — per
 // the install.sh contract scripts/tests/install_skill_test.sh pins — IS the
 // Hermes directory itself (never a parent that contains .hermes). Without the
@@ -268,13 +440,16 @@ func ValidateHermesURL(rawURL string) error {
 	// The endpoint contract is exactly one path (GGA round 10): queries,
 	// fragments and a non-canonical path would send the X-Caller-Id headers to
 	// an unintended local endpoint.
-	if parsed.Path != HermesMCPPath {
+	if parsed.Path != HermesMCPPath || parsed.EscapedPath() != parsed.Path {
+		// GGA round 1 of the B15 duplicate-key commit: a percent-encoded path
+		// decodes to the expected path but is not the literal endpoint the
+		// contract describes — same fail-closed literal rule as the auth seam.
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: "la URL del endpoint MCP debe apuntar al path " + HermesMCPPath,
 		}
 	}
-	if parsed.RawQuery != "" || parsed.Fragment != "" {
+	if parsed.ForceQuery || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: "la URL del endpoint MCP no admite query ni fragmento",
@@ -408,6 +583,12 @@ func endpointPortInvalid(port string) bool {
 // Decoding preserves the node tree verbatim for keys this flow does not own —
 // comments, key order and scalar styles all survive the load/write round trip
 // (ADR-0017 amended 2026-10-16); owned leaves are concrete string scalars.
+//
+// Fail secure on ambiguity: a document carrying duplicated mapping keys in the
+// top-level mapping, the mcp_servers mapping, a server entry mapping or an env
+// mapping is REJECTED with a *domain.SemanticError that names the duplicated
+// key and its scope (see rejectDuplicateHermesKeys). Duplicates elsewhere are
+// left alone, and the file is never rewritten by this check.
 func LoadHermesConfig(path string) (HermesDocument, error) {
 	// Fail symmetric with WriteHermesConfig: a blank path must not degrade into
 	// "missing file" (os.ReadFile("") returns ENOENT and would look like an
@@ -451,16 +632,25 @@ func LoadHermesConfig(path string) (HermesDocument, error) {
 	// Only a top-level mapping is a config document; scalars or sequences fail
 	// with the same message the previous unmarshal-into-map decode produced
 	// (a kind mismatch inside yaml.v3).
-	if root.Kind == yaml.DocumentNode && len(root.Content) == 1 && root.Content[0].Kind == yaml.MappingNode {
-		return HermesDocument{fields: hermesDocument{root: root.Content[0]}}, nil
+	var mapping *yaml.Node
+	switch {
+	case root.Kind == yaml.DocumentNode && len(root.Content) == 1 && root.Content[0].Kind == yaml.MappingNode:
+		mapping = root.Content[0]
+	case root.Kind == yaml.MappingNode:
+		mapping = &root
+	default:
+		return HermesDocument{}, &domain.SemanticError{
+			Code:    domain.ErrCodeInvalidInput,
+			Message: "la configuración de Hermes no es YAML válido",
+		}
 	}
-	if root.Kind == yaml.MappingNode {
-		return HermesDocument{fields: hermesDocument{root: &root}}, nil
+	// Fail-secure duplicate-key gate: it runs BEFORE the document reaches the
+	// first-match node helpers, so their "first occurrence is the only
+	// occurrence" precondition holds by construction for every caller.
+	if err := rejectDuplicateHermesKeys(mapping); err != nil {
+		return HermesDocument{}, err
 	}
-	return HermesDocument{}, &domain.SemanticError{
-		Code:    domain.ErrCodeInvalidInput,
-		Message: "la configuración de Hermes no es YAML válido",
-	}
+	return HermesDocument{fields: hermesDocument{root: mapping}}, nil
 }
 
 // SetHermesServer sets (or replaces) the mcp_servers.<HermesServerName> entry
@@ -636,18 +826,23 @@ func (d *HermesDocument) SetHermesTelegramOwnerBot(token, chatID, phone string) 
 // It cannot fail, so it returns no error: every path either edits the owned keys
 // or leaves the document alone. The zero value of the document is not
 // materialized either — removal never creates a document.
-func (d *HermesDocument) RemoveHermesTelegramOwnerBot() {
+//
+// The call is observable (B15 C1): it reports whether it dropped at least one
+// MCP_TELEGRAM_* key. A document without the block answers false, so callers and
+// tests can tell a real removal apart from the no-op idempotent pass without the
+// result keeping any error path.
+func (d *HermesDocument) RemoveHermesTelegramOwnerBot() bool {
 	servers, ok := childValue(d.fields.root, hermesServersSection)
 	if !ok || servers.Kind != yaml.MappingNode {
-		return
+		return false
 	}
 	entry, ok := childValue(servers, HermesServerName)
 	if !ok || entry.Kind != yaml.MappingNode {
-		return
+		return false
 	}
 	env, ok := childValue(entry, hermesEnvKey)
 	if !ok || env.Kind != yaml.MappingNode {
-		return
+		return false
 	}
 
 	removed := false
@@ -663,6 +858,7 @@ func (d *HermesDocument) RemoveHermesTelegramOwnerBot() {
 	if removed && len(env.Content) == 0 {
 		dropChild(entry, hermesEnvKey)
 	}
+	return removed
 }
 
 // ValidateTelegramBotToken validates the Telegram bot token shape

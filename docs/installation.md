@@ -218,8 +218,9 @@ El grupo del **bot privado de Telegram** (token, chat id de la allowlist y
 teléfono del owner) es **opcional**: los canales oficiales son el número de
 WhatsApp del negocio y el chat local de Hermes, y Telegram es un canal aditivo
 owner-only. Dejá el token vacío (Enter) y la opción escribe la entrada
-`mcp_servers.mcp-appointments` **sin** el bloque `MCP_TELEGRAM_*`, informando
-`Telegram: no configurado (canal deshabilitado)`; el server arranca igual. Si
+`mcp_servers.mcp-appointments` **deja intacto** el bloque `MCP_TELEGRAM_*` ya existente, si lo
+había, informando `Telegram: omitido (sin cambios en el bloque de Telegram)`; el server arranca
+gual. Si
 cargás el token, el chat id y el teléfono siguen siendo obligatorios (par
 completo), y re-correr la opción 7 sin tocar el grupo preserva el bot que ya
 estaba configurado.

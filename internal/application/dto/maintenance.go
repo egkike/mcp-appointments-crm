@@ -214,9 +214,10 @@ type ProfessionalScheduleSubject struct {
 // get_professional_schedules: the professional identity plus every stored weekly
 // slot, already ordered by day_of_week by the repository port. Schedules is
 // never nil on success so the transport always renders an array (a professional
-// without an agenda answers [] and not NOT_FOUND). Rows travel as entities
-// because the transport reuses the pinned scheduleOut wire shape, keeping one
-// schedule shape on the wire (design §8.3).
+// without an agenda answers [] and not NOT_FOUND). Rows travel as entities; the
+// transport renders them in its own agenda-row shape, scoped by
+// professional.id at the top level, with no per-row professional_id (issue
+// #153). The upsert_schedule read-back keeps the full stored-row shape.
 type GetProfessionalSchedulesResult struct {
 	Professional ProfessionalScheduleSubject
 	Schedules    []*entity.Schedule

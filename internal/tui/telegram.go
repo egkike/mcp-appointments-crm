@@ -36,9 +36,13 @@ type TelegramFields struct {
 }
 
 // telegramDisabledSummary is the operator-facing summary of a skipped group. It
-// states the channel is disabled instead of rendering three empty values, which
-// would read as a broken configuration rather than a decision.
-const telegramDisabledSummary = "no configurado (canal deshabilitado)"
+// renders the decision instead of three empty values, which would read as a
+// broken configuration. It is deliberately neutral about the file: the skip path
+// never loads or verifies whether a MCP_TELEGRAM_* block is already on disk, so
+// any copy claiming the channel state would be an unverified postcondition (B15
+// C3). "Sin cambios" is true in both worlds: a surviving block stays as it was,
+// and an absent one stays absent.
+const telegramDisabledSummary = "omitido (sin cambios en el bloque de Telegram)"
 
 // telegramRemovalSummary is the operator-facing summary of the removal path: the
 // channel is disabled AND the block is gone. It is a post-condition of the write
@@ -194,10 +198,11 @@ func telegramRemovalAnswer(answer string) telegramAnswer {
 // entry, so the admin core guarantees they compose in either order.
 //
 // Skip semantics (S11): a TelegramFields group that Disabled() skips the env
-// merge entirely, so the entry is written as the server entry ALONE —
-// `mcp_servers.mcp-appointments: {url, headers: {X-Caller-Id}}` with no `env`
-// block — and the operator reads "Telegram: no configurado (canal deshabilitado)"
-// in the summary. That shape is the one Hermes already boots with: the server
+// merge entirely, so a previously written env block survives untouched and the
+// entry keeps whatever Telegram state it already had — and the operator reads
+// "Telegram: omitido (sin cambios en el bloque de Telegram)" in the summary.
+// That neutral copy (B15 C3) makes no file claim the skip never verified. That
+// shape is the one Hermes already boots with: the server
 // tolerates a missing MCP_TELEGRAM_* block at runtime (verified 2026-10-19,
 // ADR-0018 §3b treats Telegram as an additive channel), so no config ever
 // REQUIRED the block — only this chain's unconditional Telegram merge did. A

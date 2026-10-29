@@ -1544,7 +1544,7 @@ func TestRunAdminTUIFlow_ConfigureHermesSkipsTelegram(t *testing.T) {
 	for _, want := range []string{
 		"Teléfono (X-Caller-Id): " + ownerPhone,
 		"¿Retirar el canal Telegram del bot",
-		"Telegram: no configurado (canal deshabilitado)",
+		"Telegram: omitido (sin cambios en el bloque de Telegram)",
 		"Configuración de Hermes actualizada.",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -1622,8 +1622,8 @@ func TestRunAdminTUIFlow_ConfigureHermesRemovesTelegram(t *testing.T) {
 		}
 	}
 	// The skip line belongs to the OTHER path: a removal must never report the
-	// channel as merely "not configured".
-	if strings.Contains(out.String(), "Telegram: no configurado (canal deshabilitado)") {
+	// channel as merely skipped.
+	if strings.Contains(out.String(), "Telegram: omitido (sin cambios en el bloque de Telegram)") {
 		t.Errorf("output = %q, the removal path must not print the skip line", out.String())
 	}
 

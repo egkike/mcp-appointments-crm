@@ -169,7 +169,9 @@ func TestToolSearchProfessionalsAdvancedSemanticError(t *testing.T) {
 
 // professionalSchedulesWire mirrors the pinned output contract of
 // get_professional_schedules so the assertions below fail on a wire-shape
-// change, not on a compile error.
+// change, not on a compile error. Agenda rows carry the FOUR field agenda row
+// (issue #153): per-row professional_id was REMOVED because the response
+// already scopes every row to professional.id at the top level.
 type professionalSchedulesWire struct {
 	Professional struct {
 		ID     string `json:"id"`
@@ -177,11 +179,10 @@ type professionalSchedulesWire struct {
 		Status string `json:"status"`
 	} `json:"professional"`
 	Schedules []struct {
-		ID             int    `json:"id"`
-		ProfessionalID string `json:"professional_id"`
-		DayOfWeek      int    `json:"day_of_week"`
-		StartTime      string `json:"start_time"`
-		EndTime        string `json:"end_time"`
+		ID        int    `json:"id"`
+		DayOfWeek int    `json:"day_of_week"`
+		StartTime string `json:"start_time"`
+		EndTime   string `json:"end_time"`
 	} `json:"schedules"`
 }
 
@@ -221,6 +222,12 @@ func TestToolGetProfessionalSchedules(t *testing.T) {
 	first := out.Schedules[0]
 	if first.ID != 1 || first.DayOfWeek != 1 || first.StartTime != "09:00" || first.EndTime != "13:00" {
 		t.Errorf("row 0 = %+v; want id=1 day=1 09:00-13:00", first)
+	}
+	// The redundant per-row professional_id banned from the agenda read (issue
+	// #153): the response is already scoped by professional.id, so the key must
+	// not appear anywhere in the serialized payload.
+	if bytes.Contains(raw, []byte("professional_id")) {
+		t.Errorf("wire carries redundant per-row professional_id; the response is scoped by professional.id: %s", raw)
 	}
 	// No client or booking data may cross this wire: only the agenda of the
 	// requested professional (spec S7b).
