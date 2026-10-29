@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -962,8 +963,9 @@ func promptSeedInput(input *consoleInput, stdout io.Writer) (admin.SeedInput, er
 // A stream that ends before a valid answer aborts the flow with a semantic
 // error: an interrupted questionnaire must not create a half-built account.
 // promptSecret reads one secret value without terminal echo (GGA round 14):
-// on a real terminal the read goes through input.Secret()'s term.ReadPassword
-// (echo disabled, newline consumed); with piped stdin the consoleSource path is
+// on a real terminal the read goes through input.Secret()'s bounded no-echo
+// reader (echo disabled, newline consumed, oversized paste rejected and
+// drained); with piped stdin the consoleSource path is
 // echo-free by construction. B8 f6 (owner: limpieza): the separate
 // secretLineReader/stdinSecretLine hook never ran — input.Secret() already owns
 // the tty/piped split, so the dead plumbing is removed and the single code path
@@ -1077,10 +1079,9 @@ type consoleTerm struct {
 
 // newConsoleTerm binds the terminal read path to the process terminal file.
 func newConsoleTerm(f *os.File) *consoleTerm {
-	fd := f.Fd()
 	return &consoleTerm{
 		read:     f.Read,
-		password: func() ([]byte, error) { return term.ReadPassword(fd) },
+		password: func() ([]byte, error) { return readTerminalSecret(f, consoleInputLineMax) },
 	}
 }
 
@@ -1184,9 +1185,101 @@ func (c *consoleInput) Secret() (string, error) {
 	}
 	raw, err := c.term.password()
 	if err != nil {
+		var semErr *domain.SemanticError
+		if errors.As(err, &semErr) {
+			return "", err
+		}
 		return "", fmt.Errorf("leer la entrada secreta: %w", err)
 	}
+	// The no-echo read is bounded while reading on POSIX; the Windows console
+	// read still collects the line itself, so the bound is re-checked here and
+	// an oversized value is rejected before it can be used (GGA round 1).
+	if len(raw) > consoleInputLineMax {
+		return "", errConsoleLineTooLong()
+	}
 	return strings.TrimSpace(string(raw)), nil
+}
+
+// readTerminalSecret reads one no-echo secret line under a hard byte limit
+// (GGA round 1: a secret must be bounded while reading, not after the fact, so
+// an oversized paste can never allocate unbounded memory).
+//
+// On POSIX the terminal is switched to raw mode — echo off before the first
+// byte is read — and the accumulator below consumes the fd byte by byte, so an
+// oversized paste is drained instead of buffered. Raw mode also drops the line
+// discipline, so the accumulator emulates the erase key and maps Ctrl+C/Ctrl+D
+// to the shared cancellation error instead of a signal.
+//
+// Windows keeps term.ReadPassword: its no-echo read is a console-mode read with
+// no bounded variant. That residual is honest, not hidden — the length check in
+// Secret() still rejects an oversized value before it is used, and the console
+// only ever reads secrets from an interactive operator on the loopback box.
+func readTerminalSecret(f *os.File, limit int) ([]byte, error) {
+	if runtime.GOOS == "windows" {
+		return term.ReadPassword(f.Fd())
+	}
+	state, err := term.MakeRaw(f.Fd())
+	if err != nil {
+		// Without the no-echo mode the secret would be echoed: fail, never read.
+		return nil, fmt.Errorf("no se pudo desactivar el eco de la terminal: %w", err)
+	}
+	defer func() { _ = term.Restore(f.Fd(), state) }()
+	return readSecretBounded(limit, func() ([]byte, error) {
+		var one [1]byte
+		n, rerr := f.Read(one[:])
+		return one[:n], rerr
+	})
+}
+
+// readSecretBounded accumulates one no-echo secret line from a raw byte source:
+// it stops at limit bytes, drains the remainder of an oversized line (so the
+// leftover can never become the next prompt's answer, the same contract Line()
+// keeps), emulates the erase key raw mode removes, and maps the abort keys to
+// the shared cancellation error.
+func readSecretBounded(limit int, next func() ([]byte, error)) ([]byte, error) {
+	var collected []byte
+	oversized := false
+	for {
+		piece, ferr := next()
+		for _, b := range piece {
+			switch {
+			case b == '\r' || b == '\n':
+				// Raw mode delivers the Enter key as a bare CR on POSIX and Windows.
+				if oversized {
+					return nil, errConsoleLineTooLong()
+				}
+				return collected, nil
+			case b == 0x03 || b == 0x04: // Ctrl+C / Ctrl+D: no signal in raw mode
+				return nil, errInputAborted
+			case b == 0x7f || b == 0x08: // erase key of the dropped line discipline
+				if len(collected) > 0 {
+					collected = collected[:len(collected)-1]
+				}
+			case oversized:
+				// Draining the rejected line: its bytes are dropped, never stored.
+			default:
+				if len(collected)+1 > limit {
+					oversized = true
+					collected = nil // never keep a partial oversized secret
+					continue
+				}
+				collected = append(collected, b)
+			}
+		}
+		if ferr != nil {
+			if errors.Is(ferr, io.EOF) {
+				if oversized {
+					return nil, errConsoleLineTooLong()
+				}
+				// A carried final line without newline is still content.
+				if len(collected) > 0 {
+					return collected, nil
+				}
+				return nil, errInputAborted
+			}
+			return nil, ferr
+		}
+	}
 }
 
 var errInputAborted = &domain.SemanticError{
@@ -1383,9 +1476,10 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, input *c
 // closure, so the console never re-derives the path or the endpoint.
 //
 // Skip and removal semantics (S11): an empty bot token disables the Telegram
-// group, so the flow asks nothing else about the token/chat pair and writes the
-// entry WITHOUT the MCP_TELEGRAM_* block, reporting "Telegram: no configurado
-// (canal deshabilitado)". The closed group is then resolved explicitly: the flow
+// group, so the flow asks nothing else about the token/chat pair and leaves any
+// pre-existing MCP_TELEGRAM_* block untouched, reporting the neutral skip
+// summary "Telegram: omitido (sin cambios en el bloque de Telegram)" (B15 C3).
+// The closed group is then resolved explicitly: the flow
 // asks "¿Retirar el canal Telegram del bot?", and a yes DELETES a pre-existing
 // block ("Telegram: canal deshabilitado (bloque MCP_TELEGRAM eliminado)") while a
 // no preserves it. A token present keeps the chat id and the owner phone
