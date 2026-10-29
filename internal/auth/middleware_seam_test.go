@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -327,4 +328,47 @@ func exprRefersTo(expr ast.Expr, name string) bool {
 		return true
 	})
 	return found
+}
+
+// TestMiddleware_AnonymousAllowlist_RejectsPercentEncodedPath pins the
+// fail-closed seam match (hardening discovered by GGA on the B15 round):
+// the anonymous seam admits ONLY the literal tool path. A percent-encoded
+// equal of the allowlisted path (same decoded r.URL.Path) resolves through
+// the caller resolver like any other request — it can never trade its
+// encoding for anonymity, no resolver skip and no anonymous marker.
+func TestMiddleware_AnonymousAllowlist_RejectsPercentEncodedPath(t *testing.T) {
+	t.Parallel()
+	h := &mwTestHandler{}
+	logger := slog.New(h)
+	mw, mock := newMiddlewareWithMock(t, nil, logger)
+
+	unknown := "+5491100999999"
+	req := newToolRequest(allowlistEntry, unknown)
+	// The attacker's wire form: same decoded path, encoded underscore.
+	req.URL.RawPath = "register%5Fclient"
+	// Test setup sanity: the encoded form must decode to the plain path, so
+	// this request exercises the decode-vs-literal seam match and not some
+	// path-mismatch accident.
+	if p, uerr := url.PathUnescape(req.URL.RawPath); uerr != nil || p != req.URL.Path {
+		t.Fatalf("test setup: RawPath %q must decode to Path %q (uerr=%v)", req.URL.RawPath, req.URL.Path, uerr)
+	}
+	expectUnknownCaller(mock, unknown)
+
+	var probe anonymousProbe
+	rec := httptest.NewRecorder()
+
+	mw.Wrap(probeHandler(&probe)).ServeHTTP(rec, req)
+
+	if probe.called {
+		t.Error("downstream handler ran for the encoded path; the anonymous seam must not admit it")
+	}
+	if probe.anonymous {
+		t.Error("context was marked anonymous for a percent-encoded tool path")
+	}
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d; want %d (unknown caller, resolved like any other request)", rec.Code, http.StatusUnauthorized)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("resolver must have been consulted for the encoded path: %v", err)
+	}
 }

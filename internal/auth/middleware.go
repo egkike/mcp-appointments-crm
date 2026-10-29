@@ -102,7 +102,15 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		// The anonymous seam admits only the LITERAL tool path (fail closed,
+		// hardening found by GGA on the B15 round): r.URL.Path is already
+		// percent-decoded, so keying the allowlist on it alone would let an
+		// encoded equal (e.g. register%5Fclient) trade its encoding for
+		// anonymity. EscapedPath() equal to Path means the wire carried the
+		// exact bytes the code-owned allowlist describes; an encoded form
+		// resolves through the caller resolver like any other request.
 		tool := r.URL.Path
+		toolIsLiteral := r.URL.EscapedPath() == tool
 
 		// Step 3: anonymous allowlist seam (design.md §1.1). For the
 		// allowlisted registration path we skip resolution entirely: no
@@ -113,9 +121,11 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		// context is marked anonymous so the handler can tell this apart from
 		// a missing caller. Precedence: the empty-header check above already
 		// ran, so a missing/empty header can never be traded for anonymity.
-		if _, anonymous := anonymousAllowedTools[tool]; anonymous {
-			next.ServeHTTP(w, r.WithContext(MarkAnonymous(r.Context())))
-			return
+		if toolIsLiteral {
+			if _, anonymous := anonymousAllowedTools[tool]; anonymous {
+				next.ServeHTTP(w, r.WithContext(MarkAnonymous(r.Context())))
+				return
+			}
 		}
 
 		// Step 4: resolve caller
