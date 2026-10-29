@@ -431,6 +431,12 @@ func TestValidateHermesURL(t *testing.T) {
 		{name: "unsupported scheme", rawURL: "ftp://example.com", wantErr: true},
 		{name: "missing host", rawURL: "http:///mcp", wantErr: true},
 		{name: "garbage", rawURL: "http://%zz", wantErr: true},
+		// GGA round 1 of the B15 duplicate-key commit: a percent-encoded path
+		// decodes to /mcp but is NOT the literal endpoint the guard describes.
+		{name: "percent-encoded path", rawURL: "http://127.0.0.1:3000/m%63p", wantErr: true},
+		// An empty query delimiter ("...") carries no query text but still
+		// smuggles the delimiter: the endpoint contract rejects it too.
+		{name: "empty query delimiter", rawURL: "http://127.0.0.1:3000/mcp?", wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
