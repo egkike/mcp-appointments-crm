@@ -4,10 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
+	"github.com/egkike/mcp-appointments-crm/internal/db"
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
@@ -585,5 +587,54 @@ func TestSchedulesRepo_UpsertNilSlot(t *testing.T) {
 	_, err := repo.Upsert(adminCtx(), nil)
 	if !errors.Is(err, domain.ErrInvalidInput) {
 		t.Errorf("expected domain.ErrInvalidInput for a nil slot, got %v", err)
+	}
+}
+
+// TestSchedulesRepo_FindByProfessionalOrdersByDayOfWeekOnRealSQLite pins the
+// ORDER BY day_of_week contract against a real SQLite database (B15 A1):
+// the sqlmock suite only proves the query LETTER, so a dropped or inverted
+// ordering clause would stay green there as long as the SQL text still matched.
+// This case seeds four slots whose insertion order runs backwards across the
+// calendar (Wednesday, Friday, Sunday, Monday) and requires the stored agenda
+// through the public port to come back Sunday-first (0..6).
+func TestSchedulesRepo_FindByProfessionalOrdersByDayOfWeekOnRealSQLite(t *testing.T) {
+	ctx := context.Background()
+	realDB, err := db.NewDatabase(ctx, filepath.Join(t.TempDir(), "appointments.db"))
+	if err != nil {
+		t.Fatalf("open real sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = realDB.Close() })
+	db := realDB.Conn
+
+	probe := &entity.Professional{Name: "SQLITE Order Probe"}
+	if err := NewProfessionalsRepo(db).Save(adminCtx(), probe); err != nil {
+		t.Fatalf("seed professional: %v", err)
+	}
+
+	seeded := []*entity.Schedule{
+		{ProfessionalID: probe.ID, DayOfWeek: 3, StartTime: "09:00", EndTime: "17:00"}, // Wednesday
+		{ProfessionalID: probe.ID, DayOfWeek: 5, StartTime: "09:00", EndTime: "13:00"}, // Friday
+		{ProfessionalID: probe.ID, DayOfWeek: 0, StartTime: "10:00", EndTime: "18:00"}, // Sunday
+		{ProfessionalID: probe.ID, DayOfWeek: 1, StartTime: "08:00", EndTime: "12:00"}, // Monday
+	}
+	repo := NewSchedulesRepo(db)
+	for i, slot := range seeded {
+		if _, err := repo.Upsert(adminCtx(), slot); err != nil {
+			t.Fatalf("seed slot %d (day %d): %v", i, slot.DayOfWeek, err)
+		}
+	}
+
+	agenda, err := repo.FindByProfessional(ownerCtx(), probe.ID)
+	if err != nil {
+		t.Fatalf("FindByProfessional: %v", err)
+	}
+	wantOrder := []int{0, 1, 3, 5}
+	if len(agenda) != len(wantOrder) {
+		t.Fatalf("agenda = %d rows, want %d", len(agenda), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if got := agenda[i].DayOfWeek; got != want {
+			t.Errorf("agenda[%d] = day %d, want day %d (calendar order 0..6)", i, got, want)
+		}
 	}
 }
