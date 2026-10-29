@@ -389,7 +389,11 @@ func TestRemoveHermesTelegramOwnerBot_RemovesOnlyTheTelegramEnvKeys(t *testing.T
 	}, "\n")
 	doc := telegramSeededConfig(t, seed)
 
-	doc.RemoveHermesTelegramOwnerBot()
+	// The removal is observable (B15 C1): three Telegram keys existed, so the
+	// call must report that something changed.
+	if removed := doc.RemoveHermesTelegramOwnerBot(); !removed {
+		t.Fatal("RemoveHermesTelegramOwnerBot() = false, want true for a document holding the block")
+	}
 
 	got, err := marshalHermesDocument(doc)
 	if err != nil {
@@ -434,7 +438,11 @@ func TestRemoveHermesTelegramOwnerBot_DropsTheEnvBlockWhenItEmpties(t *testing.T
 	}, "\n")
 	doc := telegramSeededConfig(t, seed)
 
-	doc.RemoveHermesTelegramOwnerBot()
+	// The three Telegram keys held the env mapping exclusively, so the removal
+	// is observable (B15 C1) AND empties the env block in the same call.
+	if removed := doc.RemoveHermesTelegramOwnerBot(); !removed {
+		t.Fatal("RemoveHermesTelegramOwnerBot() = false, want true for an env holding only the block")
+	}
 
 	got, err := marshalHermesDocument(doc)
 	if err != nil {
@@ -487,8 +495,14 @@ func TestRemoveHermesTelegramOwnerBot_IsIdempotentWhenAbsent(t *testing.T) {
 	for name, seed := range cases {
 		t.Run(name, func(t *testing.T) {
 			doc := telegramSeededConfig(t, seed)
-			doc.RemoveHermesTelegramOwnerBot()
-			doc.RemoveHermesTelegramOwnerBot()
+			// Idempotence is also observable: neither call changed anything, so
+			// both report false (B15 C1).
+			if removed := doc.RemoveHermesTelegramOwnerBot(); removed {
+				t.Errorf("first RemoveHermesTelegramOwnerBot() = true, want false for %q", name)
+			}
+			if removed := doc.RemoveHermesTelegramOwnerBot(); removed {
+				t.Errorf("second RemoveHermesTelegramOwnerBot() = true, want false for %q", name)
+			}
 
 			got, err := marshalHermesDocument(doc)
 			if err != nil {

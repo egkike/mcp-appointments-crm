@@ -826,18 +826,23 @@ func (d *HermesDocument) SetHermesTelegramOwnerBot(token, chatID, phone string) 
 // It cannot fail, so it returns no error: every path either edits the owned keys
 // or leaves the document alone. The zero value of the document is not
 // materialized either — removal never creates a document.
-func (d *HermesDocument) RemoveHermesTelegramOwnerBot() {
+//
+// The call is observable (B15 C1): it reports whether it dropped at least one
+// MCP_TELEGRAM_* key. A document without the block answers false, so callers and
+// tests can tell a real removal apart from the no-op idempotent pass without the
+// result keeping any error path.
+func (d *HermesDocument) RemoveHermesTelegramOwnerBot() bool {
 	servers, ok := childValue(d.fields.root, hermesServersSection)
 	if !ok || servers.Kind != yaml.MappingNode {
-		return
+		return false
 	}
 	entry, ok := childValue(servers, HermesServerName)
 	if !ok || entry.Kind != yaml.MappingNode {
-		return
+		return false
 	}
 	env, ok := childValue(entry, hermesEnvKey)
 	if !ok || env.Kind != yaml.MappingNode {
-		return
+		return false
 	}
 
 	removed := false
@@ -853,6 +858,7 @@ func (d *HermesDocument) RemoveHermesTelegramOwnerBot() {
 	if removed && len(env.Content) == 0 {
 		dropChild(entry, hermesEnvKey)
 	}
+	return removed
 }
 
 // ValidateTelegramBotToken validates the Telegram bot token shape
