@@ -1,9 +1,7 @@
 package auth
 
 import (
-	"crypto/sha256"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -49,6 +47,12 @@ type AuthMiddleware struct {
 	resolver *CallerResolver
 	rbac     ToolRBAC
 	logger   *slog.Logger
+	// digester produces the keyed caller reference the audit log carries
+	// (ADR-0021). It defaults to HashCallerID, which reads the digest the
+	// composition root installed at boot; a nil digester means "not
+	// configured" and the audit line is emitted without the reference instead
+	// of degrading to the retired unkeyed digest.
+	digester CallerIDDigester
 }
 
 // NewAuthMiddleware creates a middleware with the given resolver, RBAC config, and logger.
@@ -68,6 +72,7 @@ func NewAuthMiddleware(resolver *CallerResolver, rbac ToolRBAC, logger *slog.Log
 		resolver: resolver,
 		rbac:     rbac,
 		logger:   logger,
+		digester: HashCallerID,
 	}
 }
 
@@ -136,11 +141,10 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 				return
 			}
 			// Unexpected error (DB failure, etc.) — 500. Log the cause
-			// server-side with a hashed caller reference: the raw ID is PII
+			// server-side with a keyed caller reference: the raw ID is PII
 			// and the resolver error text no longer embeds it.
 			m.logger.Error("auth: caller resolution failed",
-				"caller_hash", HashCallerID(id),
-				"error", err,
+				anyAll(m.auditAttrs([]slog.Attr{slog.String("error", err.Error())}, id, tool))...,
 			)
 			http.Error(w, "error interno", http.StatusInternalServerError)
 			return
@@ -165,11 +169,10 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			}
 		}
 
-		// Step 7: audit log for privileged callers (hashed ID — no PII in logs)
+		// Step 7: audit log for privileged callers (keyed digest — no PII in logs)
 		if caller.Role == RoleAdmin || caller.Role == RoleOwner {
 			m.logger.Info("privileged access",
-				"caller_hash", HashCallerID(caller.ID),
-				"tool", tool,
+				anyAll(m.auditAttrs([]slog.Attr{slog.String("tool", tool)}, caller.ID, tool))...,
 			)
 		}
 
@@ -189,19 +192,42 @@ func roleAllowed(role string, allowed []string) bool {
 	return false
 }
 
-// HashCallerID returns the SHA-256 digest of the caller ID for audit and
-// error logs: a stable correlation key that keeps raw PII (phone numbers,
-// emails) out of log output. Exported for the audit emitters that persist
-// rows (accounts_audit): the table stores the same hashed reference decision
-// the middleware already made (design §1.2, "actor_ref"). The digest is
-// one-way but NOT non-reversible: caller IDs are low-entropy (phone numbers,
-// emails — a ~10^10–10^11 value space), so an offline enumeration over the ID
-// space can recover them from any unkeyed digest. Accepted deviation, signed
-// off by the project owner on 2026-08-20: this server is loopback-only
-// (127.0.0.1), single-tenant, and its logs never leave the host. A keyed HMAC
-// is required BEFORE logs are shipped off-host (defense-in-depth tradeoff,
-// per GGA WARNING-1 on commit followups-mcp-suggestions).
-func HashCallerID(id string) string {
-	h := sha256.Sum256([]byte(id))
-	return fmt.Sprintf("%x", h[:]) // full 256-bit digest (64 hex chars)
+// auditAttrs returns attrs with the keyed caller reference prepended, so every
+// audit line keeps the correlation key as its first attribute.
+//
+// When the reference cannot be computed — no digester injected, or the process
+// digest was never configured, in which case HashCallerID answers "" — the
+// reference is OMITTED and the degradation is logged: the audit line still
+// records the request, but it never falls back to the retired unkeyed digest and
+// never emits an empty caller_hash as if it were a reference (ADR-0021
+// fail-closed seam). The composition root always configures the digest before
+// dispatch, so this branch only fires on a wiring bug — which is exactly why it
+// must be visible.
+// The attrs are TYPED (GGA round 3 of the follow-ups cycle): this builder
+// answers []slog.Attr, so the compiler owns the key/value shape; anyAll lifts
+// it to slog's variadic form at the call sites.
+//
+//nolint:unused // anyAll is exported below, referenced by both callers.
+func (m *AuthMiddleware) auditAttrs(attrs []slog.Attr, callerID, tool string) []slog.Attr {
+	var hash string
+	if m.digester != nil {
+		hash = m.digester(callerID)
+	}
+	if hash == "" {
+		m.logger.Error("auth: audit digest unconfigured, caller_hash omitted",
+			slog.String("scheme", AuditDigestScheme),
+			slog.String("tool", tool),
+		)
+		return attrs
+	}
+	return append([]slog.Attr{slog.String("caller_hash", hash)}, attrs...)
+}
+
+// anyAll lifts a typed attr slice into slog's variadic form.
+func anyAll(attrs []slog.Attr) []any {
+	anyAttrs := make([]any, 0, len(attrs))
+	for _, a := range attrs {
+		anyAttrs = append(anyAttrs, a)
+	}
+	return anyAttrs
 }

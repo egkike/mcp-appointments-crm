@@ -59,6 +59,14 @@
 //	including incomplete sub-commands, is a domain.SemanticError that exits 1.
 //	Sub-commands share loadConfig/openDatabase/newIdentityDeps with serve
 //	mode so the two entry points cannot drift.
+//
+// D7. Audit identity (ADR-0021): main() loads (or creates on first boot) the
+//
+//	installation HMAC key from the operator config dir and installs it in the
+//	auth package BEFORE any command runs. Serve mode, `admin tui` and the
+//	reserved `hermes chat` therefore share one digest namespace, and no command
+//	can reach an audit write with an unkeyed or unconfigured digest: the boot
+//	fails closed (exit 1) when the key cannot be read or created.
 package main
 
 import (
@@ -74,6 +82,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/egkike/mcp-appointments-crm/internal/admin"
 	"github.com/egkike/mcp-appointments-crm/internal/application/usecase"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/buildinfo"
@@ -108,16 +117,63 @@ func main() {
 	// database handle and always closes it before returning an error. stop() is
 	// called explicitly (not deferred) so the signal handler is released on both
 	// the clean and the fatal path without tripping exitAfterDefer.
-	err := executeCLI(ctx, os.Args[1:], cliRunners{
-		serve:      run,
-		adminTUI:   runAdminTUI,
-		hermesChat: runHermesChat,
-	})
+	//
+	// ADR-0021: the keyed audit digest is configured BEFORE dispatch, so every
+	// command that writes accounts or emits an audit line inherits it. A boot
+	// that cannot configure it runs NOTHING (fail closed): the error takes the
+	// same fatal path as a failed command.
+	err := configureAuditDigest(slog.Default())
+	if err != nil {
+		err = fmt.Errorf("configurar el digest de auditoría: %w", err)
+	} else {
+		err = executeCLI(ctx, os.Args[1:], cliRunners{
+			serve:      run,
+			adminTUI:   runAdminTUI,
+			hermesChat: runHermesChat,
+		})
+	}
 	stop()
 	if err != nil {
 		slog.Default().Error("mcp server failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+// configureAuditDigest loads (or creates on first use) the installation HMAC
+// key and installs the keyed caller-id digest for the process (ADR-0021). It is
+// the ONLY production caller of auth.ConfigureAuditDigest.
+//
+// Key file: <operator config dir>/audit-hash-key, 0600 inside a 0700 directory,
+// 32 random bytes hex-encoded. It lives beside `caller-id` because both are
+// identity material of the same installation (internal/admin.ConfigDir, which
+// honors MCP_CONFIG_DIR and otherwise resolves the platform default).
+//
+// Fail closed: an unresolvable config dir, an unreadable/corrupt key file or a
+// key that cannot be created is a fatal startup error. There is no environment
+// override and no in-memory fallback — either would silently fork the digest
+// namespace and make the audit trail uncorrelatable.
+func configureAuditDigest(logger *slog.Logger) error {
+	configDir, err := admin.ConfigDir()
+	if err != nil {
+		return fmt.Errorf("resolver el directorio de configuración: %w", err)
+	}
+
+	key, err := auth.LoadOrCreateAuditHashKey(configDir)
+	if err != nil {
+		return err
+	}
+
+	if err := auth.ConfigureAuditDigest(key); err != nil {
+		return err
+	}
+
+	// The key itself never reaches the log; the path does, so the operator can
+	// back it up and rotate it deliberately (ADR-0021).
+	logger.Info("audit digest configured",
+		"scheme", auth.AuditDigestScheme,
+		"key_file", filepath.Join(configDir, auth.AuditHashKeyFileName),
+	)
+	return nil
 }
 
 // ── CLI dispatch (D6) ────────────────────────────────────────────────────

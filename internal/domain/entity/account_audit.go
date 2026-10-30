@@ -36,14 +36,16 @@ const (
 	AccountAuditActionPurge = "purge"
 )
 
-// AccountAuditDetail is the typed carrier of optional audit payload fields.
-// The sink marshals it into the `detail` column, so no emitter can sneak a
-// free-form string (and no column ever carries an unmasked value): every
-// field is a mask-by-construction value produced via MaskPhone.
+// AccountAuditDetail is the wire-free typed carrier of optional audit payload
+// fields: every field is a mask-by-construction value produced via MaskPhone,
+// so no emitter can sneak a free-form string and no column ever carries an
+// unmasked value. The persistence JSON shape lives in the sink adapter's DTO
+// (internal/repository/accounts_audit.go), not here — entity types carry no
+// wire tags (GGA round 3).
 type AccountAuditDetail struct {
 	// PreviousOwnerMasked carries the MaskPhone of the ownership transfer's
-	// source account (ownership_transferred). Empty omits the key.
-	PreviousOwnerMasked string `json:"previous_owner_masked,omitempty"`
+	// source account (ownership_transferred). Empty omits the key on the wire.
+	PreviousOwnerMasked string
 }
 
 // AccountAuditEvent is one persisted audit row of the accounts trail. Fields
@@ -53,7 +55,7 @@ type AccountAuditEvent struct {
 	ID          int64               // AUTOINCREMENT id; 0 until the row is committed.
 	Ts          string              // RFC3339Nano UTC, same shape as the current audit attrs.
 	Event       string              // catalog constant above.
-	ActorRef    string              // opaque hashed actor reference (auth.HashCallerID: 64 hex); "" when the flow has no Caller.
+	ActorRef    string              // opaque keyed actor reference (auth.HashCallerID: HMAC-SHA-256, 64 hex; histórico unkeyed aceptado por la ventana mixed de ADR-0021); "" cuando el flow no tiene Caller y también como falla cerrada sin clave configurada.
 	TargetID    string              // account id, ALWAYS via MaskPhone: the id is the phone, so the row stores the mask (spec: no raw PII in any column).
 	TargetRole  string              // owner | admin | staff; "" when the row exists without role.
 	Action      string              // action catalog above.

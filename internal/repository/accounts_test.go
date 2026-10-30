@@ -132,8 +132,9 @@ func TestAccountsRepo_Create_Admin_Success(t *testing.T) {
 	if attrs == nil {
 		t.Fatal("expected 'account created' record")
 	}
-	if got := attrs["target_id"]; got != "+5491100000000" {
-		t.Errorf("target_id: expected '+5491100000000', got %v", got)
+	// Journal masking (ADR-0021 decision 6): the slog ids carry MaskPhone.
+	if got := attrs["target_id"]; got != "***0000" {
+		t.Errorf("target_id: expected the masked id, got %v", got)
 	}
 	if got := attrs["target_role"]; got != "admin" {
 		t.Errorf("target_role: expected 'admin', got %v", got)
@@ -545,8 +546,9 @@ func TestAccountsRepo_Update_Admin_Success(t *testing.T) {
 	if attrs == nil {
 		t.Fatal("expected 'account updated' record")
 	}
-	if got := attrs["target_id"]; got != "+5491100000000" {
-		t.Errorf("target_id: expected '+5491100000000', got %v", got)
+	// Journal masking (ADR-0021 decision 6): the slog ids carry MaskPhone.
+	if got := attrs["target_id"]; got != "***0000" {
+		t.Errorf("target_id: expected the masked id, got %v", got)
 	}
 	if got := attrs["target_role"]; got != "admin" {
 		t.Errorf("target_role: expected 'admin', got %v", got)
@@ -634,8 +636,9 @@ func TestAccountsRepo_Deactivate_ActiveToInactive_Success(t *testing.T) {
 	if attrs == nil {
 		t.Fatal("expected 'account deactivated' record")
 	}
-	if got := attrs["target_id"]; got != "+5491100000000" {
-		t.Errorf("target_id: expected '+5491100000000', got %v", got)
+	// Journal masking (ADR-0021 decision 6): the slog ids carry MaskPhone.
+	if got := attrs["target_id"]; got != "***0000" {
+		t.Errorf("target_id: expected the masked id, got %v", got)
 	}
 	if got := attrs["target_role"]; got != "admin" {
 		t.Errorf("target_role: expected 'admin', got %v", got)
@@ -1042,14 +1045,14 @@ func TestAccountsRepo_TransferOwnership_Success_DeactivatesThenActivatesInOneTx(
 	if attrs == nil {
 		t.Fatal("expected the 'ownership transferred' audit record")
 	}
-	if got := attrs["target_id"]; got != "+5491100000001" {
-		t.Errorf("target_id: expected the new owner, got %v", got)
+	if got := attrs["target_id"]; got != "***0001" {
+		t.Errorf("target_id: expected the masked new owner, got %v", got)
 	}
 	if got := attrs["target_role"]; got != "owner" {
 		t.Errorf("target_role: expected 'owner', got %v", got)
 	}
-	if got := attrs["previous_owner_id"]; got != "+5491100000000" {
-		t.Errorf("previous_owner_id: expected the old owner, got %v", got)
+	if got := attrs["previous_owner_id"]; got != "***0000" {
+		t.Errorf("previous_owner_id: expected the masked old owner, got %v", got)
 	}
 	if _, ok := attrs["actor_id"]; !ok {
 		t.Error("expected actor_id attribute when ctx has caller")
@@ -1222,5 +1225,55 @@ func TestAccountsRepo_TransferOwnership_RealSQLite_RollsBackOnFailure(t *testing
 	}
 	if accountIsActive(t, db, blockedSuccessor) {
 		t.Errorf("account %q is active, want the failed transfer rolled back", blockedSuccessor)
+	}
+}
+
+const updatesSubjectPhone = "+5491100000000"
+
+// TestAccountsRepo_Update_VanishedRowBetweenCheckAndWrite pins the TOCTOU
+// fail-closed answer (GGA round 1 of the #155 commit, findings 2): a purge
+// landing between the existence pre-check and the UPDATE makes RowsAffected
+// zero; Update must answer NotFound and emit NOTHING (no success slog, no
+// audit row), instead of manufacturing a phantom "account updated".
+func TestAccountsRepo_Update_VanishedRowBetweenCheckAndWrite(t *testing.T) {
+	repo, mock, handler := newRepoWithMock(t)
+	ctx := adminCtx()
+
+	mock.ExpectQuery(`SELECT 1 FROM accounts WHERE id = ?`).
+		WithArgs(updatesSubjectPhone).WillReturnRows(sqlmock.NewRows([]string{"1"}).AddRow(1))
+	mock.ExpectExec(`UPDATE accounts SET role = ?, display_name = ?, professional_id = ?, is_active = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), updatesSubjectPhone).
+		WillReturnResult(sqlmock.NewResult(0, 0)) // the purge deleted the row
+
+	acc := &entity.Account{ID: updatesSubjectPhone, Role: entity.RoleAdmin, DisplayName: "Admin One", Active: true}
+	err := repo.Update(ctx, acc)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("err = %v, want domain.ErrNotFound for the vanished row", err)
+	}
+	if got := len(handler.records); got != 0 {
+		t.Fatalf("slog records = %d, want zero (no phantom success audit)", got)
+	}
+}
+
+// TestAccountsRepo_Deactivate_VanishedRowBetweenCheckAndWrite pins the same
+// fail-closed contract for Deactivate: the state pre-check sees an active row,
+// the purge wins the race, the UPDATE answers no rows - the method answers
+// NotFound and never manufactures the "account deactivated" audit.
+func TestAccountsRepo_Deactivate_VanishedRowBetweenCheckAndWrite(t *testing.T) {
+	repo, mock, handler := newRepoWithMock(t)
+	ctx := adminCtx()
+
+	mock.ExpectQuery(`SELECT is_active, role FROM accounts WHERE id = ?`).
+		WithArgs(updatesSubjectPhone).WillReturnRows(sqlmock.NewRows([]string{"is_active", "role"}).AddRow(1, "admin"))
+	mock.ExpectExec(`UPDATE accounts SET is_active = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?`).
+		WithArgs(updatesSubjectPhone).
+		WillReturnResult(sqlmock.NewResult(0, 0)) // the purge deleted the row
+
+	err := repo.Deactivate(ctx, updatesSubjectPhone)
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("err = %v, want domain.ErrNotFound for the vanished row", err)
+	}
+	if got := len(handler.records); got != 0 {
+		t.Fatalf("slog records = %d, want zero (no phantom success audit)", got)
 	}
 }

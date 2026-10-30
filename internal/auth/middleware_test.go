@@ -2,10 +2,14 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -552,8 +556,12 @@ func TestMiddleware_AuditLog_Admin(t *testing.T) {
 	h := &mwTestHandler{}
 	logger := slog.New(h)
 	mw, mock := newMiddlewareWithMock(t, nil, logger)
+	// Pin the keyed digest (ADR-0021) instead of relying on the process-wide
+	// one: the assertion below is a fixed HMAC vector, not a recomputation of
+	// whatever the middleware happened to use.
+	mw.digester = testAuditDigester(t)
 
-	id := "+5491100000000"
+	id := testAuditCallerID
 	expectAdminResolved(mock, id)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/tools/admin-tool", nil)
@@ -581,13 +589,13 @@ func TestMiddleware_AuditLog_Admin(t *testing.T) {
 		attrs[a.Key] = a.Value.Any()
 		return true
 	})
-	if attrs["caller_hash"] != HashCallerID(id) {
-		t.Errorf("audit caller_hash = %v; want %q", attrs["caller_hash"], HashCallerID(id))
+	if attrs["caller_hash"] != testAuditDigestPinned {
+		t.Errorf("audit caller_hash = %v; want the pinned keyed digest %q", attrs["caller_hash"], testAuditDigestPinned)
 	}
 	// The audit hash is the FULL 256-bit digest (64 hex chars), never a
 	// truncated prefix (GGA WARNING-1).
 	if got := attrs["caller_hash"].(string); len(got) != 64 {
-		t.Errorf("audit caller_hash length = %d; want 64 (full SHA-256 digest)", len(got))
+		t.Errorf("audit caller_hash length = %d; want 64 (full HMAC-SHA-256 digest)", len(got))
 	}
 	if attrs["tool"] != "/tools/admin-tool" {
 		t.Errorf("audit tool = %v; want %q", attrs["tool"], "/tools/admin-tool")
@@ -597,6 +605,81 @@ func TestMiddleware_AuditLog_Admin(t *testing.T) {
 	if recs[0].Time.IsZero() {
 		t.Error("audit log: time should be set (slog default adds ISO 8601 time); got zero value")
 	}
+}
+
+// TestMiddleware_AuditLog_DigestUnconfiguredFailsClosed pins the ADR-0021
+// fail-closed seam on BOTH shapes of "not configured": an explicitly absent
+// digester and the production default digester with nothing installed at boot.
+// In both cases the audit line is still emitted, but it carries NO caller_hash —
+// never an empty placeholder and never the enumerable unkeyed SHA-256 — and the
+// degradation is logged so the wiring bug cannot pass unnoticed.
+//
+// The test is sequential on purpose: it clears the process-wide digest, and the
+// package's parallel tests resume only after every sequential test (cleanup
+// included) has finished.
+func TestMiddleware_AuditLog_DigestUnconfiguredFailsClosed(t *testing.T) {
+	seams := map[string]func(t *testing.T, mw *AuthMiddleware){
+		"nil digester": func(_ *testing.T, mw *AuthMiddleware) {
+			mw.digester = nil
+		},
+		"default digester, nothing configured at boot": func(t *testing.T, _ *AuthMiddleware) {
+			preserveAuditDigest(t)
+			clearAuditDigest()
+		},
+	}
+
+	for name, breakSeam := range seams {
+		t.Run(name, func(t *testing.T) {
+			h := &mwTestHandler{}
+			logger := slog.New(h)
+			mw, mock := newMiddlewareWithMock(t, nil, logger)
+			breakSeam(t, mw)
+
+			id := testAuditCallerID
+			expectAdminResolved(mock, id)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/tools/admin-tool", nil)
+			req.Header.Set("X-Caller-Id", id)
+			rec := httptest.NewRecorder()
+
+			mw.Wrap(okHandler()).ServeHTTP(rec, req)
+
+			recs := h.recordsByMsg("privileged access")
+			if len(recs) == 0 {
+				t.Fatal("expected the 'privileged access' line even without a digest; got none")
+			}
+			recs[0].Attrs(func(a slog.Attr) bool {
+				if a.Key == "caller_hash" {
+					t.Errorf("audit line carries caller_hash = %v without a configured digest; must omit it", a.Value.Any())
+				}
+				return true
+			})
+
+			unkeyed := sha256.Sum256([]byte(id))
+			if got := hex.EncodeToString(unkeyed[:]); strings.Contains(recordsText(recs), got) {
+				t.Error("audit line leaked the retired unkeyed SHA-256 digest")
+			}
+
+			degraded := h.recordsByMsg("auth: audit digest unconfigured, caller_hash omitted")
+			if len(degraded) != 1 {
+				t.Fatalf("digest-degradation records = %d; want exactly 1 (fail closed must be visible)", len(degraded))
+			}
+		})
+	}
+}
+
+// recordsText renders the attribute values of the given records, so an
+// assertion can search for a value without depending on slog's text format.
+func recordsText(recs []slog.Record) string {
+	var sb strings.Builder
+	for _, r := range recs {
+		r.Attrs(func(a slog.Attr) bool {
+			sb.WriteString(a.Value.String())
+			sb.WriteString(" ")
+			return true
+		})
+	}
+	return sb.String()
 }
 
 // TestMiddleware_ResolverDBError_Returns500 covers F-REL-1: when the resolver
@@ -696,4 +779,16 @@ func TestNewAuthMiddlewarePanicsOnNilResolver(t *testing.T) {
 		}
 	}()
 	NewAuthMiddleware(nil, ToolRBAC{}, slog.Default())
+}
+
+// TestMiddlewareAuditAttrs_TypeIsTypedSlogAttr pins the typed-attrs contract
+// for the middleware seam too (GGA round 3): the audit attr builder returns
+// []slog.Attr rather than raw key-value []any.
+func TestMiddlewareAuditAttrs_TypeIsTypedSlogAttr(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	mw, _ := newMiddlewareWithMock(t, nil, logger)
+	attrs := mw.auditAttrs([]slog.Attr{}, "x", "tool")
+	if got := reflect.TypeOf(attrs); got != reflect.TypeOf([]slog.Attr{}) {
+		t.Fatalf("middleware.auditAttrs type = %T, want []slog.Attr", attrs)
+	}
 }

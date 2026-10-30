@@ -150,6 +150,15 @@ func TestSuccessorCandidatesPropagatesTheQueryError(t *testing.T) {
 	if got != nil {
 		t.Errorf("SuccessorCandidates() = %+v, want nil on failure", got)
 	}
+	// GGA round 2 of the transfer-confirmation commit: the propagated query
+	// failure keeps the caller-visible operation context ("which list
+	// failed"), with the cause chain intact.
+	if !errors.Is(err, accounts.roleErr) {
+		t.Errorf("err = %v, want the cause chain intact", err)
+	}
+	if !strings.Contains(err.Error(), "listar owners sucesores") {
+		t.Errorf("err = %q, want the operation context prefix", err)
+	}
 }
 
 // TestApplyHermesConfigWritesTheMergedEntry pins the relocated chain (R2-01,
