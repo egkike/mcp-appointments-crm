@@ -64,7 +64,10 @@ DDL, cero migración, cero backfill**.
   **rechaza** cualquier otra cosa (longitud distinta, mayúsculas, no-hex, bytes crudos)
   con un `*domain.SemanticError`.
 - **Permisos**: archivo 0600 (chmod explícito tras la escritura), directorio 0700 —
-  mismo criterio que `admin.WriteCallerID`.
+  mismo criterio que `admin.WriteCallerID`. En Windows no hay bits de modo que
+  inspeccionar (`os.FileMode` sólo lleva el atributo read-only), así que el mismo
+  contrato se **enforcea sobre la DACL efectiva** de la clave y de su config dir
+  (`ensureOwnerOnlyWindows`, ver "Gate de ACL en Windows").
 - **Creación única**: `O_CREATE|O_EXCL`. Si el server (systemd) y la TUI del operador
   arrancan a la vez, el perdedor de la carrera **lee la clave del ganador** (con
   reintentos acotados) en vez de sobrescribirla: la clave *es* el namespace del digest,
@@ -168,7 +171,8 @@ degradan la lectura, nunca una decisión de acceso.
 
 ## References
 
-- Issue: #155 "Keyed digest (HMAC) for caller-id hashes in the audit log".
+- Issue: #155 "Keyed digest (HMAC) for caller-id hashes in the audit log";
+  #158 "Windows ACL enforcement for the audit-hash-key file and its config dir".
 - Código: `internal/auth/audit_digest.go` (clave + digest), `internal/auth/middleware.go`
   (`caller_hash` fail-closed), `internal/repository/accounts.go` (`actor_ref`),
   `internal/repository/accounts_audit.go` (ventana mixta), `cmd/mcp-server/main.go`
@@ -188,6 +192,40 @@ Consecuencia: un operador que necesite correlacionar una línea del journal con 
 
 La lectura también valida permisos (GGA round 1-2): un `audit-hash-key` no-0600 (ej. 0644 por umask suelta) o un dir de config **group/world-writable** hacen boot con error semántico que nombra el chmod. El dir gate rechaza group-write también porque un group member puede **reemplazar** el key file (delete + rewrite por el directorio) pese al 0600 del archivo — un takeover del namespace, no una conveniencia. Los homes reales tienen `~/.config` owner-write-only (0755), así que el gate no cuesta nada en producción; las fixtures de test explicitan chmod 0700 porque `t.TempDir()` de este ambiente es 0775 (umask 0002).
 
+Esos dos chequeos viven desde #158 en `audit_digest_other.go`, detrás de `auditHashKeyPermissionGate`; su semántica y sus mensajes no cambiaron un byte.
+
+### Gate de ACL en Windows (2026-10-31, issue #158 — retira el residual de `review-5f5aafb87aa13e6f`)
+
+El residual que el validador TV-R1 rechazó era exacto: en Windows no se evaluaba **ningún** permiso de la clave, mientras un comentario asumía una "ACL default de user-profile" que nadie verificaba. Un key file en un path cuya ACL permite a otros usuarios leerlo o reemplazarlo se aceptaba sin chequeo. Este apartado lo remueve.
+
+La lectura valida acceso en **todas** las plataformas: el verdicto vive detrás de `auditHashKeyPermissionGate`, que en POSIX son los chequeos de modo ya descritos y en Windows es `ensureAuditHashKeyOwnerOnly` (`audit_digest_windows.go`).
+
+`ensureAuditHashKeyOwnerOnly` lee el security descriptor efectivo (`GetNamedSecurityInfo` sobre `SE_FILE_OBJECT` con `DACL|OWNER`) de la clave y de su config dir, toma el owner SID (`GetSecurityDescriptorOwner`) y falla cerrado cuando algún ACE `ACCESS_ALLOWED` cuyo principal **no** es el owner, ni `SYSTEM` (`S-1-5-18`), ni `BUILTIN\Administrators` (`S-1-5-32-544`) concede lectura o escritura. Máscaras: lectura = `FILE_GENERIC_READ|FILE_READ_DATA|READ_CONTROL`; escritura = `FILE_GENERIC_WRITE|GENERIC_WRITE|GENERIC_ALL|WRITE_DAC|WRITE_OWNER|DELETE|FILE_DELETE_CHILD`. `DELETE`/`FILE_DELETE_CHILD` cuentan como escritura por el mismo razonamiento que el gate POSIX de group-write: borrar + recrear por el directorio es un takeover del namespace. Ojo con `0x20000`: en Windows `STANDARD_RIGHTS_READ == STANDARD_RIGHTS_WRITE == READ_CONTROL`, así que ese bit solo dispara **ambos** gates; es la dirección fail-closed y se acepta documentadamente en vez de inventar un desempate.
+
+Los dos targets (dir, archivo) se evalúan en la **misma** llamada y los problemas se reportan juntos: el mensaje nombra objeto (archivo vs dir), permiso (lectura / escritura / ambas), tipo de ACE (`ACCESS_ALLOWED`, o `DACL ausente` cuando no hay lista que evaluar) y principal (SID en forma SDDL, sin lookup de dominio), y da el fix `icacls "<path>" /inheritance:r /grant:r "%USERNAME%:F"` — el equivalente Windows del `chmod 0600` (el binario nunca reescribe ACLs por su cuenta). Cualquier falla de acceso o de evaluación también falla cerrado: "no se pudo evaluar" nunca significa "es seguro".
+
+Simplificaciones declaradas frente al outline del issue (no silenciosas):
+
+- se evalúan **sólo** la clave y su config dir inmediato; no se camina el árbol de hijos (ningún otro archivo se lee en este camino);
+- **no** se expanden las membresías de grupo del owner: se inspecciona la DACL, no se corre un access check contra el token del owner, así que un ACE a un grupo al que el owner pertenece cuenta como "otro principal";
+- un DACL ausente (`ERROR_OBJECT_NOT_FOUND`) se reporta como exposición total; `x/sys` no distingue de forma confiable un DACL ausente de uno vacío (`nil`), así que ambos fallan cerrado;
+- ACEs de tipo distinto de `ACCESS_ALLOWED`/`ACCESS_DENIED` (object/callback ACEs) abortan la evaluación como "no soportado" en lugar de reinterpretarse con el layout equivocado;
+- el camino de **creación** no se gatea (el archivo todavía no existe y `os.Chmod` en Windows no toca ACLs): la lectura del arranque siguiente aplica el verdicto.
+
+Evidencia: `internal/auth/audit_digest_windows_test.go` fija la decisión ACE con security descriptors canned en SDDL — `(A;;FR;;;WD)` → lectura de `S-1-1-0`, `FA`/`FW`/`WD`/`SD` → escritura, `(A;OICI;FA;;;WD)` → lectura+escritura sobre el dir, ACEs `deny` ignorados, DACL ausente → exposición, owner/SYSTEM/Administrators tolerados — y la forma del mensaje. Límite de evidencia declarado: ese archivo **compila** para `GOOS=windows` en amd64 y arm64 y corre sólo en Windows; el job de CI Linux sobre el que se validó esta unidad **no ejecuta** `GetNamedSecurityInfo` ni ningún test de ese archivo. El gap de runtime es real y no se reclama como cobertura.
+
+El pin ejecutable multiplataforma es el lado POSIX: `TestReadAuditHashKeyFile_RoutesEveryReadThroughThePermissionGate` prueba que la lectura consulta el gate de la plataforma (con un gate permisivo, un keyfile 0644 se acepta), y `TestReadAuditHashKeyFile_PropagatesGateRejection` que el verdicto se propaga tal cual sin entregar la clave. Eso es exactamente la regresión que el validador marcó: un gate que no produce verdicto.
+
 ### Atributos tipados del journal (2026-10-30, GGA round 3)
 
 Los attrs de auditoría (`auditAttrs` en auth y en repository) devuelven `[]slog.Attr` — la forma del std-library que le deja al compilador el par clave/valor, sin la convención posicional previa; los call-sites de `slog` elevan con un lift explícito. El wire del journal NO cambia un byte (los pines del journal lo afirman).
+
+### Redondeos GGA del gate de ACL (rounds 1-2 del into #158, 2026-10-30)
+
+- Verbatim fix del round 1: `GENERIC_READ` entra en la máscara de lectura (un ACE genérico-grant no escapa más), el **create path ya está gated** llama al gate de plataforma tras el chmod (un DACL heredado permisos-productores de Windows o una POSIX mode loose falla el First boot), y los mensajes de remediación son **path-free** (el path viaja solo en `Cause` al log del server).
+- Layer 2 (el round 2): ancla del **usuario del proceso** — el owner SID del objeto ya NO es la ancla de tolerancia (un owner extranjero podía esconder sus propios grants); el anchor es el SID del token actual (`OpenCurrentProcessToken().GetTokenUser()`), válidos siempre SYSTEM/Administrators. POSIX agrega **Lstat** (los symlinks del key/dir se rechazan, nunca se sigue el salto) y **ownership** (`stat_t.Uid == euid`).
+- Pendiente verificado: la mask 0x20000 sigue tripando ambos gates (fail-closed).
+
+### Boundary del gate de ACLs y ancestors (2026-10-30, cierre del bullet #158)
+
+El gate cubre **el key file + su config dir inmediata** (declarado como desviación del outline original, en el code comment de `audit_digest_windows.go` y en el body del change). Los ancestros ARRIBA del config dir (`~/.config`, `$HOME`, o el path base que el operador setee por `MCP_CONFIG_DIR`) quedan FUERA del verdict del boot: validar la cadena completa infla el scope del issue hacia un problema de despliegue (un ancestro user-writable es una misconfiguration del operador, no un defecto del gate — el gate falla cerrado ante lo que DINÁMICamente puede evaluar). Si una revisión nativa eleva el ancestor-chain como blocker: el rebalance pertenece a un candidate SEPARADO con AMBOS los lados documentando el depósito del operador y los helpers de resolución del config path.

@@ -67,6 +67,32 @@ const (
 // emit the raw id.
 type CallerIDDigester func(id string) string
 
+// auditGateTarget selects which object the permission gate evaluates. The
+// gate contract per platform:
+//   - gateDir: the DIRECTORY target is evaluated ITSELF (mode/ACL) — never its
+//     grandparent, which is irrelevant to the inherited-into-the-shared-ACL
+//     mating (the create-path pre-gate use case);
+//   - gateFile: the FILE plus its immediate parent dir are evaluated BOTH.
+type auditGateTarget int
+
+const (
+	// auditGateDir pins the "existing config dir" pre-write evaluation.
+	auditGateDir auditGateTarget = iota
+	// auditGateFile pins the read/key evaluation (file + parent).
+	auditGateFile
+)
+
+// auditHashKeyPermissionGate is the platform access-control gate applied to the
+// key file and its config dir on every read (ADR-0021, issue #158).
+//
+// It is a variable, not a plain call, because the check is the one platform-
+// specific piece of this protocol and the read path must be provably routed
+// through it: the #158 regression was the Windows build skipping enforcement
+// entirely while the POSIX mode bits were evaluated inline. POSIX evaluates
+// mode bits (audit_digest_other.go); Windows evaluates the file/dir DACL
+// (audit_digest_windows.go).
+var auditHashKeyPermissionGate = auditHashKeyPlatformGate
+
 // auditDigest is the process-wide keyed digest installed once at boot by the
 // composition root (auth.ConfigureAuditDigest). It is nil until configured, and
 // the read path treats nil as "not configured" — it never falls back to the
@@ -202,39 +228,17 @@ func loadOrCreateAuditHashKeyFile(path string) ([]byte, error) {
 // as fs.ErrNotExist (through the semantic error's cause) so the caller can
 // decide to create it.
 //
-// Permissions gate (GGA round 1 of the #155 commit): creation enforces 0600,
-// but an EXISTING file hardened by nobody else's editor (0644 by a bad umask)
-// must not load into the digest namespace silently — a world-readable HMAC key
-// exposes the audit identity scheme to every local user. The load fails closed
-// naming the chmod fix the operator runs; likewise a config dir that lets
-// group/other writers in could replace the whole namespace.
+// Access-control gate (GGA round 1 of the #155 commit, Windows parity in #158):
+// creation enforces 0600, but an EXISTING file hardened by nobody else's editor
+// (0644 by a bad umask, or a permissive Windows DACL) must not load into the
+// digest namespace silently — a readable HMAC key exposes the audit identity
+// scheme to every local principal, and a writable one lets them replace the
+// namespace. The verdict is platform-specific and lives behind
+// auditHashKeyPermissionGate; the load fails closed naming the fix the operator
+// runs.
 func readAuditHashKeyFile(path string) ([]byte, error) {
-	info, err := os.Stat(path)
-	if err == nil && info.Mode().Perm() != os.FileMode(auditHashKeyFileMode) {
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeInvalidInput,
-			Message: "la clave del digest de auditoría es legible por terceros: corré chmod 0600 " + filepath.Base(path) + " y volvé a arrancar",
-			Cause:   fs.ErrPermission,
-		}
-	}
-	// The directory gate is WORLD-writable only: group-writable config dirs
-	// are the normal Linux layout under umask 0002, so requiring 0700 there
-	// would brick regular single-host installs (probe: t.TempDir() yields 0755
-	// here). What matters is nobody else being able to replace the key file —
-	// world-write — plus the file itself being readable only by the owner.
-	// The directory gate rejects GROUP/WORLD write (0o022): a group-writable
-	// config dir lets a group member REPLACE the 0600 key file (delete +
-	// rewrite through the directory), which is a namespace takeover, not a
-	// convenience. Real-home config dirs are owner-write-only (~/.config 0755),
-	// so the gate costs nothing in production; test fixtures explicit-chmod
-	// 0700 because t.TempDir() yields 0775 here.
-	dirInfo, err := os.Stat(filepath.Dir(path))
-	if err == nil && dirInfo.Mode().Perm()&0o022 != 0 {
-		return nil, &domain.SemanticError{
-			Code:    domain.ErrCodeInvalidInput,
-			Message: "el directorio de configuración es escribible por terceros: corré chmod 0700 " + filepath.Dir(path) + " y volvé a arrancar",
-			Cause:   fs.ErrPermission,
-		}
+	if err := auditHashKeyPermissionGate(path, auditGateFile); err != nil {
+		return nil, err
 	}
 	// #nosec G304 -- path is <operator config dir>/audit-hash-key: a constant
 	// filename under a directory the composition root owns (internal/admin.ConfigDir).
@@ -284,12 +288,29 @@ func parseAuditHashKeyFile(raw []byte) ([]byte, error) {
 
 // createAuditHashKeyFile generates and persists a fresh random key.
 func createAuditHashKeyFile(path string) ([]byte, error) {
+	// GGA round 4 finding 1: the create path must gate the EXISTING parent dir
+	// BEFORE any key byte is written. The file inherits the parent's ACL at
+	// creation (Windows: os.Chmod does not touch ACLs), so gating only after
+	// the write left a transient window where an over-permissive inherited
+	// DACL already held the secret even though the boot was about to fail.
+	// A missing dir falls through: MkdirAll creates it with the tight mode
+	// below (file-level enforcement follows through the post-write gate).
+	if err := auditHashKeyPermissionGate(filepath.Dir(path), auditGateDir); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), auditHashKeyDirMode); err != nil {
 		return nil, &domain.SemanticError{
 			Code:    domain.ErrCodeInternal,
 			Message: "no se pudo crear el directorio de configuración de la clave del digest de auditoría",
 			Cause:   err,
 		}
+	}
+	// GGA round 6 finding 1 (first-boot window): the fresh dir inherits the
+	// parent's ACL and os.MkdirAll does NOT establish a restrictive DACL on
+	// Windows; re-gate the (now existing) dir BEFORE a single key byte is
+	// written so the write-before-evaluate window closes for first boot too.
+	if err := auditHashKeyPermissionGate(filepath.Dir(path), auditGateDir); err != nil {
+		return nil, err
 	}
 
 	key := make([]byte, AuditHashKeySize)
@@ -340,6 +361,14 @@ func createAuditHashKeyFile(path string) ([]byte, error) {
 			Message: "no se pudieron restringir los permisos de la clave del digest de auditoría",
 			Cause:   err,
 		}
+	}
+	// GGA round 1 of the #158 unit (finding 2, Windows parity): the create path
+	// is no longer the ungated hole — after the chmod, the SAME platform gate
+	// re-evaluates the fresh file + dir so a permissive Windows inherited DACL
+	// (os.Chmod does not touch ACLs) or a loose POSIX mode fails the FIRST boot
+	// instead of sharing a permissive key until the next read.
+	if err := auditHashKeyPermissionGate(path, auditGateFile); err != nil {
+		return nil, err
 	}
 	return key, nil
 }

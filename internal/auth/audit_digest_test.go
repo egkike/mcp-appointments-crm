@@ -484,6 +484,78 @@ func TestLoadOrCreateAuditHashKey_RejectsGroupWritableConfigDir(t *testing.T) {
 	}
 }
 
+// preserveAuditKeyGate snapshots the platform permission gate and restores it
+// when the test ends (same reasoning as preserveAuditDigest: parallel tests in
+// this package resume only after every sequential test has finished).
+func preserveAuditKeyGate(t *testing.T) {
+	t.Helper()
+	saved := auditHashKeyPermissionGate
+	t.Cleanup(func() { auditHashKeyPermissionGate = saved })
+}
+
+// TestReadAuditHashKeyFile_RoutesEveryReadThroughThePermissionGate pins the
+// #158 reroute: the platform access-control verdict comes from the gate and
+// from nowhere else. A 0644 key file — which the POSIX gate rejects — is
+// ACCEPTED when the gate answers "safe", which is only possible if no inline
+// mode-bit check survives on the read path.
+func TestReadAuditHashKeyFile_RoutesEveryReadThroughThePermissionGate(t *testing.T) {
+	dir := tDir700(t)
+	keyPath := filepath.Join(dir, AuditHashKeyFileName)
+	// Deliberately loose mode: with the checks behind the gate only the stubbed
+	// verdict decides (#nosec G306 -- the loose mode is the assertion's premise).
+	if err := os.WriteFile(keyPath, []byte(testAuditKeyHex+"\n"), 0o644); err != nil { //nolint:gosec // fixture: the loose mode IS the point
+		t.Fatalf("seed loose key file: %v", err)
+	}
+
+	preserveAuditKeyGate(t)
+	var gatedPaths []string
+	var gatedKinds []auditGateTarget
+	auditHashKeyPermissionGate = func(path string, kind auditGateTarget) error {
+		gatedPaths = append(gatedPaths, path)
+		gatedKinds = append(gatedKinds, kind)
+		return nil
+	}
+
+	key, err := readAuditHashKeyFile(keyPath)
+	if err != nil {
+		t.Fatalf("readAuditHashKeyFile with a permissive gate: %v", err)
+	}
+	if hex.EncodeToString(key) != testAuditKeyHex {
+		t.Errorf("key = %x; want the seeded key", key)
+	}
+	if len(gatedPaths) != 1 || gatedPaths[0] != keyPath {
+		t.Fatalf("gate paths = %q; want exactly one call with the key path %q", gatedPaths, keyPath)
+	}
+	if len(gatedKinds) != 1 || gatedKinds[0] != auditGateFile {
+		t.Fatalf("gate kinds = %v; want auditGateFile", gatedKinds)
+	}
+}
+
+// TestReadAuditHashKeyFile_PropagatesGateRejection pins fail-closed semantics:
+// a rejecting gate is a fatal load, returned verbatim with no key alongside it
+// (the #158 bug pattern was a gate that never produced a verdict at all).
+func TestReadAuditHashKeyFile_PropagatesGateRejection(t *testing.T) {
+	dir := tDir700(t)
+	writeKeyFile(t, dir, testAuditKeyHex+"\n")
+	keyPath := filepath.Join(dir, AuditHashKeyFileName)
+
+	rejection := &domain.SemanticError{
+		Code:    domain.ErrCodeInvalidInput,
+		Message: "gate sentinel: el archivo concede lectura a otro principal",
+		Cause:   os.ErrPermission,
+	}
+	preserveAuditKeyGate(t)
+	auditHashKeyPermissionGate = func(string, auditGateTarget) error { return rejection }
+
+	key, err := readAuditHashKeyFile(keyPath)
+	if !errors.Is(err, rejection) {
+		t.Fatalf("err = %v, want the gate's rejection returned verbatim", err)
+	}
+	if key != nil {
+		t.Errorf("readAuditHashKeyFile returned a key alongside the gate rejection: %x", key)
+	}
+}
+
 // tDir700 is the normal-case keyfile fixture directory: it compensates this
 // environment's t.TempDir() group-writable layout (umask 0002) so the tests
 // exercise the gate only where they intend to.
@@ -496,4 +568,30 @@ func tDir700(t *testing.T) string {
 		t.Fatalf("tighten temp config dir to 0700: %v", err)
 	}
 	return dir
+}
+
+// TestReadAuditHashKeyFile_RejectsSymlinkKey pins the symlink rule (GGA round
+// 2 of the #158 unit): the POSIX gate reads the TARGET when following a
+// symlink, so a swapped key can point anywhere; the gate rejects a symlinked
+// key or directory instead of ever trusting the hop.
+func TestReadAuditHashKeyFile_RejectsSymlinkKey(t *testing.T) {
+	dir := tDir700(t)
+	realPath := filepath.Join(dir, "real-key")
+	keyHex := strings.Repeat("ef", 32)
+	if err := os.WriteFile(realPath, []byte(keyHex+"\n"), 0o600); err != nil {
+		t.Fatalf("seed real key: %v", err)
+	}
+	linkPath := filepath.Join(dir, AuditHashKeyFileName)
+	if err := os.Symlink(realPath, linkPath); err != nil {
+		t.Skipf("symlink unavailable on this platform: %v", err)
+	}
+
+	_, err := readAuditHashKeyFile(linkPath)
+	var semErr *domain.SemanticError
+	if !errors.As(err, &semErr) {
+		t.Fatalf("readAuditHashKeyFile(symlink) err = %v, want a *domain.SemanticError", err)
+	}
+	if !strings.Contains(semErr.Message, "symlink") {
+		t.Errorf("message = %q, want it to name the symlink rule", semErr.Message)
+	}
 }
