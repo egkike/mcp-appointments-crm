@@ -98,6 +98,23 @@ Reemplazá `v0.9.1` por el tag exacto que querés instalar. El formato obligator
    MCP_PORT=3000
    ```
    Si ya existe `.env`, se preserva byte-idéntico (upgrade).
+
+   > **Recomendación si vas a correr el canal WhatsApp del negocio en esta misma
+   > máquina** (installación típica del producto con el gateway de Hermes):
+   > antes del primer arranque, editá el `.env` y fijá **`MCP_PORT=3001`** (o
+   > cualquier otro puerto libre). El default `3000` es el puerto contratado
+   > del MCP, pero **el puente de WhatsApp de Hermes (bridge.js/Baileys)
+   > también usa 3000 como puerto local por default** y choques con él dejarían
+   > el canal WhatsApp sin arrancar (`standalone_bridge_port` del runtime
+   > "never allocates", no busca un puerto libre). Con el MCP en 3001 ambos
+   > servicios conviven sin configuración extra. Si preferís mantener el MCP en
+   > 3000, la alternativa equivalente es fijar el `bridge_port` del bridge
+   > (config `platforms.whatsapp.extra.bridge_port` del runtime; ver
+   > [gateway-contract §6.1](gateway-contract.md)) — una de las dos palancas es
+   > necesaria; ninguna es opcional WhatsApp-on-same-host. Verificación:
+   > `curl --fail http://127.0.0.1:3001/healthz` y re-coré la opción 7 de la
+   > TUI para que la entrada `mcp_servers` de Hermes derive la URL del puerto
+   > nuevo.
 10. Instala el binario en `~/.local/bin/mcp-server` de forma atómica.
 11. Renderiza e instala la service unit:
     - Linux: `~/.config/systemd/user/mcp-appointments-crm.service`
@@ -369,12 +386,23 @@ Si el checksum oficial falla, no instales y abrí un issue en el repo.
 
 ### El servicio no arranca y el log dice "puerto 3000 en uso"
 
-Editá `~/.config/mcp-appointments-crm/.env` para usar otro puerto, por ejemplo `MCP_PORT=3001`, y reiniciá:
+Causas típicas: (a) **el puente de WhatsApp de Hermes** (`bridge.js`, que por
+default usa 3000 — añadido el 2026-11-01 con la prueba de onboarding), o (b)
+cualquier otro proceso en el 3000. Dos salidas equivalentes, elegí UNA:
+
+1. **Mover el MCP**: editá `~/.config/mcp-appointments-crm/.env` para usar otro
+   puerto — la recomendación del producto para hosts con WhatsApp es
+   `MCP_PORT=3001` (`docs/installation.md` §Paso 2) — y reiniciá:
 
 ```bash
 systemctl --user restart mcp-appointments-crm
 curl --fail http://127.0.0.1:3001/healthz
+# después re-coré la opción 7 de la TUI (o editá la entrada mcp_servers) para
+# que la URL de Hermes apunte al puerto nuevo
 ```
+
+2. **Mover el puente**: fijá `platforms.whatsapp.extra.bridge_port` en el config
+   del gateway (por ej. `3005`) — ver [gateway-contract §6.1](gateway-contract.md).
 
 ### Error de symlink en `DATA_DIR`, `BIN_DIR` o `LOG_DIR`
 

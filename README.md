@@ -92,7 +92,11 @@ user-level service (`systemd --user` on Linux, `launchd` on macOS), enables ling
 on Linux, and verifies the installed binary (`mcp-server --version` matches the
 requested tag) plus that the user service is active. The installer itself issues no
 HTTP request; the liveness probe is `http://127.0.0.1:3000/healthz` (a bare `GET /mcp`
-answers **405 by design** — the MCP endpoint accepts POST JSON-RPC only).
+answers **405 by design** — the MCP endpoint accepts POST JSON-RPC only). The port
+is a documented default (`MCP_PORT` in the install `.env`), not a hardcode: on
+hosts that will also run the Hermes WhatsApp channel, set `MCP_PORT=3001` before
+the first start (see `docs/installation.md`, Paso 2 recommendation) so the MCP
+and the Hermes WhatsApp bridge (also defaulting to 3000) never collide.
 
 > **macOS note:** the installer's macOS path is implemented and the published
 > releases ship the `Darwin` archives since v0.4.0 (`install.sh` resolves them via

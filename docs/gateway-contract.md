@@ -94,6 +94,8 @@ A self-chat sender (B) is a valid sender: treat it like any other `from` and let
 
 **Mode-invariant (by design):** the persona selection (R2/R3, §8.1), the G0–G4 delete gates, the TUI-only exclusions and the registration funnel are identical in both modes — the skill resolves the persona from the sender's role, never from which number is the bot. Nothing in the MCP server, the tools or the skill branches on the mode; the only mode-dependent artifacts are the operator steps (§7.5 branch) and the `messenger_id` value.
 
+**Port hygiene (same-host install):** when the MCP server and the Hermes gateway share a host, exactly ONE of these two levers is required for the WhatsApp channel to start — the runtime bridge defaults to `127.0.0.1:3000`, the same address the MCP server serves (its documented default; `standalone_bridge_port` "never allocates"). Lever 1 (recommended, docs of this repo): set **`MCP_PORT=3001`** in `~/.config/mcp-appointments-crm/.env` and re-run TUI option 7 so the `mcp_servers` entry derives the new URL. Lever 2: preset the bridge via the gateway config (`platforms.whatsapp.extra.bridge_port`, e.g. `3005`).
+
 ## 7. Operator runbook
 
 ### 7.1 Transfer Ownership to the real owner phone
