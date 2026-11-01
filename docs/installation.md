@@ -410,6 +410,111 @@ El instalador rechaza symlinks en esos directorios por seguridad. Si tenés un s
 
 ---
 
+## Conectar tu agente MCP (Hermes u otros)
+
+> **La instalación limpia y estándar del producto es con Hermes**: el flujo
+documentado (Paso 1–3 acá + `Configurar Hermes` en la TUI, `docs/gateway-
+contract.md`) deja el server integrado con la cascada de la skill de
+recepcionista y los canales WhatsApp/Telegram. **Si usás otro agente MCP**
+(Claude Code, OpenClaw, OpenCode, Codex, un IDE…), el server es un **servidor
+MCP estándar** y funciona con cualquiera que hable Streamable HTTP e inyecte
+el header de identidad — esta sección es la guía universal de conexión.
+
+### Contrato universal para cualquier cliente MCP
+
+| Aspecto | Valor |
+|---|---|
+| Endpoint MCP | `http://127.0.0.1:3000/mcp` (POST JSON-RPC solo; `GET` responde 405) |
+| Liveness | `GET http://127.0.0.1:3000/healthz` |
+| Auth | **header `X-Caller-Id` con el teléfono del owner por request** (no hay OAuth/keys: el trust model es loopback-only, ADR-002; el header ES la identidad — roles por `accounts`/`clients`) |
+| Identidad del owner | `~/.config/mcp-appointments-crm/caller-id` (creado por la TUI Paso 1 — esa pieza es agnóstica del agente) |
+| Puerto no-3000 | el default es 3000 documentado; en hosts que corren además el canal WhatsApp leé la higiene de puertos en el Paso 2 de este doc + `gateway-contract.md` §6.1 |
+
+> **Límite honesto de los headers estáticos**: los clientes MCP configuran
+> headers **por server**, no per-sender. Con un agente distinto de Hermes
+> tienes una única identidad caller por config del run; la resolución
+> multi-emisor por canal (cliente/owner/staff que resuelven por el `from`
+> del mensaje) es lo que hoy entrega el gateway de Hermes. Para un uso de
+> owner self-host esto cubre todo el flujo con el owner; para un canal
+> comercial multi-emisor, el agente necesita su implementación de gateway
+> per-sender equivalente.
+
+### Smoke de conexión con cualquier cliente (con `curl`)
+
+```bash
+# 1. liveness
+curl --fail http://127.0.0.1:3000/healthz
+
+# 2. catálogo de tools (25)
+curl -s -X POST http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'X-Caller-Id: +5491100000000' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -c 400
+
+# 3. lectura real ejemplo (caller con rol resuelto)
+curl -s -X POST http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'X-Caller-Id: <tu-teléfono-registrado>' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_business_profile","arguments":{}}}'
+```
+
+### OpenClaw (verificado 2026-11-01, docs.openclaw.ai/gateway/config-extensions)
+
+OpenClaw tiene cliente MCP remoto (transport `streamable-http` o `sse`) con
+map de headers por server: bajo `mcp.servers` de su config:
+
+```json5
+mcp: {
+  servers: {
+    "mcp-appointments": {
+      url: "http://127.0.0.1:3000/mcp",
+      transport: "streamable-http",
+      headers: { "X-Caller-Id": "<teléfono del owner>" },
+      requestTimeoutMs: 20000,
+    }
+  }
+}
+```
+
+Después: `openclaw mcp list` / `openclaw mcp doctor` para ver la conexión;
+si OpenClaw corre en otra máquina, recordar que el server es loopback-only
+(ADR-002: un túnel/SSH local-port-forward, evalufado como decision del
+operador; nunca exponer el puerto más allá del loopback.
+
+### Claude Code / Codex (`.mcp.json` de project scope)
+
+```json
+{
+  "mcpServers": {
+    "mcp-appointments": {
+      "type": "http",
+      "url": "http://127.0.0.1:3000/mcp",
+      "headers": { "X-Caller-Id": "<teléfono del owner>" }
+    }
+  }
+}
+```
+
+*(Sintaxis vigente a la fecha de publicación del doc: validála contra la docs
+> de tu client si su formato cambió.*)
+
+### OpenCode (`opencode.json` del workspace)
+
+```json
+{
+  "mcp": {
+    "mcp-appointments": {
+      "type": "remote",
+      "url": "http://127.0.0.1:3000/mcp",
+      "headers": { "X-Caller-Id": "<teléfono del owner>" },
+      "enabled": true
+    }
+  }
+}
+```
+
 ## Próximos pasos
 
 - Operación diaria/anual: ver [`docs/maintenance.md`](./maintenance.md).

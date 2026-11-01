@@ -98,6 +98,14 @@ hosts that will also run the Hermes WhatsApp channel, set `MCP_PORT=3001` before
 the first start (see `docs/installation.md`, Paso 2 recommendation) so the MCP
 and the Hermes WhatsApp bridge (also defaulting to 3000) never collide.
 
+It runs a standard MCP server (Streamable HTTP, POST-only `/mcp`) with a
+single non-standard surface: the per-request `X-Caller-Id` identity header.
+The **clean, standard, product-supported installation is with Hermes**
+(gateway-contract: channels + receptionist skill); **any other MCP-capable
+agent (Claude Code, OpenClaw, OpenCode, IDEs) can connect** — see the
+agent connector guide in `docs/installation.md` (§ “Conectar tu agente MCP
+(Hermes u otros)”, con snippets verificados para cada client).
+
 > **macOS note:** the installer's macOS path is implemented and the published
 > releases ship the `Darwin` archives since v0.4.0 (`install.sh` resolves them via
 > `uname`, see [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md)).
@@ -105,15 +113,12 @@ and the Hermes WhatsApp bridge (also defaulting to 3000) never collide.
 
 ### Install — Windows
 
-**Not available yet.** There is no supported Windows install path today: no install
-script, no `--register-service` flag, no Task Scheduler template. The GoReleaser
-pipeline ships the `Windows_x86_64.zip` asset per tag, but the
-install automation remains unimplemented. Manual service registration guidance (untested
-in CI) lives in [`setup/service/nssm-install.md`](./setup/service/nssm-install.md).
-
-Tracked as pending scope in [PRD §7](./docs/PRD.md#7-roadmap-por-fases) and
-[ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md) (Decision 3 status
-note).
+**Use WSL2.** Windows-native install automation is not supported and is
+explicitly out of the product's install covenant: run the installer inside
+WSL2 with `[boot] systemd=true` in `/etc/wsl.conf` — the Linux path covers it
+end to end. The legacy `Windows_x86_64.zip` asset note and the NSSM manual
+guidance (`setup/service/nssm-install.md`, untested in CI) reference the old
+Decision 3 scope of [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md).
 
 > See [docs/deployment.md](./docs/deployment.md) for the full runbook (HomeLab VM
 > example, manual download, verification checklist, rollback, troubleshooting) and
