@@ -21,29 +21,32 @@
 - [x] **OQ-2 — script shell** `scripts/uninstall.sh` (corre aunque el binario no exista)
 - [x] **OQ-3 — default PURGA**: el uninstall borra `~/.hermes/skills/recepcionista-negocio/` por default (un Hermes vivo no queda con instrucciones huérfanas apuntando a un server inexistente); flag `--keep-skill` para conservarla — rotación semántica frente al postulado (era default-keep, el owner eligió default-purga)
 - [x] **OQ-4 — purgable con warn**: `audit-hash-key` se borra con `--purge-config` + advertencia explícita sobre la auditoría histórica del HMAC
+- [x] **OQ-5 — otros agentes = la guía, definición FINAL** (owner 2026-11-01): «Dejemos SOLO A (la guía) como solución definitiva». Ningún adapter/writer por agente (alternativa D descartada) ni el emitir-snippets (B-lite): los agentes fuera de Hermes se conectan con la guía documentada (`docs/installation.md` § "Conectar tu agente MCP", landed `d60c27d` — elementos verificados: OpenClaw / Claude Code / OpenCode + smoke curl); sólo Hermes recibe integración de primera clase (opción 7, cascada, contract de canales). Reabrir sólo si el ecosistema MCP convergiera en un único formato de config (hoy: los formatos fragmentan por cliente y derivan por separado)
 
 ## Phase 2 — entrega (después de OQ)
 
-- [ ] **T1 (S1)** — `install.sh`: mensajes por plataforma + hint WSL en el
-  branch de plataformas no soportadas (hoy el error genérico); docs
-  `installation.md` nueva sección de plataformas (matriz) + README + hint en Prerrequisitos
-  1 de Prerequisitos
+- [ ] **T1 (S1)** — `install.sh`: mensaje por plataforma + hint WSL en el branch
+  de plataformas no soportadas (hoy el error genérico); verifier si algún test
+  pina ese texto; docs `installation.md` (sección de plataformas) + README +
+  Prerrequisitos. **Nota OQ-5: otros agentes NO llevan installer** — la guía
+  (`d60c27d`) es la solución definitiva (sin adapters ni B-lite)
 - [ ] **T2 (S2/S4)** — `scripts/uninstall.sh` con el contrato D2/D4 completo
-  (dry-run default / --apply / --purge-data doble gate / verificación final
-  tabla) + shell tests: `scripts/tests/uninstall_test.sh` (doble run idempotente,
-  keep-data default, live-DB fail-closed, dry-run no-op byte-evidence) + golden
-  del dry-run con HOME sandbox
+  (dry-run default / `--apply` / `--purge-data` doble gate / verificación final
+  en tabla) + shell tests: `scripts/tests/uninstall_test.sh` (doble run
+  idempotente, keep-data default, live-DB fail-closed, dry-run no-op
+  byte-evidence) + golden del dry-run con HOME sandbox; los flags de desacople
+  son **Hermes-only** (`--purge-hermes-entry`; skill: default PURGA con
+  `--keep-skill`), no per-agent (OQ-5)
 - [ ] **T3 (S3)** — `RemoveHermesServer` en `internal/admin/hermes.go` (molde
-  RemoveHermesTelegramOwnerBot: golden byte-clean, idempotente, entradas
-  hermanas sobreviven) + tests admin + el modo de uso del script: decisión de apply — o el script
-  reescribe el config yaml por sí mismo (misma garantía atomic replace del
-  runtime), o se apoya en el binario si está en PATH; postulado: script
-  independiente + el mismo golden test aplicado al pasaje del script
-- [ ] **T4** — docs del uninstall (installation.md sección nueva + README
-  repos_github) y PRD changelog del release que lo traiga
-- [ ] **T5 (gates)** — pipeline completo por cara Go (si T3 Go), shellcheck +
-  tests de shell por T2, native review por routing (uninstall es
-  sensible: riesgo de data), GGA por unit
+  `RemoveHermesTelegramOwnerBot`: golden byte-clean, idempotente, entradas
+  hermanas sobreviven) + tests admin + decisión de uso del script (reescribe
+  el YAML por sí misma — atomic replace — o delega en el binario si está en
+  PATH; postulado: script independiente)
+- [ ] **T4** — docs del uninstall (sección nueva en installation.md + README)
+  y changelog PRD del release que lo traiga
+- [ ] **T5 (gates)** — pipeline completo (Go si T3 Go), shellcheck + tests de
+  shell de T2, native review por routing (uninstall = riesgo de data), GGA
+  por unit
 
 ## Coverage check
 
