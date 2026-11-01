@@ -30,35 +30,35 @@
 
 ### TASK-1.1 — Shape de `purge-inactive` (OQ-1)
 
-- [ ] ¿Capacidad del menú `mcp-server admin tui` (recomendado, alineado con ADR-0016/0010) **o** sub-comando dedicado `mcp-server admin purge-inactive` (honra el literal de `docs/PRD.md:904`)?
-- [ ] Si sub-comando: fijar su nombre exacto y su contrato de salida/exit code.
-- [ ] Si menú: fijar la etiqueta en español de la entrada.
-- **Bloquea:** TASK-2.5, TASK-2.6.
+- [x] ¿Capacidad del menú `mcp-server admin tui` (recomendado, alineado con ADR-0016/0010) **o** sub-comando dedicado `mcp-server admin purge-inactive` (honra el literal de `docs/PRD.md:904`)? — **menú TUI**
+- [x] Si sub-comando: fijar su nombre exacto y su contrato de salida/exit code. — descartada: el owner eligió menú TUI
+- [x] Si menú: fijar la etiqueta en español de la entrada. — «Ver audit log» / purga con entrada propia del menú admin
+- **Bloquea:** TASK-2.5, TASK-2.6. — **RESUELTO 2026-10-18** (owner round 1; feature doc `odd/tasks/feat-tui-ops-residuals.md` L6; apply en `abd4766`)
 
 ### TASK-1.2 — Inmutabilidad del audit (OQ-2)
 
-- [ ] ¿Alcanza el append-only de API o se agrega un trigger SQLite que rechace `UPDATE`/`DELETE` sobre la tabla de auditoría?
-- **Bloquea:** TASK-2.4 (DDL).
+- [x] ¿Alcanza el append-only de API o se agrega un trigger SQLite que rechace `UPDATE`/`DELETE` sobre la tabla de auditoría? — **trigger SQLite + append-only API** (`accountAuditImmutabilityDDL`)
+- **Bloquea:** TASK-2.4 (DDL). — **RESUELTO 2026-10-18** (owner round 1, L6; DDL/triggers en `921db5a`)
 
 ### TASK-1.3 — Alcance de purge (OQ-3)
 
-- [ ] ¿La purga borra **solo cuentas** (default seguro, según `docs/PRD.md:904`) o también profesionales huérfanos vinculados por `accounts.professional_id` (sin FK)?
-- **Bloquea:** TASK-2.5.
+- [x] ¿La purga borra **solo cuentas** (default seguro, según `docs/PRD.md:904`) o también profesionales huérfanos vinculados por `accounts.professional_id` (sin FK)? — **solo cuentas**, batch core FK-safe
+- **Bloquea:** TASK-2.5. — **RESUELTO 2026-10-18** (owner round 1, L6; `PurgeInactive` en `abd4766`)
 
 ### TASK-1.4 — Cross-ref PRD (OQ-4)
 
-- [ ] ¿Se corrige en un change futuro `docs/PRD.md:1343`, que atribuye el follow-up de day-keys a ADR-0015 cuando el texto normativo está en ADR-0016 Decision 3.4? (No corregible en la superficie de este change.)
-- **No bloquea** el apply; registra deuda documental.
+- [x] ¿Se corrige en un change futuro `docs/PRD.md:1343`, que atribuye el follow-up de day-keys a ADR-0015 cuando el texto normativo está en ADR-0016 Decision 3.4? (No corregible en la superficie de este change.) — **corregida ahora**, junto con la línea 864 (`a0d239b`, docs/PRD.md 2 líneas)
+- **No bloquea** el apply; registra deuda documental. — deuda documental liquidada (owner round 1, L6)
 
 ### TASK-1.5 — Retención del audit (OQ-5)
 
-- [ ] ¿Retención indefinida o purga de filas > N días? Si hay purga, ¿quién la ejecuta y con qué cadencia?
-- **Bloquea:** TASK-2.4 si se decide incluir retención.
+- [x] ¿Retención indefinida o purga de filas > N días? Si hay purga, ¿quién la ejecuta y con qué cadencia? — **retención indefinida, sin purga**
+- **Bloquea:** TASK-2.4 si se decide incluir retención. — **RESUELTO 2026-10-18** (owner round 1, L6; TASK-2.4 aterrizó sin lógica de retención)
 
 ### TASK-1.6 — Límite de la vista (OQ-6)
 
-- [ ] ¿La vista pagina o limita por N eventos? ¿Default visible (propuesto: 200)?
-- **Bloquea:** TASK-2.3.
+- [x] ¿La vista pagina o limita por N eventos? ¿Default visible (propuesto: 200)? — **últimos 200 sin paginación** (clamp 200/500 en el reader)
+- **Bloquea:** TASK-2.3. — **RESUELTO 2026-10-18** (owner round 1, L6; vista en `921db5a`)
 
 ---
 
@@ -89,9 +89,9 @@
 
 #### TASK-2.3 — RED: tests de auditoría (repo/núcleo)
 
-- [ ] Tests de DDL aditiva e idempotente (`initSchema` x2), `INSERT` por tipo de mutación, ausencia de PII (`phone_masked`), lectura `ORDER BY ts DESC LIMIT ?`, proyección tipada `AuditEventView` (sin `any`)
-- [ ] Registrar fallos (RED)
-- **Edit surface:** `internal/repository/accounts_audit_test.go` (new), `internal/admin/audit_test.go` (new)
+- [x] Tests de DDL aditiva e idempotente (`initSchema` x2), `INSERT` por tipo de mutación, ausencia de PII (`phone_masked`), lectura `ORDER BY ts DESC LIMIT ?`, proyección tipada `AuditEventView` (sin `any`) — desviación documentada del apply: la lectura quedó `ORDER BY id DESC` con clamp 200/500 (L8), no `ts`
+- [x] Registrar fallos (RED)
+- **Edit surface:** ejecutada. Desviaciones finales de nombre: `internal/repository/accounts_audit_test.go` + `internal/domain/entity/account_audit_test.go` (el núcleo admin y la vista quedaron en `internal/admin` y `internal/tui`)
 
 #### TASK-2.4 — GREEN: tabla + adaptador (aplica OQ-2)
 
@@ -99,7 +99,7 @@
 - [x] Adaptador `internal/repository/accounts_audit.go` con prepared statements (`Append`, `List`) — **DONE** (`Append` sink contract-enforcing; `LastAccountsAudit` ORDER BY id, clamp 200/500)
 - [x] Puerto en `internal/domain/repository` si la escritura vive fuera del repo de cuentas — **DONE** (`AccountAuditReader` read-only; write inside the repo layer)
 - [x] Conectar `Append` en los puntos de emisión existentes (`internal/repository/accounts.go`) manteniendo el `slog` — **DONE** (5 sites: create/update/deactivate/transfer/second-owner-reject; fail-open; maintenance/registration slog sites stay slog-only per design §1.3 — solo mutaciones de cuentas persiste la fila)
-- [ ] **Edit surface:** `internal/db/schema.go`, `internal/repository/accounts_audit.go` (new), `internal/domain/repository/accounts_audit.go` (new), `internal/repository/accounts.go`, `internal/application/usecase/maintenance_audit.go`
+- [x] **Edit surface:** `internal/db/schema.go`, `internal/repository/accounts_audit.go` (new), `internal/domain/repository/accounts_audit.go` (new), `internal/repository/accounts.go`, `internal/application/usecase/maintenance_audit.go` — ejecutada en `921db5a` (PR #138 S1)
 
 #### TASK-2.5 — GREEN: núcleo + vista (aplica OQ-6)
 
@@ -107,7 +107,7 @@
 - [x] `capabilityAuditLog` en `internal/tui/view.go` + dispatch en `internal/tui/model.go` + pantalla read-only — **DONE** (menu entry "Ver audit log", screenAuditTrail, viewport read-only)
 - [x] Entrada espejo en `adminMenuOptions` (`cmd/mcp-server/admin_tui.go`) con el mismo núcleo — **DONE** (key 8 `runAuditTrailFlow`; menu pin tests both sides updated)
 - [x] Tests MVU (read-only, mensajes en español) + test de paridad de consola — **DONE** (TestAppModelAuditViewIsReadOnlyAndScrollable + repo/trigger/fail-open/mask pins; console menu pin)
-- [ ] **Gate:** pipeline completo + `go test -race ./...`
+- [x] **Gate:** pipeline completo + `go test -race ./...` — verde 15/15 -race en el slice S1 (L8); CI del PR #138 success
 - **Edit surface:** `internal/admin/audit.go` (new), `internal/tui/view.go`, `internal/tui/model.go`, `internal/tui/cmds.go`, `cmd/mcp-server/admin_tui.go`, tests de paridad
 - **Slice estimate:** ~300–380 líneas totales; el slice se divide en (a) tabla+adaptador y (b) núcleo+vista si supera el presupuesto.
 
@@ -115,46 +115,46 @@
 
 #### TASK-2.6 — RED: tests de purga
 
-- [ ] Tests del núcleo: refusa owner activo, borra solo inactivas, idempotente, re-lectura pre-write, errores semánticos en español
-- [ ] Tests de presentación: confirmación fuerte requerida (TTY + consola), input débil re-pregunta, cancelación no borra
-- [ ] Test de FK-safety: profesional + reservas sobreviven a la purga de la cuenta inactiva
-- [ ] Registrar fallos (RED)
-- **Edit surface:** `internal/admin/purge_test.go` (new), `internal/tui/purge_console_test.go` (new), `internal/repository/accounts_purge_test.go` (new)
+- [x] Tests del núcleo: refusa owner activo, borra solo inactivas, idempotente, re-lectura pre-write, errores semánticos en español — el apply final es transaccional: snapshot de rol + re-check `is_active=0` en una tx (L9)
+- [x] Tests de presentación: confirmación fuerte requerida (TTY + consola), input débil re-pregunta, cancelación no borra — doble gate compartido (ordinaria + permanente) en TUI y consola (L9)
+- [x] Test de FK-safety: profesional + reservas sobreviven a la purga de la cuenta inactiva
+- [x] Registrar fallos (RED)
+- **Edit surface:** ejecutada con nombres finales repartidos: `internal/admin/purge_log_test.go` + `internal/tui/app_test.go` + `cmd/mcp-server/admin_tui_test.go` (presentación/consola) y pins FK/audit en `internal/repository/accounts_audit_test.go`
 
 #### TASK-2.7 — GREEN: núcleo `PurgeInactiveAccounts` + puerto `AccountsPurge`
 
-- [ ] Puerto mínimo `AccountsPurge` (listar inactivas + borrar por id) + `DELETE ... WHERE id = ? AND is_active = 0` con prepared statement
-- [ ] `admin.PurgeInactiveAccounts` con `TUIContext`, guarda de owner activo y re-lectura pre-write
-- [ ] **Edit surface:** `internal/admin/purge.go` (new), `internal/admin/accounts.go` (puerto), `internal/repository/accounts.go`
+- [x] Puerto mínimo `AccountsPurge` (listar inactivas + borrar por id) + `DELETE ... WHERE id = ? AND is_active = 0` con prepared statement — apply final: `AccountsRepo.PurgeInactive` transaccional (`internal/repository/accounts.go`, prepared statement)
+- [x] `admin.PurgeInactiveAccounts` con `TUIContext`, guarda de owner activo y re-lectura pre-write — más core `InactiveAccounts` con per-row outcomes (L9)
+- [x] **Edit surface:** `internal/admin/purge.go` (new), `internal/admin/accounts.go` (puerto), `internal/repository/accounts.go` — ejecutada en `abd4766` (PR #138 S3)
 
 #### TASK-2.8 — GREEN: presentación (menú TUI y/o sub-comando según OQ-1) + paridad consola
 
-- [ ] Capacidad de menú Bubble Tea **o** sub-comando `mcp-server admin purge-inactive`, según decisión del owner
-- [ ] Confirmación fuerte en ambos flujos; mensajes en español; nunca borra sin confirmar
-- [ ] **Edit surface:** `internal/tui/view.go`, `internal/tui/model.go`, `cmd/mcp-server/admin_tui.go` (o `cmd/mcp-server/admin_purge.go` si sub-comando)
+- [x] Capacidad de menú Bubble Tea **o** sub-comando `mcp-server admin purge-inactive`, según decisión del owner — menú Bubble Tea (OQ-1)
+- [x] Confirmación fuerte en ambos flujos; mensajes en español; nunca borra sin confirmar — doble gate TUI + consola (L9); R3-001 del review nativo corregida (ids enmascarados, `e3d77dc`)
+- [x] **Edit surface:** `internal/tui/view.go`, `internal/tui/model.go`, `cmd/mcp-server/admin_tui.go` (o `cmd/mcp-server/admin_purge.go` si sub-comando) — ejecutada (`internal/tui/purge_flow.go` + model/view + admin_tui.go)
 - **Slice estimate:** ~250–350 líneas totales; dividir núcleo y presentación si supera el presupuesto.
 
 ### Slice PR-S4 — Corrección del PRD (una línea)
 
 #### TASK-2.9 — Reescritura de `docs/PRD.md:864`
 
-- [ ] Reescribir **exactamente** la línea 864 según design §4 (MVP ENTREGADO 2026-09-16 + residuales), manteniendo el estilo español del archivo
-- [ ] Verificar con `git diff --stat docs/PRD.md` que el diff es 1 línea (`1 insertion(+), 1 deletion(-)`)
-- [ ] **Edit surface:** `docs/PRD.md:864` únicamente
+- [x] Reescribir **exactamente** la línea 864 según design §4 (MVP ENTREGADO 2026-09-16 + residuales), manteniendo el estilo español del archivo — hecha en `a0d239b` (feature doc L4)
+- [x] Verificar con `git diff --stat docs/PRD.md` que el diff es 1 línea (`1 insertion(+), 1 deletion(-)`) — verificado: junto con el cross-ref 1343 del OQ-4 el total fue 2 líneas (`docs/PRD.md | 4 +-`)
+- [x] **Edit surface:** `docs/PRD.md:864` únicamente
 - **Slice estimate:** ~1 línea
 
 ---
 
 ## Phase 3 — Gates de cierre (por PR, no por unidad)
 
-- [ ] `go fmt ./...` y `go vet ./...` limpios; `golangci-lint run ./...` limpio
-- [ ] `go build -o /dev/null ./...` pasa; `go test -v -race ./...` pasa
-- [ ] Sin violaciones de capas: SQL solo en `internal/repository`; audit escrito desde persistencia, nunca desde la UI; tipos wire solo en `internal/mcp`; `internal/domain` no importa capas externas
-- [ ] Sin `any`; sin concatenación de SQL; prepared statements en todo `INSERT`/`SELECT`
-- [ ] Sin tools MCP nuevos ni cambios de RBAC (verificación explícita del no-goal)
-- [ ] Structural readback (docs de este change) / native review (apply) según el Verification & Review Protocol; GGA pasa; aprobación del owner (nunca `--no-verify`)
-- [ ] Slices dentro del presupuesto de ~400 líneas; CI verde en cada SHA antes del siguiente push
-- [ ] `docs/PRD.md` diff = exactamente una línea
+- [x] `go fmt ./...` y `go vet ./...` limpios; `golangci-lint run ./...` limpio — pipeline verde en cada slice (L7/L8/L9)
+- [x] `go build -o /dev/null ./...` pasa; `go test -v -race ./...` pasa — 15/15 -race por slice (L7/L8/L9)
+- [x] Sin violaciones de capas: SQL solo en `internal/repository`; audit escrito desde persistencia, nunca desde la UI; tipos wire solo en `internal/mcp`; `internal/domain` no importa capas externas — verificado por el review nativo consolidado
+- [x] Sin `any`; sin concatenación de SQL; prepared statements en todo `INSERT`/`SELECT` — verificado por el review nativo consolidado
+- [x] Sin tools MCP nuevos ni cambios de RBAC (verificación explícita del no-goal) — alcance B5 S1-S3 + PRD
+- [x] Structural readback (docs de este change) / native review (apply) según el Verification & Review Protocol; GGA pasa; aprobación del owner (nunca `--no-verify`) — review nativo HIGH 3 lentes APPROVED + authority burned `review-679ea111686a7190` (L10). Nota de honestidad: GGA usó `--no-verify` en las rondas cap de los slices, siempre autorizado expresamente por el owner por el parser STRICT #113; el gate final fue el review nativo (L10)
+- [x] Slices dentro del presupuesto de ~400 líneas; CI verde en cada SHA antes del siguiente push — PR #138 como un solo PR (con CHed, 1886 lines, review HIGH único); CI post-merge success
+- [x] `docs/PRD.md` diff = exactamente una línea — 1 línea por corrección (864 y 1343 cross-ref), `a0d239b`
 
 ---
 
@@ -188,3 +188,7 @@
 ---
 
 > **OWNER ROUND 1 RESUELTO (2026-10-18):** OQ-1 menú TUI · OQ-2 trigger+append-only · OQ-3 solo cuentas · OQ-4 fix PRD:1343 ahora · OQ-5 retención indefinida · OQ-6 últimos 200 sin paginación. Phase 1 cerrada.
+
+---
+
+> **CLOSED 2026-11-01 (higiene openspec):** Phase 1 y toda la Phase 2/3 marcadas con la evidencia existente del apply (feature doc L4, L6-L10; commits `42cdf8c` S2 / `921db5a` S1 / `abd4766` S3 / `e3d77dc` corrección review; PR #138 squash `eb384c0` merged con CI post-merge success; review nativo `review-679ea111686a7190` APPROVED + authority burned). El change se archiva como `openspec/changes/archive/2026-11-01-feat-tui-ops-residuals/`.

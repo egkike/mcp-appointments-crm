@@ -1,7 +1,8 @@
 # Tasks: feat-owner-chat
 
 > **Change:** feat-owner-chat
-> **Status:** Phase 1 DONE (doc-first landed) · **expansión S7/S8 landed 2026-10-19** — el apply (T2.0a → T5.1) es un change posterior.
+> **Status:** COMPLETO — doc-first + apply entregados end-to-end (PRs #143-#146 + PR-5 `82e8a10` merged; release v0.9.0/0.9.1 + smoke con S8.1 verify; gap S4 gateway-side documentado y luego resuelto config-only como B16). Ver / cierre al final del archivo.
+> **Status original:** Phase 1 DONE (doc-first landed) · **expansión S7/S8 landed 2026-10-19** — el apply (T2.0a → T5.1) es un change posterior.
 > **Inputs:** `proposal.md`, `design.md`, `specs/owner-chat/spec.md`, `odd/tasks/feat-owner-chat-b12.md` (especificación autoritativa S1–S8, T1–T5, L1–L7)
 > **Hard rule:** **S1–S6 no tocan código Go.** Si el apply descubre una necesidad de código distinta de S7/S8, se registra como **S nueva con evidencia `path:line`** antes de escribirla (`odd/tasks/feat-owner-chat-b12.md:21-22`). **S7 (dos tools read) y S8 (data hygiene) son la excepción aprobada** (`:40`): su superficie está inventariada en `design.md` §10.1 y no se amplía slice a slice. Cada unidad de apply ≤ ~100 líneas cambiadas; slices totales ≤ ~400 líneas de review (`openspec/config.yaml` `review_budget_lines: 400`); lo que exceda se encadena (§Forecast).
 
@@ -133,11 +134,11 @@
 
 **Contrato:** `design.md` §9; `specs/owner-chat/spec.md` requirement (S8).
 
-- [ ] **S8.1 datos (sin código, owner hands o persona owner por chat):** `search_services_advanced` → ids reales de **Lavado de Cabello** y de los cortes; luego `update_professional(professional_id, specialties: [ids])` para Romina, Santiago y Joaquín. **Valores exactos: OQ-4** (default documentado en `design.md` §12.2)
-- [ ] **Verificación (obligatoria, es la definición de hecho de S8.1):** `search_professionals_advanced(service_id = Lavado de Cabello)` devuelve **sólo** a Romina; `search_professionals_advanced(service_id = Corte de Cabello)` **no** devuelve a Romina
-- [ ] **S8.2 registro (sin código):** dejar escrito que el form de Add Staff **no** lleva specialties porque crea cuentas, no profesionales (E61), y que el origen del `[]` en hosts nuevos es `scripts/install.sh:930` + el orden del seed (E60). La consecuencia práctica ("una instalación nueva nace sin relación cargada") va al runbook de `TASK-4.1`
-- [ ] **OQ-5 registrada, no ejecutada:** que el setup emita specialties reales (invertir orden del seed + mapeo nombre→id) es un change propio si el owner lo quiere. **No** se toca `scripts/**` ni `internal/config/**` acá
-- [ ] **Sin regresión de TUI:** confirmar que el diff no toca `internal/tui/**` ni `internal/admin/**`
+- [x] **S8.1 datos (sin código, owner hands o persona owner por chat):** `search_services_advanced` → ids reales de **Lavado de Cabello** y de los cortes; luego `update_professional(professional_id, specialties: [ids])` para Romina, Santiago y Joaquín. **Valores exactos: OQ-4** (default documentado en `design.md` §12.2) — ejecutado sobre el host demo con OQ-4 Default A vía `update_professional.specialties` ×3, con backup previo (`~/backups/pre-s8-specialties/`; feature doc L16)
+- [x] **Verificación (obligatoria, es la definición de hecho de S8.1):** `search_professionals_advanced(service_id = Lavado de Cabello)` devuelve **sólo** a Romina; `search_professionals_advanced(service_id = Corte de Cabello)` **no** devuelve a Romina — primero diferida al release (L17, el VM corría v0.8.1 sin las tools) y luego **ejecutada en el smoke v0.9.0/0.9.1** (S8.1 verify exacta por OQ-4; L24)
+- [x] **S8.2 registro (sin código):** dejar escrito que el form de Add Staff **no** lleva specialties porque crea cuentas, no profesionales (E61), y que el origen del `[]` en hosts nuevos es `scripts/install.sh:930` + el orden del seed (E60). La consecuencia práctica ("una instalación nueva nace sin relación cargada") va al runbook de `TASK-4.1` — registrado en el runbook `82e8a10` §7.5, actualizado post-v0.8.1 (OQ-5 ya aterrizó: seed services-before-staff + segunda pasada del wizard)
+- [x] **OQ-5 registrada, no ejecutada:** que el setup emita specialties reales (invertir orden del seed + mapeo nombre→id) es un change propio si el owner lo quiere. **No** se toca `scripts/**` ni `internal/config/**` acá — registrada (L8) y luego ejecutada en el seed-fix de v0.8.1 (`fix-v081-skill-seed-oq5`, PR #142 squash `827355f`)
+- [x] **Sin regresión de TUI:** confirmar que el diff no toca `internal/tui/**` ni `internal/admin/**` — la operación fue data-lane (solo llamadas a tools + runbook en docs): cero diff de código
 - **Edit surface:** `docs/gateway-contract.md` §7 (paso S8.1 del runbook, vía `TASK-4.1`) + datos del host. **Ningún archivo Go**
 - **Nota de honestidad:** el dataset demo **no está versionado en este repo** (los nombres no aparecen en `scripts/`, `internal/config/` ni `setup/`): vive en el VM. Por eso S8.1 no puede verificarse con tests; se verifica con las dos llamadas de arriba sobre el host
 - **Slice estimate:** ~20–40 líneas (documentación del paso) + cero código
@@ -200,11 +201,11 @@
 
 ### TASK-5.1 (T5) — Gates de entrega
 
-- [ ] `bash -n scripts/install.sh` + `bash scripts/tests/install_skill_test.sh` si algún artefacto de instalación se tocó
-- [ ] **Pipeline Go completo en PR-1/PR-2** (`TASK-2.0a`/`TASK-2.0b`: `go fmt`, `go vet`, `golangci-lint`, `go build -o /dev/null ./...`, `go test -v -race ./...`). En PR-3/PR-4 (skill/contrato/runbook) el pipeline Go igual se corre como guardia de no-regresión
-- [ ] `go test -v -race ./...` verde también en el PR del runbook, porque el número de tools queda pineado en `internal/mcp/test_helpers_test.go:10` y en `internal/mcp/tools_test.go:358` (E62)
-- [ ] Rondas GGA + review nativo (routing: el cambio es sensible — tools nuevas con RBAC + comportamiento conversacional del canal del negocio)
-- [ ] PR por routing, **chained obligatorio**: PR-1 `TASK-2.0a`, PR-2 `TASK-2.0b`, PR-3 `TASK-2.3`, PR-4 `TASK-3.1`+`TASK-4.1` (incluye el paso S8.1). Cada PR ≤ ~400 líneas de review
+- [x] `bash -n scripts/install.sh` + `bash scripts/tests/install_skill_test.sh` si algún artefacto de instalación se tocó — TASK-2.3 (skill v1.1): `bash -n` OK, `install_skill_test.sh` 12/12 (RED previo 5 fallos con v1.0.0), `install_deploy_test.sh` 42/42, shellcheck sin hallazgos nuevos (L19)
+- [x] **Pipeline Go completo en PR-1/PR-2** (`TASK-2.0a`/`TASK-2.0b`: `go fmt`, `go vet`, `golangci-lint`, `go build -o /dev/null ./...`, `go test -v -race ./...`). En PR-3/PR-4 (skill/contrato/runbook) el pipeline Go igual se corre como guardia de no-regresión — L11 (824 PASS/0 FAIL -race), L14/L15 (2316 PASS/0 FAIL -race ×3); come guardia en PR-5 (L23)
+- [x] `go test -v -race ./...` verde también en el PR del runbook, porque el número de tools queda pineado en `internal/mcp/test_helpers_test.go:10` y en `internal/mcp/tools_test.go:358` (E62) — verde en PR-5 como guardia (L23)
+- [x] Rondas GGA + review nativo (routing: el cambio es sensible — tools nuevas con RBAC + comportamiento conversacional del canal del negocio) — GGA por unit documentada en L11/L13/L15 (caps con escalamiento owner-authorized); review nativo PR-1 APPROVED + authority burned `review-48a44aa5dbf6d229` (medium, 4 lentes, L13); PR-2/PR-3: 8 advisories informativos con disposition aprobada por el owner (tabla L22/L23) → B15
+- [x] PR por routing, **chained obligatorio**: PR-1 `TASK-2.0a`, PR-2 `TASK-2.0b`, PR-3 `TASK-2.3`, PR-4 `TASK-3.1`+`TASK-4.1` (incluye el paso S8.1). Cada PR ≤ ~400 líneas de review — cadena completa merged: PR-1 #143 (S7a `aa9b1ed`/`226f710`), PR-2 #144 (S7b), PR-3 #145 (skill v1.1), #146 (S11, extra decidida por el owner L27), PR-5 docs `82e8a10` (TASK-3.1+4.1, L23); release v0.9.0/0.9.1 + smoke (L24/L28)
 - **Edit surface:** ninguna (verificación)
 
 ---
@@ -223,6 +224,10 @@
 | **S7b `get_professional_schedules`** | "es owner-only y cierra el read-gap del gate" | **T2.0b** (+ T2.3 para el uso dentro de G0/G4) |
 | **S8 data hygiene de `specialties`** | "los datos demo declaran las specialidades reales" | **T2.1** (datos + registro) |
 | Contrato cliente intacto (fence) | "la persona cliente conserva su contrato verificado" | T2.3 |
+
+---
+
+> **CLOSED 2026-11-01 (higiene openspec):** todas las cajas marcadas con la evidencia existente de la entrega (feature doc `odd/tasks/feat-owner-chat-b12.md` L16-L24; PRs #143/#144/#145/#146 merged + PR-5 `82e8a10`; release v0.9.0/0.9.1 con smoke y S8.1 verify exacta; review nativo PR-1 `review-48a44aa5dbf6d229` APPROVED + burned; OQ-5 ejecutada en `fix-v081-skill-seed-oq5` PR #142). El único deliverable no-nullable pendiente a nivel Producto era el gateway-side S4 (persona owner per-channel), diagnosticado FAIL-by-design en el smoke y cerrado aparte como B16 (binding nativo `dm_topics`, docs §7.6). El change se archiva como `openspec/changes/archive/2026-11-01-feat-owner-chat/`.
 
 ### Cobertura por capa de S7 (qué test prueba qué)
 

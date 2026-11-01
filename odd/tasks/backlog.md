@@ -89,3 +89,11 @@ Everything else (B1..B14) is CLOSED with evidence — verified 2026-10-27 agains
 - **Datapoint post-4.3.1**: TWO native review cycles on the same stack — #159 ESCALATED (validator caught the regression: the platform-skip gated business criticals), #160 APPROVED (clean) — this PAIR is the strongest evidence this repo has produced that the native review's correction+validator loop gates regressions correctly. SatJeff with dossier #5460/#5597 on the next vigilance round (consented posts).
 - **GGA trail**: 9 rounds on #159 (fixes inline per owner disposition, some mine-loop caps hit with owner-ratified --no-verify), **12 rounds** on #158 — ALL verified real, fixed inline with RED→GREEN each; GGA's r12 (ancestor-chain) is the declared boundary baked into ADR-0021.
 - **Log**: L1 — the issue-first protocol used draft→authorize→create with `status:approved` labels at birth (owner pre-approval standing grant, 2026-10-25); L2 — close-as-completed for 155/157 via squash citations (154/158 auto-closed by merges); L3 — the escalation TV-R1 never re-litigated on this branch (single commit `_=453ffe6`-rebase branch clean), owner decision 2026-10-30 "Review nativa (recomiendo)" closing with the review's own verdict.
+
+## OpenSpec hygiene sweep (2026-11-01)
+
+| Change | What was done | Evidence used | Status |
+|---|---|---|---|
+| `feat-tui-ops-residuals` (B5) | 33 unchecked boxes marked with the apply evidence (OQ-1..OQ-6 resolutions, S2/S1/S3 slices, PRD lines, Phase 3 gates + honest --no-verify note) | feature doc L4/L6-L10; commits `42cdf8c`/`921db5a`/`abd4766`/`e3d77dc`; PR #138 squash `eb384c0`; native review `review-679ea111686a7190` APPROVED + burned | **ARCHIVED** `archive/2026-11-01-feat-tui-ops-residuals/` |
+| `feat-owner-chat` (B12) | 10 unchecked boxes marked (S8.1 datos L16 + verify en el smoke v0.9.0/0.9.1 L24, S8.2/OQ-5, TASK-5.1 gates con la cadena #143-#146 + PR-5 `82e8a10`) | feature doc L16-L24; PRs #143/#144/#145/#146 + PR-5; review PR-1 `review-48a44aa5dbf6d229`; OQ-5 en `fix-v081-skill-seed-oq5` (PR #142) | **ARCHIVED** `archive/2026-11-01-feat-owner-chat/` |
+| `feat-skill-inode-guard` (B9) | 0 unchecked boxes — solo archivado | feature doc L12; PR #139 squash `5df13a1` | **ARCHIVED** `archive/2026-11-01-feat-skill-inode-guard/` |
