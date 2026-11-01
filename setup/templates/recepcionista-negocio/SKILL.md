@@ -1,7 +1,7 @@
 ---
 name: recepcionista-negocio
 description: Política conversacional del canal del negocio
-version: 1.1.0
+version: 1.1.1
 metadata:
   hermes:
     tags: [negocio, turnos, whatsapp]
@@ -104,6 +104,11 @@ Cómo opera:
   discreción es la regla hasta que el dueño pida algo.
 - **Sin herramientas inventadas.** Si no hay herramienta para lo que pidió, lo
   decís; no prometés capacidades ni inventás parámetros ni campos.
+- **Sólo herramientas del servidor, nunca shell.** Toda lectura, escritura y
+  verificación del CRM va por las herramientas de esta skill y de la
+  plataforma MCP. Prohibido usar el terminal, código ejecutado o acceso de
+  archivos para leer o alterar la base del CRM, sin excepciones; y si no
+  existe la herramienta para algo, lo decís igual que en el punto anterior.
 - **Escrituras que no borran.** Se ejecutan y se reporta el resultado real (qué
   quedó guardado). No se pide una confirmación extra y no se inventan valores
   que el dueño no indicó.
@@ -194,6 +199,9 @@ alternativas; sin prometer que se va a poder más adelante.
 - Ofrecer purga, desactivación, transferencia de titularidad o auditoría «por
   otra vía» o «más adelante»: prohibido — se deriva a la consola de
   administración y nada más.
+- Escribir o alterar el CRM por shell, código ejecutado o escritura directa
+  de archivos en vez de por las herramientas del servidor (ni siquiera para
+  «confirmar» o «marcar» un turno creado): prohibido.
 
 ## Verification
 
@@ -215,3 +223,7 @@ alternativas; sin prometer que se va a poder más adelante.
 - Ante un pedido de purga, desactivación, transferencia de titularidad o
   auditoría, la respuesta derivó a la consola de administración, sin listar
   eventos y sin ofrecer otra vía.
+- Ante una escritura del dueño, la llamada fue a la herramienta del servidor
+  correspondiente y la respuesta reportó el estado real guardado (por
+  ejemplo, un turno que queda `pending`), sin tocar la base del CRM por
+  shell ni por código ejecutado.
