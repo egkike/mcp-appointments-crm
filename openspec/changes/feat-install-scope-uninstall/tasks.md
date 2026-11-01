@@ -15,12 +15,12 @@
 | 400-line budget risk (código) | Medium — T2 (uninstall.sh + tests) probable chained con T3 |
 | Chained PRs recommended | Sí si T2+T3 viajan juntos: PR-1 docs+installer scope, PR-2 uninstall.sh+tests, PR-3 RemoveHermesServer Go |
 
-## OQ del owner (bloquean la entrega)
+## OQ del owner (RESUELTAS 2026-11-01)
 
-- [ ] **OQ-1** — asset zip Windows: ¿se mantiene (nota "WSL usa el Linux asset") o se retira del matrix?
-- [ ] **OQ-2** — forma del uninstall: script shell (default postulado) vs sub-comando Go
-- [ ] **OQ-3** — `--purge-skill` default: no (postulado)
-- [ ] **OQ-4** — `audit-hash-key`: purgable con `--purge-config` + warn (postulado) vs siempre preservar
+- [x] **OQ-1 — RETIRAR** el zip de Windows de la matriz GoReleaser (covenant Windows = WSL con el asset Linux; `install.sh` hoy no tenía path Windows: la única superficie es la matriz de `.goreleaser.yaml`)
+- [x] **OQ-2 — script shell** `scripts/uninstall.sh` (corre aunque el binario no exista)
+- [x] **OQ-3 — default PURGA**: el uninstall borra `~/.hermes/skills/recepcionista-negocio/` por default (un Hermes vivo no queda con instrucciones huérfanas apuntando a un server inexistente); flag `--keep-skill` para conservarla — rotación semántica frente al postulado (era default-keep, el owner eligió default-purga)
+- [x] **OQ-4 — purgable con warn**: `audit-hash-key` se borra con `--purge-config` + advertencia explícita sobre la auditoría histórica del HMAC
 
 ## Phase 2 — entrega (después de OQ)
 

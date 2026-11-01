@@ -36,4 +36,8 @@
   creció: hoy también existe `audit-hash-key` (ADR-0021, cripto) y el
   cleanup de una entrada exacta del config Hermes ya tiene molde probado
   (`RemoveHermesTelegramOwnerBot`). Change `feat-install-scope-uninstall`
-  landed doc-first con OQ-1..OQ-4 abiertas para el owner antes del código.
+  landed doc-first. **OQ resueltas por el owner el mismo día:** (1) retirar el
+  zip de Windows de la matriz GoReleaser; (2) uninstall como script shell;
+  (3) `--purge-skill` pasa a DEFAULT PURGA (borra la skill de Hermes por
+  default; flag `--keep-skill` para conservar); (4) `audit-hash-key` purgable
+  con `--purge-config` + warn. Cualquier T puede arrancar (T1+T2 primero).

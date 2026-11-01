@@ -9,12 +9,10 @@
 | Windows | soportado **sólo vía WSL2 con systemd** (`wsl --install`, `/etc/wsl.conf` con `[boot] systemd=true`) | el usuario corre el one-liner docs dentro de WSL; `uname` = Linux y el installer entra por el path Linux estándar; prerequisito systemd documentado |
 | Windows nativo | **no soportado** (el asset `.exe` se puede correr a mano para pruebas, sin service/config sembrados por el installer) | instalador nativo queda explícitamente fuera de alcance |
 
-**Correlación del asset Windows (OQ-1):** hoy el zip se publica para el `.exe`
-de pruebas manuales. La decisión del owner ajusta una de dos líneas:
-mantener el zip con nota "Windows = WSL se usa el asset Linux", o retirar
-`windows` del matrix GoReleaser (y entonces el covenant del binario en
-Windows queda solo por build manual). Ambas cumplen; el change documenta
-cuál fue la decisión.
+**Decisión OQ-1 (owner 2026-11-01): RETIRAR el asset Windows de la matriz
+GoReleaser.** Para correr el binario en Windows queda sólo WSL (asset Linux)
+o un build manual (`go build`) para pruebas puntuales; el covenant queda:
+Windows soportado vía WSL2 únicamente.
 
 ## D2 — Contrato de `uninstall.sh` (S2)
 
