@@ -52,14 +52,15 @@ test_render_replaces_every_occurrence() {
   assertEquals 'all occurrences replaced' 'A Mi Negocio B Mi Negocio C' "$out"
 }
 
-# feat-owner-chat (S6 + R4): the shipped template version is pinned to 1.1.0 and
+# feat-owner-chat (S6 + R4) + issue #161: the shipped template version is pinned to 1.1.1
+# (v1.1.1 adds the tools-only CRM boundary for the owner persona) and
 # the indexable description never advertises the owner persona. The frontmatter is
 # what every interlocutor sees in the skill index, so persona detail must live in
 # the body only (design §7).
 test_template_frontmatter_v11_contract() {
   local version_line desc desc_len frontmatter
   version_line=$(grep -m1 '^version: ' "$TEMPLATE")
-  assertEquals 'template version 1.1.0' 'version: 1.1.0' "$version_line"
+  assertEquals 'template version 1.1.1' 'version: 1.1.1' "$version_line"
   desc=$(grep -m1 '^description: ' "$TEMPLATE")
   desc=${desc#description: }
   desc_len=$(printf '%s' "$desc" | wc -m)
@@ -71,7 +72,7 @@ test_template_frontmatter_v11_contract() {
     "printf '%s' \"$frontmatter\" | grep -qiE 'owner|dueño|dueno'"
 }
 
-# The rendered skill keeps the v1.1.0 persona contract: {business_name} is the
+# The rendered skill keeps the v1.1.1 persona contract: {business_name} is the
 # only rendered placeholder, {nombre} survives verbatim, and the persona selection
 # block sits in the body, before the two procedures.
 test_rendered_skill_persona_contract() {
@@ -79,7 +80,7 @@ test_rendered_skill_persona_contract() {
   store_set "business.name" "Negocio"
   install_receptionist_skill >/dev/null 2>&1
   dest=$(_skill_dest)
-  assertTrue 'version 1.1.0 rendered' "grep -qx 'version: 1.1.0' \"$dest\""
+  assertTrue 'version 1.1.1 rendered' "grep -qx 'version: 1.1.1' \"$dest\""
   assertTrue 'persona selection block in body' "grep -q '^## Persona' \"$dest\""
   assertTrue 'client procedure kept' \
     "grep -q '^## Procedure — persona cliente' \"$dest\""
