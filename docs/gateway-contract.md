@@ -77,6 +77,23 @@ Telegram does not expose the sender's phone to a bot. Before the first tool call
 
 A self-chat sender (B) is a valid sender: treat it like any other `from` and let `accounts` assign the role. Scenario A and B share the identical JID resolution chain (`accounts` → `clients.phone` → unknown).
 
+### 6.1 WhatsApp install modes — the channel runs identically; the operator picks the receiving number
+
+> **New (feat-whatsapp-mode-choice, 2026-11-01).** Scenarios A and B above are not two products: they are the two supported **install modes** of the WhatsApp channel, chosen once per installation before onboarding. The runtime wizard persists the choice (`WHATSAPP_MODE` = `bot` | `self-chat`; `_whatsapp_choose_mode`, `hermes_cli/main_platform_setup.py:28-63`) and `hermes whatsapp` guides bridge + pairing for either mode.
+
+| | **Modo B — número dedicado (escenario A)** | **Modo A — número propio del owner (escenario B, self-chat)** |
+|---|---|---|
+| Receiving number | a dedicated business number (WhatsApp Business or plain WhatsApp on a second device/SIM) | the owner's personal number; the owner self-chats to reach the agent |
+| `WHATSAPP_MODE` | `bot` | `self-chat` |
+| Emitters | clients, owner and staff write to the bot's number | the owner self-chats; anyone who has the number can write (funnel) |
+| Owner resolution | outgoing JID from the owner's phone matches `accounts` → owner | the self-chat JID resolves through `accounts` → owner (scenario B, §6) |
+| Unknown senders | registration loop (§3) | registration loop (§3), per-phone rate limit (§7.3) |
+| Privacy trade-off | zero crossover with the owner's personal life; SIM/number extra | the personal number is the face of the business; setup is single-device |
+
+**`messenger_id` semantics (normative):** `business_profile.messenger_id` is the number that **receives** messages for the chosen mode — the bot's number in Modo B, the owner's number in Modo A. The server makes no difference between them (both are a per-sender channel); the choice is written by the operator with `update_business_profile` (§7.2) and verified with `get_business_profile`.
+
+**Mode-invariant (by design):** the persona selection (R2/R3, §8.1), the G0–G4 delete gates, the TUI-only exclusions and the registration funnel are identical in both modes — the skill resolves the persona from the sender's role, never from which number is the bot. Nothing in the MCP server, the tools or the skill branches on the mode; the only mode-dependent artifacts are the operator steps (§7.5 branch) and the `messenger_id` value.
+
 ## 7. Operator runbook
 
 ### 7.1 Transfer Ownership to the real owner phone
@@ -128,6 +145,11 @@ TUI option 7 writes these into `mcp_servers.mcp-appointments.env` in `~/.hermes/
 | 5 | Persona smoke (§8.1) | one message per persona path | R1/R2/R3 spot check passes on the live channels |
 
 **Order constraint (the only hard one):** step 1 **must precede** step 3. Option 7 persists the owner phone in the Hermes config (`MCP_TELEGRAM_OWNER_PHONE`, §7.4) and that static injection is the owner persona's identity on Telegram; running it before the transfer leaves the **demo** phone as the static identity. Steps 2, 3 and 4 are independent of one another.
+
+**Mode branch (choose BEFORE step 2 — §6.1):** steps 2–5 are mode-agnostic (persona, gates and funnel are mode-invariant); what changes per mode is which number pairs and what `messenger_id` records.
+
+- **Modo B — dedicated number (escenario A):** have the dedicated number active on its own device/SIM → `hermes whatsapp` → choice **1 (Separate bot number)** → scan on the bot's device → step 2 records `messenger_id` = the bot's number → spot-check **C12**.
+- **Modo A — owner personal number (escenario B, self-chat):** `hermes whatsapp` → choice **2 (Personal number, self-chat)** → scan with the owner's phone → step 2 records `messenger_id` = the owner's phone (verified live 2026-11-01) → spot-check **C11**. Privacy note: the personal number becomes the business face.
 
 **Rollback honesty:**
 
@@ -233,5 +255,7 @@ Ambiguity, cancellation, a different object, or an off-topic message during G2 c
 | C8 | Skill v1.1 is installed and indexed **before** the first message of the conversation | §7.5 step 3 |
 | C9 | All traffic to the server goes through `127.0.0.1:3000` (loopback invariant) | §1 |
 | C10 | An owner chat delete produces **one single** tool call, after the two confirmations (G3 after G2) | §8.1 |
+| C11 | **Modo A spot-check:** the owner's self-chat message resolves owner (agenda probe shows admin conduct, §7.5 step 5); `messenger_id` = owner phone | §6/§6.1 |
+| C12 | **Modo B spot-check:** an owner-phone message and an unknown-phone message to the bot's number resolve owner and run the registration loop respectively; `messenger_id` = bot number | §6/§6.1 |
 
 **Implementation note (C4/C5, Telegram lane, verified 2026-10-27):** the native `dm_topics` binding (Hermes gateway v0.22.5+) delivers the C5 persona selection for the owner's Telegram topic lane config-only (skill auto-load on the bound topic's new sessions, §7.6). The C4 static identity (`MCP_TELEGRAM_OWNER_PHONE` + allowlist) and the WhatsApp path are unchanged.

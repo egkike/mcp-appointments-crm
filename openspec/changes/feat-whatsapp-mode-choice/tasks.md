@@ -25,15 +25,10 @@
 
 ## Phase 2 — delivery (docs lane, un PR)
 
-- [ ] TASK-2.1 — **S1**: rama por modo en `docs/gateway-contract.md` §7.5
-  (D3): tabla común + dos sub-tablas por modo con pasos y post-condiciones;
-  reuso de §7.1/§7.2 sin redeclarar
-- [ ] TASK-2.2 — **S2**: sección de modos + D5 semántica `messenger_id` en el
-  contrato; extensión del checklist §9 con C-común/C-modA/C-modB/C-gate
-- [ ] TASK-2.3 — PRD: entrada en el changelog del release que incluya esto
-  (nota de redacción: solo en el PR de delivery)
-- [ ] TASK-2.4 — verificación: readback estructural (tablas + cross-refs +
-  escenarios one-stop), sin Go, GGA sin archivos evaluables
+- [x] TASK-2.1 — **S1**: rama por modo en `docs/gateway-contract.md` §7.5 — bloque **"Mode branch (choose BEFORE step 2)"** con las dos ramas (hermes whatsapp opción 1/2 → pairing → `messenger_id` por modo → C12/C11)_insertado entre el order-constraint y rollback honesty
+- [x] TASK-2.2 — **S2**: nueva **§6.1** (matriz de modos + semántica `messenger_id` + invariante mode-free) y §9 extendido con **C11/C12** (spot-check por modo, fuente §6/§6.1)
+- [x] TASK-2.3 — PRD: changelog **1.27** (fila tras 1.26, estilo de la casa)
+- [x] TASK-2.4 — verificación: readback estructural (tablas + cross-refs + escenarios one-stop), sin Go, GGA sin archivos evaluables — corrida en la entrega 2026-11-01
 - **Edit surface:** `docs/gateway-contract.md` (§7.5/§9/nueva sección de
   modos), `docs/PRD.md` (changelog). **Ningún archivo Go.**
 

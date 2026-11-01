@@ -35,3 +35,8 @@ el gap es doc-first de runbook+contrato.
 - **L3** 2026-11-01 — enmienda de redacción: sin wizard S3 ninguno del modo se
   puede elegir hoy desde el TUI de este repo (la elección vive en el wizard
   runtime `hermes whatsapp`); el change lo registra bajo decisión owner (T3).
+- **L4** 2026-11-01 — **delivery ejecutado** (docs lane): `gateway-contract.md`
+  nueva §6.1 (matriz + `messenger_id` + invariante mode-free) + §7.5 rama por
+  modo + §9 C11/C12; `docs/PRD.md` changelog 1.27. Readback estructural OK.
+  Smoke modo B (número dedicado) sin disparo — no hay número dedicado en demo;
+  el change lo deja como spot-check C12 documentado, no bloqueo.
