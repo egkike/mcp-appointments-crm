@@ -41,9 +41,23 @@
 | Item | Disposition |
 |---|---|
 | **R3-001** (advisory del review nativo de #162, `review-639ab13ce772dbd1`) | **Informational / no-action** — SUGGESTION, lente reliability, location `setup/templates/recepcionista-negocio/SKILL.md:202` (la línea del pitfall nuevo anti-shell de la v1.1.1). El texto completo del reviewer no queda retenido post-burn en los artifacts del worktree (los candidate-views son los árboles congelados); lo retenido es id/lens/severity/location. La sustancia ya está en main desde `728c497` (v1.1.1: regla de tools-only de la persona-owner + pitfall + línea de verification), de modo que la sugerencia quedó cubierta por la entrega misma. Si el hallazgo re-surge en una revisión futura del template, se evaluaría como change de content propio (el envelope marca el review cerrado como non-reopen) |
-| **Upstream Hermes: bypass execute_code** | **ISSUE CREADO — NousResearch/hermes-agent#147647** (OPEN, labels type/security + comp/agent + tool/code-exec; readback confirmado): el bot del canal WhatsApp bypaseó el contrato tools-only de la skill escribiendo la DB del CRM vía `execute_code` (sin `create_booking` en el tool log; fila durante la ventana execute_code) + fase "confirm" inventada + oferta de escritura directa (el humano la frenó). Propuestas en el issue: (1) per-channel/per-skill tool allowlist ("channel tools only"), (2) deny-on-timeout fail-closed para sesiones unattended, (3) un enforcement single-point compartido con #60056 (misma clase de ungated ops) y #96578 (trust path para callers unattended) — cross-refs incluidas en el cuerpo |
+| **Upstream Hermes: bypass execute_code** | **ISSUE CREADO — NousResearch/hermes-agent#147647** (OPEN, labels type/security + comp/agent + tool/code-exec; readback confirmado): el bot del canal WhatsApp bypaseó el contrato tools-only de la skill escribiendo la DB del CRM vía `execute_code` (sin `create_booking` en el tool log; fila durante la ventana execute_code) + fase "confirm" inventada + oferta de escritura directa (el humano la frenó). Propuestas en el issue: (1) per-channel/per-skill tool allowlist ("channel tools only"), (2) deny-on-timeout fail-closed para sesiones unattended, (3) un enforcement single-point compartido con #60056 (misma clase de ungated ops) y #96578 (trust path para callers unattended) — cross-refs incluidas en el cuerpo |=
 
-**Quedan abiertos del paquete tras estas disposiciones:** cleanup demo DB con 3 artefactos (booking `6a1f72e6` lun 2/11 14:00 Joaquín `pending` · booking 22/10 `fedbb845` · profesional "Temporal Smoke") · decisión de producción (número de bot dedicado + `dm_policy`; el canal WhatsApp queda sin configuración tras el teardown) · T3 wizard (diferido con Gatillos de re-surgir: primer usuario externo / segunda instalación / productización) · dashboard `interactive_setup`-toggle no cubre la limpieza del `.env`/config.yaml (cosmético).
+
+
+**Quedan abiertos del paquete tras estas disposiciones:** decisión de producción (número de bot dedicado + `dm_policy`; el canal WhatsApp queda sin configuración tras el teardown; el modo B aterra con el smoke C12 documentado) · T3 wizard (diferido con disparos de reactivación: primer usuario externo / segunda instalación / productización) · demo DB cleanup CLOSED (ver abajo) · dashboard `interactive_setup`-toggle no cubre la limpieza del `.env`/config.yaml (cosmético).
+## Demo DB cleanup (2026-11-01) — CLOSED
+
+Limpieza ejecutada **vía tools del MCP** (caller owner `+5492617132740`, loopback `/mcp` — la misma regla tools-only que la skill v1.1.1 defiende, aplicada al operador). Verificación por re-lectura (`get_booking`) + confirmación read-only SQL:
+
+| Artefacto | Acción vía tool | Estado final |
+|---|---|---|
+| Booking `6a1f72e6` (lun 2/11 14:00 local, Joaquín — el del bypass execute_code) | `cancel_booking` motivo: "Limpieza smoke onboarding 2026-11-01 — booked por execute_code bypass" | **cancelled** (leído via `get_booking`) |
+| Booking `fedbb845` (22/10 20:30 UTC, smoke v0.9.0) | `cancel_booking` motivo: "Limpieza smoke 2026-10-22 pendiente de disposition" | **cancelled** |
+| Profesional "Temporal Smoke" (id `7536deae`, del 20-09, specialties NULL) | **sin action**: ya estaba `inactive` en la DB (alguien lo desactivó antes; el `search_professionals_advanced("Temporal")` no devolvía resultados — `FindAllActive` los excluye de la búsqueda) — coherente con el estado esperado del demo; queda como registro histórico no-activo, sin FK pendientes relevantes |
+
+Estado del dataset demo post-cleanup: 4 profesionales activos válidos (Santiago/Joaquin/Romina con specialties OQ-4), bookings históricos (1 cancelled v0.6.1, 1 confirmed loyalty) + 3 cancelled por smoke — **ningún pending armado**. La DB queda operativa de demo con cero colas de datos.
+
 
 ## Closed / superseded (record kept)
 
