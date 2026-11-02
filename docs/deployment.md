@@ -7,7 +7,9 @@
 ## Overview
 
 `mcp-appointments-crm` ships as a single Go binary (pure Go via `modernc.org/sqlite`,
-no CGo, no Docker) for 5 targets. Every `vX.Y.Z` tag publishes 5 archives + a SHA256
+no CGo, no Docker) for the covenant platforms (Linux/macOS x86_64/arm64 — 4 assets;
+Windows runs WSL2 with the Linux asset, the Windows archive shipped only up to v0.10.0).
+Every `vX.Y.Z` tag publishes the archives + a SHA256
 `checksums.txt` on GitHub Releases, built by the tag-triggered GoReleaser workflow with no
 manual upload. The only historical release assembled by hand is the `v0.3.0` demo, which
 ships a single Linux x86_64 archive plus `checksums.txt`; every tag after the pipeline
@@ -45,9 +47,11 @@ installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3000/
    `.github/workflows/release.yml` (`name: release`, `on: push: tags: ['v*']`,
    `permissions: contents: write`), which runs GoReleaser `v2.18.2` against
    `.goreleaser.yaml`:
-   - cross-compile all 5 targets with `CGO_ENABLED=0` (no cross toolchain required)
-   - assemble each archive with the required content set: `mcp-server`
-     (`mcp-server_windows_amd64.exe` on Windows), `scripts/backup.sh`,
+   - cross-compile the 4 Unix targets (linux/darwin × amd64/arm64) with
+     `CGO_ENABLED=0` (no cross toolchain required; `windows` was removed from the
+     matrix by the 2026-11-01 covenant — Windows = WSL2 with the Linux asset)
+   - assemble each archive with the required content set: `mcp-server`,
+     `scripts/backup.sh`,
      `setup/service/mcp-appointments-crm.service`, `setup/service/com.mcp.appointments.server.plist`
    - compute `checksums.txt` (SHA256 over all archives, `sha256sum`-compatible)
    - create the GitHub Release and attach every asset — no manual build, no manual upload
@@ -116,10 +120,10 @@ Each `vX.Y.Z` release publishes 6 files:
 | `mcp-appointments-crm_Linux_arm64.tar.gz` | linux | arm64 | systemd (`--user`) |
 | `mcp-appointments-crm_Darwin_x86_64.tar.gz` | darwin | amd64 | launchd |
 | `mcp-appointments-crm_Darwin_arm64.tar.gz` | darwin | arm64 | launchd |
-| `mcp-appointments-crm_Windows_x86_64.zip` | windows | amd64 | NSSM or Task Scheduler |
-| `checksums.txt` | — | — | SHA256 for the 5 archives |
+| `mcp-appointments-crm_Windows_x86_64.zip` | windows | amd64 | NSSM or Task Scheduler — **dropped per the 2026-11-01 covenant** (shipped v0.4.0–v0.10.0 only) |
+| `checksums.txt` | — | — | SHA256 for the Unix archives (5 up to v0.10.0, 4 since) |
 
-All archives contain the binary `mcp-server` (or `mcp-server_windows_amd64.exe` on Windows),
+All archives contain the binary `mcp-server` (up to v0.10.0, the Windows zip carried `mcp-server_windows_amd64.exe`),
 the service templates (`setup/service/mcp-appointments-crm.service` /
 `com.mcp.appointments.server.plist`), and the `scripts/backup.sh` helper — the 4
 entries the published `v0.3.0` asset carries. This content set is the contract
@@ -320,9 +324,10 @@ No `loginctl` step on macOS — user LaunchAgents persist after logout by defaul
 > - `scripts/install.ps1` does not exist in the repository.
 > - `mcp-server --register-service` is not implemented; the binary only supports
 >   `--version`.
-> - Sí se publica un asset Windows (`mcp-appointments-crm_Windows_x86_64.zip` desde
->   v0.4.0, junto con los assets de Linux y macOS y `checksums.txt`), pero no existe
->   un path de instalación soportado que lo consuma.
+> - (Histórico: el asset Windows `mcp-appointments-crm_Windows_x86_64.zip` se publicó
+>   v0.4.0–v0.10.0 y **ya no se produce** — ejecutado en T1 de
+>   `feat-install-scope-uninstall`, PR #164; la matriz de GoReleaser quedó en los
+>   4 assets Unix).
 > - There is no Task Scheduler template; `setup/service/` ships the systemd unit, the
 >   launchd plist and the manual `nssm-install.md` guide.
 >
@@ -330,8 +335,9 @@ No `loginctl` step on macOS — user LaunchAgents persist after logout by defaul
 > (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004)
 > and the covenant updated on 2026-11-01 makes it final: **Windows connects via
 > WSL2** (Linux path; see `README.md` Status and `docs/installation.md` Paso 0),
-> and the `Windows_x86_64.zip` asset is being dropped from the GoReleaser matrix
-> (T1 of `feat-install-scope-uninstall`). The manual NSSM guide
+> and the `Windows_x86_64.zip` asset is dropped from the GoReleaser matrix
+> (T1 of `feat-install-scope-uninstall`, executed in PR #164 — the matrix is now the
+> 4 Unix assets). The manual NSSM guide
 > (`setup/service/nssm-install.md`, untested in CI) stays as legacy reference
 > for the OLD native-Windows scope — superseded, not tracked.
 
