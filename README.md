@@ -118,6 +118,7 @@ Decision 3 scope of [ADR-0014](./docs/architecture/0014-release-and-deploy-workf
 
 ## Documentation
 
+- [Docs index & language conventions](./docs/README.md) — which doc is for whom, in which language (owner decision 2026-11-01)
 - [PRD](./docs/PRD.md) — Product Requirements Document (canonical source)
 - [SDD](./docs/SDD.md) — original idea and analysis
 - [PR Template](./docs/common/prd-template.md) — reusable template for new PRs
