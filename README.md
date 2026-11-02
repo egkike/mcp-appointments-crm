@@ -11,7 +11,7 @@
 A high-performance, self-hosted, lightweight **MCP (Model Context Protocol) server**
 for business bookings and CRM. Written in **Go**, backed by **SQLite** with FTS5.
 Runs natively on **Linux** and **macOS** — no containers, no external services.
-Windows support is pending (see the scope note below).
+Windows is supported via **WSL2** (see the Windows install note below).
 
 ## Status
 
@@ -88,7 +88,7 @@ agent connector guide in `docs/installation.md` (§ “Conectar tu agente MCP
 > **macOS note:** the installer's macOS path is implemented and the published
 > releases ship the `Darwin` archives since v0.4.0 (`install.sh` resolves them via
 > `uname`, see [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md)).
-> Windows has the asset but no install path — see the block below.
+> Windows runs through **WSL2** — see the block below.
 
 ### Install — Windows
 
@@ -100,21 +100,21 @@ guidance (`setup/service/nssm-install.md`, untested in CI) reference the old
 Decision 3 scope of [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md).
 
 > See [docs/deployment.md](./docs/deployment.md) for the full runbook (HomeLab VM
-> example, manual download, verification checklist, rollback, troubleshooting) and
+> example, verification checklist, rollback, troubleshooting) and
 > [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md) for the
-> release rationale (GoReleaser 5-platform matrix, checksums, `go install` vs
-> prebuilt EXE trade-offs — implemented in `.goreleaser.yaml` + `release.yml`; the
-> Windows install paths are still pending).
+> release rationale (platform matrix, checksums; the Windows asset is dropped
+> per the 2026-11-01 platform covenant — T1 of `feat-install-scope-uninstall`).
 
 ## Architecture
 
 - **Language**: Go 1.27.3 with `modernc.org/sqlite` (pure Go, no CGo)
 - **Database**: SQLite with WAL mode, FTS5 full-text search, `busy_timeout=5000`
 - **TUI**: [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea) ecosystem
-- **Transport**: MCP over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3000` (loopback only) — go-sdk v1.2.0, implemented (`feat-mcp-transport`, archived 2026-08-19)
+- **Transport**: MCP over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3000` (loopback only) — go-sdk v1.7.0, implemented (`feat-mcp-transport`, archived 2026-08-19)
 - **Install model**: user-level (no root, no `appuser`, no Docker). XDG paths on Linux
-  (`~/.local/share/`, `~/.config/`), platform-native on macOS. The Windows layout is
-  designed in [docs/PRD.md §3.5](./docs/PRD.md#35-affected-areas) but not implemented.
+  (`~/.local/share/`, `~/.config/`), platform-native on macOS. Windows hosts run the Linux layout inside **WSL2** (2026-11-01 platform
+  covenant; the Windows-native layout once designed in
+  [docs/PRD.md §3.5](./docs/PRD.md#35-affected-areas) is superseded).
 
 ## Documentation
 
