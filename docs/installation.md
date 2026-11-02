@@ -43,6 +43,20 @@ Verificá estos ítems antes de empezar:
 1 → 2 → 3 → 4. Con el canal ya funcionando, después de la opción 7 el smoke sale
 end-to-end al toque (canal vivo + tools + skill recién renovada por la cascada).
 
+> ⚠️ **Puerto (rama A — se fija ANTES del paso 2):** si el agente del canal ya
+> corre en esta máquina y su WhatsApp/config ya está activo, el puente de
+> WhatsApp (`bridge.js`) ya tiene — o tomará — `127.0.0.1:3000`. Cuando el
+> Paso 2 deja el server con el default `3000` contra un puerto ocupado, el
+> binario no arranca (`bind: address already in use`) y el unit entra en un
+> crash-loop de auto-restart cada 5s (verificado 2026-11-02 en vivo). Fijá
+> desde ya **`MCP_PORT=3001`** en el paso 2 (higiene de puertos:
+> `gateway-contract.md` §6.1; la otra palanca equivalente es fijar el
+> `bridge_port` del bridge en el config del gateway). La variante trampa
+> silenciosa (agente configurado pero sin parear aún) también cae acá: el
+> MCP arrancaría bien con 3000, y la pareja posterior del WhatsApp chocaría
+> contra el server ya corriendo — el canal no conectará sin una de las dos
+> palancas aplicadas.
+
 **Rama B — máquina nueva (greenfield):** 2 → (instalar Hermes + WhatsApp del
 negocio) → 3 → 4. El resultado final es idéntico: ambos caminos convergen en la
 opción 7.

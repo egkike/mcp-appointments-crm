@@ -30,6 +30,15 @@
   pina ese texto; docs `installation.md` (sección de plataformas) + README +
   Prerrequisitos. **Nota OQ-5: otros agentes NO llevan installer** — la guía
   (`d60c27d`) es la solución definitiva (sin adapters ni B-lite)
+- [ ] **T1.5 (candidato, propuesto por el owner 2026-11-02)** — pre-flight del
+  puerto en `install.sh`: después de escribir el `.env` y ANTES de levantar el
+  unit, un check `ss -tln` sobre `MCP_PORT` (default 3000) que falla con el
+  mensaje de las dos palancas (mover el MCP o fijar el `bridge_port`) si el
+  puerto está ocupado + test de shell del caso busy. Fundamento: el escenario
+  rama A (Hermes-vivo-con-WhatsApp-pareado) entra en crash-loop
+  (`Restart=on-failure` 5s, verificado en vivo 2026-11-02 en el journal) — la
+  advertencia 3001 de Paso 0/Paso 2 queda desglosada pero el install fallaría
+  igual de tarde; el pre-flight lo falla temprano y nombra la salida
 - [ ] **T2 (S2/S4)** — `scripts/uninstall.sh` con el contrato D2/D4 completo
   (dry-run default / `--apply` / `--purge-data` doble gate / verificación final
   en tabla) + shell tests: `scripts/tests/uninstall_test.sh` (doble run
