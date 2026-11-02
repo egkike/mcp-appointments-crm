@@ -57,3 +57,15 @@
   Pipeline: fmt/vet/build/test -race + shellcheck (solo SC2015 pre-existing) +
   suite shell 7/7. Gate: native review por routing (default modesto), commit
   único del unit; push/PR decisión owner.
+- **L6** 2026-11-03 — **Review nativo del slice T1/T1.5: APPROVED + authority
+  burned** (`review-5d517689d364fc13`, tier high por shell/process boundary,
+  lentes risk+reliability, base `08a9aa1`, commit candidato `deb4d1d`;
+  acknowledge `gentle-ai.review-acknowledged/v1` consumido,
+  delivery = ordinary-repository-policy). Advisories no bloqueantes
+  (informational, no re-open): **R3-001** reliability WARNING
+  `scripts/install.sh:1807-1813` (preflight ss awk/grep pipeline — robustez
+  del parseo del listener) y **R3-002** reliability WARNING
+  `scripts/install.sh:1505-1508` (validación del `MCP_PORT` exportado).
+  Quedan logged como follow-ups potenciales de hardening chico, sin apertura
+  de corrección para este candidato. GGA r1 PASSED (0 files matched: patrón
+  *.go; diff shell/docs).
