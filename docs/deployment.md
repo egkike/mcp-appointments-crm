@@ -326,17 +326,20 @@ No `loginctl` step on macOS — user LaunchAgents persist after logout by defaul
 > - There is no Task Scheduler template; `setup/service/` ships the systemd unit, the
 >   launchd plist and the manual `nssm-install.md` guide.
 >
-> Windows install automation was declared a non-goal of Fase 5
-> (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004) and is
-> tracked as pending scope in [docs/PRD.md §7](./PRD.md#7-roadmap-y-fases). For manual
-> service registration guidance (untested in CI) see
-> [`setup/service/nssm-install.md`](../setup/service/nssm-install.md).
+> Windows install automation remains a non-goal of Fase 5
+> (`openspec/changes/archive/2026-09-06-feat-install-and-service/`, REQ-SU-004)
+> and the covenant updated on 2026-11-01 makes it final: **Windows connects via
+> WSL2** (Linux path; see `README.md` Status and `docs/installation.md` Paso 0),
+> and the `Windows_x86_64.zip` asset is being dropped from the GoReleaser matrix
+> (T1 of `feat-install-scope-uninstall`). The manual NSSM guide
+> (`setup/service/nssm-install.md`, untested in CI) stays as legacy reference
+> for the OLD native-Windows scope — superseded, not tracked.
 
-Two paths. **Primary is `go install`** (no SmartScreen "Unknown publisher" dialog,
-no cert cost). Fallback is `install.ps1` (prebuilt EXE, shows unsigned warning) —
-neither is implemented yet.
+**Legacy target-design paths** (both unimplemented; kept for ADR-0014 traceability):
+Primary is `go install` (no SmartScreen "Unknown publisher" dialog, no cert
+cost) — fallback is `install.ps1` (prebuilt EXE, shows unsigned warning).
 
-### Primary — `go install` (recommended)
+### Primary — `go install` (recommended — design only, NOT IMPLEMENTED)
 
 Requires Go once (`winget install Go.Go` or `scoop install go`):
 
