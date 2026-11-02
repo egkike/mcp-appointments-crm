@@ -19,20 +19,19 @@ project_name: mcp-appointments-crm
 builds:
   - id: mcp-server
     main: ./cmd/mcp-server
-    # Cross-compilation matrix from docs/PRD.md §3.5: 5 platforms, no C toolchain.
-    goos: [linux, darwin, windows]
+    # Cross-compilation matrix from docs/PRD.md §3.5: Linux + Darwin, amd64/arm64.
+    # The 2026-11-01 platform covenant (feat-install-scope-uninstall OQ-1) dropped
+    # the Windows asset: Windows installs go through WSL2 with the Linux asset
+    # (install.sh now hints at WSL2 from the unsupported-branch message).
+    goos: [linux, darwin]
     goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
     # CGO stays off: modernc.org/sqlite is pure Go, so a single builder covers
-    # all 5 targets without a cross toolchain (ADR-0014, Decision 1).
+    # all 4 targets without a cross toolchain (ADR-0014, Decision 1).
     env:
       - CGO_ENABLED=0
-    # Unix archives carry the plain `mcp-server` name that install.sh extracts.
-    # The Windows zip carries `mcp-server_windows_amd64.exe` (ADR-0014, Decision 1/3);
-    # GoReleaser appends the `.exe` suffix for GOOS=windows by itself.
-    binary: 'mcp-server{{ if eq .Os "windows" }}_{{ .Os }}_{{ .Arch }}{{ end }}'
+    # Unix archives carry the plain `mcp-server` name that install.sh extracts
+    # (installer contract: keep in sync with compose_asset_name()).
+    binary: mcp-server
     # Only `Version` exists in internal/buildinfo; `-s -w` strips debug info.
     ldflags:
       - -s -w -X github.com/egkike/mcp-appointments-crm/internal/buildinfo.Version={{ .Version }}
@@ -41,17 +40,14 @@ archives:
   - id: mcp-appointments-crm
     ids: [mcp-server]
     # The final names are the installer contract (mcp-appointments-crm_Linux_x86_64.tar.gz,
-    # mcp-appointments-crm_Darwin_arm64.tar.gz, mcp-appointments-crm_Windows_x86_64.zip).
-    # `.Os`/`.Arch` are the raw GOOS/GOARCH values (verified with goreleaser 2.18.2:
+    # mcp-appointments-crm_Darwin_arm64.tar.gz). `.Os`/`.Arch` are the raw GOOS/GOARCH
+    # values (verified with goreleaser 2.18.2:
     # they render as linux/amd64), so the uname-style spelling install.sh composes
     # from `uname -s`/`uname -m` is mapped explicitly here instead of relying on
     # implicit replacements that this config never enabled.
     name_template: >-
       {{ .ProjectName }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else }}{{ .Arch }}{{ end }}
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
     # The binary is always archived; these are the extra files that make an
     # archive self-sufficient for install on all platforms (backup + services).
     files:
