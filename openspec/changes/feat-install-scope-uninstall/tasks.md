@@ -38,7 +38,7 @@
   `test_compose_unsupported_os_wsl_hint` / `test_compose_unsupported_os_generic_list`
   (RED→GREEN) + pin existente intacto; docs: installation.md (intro, Paso 2
   ítems 5/9, Prerrequisitos), README (nota rama A), PRD changelog 1.30, matriz
-  PRD §3.5 anotada
+  PRD §3.5 anotada. **MERGED 2026-11-02: PR #164 squash `e9f5c8d` (CI post-merge run 41544062335 success; pr-gate green: linkage/approval/type + lint/build/test-race/vuln) — issue #163 cerrado por el merge**
 - [x] **T1.5 (candidato, propuesto por el owner 2026-11-02)** — pre-flight del
   puerto en `install.sh`: después de escribir el `.env` y ANTES de levantar el
   unit, un check `ss -tln` sobre `MCP_PORT` (default 3000) que falla con el
@@ -55,7 +55,7 @@
   `ss`/`lsof` advierte y continúa. Palanca 1 real: `ensure_env_file` persiste
   `MCP_PORT`/`MCP_BIND` exportados en `.env` nuevo (inválidos/`.env` existentes
   byte-idéntico). Tests RED→GREEN: busy/two-levers, free, own-unit, no-tool
-  warn+proceed, validez de puerto, precedencia de fuente
+  warn+proceed, validez de puerto, precedencia de fuente **(mismo merge e9f5c8d)**
 - [ ] **T2 (S2/S4)** — `scripts/uninstall.sh` con el contrato D2/D4 completo
   (dry-run default / `--apply` / `--purge-data` doble gate / verificación final
   en tabla) + shell tests: `scripts/tests/uninstall_test.sh` (doble run

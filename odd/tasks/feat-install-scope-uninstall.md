@@ -69,3 +69,11 @@
   Quedan logged como follow-ups potenciales de hardening chico, sin apertura
   de corrección para este candidato. GGA r1 PASSED (0 files matched: patrón
   *.go; diff shell/docs).
+- **L7** 2026-11-02 (tarde) — **T1+T1.5 MERGEADO y post-merge al día**: PR #164
+  squash `e9f5c8d` (ci 41544062335 success; pr-gate linkage/approval pass),
+  issue #163 cerrado; branch local borrada tras verificación byte-idéntica de
+  los 8 files del squash. Barrida de consistencia post-covenant `5759df3`
+  (docs: PRD — binario distribution/§3.5 banner/DoD ×2/D2; deployment —
+  overview/matriz de assets/covenant blockquote "executed"/runbook paso 5;
+  changelog histórico y sección legacy NSSM intactos por diseño), ci
+  `41545271359` success. Siguiente: T2 (uninstall.sh) — data-risk, nueva sesión.
