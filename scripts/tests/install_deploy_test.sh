@@ -84,6 +84,26 @@ test_compose_asset_name_matrix() {
   assertTrue 'error names arch' "printf '%s' \"$out\" | grep -q 'i686'"
 }
 
+# ---------------------------------------------------------------------------
+# T1 (issue #163) — unsupported-platform message (WSL2 hint)
+# ---------------------------------------------------------------------------
+
+test_compose_unsupported_os_wsl_hint() {
+  local out rc=0
+  out=$(compose_asset_name MINGW64_NT-10.0-19045 x86_64 2>&1) || rc=$?
+  assertTrue 'windows-native fails' "[ \${rc:-0} -ne 0 ]"
+  assertTrue 'first line still names the combo' "printf '%s' \"$out\" | grep -q 'MINGW64_NT-10.0-19045/x86_64'"
+  assertTrue 'names the WSL2 covenant path' "printf '%s' \"$out\" | grep -q 'WSL2'"
+}
+
+test_compose_unsupported_os_generic_list() {
+  local out rc=0
+  out=$(compose_asset_name FreeBSD x86_64 2>&1) || rc=$?
+  assertTrue 'unknown os fails' "[ \${rc:-0} -ne 0 ]"
+  assertTrue 'names supported list' "printf '%s' \"$out\" | grep -q 'Linux'"
+  assertTrue 'names macOS in supported list' "printf '%s' \"$out\" | grep -q 'macOS'"
+}
+
 test_validate_tag() {
   validate_tag v0.3.0 >/dev/null 2>&1
   assertEquals 'v0.3.0 ok' 0 $?
@@ -656,6 +676,142 @@ test_post_install_summary_prints_skill_seed() {
   out=$(print_post_install_summary 2>&1)
   assertTrue 'summary reports skill seed outcome' \
     "printf '%s' \"$out\" | grep -q 'Template de la skill'"
+}
+
+# ---------------------------------------------------------------------------
+# T1.5 (issue #163) — port pre-flight + exported-port persistence
+# ---------------------------------------------------------------------------
+
+_ensure_env_port_setup() {
+  # Reset the per-test .env state from setUp.
+  rm -f "$ENV_FILE"
+}
+
+_preflight_fake_toolchain() {
+  # Fake ss + conditional fake systemctl in a fresh bin dir (does NOT clobber
+  # the setUp fakebin systemctl copy; tests needing MainPID pin it here).
+  _PREFLIGHT_BIN="$TEST_HOME/preflight_bin"
+  rm -rf "$_PREFLIGHT_BIN"
+  mkdir -p "$_PREFLIGHT_BIN"
+  cat > "$_PREFLIGHT_BIN/ss" <<SS
+#!/bin/bash
+echo "$1"
+SS
+  printf '#!/bin/bash\n%s\nexit 0\n' "$2" > "$_PREFLIGHT_BIN/systemctl"
+  chmod +x "$_PREFLIGHT_BIN/ss" "$_PREFLIGHT_BIN/systemctl"
+  _SAVED_PREFLIGHT_PATH="$PATH"
+  PATH="$_PREFLIGHT_BIN:$PATH"
+}
+
+_preflight_teardown_toolchain() {
+  PATH="$_SAVED_PREFLIGHT_PATH"
+}
+
+test_mcp_effective_port_precedence() {
+  _ensure_env_port_setup
+  mkdir -p "$(dirname "$ENV_FILE")"
+  printf 'MCP_BIND=127.0.0.1\nMCP_PORT=3002\n' > "$ENV_FILE"
+  assertEquals '.env wins over env' \
+    "$(MCP_PORT=3001 mcp_effective_port)" '3002'
+  rm -f "$ENV_FILE"
+  assertEquals 'no .env, no env -> 3000' '3000' \
+    "$([ -n "${MCP_PORT:-}" ] && unset MCP_PORT; mcp_effective_port)"
+}
+
+test_ensure_env_file_honors_exported_port() {
+  _ensure_env_port_setup
+  MCP_PORT=3001 ensure_env_file
+  assertEquals 'export ok' 0 $?
+  assertTrue '.env carries exported port' \
+    "grep -q 'MCP_PORT=3001' '$ENV_FILE'"
+
+  _ensure_env_port_setup
+  ensure_env_file >/dev/null 2>&1
+  assertTrue 'default .env still writes 3000' \
+    "grep -q 'MCP_PORT=3000' '$ENV_FILE'"
+}
+
+test_ensure_env_file_rejects_invalid_export() {
+  local rc=0
+  _ensure_env_port_setup
+  MCP_PORT=http ensure_env_file >/dev/null 2>&1 || rc=$?
+  assertTrue 'non-numeric port fails' "[ \${rc:-0} -ne 0 ]"
+  assertFalse 'no .env on invalid port' "[ -f '$ENV_FILE' ]"
+
+  _ensure_env_port_setup
+  rc=0
+  MCP_PORT=70000 ensure_env_file >/dev/null 2>&1 || rc=$?
+  assertTrue 'out-of-range port fails' "[ \${rc:-0} -ne 0 ]"
+}
+
+test_ensure_env_file_preserves_existing() {
+  _ensure_env_port_setup
+  mkdir -p "$(dirname "$ENV_FILE")"
+  printf 'MCP_BIND=127.0.0.1\nMCP_PORT=3002\n' > "$ENV_FILE"
+  MCP_PORT=3001 ensure_env_file >/dev/null 2>&1
+  assertEquals 'upgrade keeps .env untouched' 0 $?
+  assertFalse 'exported value never rewrites existing .env' \
+    "grep -q 'MCP_PORT=3001' '$ENV_FILE'"
+}
+
+test_preflight_port_busy_fails_with_two_levers() {
+  _ensure_env_port_setup
+  sleep 60 &
+  local listener_pid=$!
+  _preflight_fake_toolchain \
+    'LISTEN 0 128 127.0.0.1:3001 0.0.0.0:* users:(("bridge",pid='$listener_pid',fd=3))' \
+    'echo MainPID=0'
+  local out rc=0
+  out=$(MCP_PORT=3001 preflight_port_available 2>&1) || rc=$?
+  _preflight_teardown_toolchain
+  kill "$listener_pid" 2>/dev/null || true
+  assertTrue 'busy foreign listener fails' "[ \${rc:-0} -ne 0 ]"
+  assertTrue 'names lever 1 (MCP_PORT)' \
+    "printf '%s' \"$out\" | grep -q 'MCP_PORT'"
+  assertTrue 'names lever 2 (bridge_port)' \
+    "printf '%s' \"$out\" | grep -q 'bridge_port'"
+}
+
+test_preflight_port_free_passes() {
+  _ensure_env_port_setup
+  _preflight_fake_toolchain '' ''
+  local rc=0
+  MCP_PORT=3001 preflight_port_available >/dev/null 2>&1 || rc=$?
+  _preflight_teardown_toolchain
+  assertEquals 'free port passes' 0 $?
+}
+
+test_preflight_owns_running_unit_passes() {
+  _ensure_env_port_setup
+  sleep 60 &
+  local listener_pid=$!
+  _preflight_fake_toolchain \
+    'LISTEN 0 128 127.0.0.1:3001 0.0.0.0:* users:(("mcp-server",pid='$listener_pid',fd=3))' \
+    'echo MainPID='$listener_pid
+  local rc=0
+  MCP_PORT=3001 preflight_port_available >/dev/null 2>&1 || rc=$?
+  _preflight_teardown_toolchain
+  kill "$listener_pid" 2>/dev/null || true
+  assertEquals 'in-place upgrade (own unit) passes' 0 $?
+}
+
+test_preflight_no_probe_tool_warns_and_proceeds() {
+  _ensure_env_port_setup
+  # PATH stripped of ss/lsof/fakebin: only the utilities the preflight needs
+  # before the probe decision remain.
+  _NO_PROBE_BIN="$TEST_HOME/noprobe_bin"
+  mkdir -p "$_NO_PROBE_BIN"
+  for _t in awk sed grep tr head tail; do
+    ln -sf "$(command -v "$_t")" "$_NO_PROBE_BIN/$_t"
+  done
+  _SAVED_PREFLIGHT_PATH="$PATH"
+  PATH="$_NO_PROBE_BIN"
+  local out rc=0
+  out=$(MCP_PORT=3001 preflight_port_available 2>&1) || rc=$?
+  PATH="$_SAVED_PREFLIGHT_PATH"
+  assertEquals 'no tool proceeds' 0 $?
+  assertTrue 'warns it was skipped' \
+    "printf '%s' \"$out\" | grep -q 'Advertencia'"
 }
 
 . "$(dirname "$0")/lib/shunit2" || exit 1

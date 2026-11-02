@@ -1364,14 +1364,32 @@ require_setup_files() {
   return 0
 }
 
+# T1 (issue #163): the unsupported branch names WHERE the covenant sends
+# Windows users (WSL2 — ADR-0014 superseded the native-Windows path) instead
+# of a bare combo line. First line preserved: tests pin the combo text.
+_unsupported_platform_error() {
+  local os="$1" arch="$2"
+  echo "Error: combinación no soportada: $os/$arch" >&2
+  case "$os" in
+    MINGW*|MSYS*|CYGWIN*|Windows_NT*)
+      echo "  El server no tiene binario Windows nativo: el covenant es Windows = WSL2 (asset Linux)." >&2
+      echo "  Instalá WSL2 y corré este instalador dentro de la distro (uname reportará Linux)." >&2
+      ;;
+    *)
+      echo "  Plataformas soportadas: Linux, macOS y Windows vía WSL2 (x86_64/arm64)." >&2
+      ;;
+  esac
+  return 1
+}
+
 compose_asset_name() {
   local os="$1" arch="$2" asset_arch
   case "$arch" in
     x86_64) asset_arch="x86_64" ;;
     aarch64|arm64) asset_arch="arm64" ;;
     *)
-      echo "Error: combinación no soportada: $os/$arch" >&2
-      return 1
+      _unsupported_platform_error "$os" "$arch"
+      return
       ;;
   esac
   case "$os" in
@@ -1380,8 +1398,8 @@ compose_asset_name() {
       return 0
       ;;
     *)
-      echo "Error: combinación no soportada: $os/$arch" >&2
-      return 1
+      _unsupported_platform_error "$os" "$arch"
+      return
       ;;
   esac
 }
@@ -1476,9 +1494,27 @@ ensure_env_file() {
   if [ -f "$ENV_FILE" ]; then
     return 0
   fi
+  # T1.5 lever 1 (issue #163): an exported MCP_PORT (branch A hygiene, e.g.
+  # `MCP_PORT=3001 ./install.sh --version vX`) is persisted so the unit binds
+  # the port the operator asked for. ensure_env_file used to hardcode 3000:
+  # the export died with the install shell and the unit bound the conflicting
+  # default anyway. An existing .env stays byte-idéntico (upgrade contract).
+  local port="${MCP_PORT:-}"
+  if [ -n "$port" ]; then
+    case "$port" in
+      ''|*[!0-9]*)
+        echo "Error: MCP_PORT exportado inválido: '$port' (se espera un entero 1-65535)." >&2
+        return 1
+        ;;
+    esac
+    if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+      echo "Error: MCP_PORT exportado fuera de rango: '$port' (1-65535)." >&2
+      return 1
+    fi
+  fi
   {
-    printf 'MCP_BIND=127.0.0.1\n'
-    printf 'MCP_PORT=3000\n'
+    printf 'MCP_BIND=%s\n' "${MCP_BIND:-127.0.0.1}"
+    printf 'MCP_PORT=%s\n' "${port:-3000}"
   } | atomic_write "$ENV_FILE"
   chmod 0600 "$ENV_FILE"
 }
@@ -1745,6 +1781,110 @@ print_post_install_summary() {
   echo "      MCP_DB_PATH=$DATA_DIR/reservas.db"
 }
 
+# ---------------------------------------------------------------------------
+# T1.5 (issue #163) — port pre-flight (feat-install-scope-uninstall)
+#
+# Purpose: the branch A scenario (Hermes agent already running on this host,
+# WhatsApp bridge on its default 3000) used to fail LATE: install.sh
+# proceeded to install_service and the unit crash-looped on
+# 'bind: address already in use' (Restart=on-failure, RestartSec=5 — verified
+# live on the VM 2026-11-02). The pre-flight re-fails this BEFORE the unit is
+# touched and names the two levers documented in docs/installation.md Paso 0.
+
+# mcp_effective_port: the port the unit will bind — ENV_FILE wins (that is
+# what the systemd EnvironmentFile feeds the binary), else the exported
+# MCP_PORT, else the product default 3000.
+mcp_effective_port() {
+  local port=""
+  if [ -f "${ENV_FILE:-}" ]; then
+    port=$(awk -F= '/^MCP_PORT=/{print $2}' "$ENV_FILE" 2>/dev/null \
+      | tr -d '\r' | tail -n 1)
+  fi
+  printf '%s' "${port:-${MCP_PORT:-3000}}"
+}
+
+# _port_listener_pids: space-joined pids listening on the port. Returns 2
+# when no probe tool is available so callers can warn-and-skip (fail-open
+# for a convenience check, never for a security control). ss first (Linux),
+# lsof as the direct fallback (macOS ships without ss).
+_port_listener_pids() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -tlnpH 2>/dev/null \
+      | awk -v p=":$port" 'index($4, p) == length($4) - length(p) + 1' \
+      | grep -o 'pid=[0-9]\+' | grep -o '[0-9]\+' | tr '\n' ' '
+    return 0
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -Pn -iTCP:"$port" -sTCP:LISTEN -Fp 2>/dev/null \
+      | sed -n 's/^p//p' | tr '\n' ' '
+    return 0
+  fi
+  return 2
+}
+
+# _pid_is_ours_mcp: true when the listener is the mcp-appointments-crm unit
+# itself (in-place upgrade: the OLD instance still holds the port until
+# `systemctl restart` in install_service swaps it) or a just-replaced binary
+# (proc exe shows ' (deleted)'). A foreign pid (the agent's bridge) must NOT
+# pass: that is the conflict the pre-flight exists to reject.
+_pid_is_ours_mcp() {
+  local pid="$1"
+  local mainpid
+  mainpid=$(systemctl --user show mcp-appointments-crm 2>/dev/null \
+    | sed -n 's/^MainPID=//p' | head -n 1)
+  if [ -n "$mainpid" ] && [ "$mainpid" = "$pid" ]; then
+    return 0
+  fi
+  if [ "$(uname -s)" = "Darwin" ]; then
+    case "$(basename "$(ps -p "$pid" -o comm= 2>/dev/null)")" in
+      mcp-server|mcp-server.prev) return 0 ;;
+    esac
+    return 1
+  fi
+  if [ -r "/proc/$pid/exe" ]; then
+    local exe
+    exe=$(readlink "/proc/$pid/exe" 2>/dev/null)
+    case "$exe" in
+      *" (deleted)")
+        case "$(basename "${exe% (deleted)}")" in
+          mcp-server|mcp-server.prev) return 0 ;;
+        esac
+        ;;
+    esac
+  fi
+  return 1
+}
+
+# preflight_port_available: run_deploy gate, between ensure_env_file and
+# install_binary/install_service. Own listeners pass; foreign listeners fail
+# closed with the two levers; no probe tool warns and proceeds.
+preflight_port_available() {
+  local port pids pid foreign=""
+  port=$(mcp_effective_port)
+  pids=$(_port_listener_pids "$port")
+  if [ $? -eq 2 ]; then
+    echo "Advertencia: no se pudo verificar el puerto $port (ss/lsof ausentes); el chequeo de puerto se salteó." >&2
+    return 0
+  fi
+  for pid in $pids; do
+    if ! _pid_is_ours_mcp "$pid"; then
+      foreign="$pid"
+      break
+    fi
+  done
+  if [ -z "$foreign" ]; then
+    return 0
+  fi
+  echo "Error: el puerto MCP $port ya está en uso por otro proceso de este host (pid $foreign)." >&2
+  echo "Escenario típico (rama A): el bridge del agente del canal ya corre este puerto (3000 es su default)." >&2
+  echo "Salidas — una de las dos palancas (ninguna es opcional en este host):" >&2
+  echo "  1. Fijá MCP_PORT=<puerto libre> (p. ej. 3001) en $ENV_FILE y volvé a correr el instalador." >&2
+  echo "  2. O mové el puerto del bridge del agente: platforms.<canal>.extra.bridge_port (p. ej. 3005) en la config del runtime." >&2
+  echo "Referencia: docs/installation.md Paso 0 (rama A) y gateway-contract §6.1." >&2
+  return 1
+}
+
 run_deploy() {
   resolve_paths || return 1
   refuse_root || return 1
@@ -1756,6 +1896,9 @@ run_deploy() {
   ensure_dirs || return 1
   seed_skill_pristine
   ensure_env_file || return 1
+  # T1.5 (issue #163): fail the busy-port branch A case BEFORE the unit is
+  # touched — the crash-loop discovery used to happen at install_service.
+  preflight_port_available || return 1
   install_binary || return 1
   install_backup_script || return 1
   install_service || return 1

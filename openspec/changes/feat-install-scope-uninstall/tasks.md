@@ -25,12 +25,21 @@
 
 ## Phase 2 — entrega (después de OQ)
 
-- [ ] **T1 (S1)** — `install.sh`: mensaje por plataforma + hint WSL en el branch
+- [x] **T1 (S1)** — `install.sh`: mensaje por plataforma + hint WSL en el branch
   de plataformas no soportadas (hoy el error genérico); verifier si algún test
   pina ese texto; docs `installation.md` (sección de plataformas) + README +
   Prerrequisitos. **Nota OQ-5: otros agentes NO llevan installer** — la guía
   (`d60c27d`) es la solución definitiva (sin adapters ni B-lite)
-- [ ] **T1.5 (candidato, propuesto por el owner 2026-11-02)** — pre-flight del
+  **CLOSED 2026-11-03 — issue #163, branch `feat/install-t1-t15-port-preflight`**:
+  `_unsupported_platform_error` (1° línea pined de combo preservada + hint WSL2
+  para Windows-native/hint de plataformas soportadas para el resto), OQ-1
+  ejecutado (`windows` fuera de la matriz GoReleaser: 5→4 assets, zip y
+  binario exe template retirados; `goreleaser check` OK); tests
+  `test_compose_unsupported_os_wsl_hint` / `test_compose_unsupported_os_generic_list`
+  (RED→GREEN) + pin existente intacto; docs: installation.md (intro, Paso 2
+  ítems 5/9, Prerrequisitos), README (nota rama A), PRD changelog 1.30, matriz
+  PRD §3.5 anotada
+- [x] **T1.5 (candidato, propuesto por el owner 2026-11-02)** — pre-flight del
   puerto en `install.sh`: después de escribir el `.env` y ANTES de levantar el
   unit, un check `ss -tln` sobre `MCP_PORT` (default 3000) que falla con el
   mensaje de las dos palancas (mover el MCP o fijar el `bridge_port`) si el
@@ -39,6 +48,14 @@
   (`Restart=on-failure` 5s, verificado en vivo 2026-11-02 en el journal) — la
   advertencia 3001 de Paso 0/Paso 2 queda desglosada pero el install fallaría
   igual de tarde; el pre-flight lo falla temprano y nombra la salida
+  **CLOSED 2026-11-03 — mismo branch/issue**: `preflight_port_available` entre
+  `ensure_env_file` e `install_binary` (run_deploy), puerto efectivo
+  `.env > env > 3000`; listener del propio unit (MainPID) o binario reemplazado
+  (exe `(deleted)`) cuenta como propio — upgrade en caliente pasa; sin
+  `ss`/`lsof` advierte y continúa. Palanca 1 real: `ensure_env_file` persiste
+  `MCP_PORT`/`MCP_BIND` exportados en `.env` nuevo (inválidos/`.env` existentes
+  byte-idéntico). Tests RED→GREEN: busy/two-levers, free, own-unit, no-tool
+  warn+proceed, validez de puerto, precedencia de fuente
 - [ ] **T2 (S2/S4)** — `scripts/uninstall.sh` con el contrato D2/D4 completo
   (dry-run default / `--apply` / `--purge-data` doble gate / verificación final
   en tabla) + shell tests: `scripts/tests/uninstall_test.sh` (doble run

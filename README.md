@@ -55,6 +55,13 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 > The pipe (`curl | bash`) works only for Paso 2; Paso 1 must run in a real terminal. See
 > [docs/installation.md](./docs/installation.md) for the full walkthrough.
 >
+> **Branch A (another channel agent already runs on this host):** if a Hermes
+> WhatsApp/Telegram bridge already binds the default `3000`, pass the port
+> hygiene up front — `MCP_PORT=3001` (exported values are persisted into a new
+> `.env`) or the agent's `bridge_port` lever. The installer pre-flights the
+> MCP port before starting the service and aborts early naming both levers
+> (see [installation.md — Paso 0](./docs/installation.md#paso-0--el-flujo-completo-receta-recomendada)).
+>
 > **Pinning is mandatory in Paso 2.** The installer does not resolve `latest`: `--version`
 > must receive an exact tag (`vMAJOR.MINOR.PATCH`) and rejects `latest` and pre-releases.
 > Invoked by pipe without `--version`, it falls through to the interactive wizard, which

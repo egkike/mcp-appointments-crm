@@ -2,7 +2,7 @@
 
 > Esta guía lleva un VPS limpio (Ubuntu 22.04+ o macOS) hasta tener el servicio `mcp-appointments-crm` activo y respondiendo en `http://127.0.0.1:3000/mcp`.
 >
-> ⚠️ **Assets publicados**: el release publicado más reciente es **v0.10.0** (2026-11-01: minor — Windows hardening ADR-0021, skill v1.1.1, contract de modos WhatsApp; el changelog completo vive en `docs/PRD.md`; anterior: v0.9.1 2026-10-22 — `list_hours_exceptions` en carrier `{exceptions:[…]}` para el contract root-object del cliente MCP de Hermes; v0.9.0 2026-10-22: minor de 25 tools — paquete B12 owner-in-chat: 2 tools de lectura nuevas, skill v1.1.0 dual persona, Telegram opcional/removible, fix de consola B14; v0.8.1 2026-10-21: fix de seed B11 — despliegue vía `--version` que siembra el template pristino de la skill — y OQ-5 — wizard pide specialties por profesional para instalaciones nuevas; v0.8.0 2026-10-19: skill de recepcionista de Hermes, vista TUI "Ver audit log", `Purgar cuentas desactivadas` con doble confirmación; v0.7.0: tools 20→23 hours-exceptions + backend del bot; v0.6.1 y v0.6.0 anteriores); todos los releases desde v0.4.0 salen del pipeline GoReleaser y traen la matriz completa de 5 plataformas (`Darwin_arm64/x86_64`, `Linux_arm64/x86_64`, `Windows_x86_64`) + `checksums.txt`. El camino macOS de `install.sh` está implementado y descarga el asset `Darwin` correspondiente. Windows tiene asset pero **no path de instalación** todavía ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3). `v0.3.0` fue el último armado a mano.
+> ⚠️ **Assets publicados**: el release publicado más reciente es **v0.10.0** (2026-11-01: minor — Windows hardening ADR-0021, skill v1.1.1, contract de modos WhatsApp; el changelog completo vive en `docs/PRD.md`; anterior: v0.9.1 2026-10-22 — `list_hours_exceptions` en carrier `{exceptions:[…]}` para el contract root-object del cliente MCP de Hermes; v0.9.0 2026-10-22: minor de 25 tools — paquete B12 owner-in-chat: 2 tools de lectura nuevas, skill v1.1.0 dual persona, Telegram opcional/removible, fix de consola B14; v0.8.1 2026-10-21: fix de seed B11 — despliegue vía `--version` que siembra el template pristino de la skill — y OQ-5 — wizard pide specialties por profesional para instalaciones nuevas; v0.8.0 2026-10-19: skill de recepcionista de Hermes, vista TUI "Ver audit log", `Purgar cuentas desactivadas` con doble confirmación; v0.7.0: tools 20→23 hours-exceptions + backend del bot; v0.6.1 y v0.6.0 anteriores); todos los releases desde v0.4.0 salen del pipeline GoReleaser y traen la matriz Unix de 4 plataformas (`Darwin_arm64/x86_64`, `Linux_arm64/x86_64`) + `checksums.txt`; desde el covenant 2026-11-01 el zip de Windows ya no se publica (Windows = WSL2 con el asset Linux). El camino macOS de `install.sh` está implementado y descarga el asset `Darwin` correspondiente. Windows no tiene asset ni path de instalación nativo (covenant 2026-11-01; el instalador imprime el hint de WSL2 en el branch no-soportado) ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3). `v0.3.0` fue el último armado a mano.
 >
 > El flujo tiene dos partes: (1) configuración inicial interactiva con el wizard (`curl -fsSLO ... && bash install.sh`, requiere TTY) y (2) despliegue pinned del binario con `install.sh --version vX.Y.Z`. Si ya generaste los JSONs de setup en otra máquina, podés saltar directo al despliegue copiando los archivos al directorio de configuración del host destino.
 
@@ -16,7 +16,7 @@ Verificá estos ítems antes de empezar:
 - [ ] Usuario normal con shell `bash` y acceso por SSH (o consola local).
 - [ ] `curl`, `tar` y una herramienta de SHA256 (`sha256sum` en Linux, `shasum -a 256` en macOS) en el `PATH`.
 - [ ] Conexión saliente HTTPS a `github.com` y `raw.githubusercontent.com`.
-- [ ] Puerto `3000` libre en `127.0.0.1` (o el puerto que configures en `.env`).
+- [ ] Puerto `3000` libre en `127.0.0.1` (o el puerto que configures en `.env`; el instalador lo verifica con pre-flight y aborta temprano nombrando las dos salidas si está ocupado).
 
 > **No ejecutes la instalación como root.** Todo el pipeline es user-level: el binario,
 > la DB, los JSONs de setup y el servicio quedan bajo el home del usuario que
@@ -55,7 +55,12 @@ end-to-end al toque (canal vivo + tools + skill recién renovada por la cascada)
 > silenciosa (agente configurado pero sin parear aún) también cae acá: el
 > MCP arrancaría bien con 3000, y la pareja posterior del WhatsApp chocaría
 > contra el server ya corriendo — el canal no conectará sin una de las dos
-> palancas aplicadas.
+> palancas aplicadas. Nunca queda a ojo: el instalador hace **pre-flight del
+> puerto** justo después de escribir el `.env` y antes de instalar el binario
+> y el servicio — si el puerto está ocupado por otro proceso, aborta temprano
+> con las mismas dos palancas (un listener del propio unit, como durante un
+> upgrade en caliente, no cuenta como conflicto; sin `ss` ni `lsof`, advierte
+> que el chequeo se salteó y continúa).
 
 **Rama B — máquina nueva (greenfield):** 2 → (instalar Hermes + WhatsApp del
 negocio) → 3 → 4. El resultado final es idéntico: ambos caminos convergen en la
