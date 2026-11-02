@@ -15,46 +15,24 @@ Windows support is pending (see the scope note below).
 
 ## Status
 
-🚧 **Pre-alpha** — under active development. Phases 1, 1b, 2, 3, 4 and 5 are complete;
-next up: Fase N (support & improvements, ongoing). See the
-[implementation roadmap](./docs/PRD.md#8-roadmap-por-fases) in the PRD.
+🚧 **Pre-alpha** — under active development. Phases 1–5 are delivered; the current
+track is Fase N (support & improvements). Roadmap and phase history:
+[PRD §7 — Roadmap y Fases](./docs/PRD.md).
 
-The MCP server currently exposes 25 tools: `check_availability`, `create_booking`,
-`get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`,
-`search_clients_advanced`, `search_services_advanced`,
-`search_professionals_advanced` (active professionals catalog, any authenticated
-caller — the booking flow resolves service → professionals with it; PII-free),
-`get_professional_schedules` (owner-only weekly agenda of one professional, with
-its identity — the conversational delete gate verifies the slot it is about to
-remove), `get_pending_alerts`,
-`mark_alert_as_sent`, `get_loyalty_report`, plus the owner-only maintenance tools
-`update_business_profile`, `create_service`, `update_service`, `delete_service`,
-`create_professional`, `update_professional`, `upsert_schedule` and `delete_schedule`,
-plus the owner-only business-hours exception tools `create_hours_exception`,
-`delete_hours_exception` and `list_hours_exceptions`,
-and the anonymous self-registration tool `register_client` (unknown phones
-self-register through the business channel — see the
-[gateway contract](./docs/gateway-contract.md))
-(auth via `X-Caller-Id` header + RBAC, repository layer 10/10 repos with `auth.Caller` wiring — see PR #50).
-
-| Phase | Description | Status |
-|---|---|---|
-| 1 | db-layer + clean-architecture-refactor (Fase 1b) | ✅ Done (archived 2026-08-09, commit `988baeb`) |
-| 2 | mcp-server-core (Streamable HTTP + booking/profile tools) | ✅ Done (archived 2026-08-19, PRs #46/#47) |
-| 2.5 | repository auth hardening (clients + BHE) | ✅ Done (PR #50, 2026-08-23 — 10/10 repos with `auth.Caller`) |
-| 3 | mcp-server-advanced (alerts, loyalty, professional schedule) | ✅ Done (archived 2026-09-02, PRs #51-#54, 11 tools) |
-| 4 | install.sh con prompts interactivos (Fase 4) | ✅ Done (archived 2026-09-04, PRs #55/#57/#58) |
-| 5 | install-and-service (user-level, cross-platform) | ✅ Done (archived 2026-09-06, PRs #62/#66/#67/#68, install+service+backup+docs) |
-
-> **Scope note:** completed phases mean their packs are merged and demo-validated — not that the product has no pending work. Known pending scope (Fase 2+ / Fase N):
->
-> - ✅ **Admin TUI + owner seed** (`mcp-server admin tui`, PRD §3.8.8 / RF9 / ADR-0010, scope in ADR-0016) — **MVP shipped (2026-09-16)**: the first-boot seed wizard creates the owner and writes the `caller-id` file (`0600`, `MCP_CONFIG_DIR` override), alongside Add Staff, Deactivate, list views, Transfer Ownership, Add-yourself-as-client and **Configure Hermes** (writes/merges `~/.hermes/config.yaml`, ADR-0017, shipped 2026-09-24). Bubble Tea on a TTY, equivalent console fallback without one. Deferred: persisted audit-log view. Account setup no longer needs manual SQL.
-> - ✅ **Multi-platform release assets** — shipped since v0.4.0: the GoReleaser pipeline publishes the platform matrix per tag (latest: v0.10.0; the Windows asset drops per the 2026-11-01 platform covenant — see the Windows install bullet below). macOS is distributable today; Windows has the asset but no install path.
-> - **Windows install** — supported **via WSL2** (systemd-enabled; the Linux
->   install path covers it end to end). Native Windows install automation is
->   explicitly out of the product covenant (owner decision 2026-11-01); the
->   legacy `.exe` asset is being dropped from the GoReleaser matrix (T1 of
->   `feat-install-scope-uninstall`), keeping Linux/macOS archives only.
+- **Server capability**: 25 MCP tools covering the booking flow, client
+  self-registration (`register_client`, anonymous seam), business/
+  profile/clients/services queries, owner-only maintenance and hours
+  exceptions (auth via `X-Caller-Id` + RBAC). Full catalog: `docs/PRD.md` §3
+  / `docs/SDD.md`.
+- **Latest release**: v0.10.0 (2026-11-01) — assets and install steps:
+  [Quickstart](#quickstart) / [`docs/installation.md`](./docs/installation.md).
+- **Platform covenant**: Linux + macOS native; Windows via **WSL2**
+  (systemd-enabled). Native Windows install automation is out of scope
+  (owner decision 2026-11-01).
+- **Agent pairing**: the clean, standard install pairs with **Hermes**
+  (see [`docs/gateway-contract.md`](./docs/gateway-contract.md)); any other
+  MCP-capable agent connects via the
+  [agent connector guide](./docs/installation.md#conectar-tu-agente-mcp-hermes-u-otros).
 
 ## Quickstart
 

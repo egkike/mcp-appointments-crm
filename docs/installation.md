@@ -18,7 +18,39 @@ Verificá estos ítems antes de empezar:
 - [ ] Conexión saliente HTTPS a `github.com` y `raw.githubusercontent.com`.
 - [ ] Puerto `3000` libre en `127.0.0.1` (o el puerto que configures en `.env`).
 
-> **No ejecutes la instalación como root.** Todo el pipeline es user-level: el binario, la DB, los JSONs de setup y el servicio quedan bajo el home del usuario que invoca `install.sh` (ADR-0002).
+> **No ejecutes la instalación como root.** Todo el pipeline es user-level: el binario,
+> la DB, los JSONs de setup y el servicio quedan bajo el home del usuario que
+> invoca `install.sh` (ADR-0002).
+
+---
+
+## Paso 0 — El flujo completo (receta recomendada)
+
+> La instalación del **server MCP es autónoma** — no requiere Hermes ni ningún
+> agente para correr (service + DB + cuenta owner, Pasos 1–3). Lo que
+> recomendamos es fijarse el **orden del flujo productivo completo** de la
+> instalación típica a producción, para que el smoke del canal sea end-to-end
+> apenas termina el setup:
+
+| # | Paso | Artefacto | Nota |
+|---|---|---|---|
+| 1 | (Opcional, caso típico: ya lo tenés) **Agente de canal vivo con WhatsApp del negocio configurado** — Hermes gateway instalado y el canal pareado | `~/.hermes/` con config del bot | en el caso greenfield este paso va al final (rama B) |
+| 2 | **Instalar el server MCP** — este documento (Pasos 1–3) | service + DB + owner | independiente del paso 1 |
+| 3 | **Puente de integración** — `mcp-server admin tui` opción 7 (Configurar Hermes) escribe el server entry y dispara la cascada de la skill | `mcp_servers.mcp-appointments` en el config del gateway | necesita que el server MCP ya esté corriendo (deriva la URL de `MCP_BIND`/`MCP_PORT`) y, si Hermes no existiera todavía, se instala en este punto (guía de Hermes: `docs/gateway-contract.md` y docs del runtime) |
+| 4 | **Smoke del canal** — runbook `gateway-contract.md` §7.5 (una fase del orden: Transfer Ownership del owner real **antes** de la opción 7 que persiste el teléfono) | bot respondiendo con persona correcta | los criterios de persona por canal viven en §8.1/§9 |
+
+**Rama A — agente ya andando (flujo típico de producción, recomendado):** pasos
+1 → 2 → 3 → 4. Con el canal ya funcionando, después de la opción 7 el smoke sale
+end-to-end al toque (canal vivo + tools + skill recién renovada por la cascada).
+
+**Rama B — máquina nueva (greenfield):** 2 → (instalar Hermes + WhatsApp del
+negocio) → 3 → 4. El resultado final es idéntico: ambos caminos convergen en la
+opción 7.
+
+**Otros agentes (no Hermes):** no hay installer — la guía documentada es
+[Conectar tu agente MCP](#conectar-tu-agente-mcp-hermes-u-otros) (el step 3
+equivale al snippet de config de tu agente + smoke con `curl`; el `caller-id`
+del Paso 1 de este doc es la identidad que inyectan).
 
 ---
 
