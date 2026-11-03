@@ -60,6 +60,47 @@ tearDown() {
   return 0
 }
 
+# _write_fake_service_manager_variant <stop_rc> <is_active_rc>: simula stop
+# FALLIDO (rc != 0) y el estado que reporta el re-chequeo posterior.
+_write_fake_service_manager_variant() {
+  local stop_rc="$1" active_rc="$2"
+  cat > "$FAKEBIN/systemctl" <<EOS
+#!/bin/bash
+case "\${1:-}" in
+  --user)
+    case "\${2:-}" in
+      show) printf 'MainPID=%s\n' "\${FAKE_MAIN_PID:-0}" ;;
+      stop) printf 'fallo simulado del stop\n' >&2 ; exit ${stop_rc} ;;
+      is-active) exit ${active_rc} ;;
+    esac
+    ;;
+esac
+exit 0
+EOS
+  chmod +x "$FAKEBIN/systemctl"
+}
+
+# _paths_macos: layout Darwin (CONFIG_DIR == DATA_DIR, plist de launchd).
+_paths_macos() {
+  P_CONFIG="$HOME/Library/Application Support/MCP Appointments CRM"
+  P_DATA="$HOME/Library/Application Support/MCP Appointments CRM"
+  P_LOGS="$HOME/Library/Logs/MCP Appointments CRM"
+  P_BIN="$HOME/.local/bin"
+  P_SERVICE="$HOME/Library/LaunchAgents/com.mcp.appointments.server.plist"
+  P_ENV="$HOME/.config/mcp-appointments-crm/.env"
+  P_HERMES="$HOME/.hermes"
+  P_HERMES_CONFIG="$P_HERMES/config.yaml"
+  P_SKILL="$P_HERMES/skills/$SKILL_DIR_NAME"
+}
+
+# _force_darwin: shim de `uname` en fakebin para ejercitar la rama macOS desde
+# un host Linux (hook de test mínimo; producción no tiene override).
+_force_darwin() {
+  printf '#!/bin/bash\necho Darwin\n' > "$FAKEBIN/uname"
+  chmod +x "$FAKEBIN/uname"
+  _paths_macos
+}
+
 _write_fake_service_manager() {
   local target
   for target in systemctl launchctl; do
@@ -570,6 +611,75 @@ test_keep_skill_preserves_skill() {
   _run --apply
   assertEquals 'apply default termina 0' 0 "$RUN_RC"
   assertTrue 'sin --keep-skill la skill se borra (OQ-3)' "[ ! -e '$P_SKILL' ]"
+}
+
+# ---------------------------------------------------------------------------
+# Corrección nativa (review-c8f016c62464c5ea) — R1/R3: backups en macOS y
+# stop fallido fail-closed
+# ---------------------------------------------------------------------------
+
+test_purge_config_macos_preserves_data_backups() {
+  # macOS: config dir == data dir, así que --purge-config podía borrar el
+  # backups/ del operador (R1/R3-macos-purge-deletes-data). No debe.
+  _force_darwin
+  _seed_installation
+  local backups_sha db_sha
+  backups_sha=$(_sha "$P_DATA/backups/reservas-20260101.db.gz")
+  db_sha=$(_sha "$P_DATA/reservas.db")
+
+  _run --apply --purge-config
+
+  assertEquals 'apply --purge-config termina 0' 0 "$RUN_RC"
+  assertTrue 'backups/ del data dir sobrevive al purge de config' \
+    "[ -d '$P_DATA/backups' ]"
+  assertEquals 'el .gz del operador queda byte-idéntico' \
+    "$backups_sha" "$(_sha "$P_DATA/backups/reservas-20260101.db.gz")"
+  assertEquals 'la DB no se toca sin --purge-data' \
+    "$db_sha" "$(_sha "$P_DATA/reservas.db")"
+  # El resto de la semántica de --purge-config no cambia.
+  assertTrue 'audit-hash-key eliminado' "[ ! -e '$P_CONFIG/audit-hash-key' ]"
+  assertTrue '.env eliminado' "[ ! -e '$P_ENV' ]"
+  assertTrue 'caller-id eliminado' "[ ! -e '$P_CONFIG/caller-id' ]"
+  assertTrue 'advertencia HMAC impresa' \
+    "_out_grep_fixed 'invalida la auditoría histórica del HMAC'"
+  # Fila de verificación final para backups/ como preservado por decisión.
+  assertTrue 'fila de backups/ preservado por decisión' \
+    "_rows | grep -F -e 'backups/' | grep -q -F -e 'preservado por decisión'"
+}
+
+test_stop_failure_fail_closed() {
+  # Stop fallido + servicio activo: prohibido borrar debajo de un runtime vivo.
+  _seed_installation
+  _write_fake_service_manager_variant 1 0
+
+  _run --apply
+
+  assertNotEquals 'aborta fail-closed' 0 "$RUN_RC"
+  assertTrue 'el error nombra el stop fallido' \
+    "_out_grep_fixed 'no se pudo detener el servicio'"
+  assertTrue 'el error dice que abortó sin borrar nada' \
+    "_out_grep_fixed 'abortó sin borrar nada'"
+  assertTrue 'la salida del stop fallido se retiene y reporta' \
+    "_out_grep_fixed 'fallo simulado del stop'"
+  assertTrue 'cero borrados: unit intacta' "[ -f '$P_SERVICE' ]"
+  assertTrue 'cero borrados: binario intacto' "[ -f '$P_BIN/mcp-server' ]"
+  assertTrue 'cero borrados: logs intactos' "[ -d '$P_LOGS' ]"
+  assertTrue 'cero borrados: DB intacta' "[ -f '$P_DATA/reservas.db' ]"
+}
+
+test_stop_failure_inactive_continues() {
+  # Stop fallido pero ya inactivo: SKIP-safe, advierte y continúa.
+  _seed_installation
+  _write_fake_service_manager_variant 1 3
+
+  _run --apply
+
+  assertEquals 'continúa y termina 0' 0 "$RUN_RC"
+  assertTrue 'advierte el stop fallido sin abortar' \
+    "_out_grep_fixed 'Advertencia'"
+  assertTrue 'advierte que ya no estaba activo' \
+    "_out_grep_fixed 'ya no está activo'"
+  assertTrue 'la unit se remueve' "[ ! -e '$P_SERVICE' ]"
 }
 
 # ---------------------------------------------------------------------------

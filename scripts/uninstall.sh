@@ -348,6 +348,9 @@ collect_rows() {
   IDX_CONFIG_SETUP="$LAST_ROW_INDEX"
 
   verb=$(_config_verb)
+  if [ "$CONFIG_DIR" = "$DATA_DIR" ]; then
+    verb="keep"   # macOS: este backups/ es el del operador; nada lo borra.
+  fi
   if _path_exists "$CONFIG_DIR/backups"; then
     add_row "config backups/: $CONFIG_DIR/backups" \
       "$CONFIG_DIR/backups" "$verb" "exists"
@@ -759,26 +762,64 @@ purge_data_live_check() {
 # Pasos de la reversión (contrato D2, orden inverso al install)
 # ---------------------------------------------------------------------------
 
+# _abort_service_running <motivo> <salida-del-stop>: fail-closed.
+_abort_service_running() {
+  echo "Error: no se pudo detener el servicio $SERVICE_UNIT_NAME ($1); el uninstall abortó sin borrar nada. Detené el servicio a mano y volvé a correr el script." >&2
+  if [ -n "${2:-}" ]; then
+    echo "Salida del stop: $2" >&2
+  fi
+}
+
+# _stop_service: stop reteniendo la salida (nada de `|| true`). Stop OK → rc 0;
+# stop fallido con el servicio todavía activo → aborta (rc 1, fail-closed);
+# stop fallido pero ya inactivo → SKIP-safe (rc 0). Sin gestor (WSL sin
+# systemd) sigue siendo SKIP-safe: no haber systemctl no es un stop fallido.
+_stop_service() {
+  local output="" rc=0
+  if [ "$PLATFORM" = "darwin" ]; then
+    if ! command -v launchctl >/dev/null 2>&1; then
+      echo 'Advertencia: launchctl no disponible; se omite el stop del servicio (SKIP).'
+      return 0
+    fi
+    output=$(launchctl bootout "gui/$UID/$LAUNCHD_LABEL" 2>&1)
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+      echo "Servicio detenido (launchctl bootout gui/$UID/$LAUNCHD_LABEL)."
+      return 0
+    fi
+    if launchctl print "gui/$UID/$LAUNCHD_LABEL" >/dev/null 2>&1; then
+      _abort_service_running "launchctl print gui/$UID/$LAUNCHD_LABEL sigue cargado" "$output"
+      return 1
+    fi
+    echo "Advertencia: launchctl bootout falló (rc=$rc) pero el servicio ya no está activo; se continúa."
+    return 0
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo 'Advertencia: systemctl no disponible; se omite el stop del servicio (SKIP: WSL sin systemd).'
+    return 0
+  fi
+  output=$(systemctl --user stop "$SERVICE_UNIT_NAME" 2>&1)
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "Servicio detenido (systemctl --user stop $SERVICE_UNIT_NAME)."
+    return 0
+  fi
+  if systemctl --user is-active "$SERVICE_UNIT_NAME" >/dev/null 2>&1; then
+    _abort_service_running "systemctl --user is-active $SERVICE_UNIT_NAME lo reporta activo" "$output"
+    return 1
+  fi
+  echo "Advertencia: el stop falló (rc=$rc) pero el servicio ya no está activo; se continúa."
+  return 0
+}
+
 step_service() {
   local idx="$IDX_SERVICE"
   if [ ! -e "$SERVICE_PATH" ] && [ ! -L "$SERVICE_PATH" ]; then
     echo "Servicio: la unidad no existía ($SERVICE_PATH)."
     set_verb "$idx" absent
   else
-    if [ "$PLATFORM" = "darwin" ]; then
-      if command -v launchctl >/dev/null 2>&1; then
-        launchctl bootout "gui/$UID/$LAUNCHD_LABEL" >/dev/null 2>&1 || true
-        echo "Servicio detenido (launchctl bootout gui/$UID/$LAUNCHD_LABEL)."
-      else
-        echo 'Advertencia: launchctl no disponible; se omite el stop del servicio (SKIP).'
-      fi
-    else
-      if command -v systemctl >/dev/null 2>&1; then
-        systemctl --user stop "$SERVICE_UNIT_NAME" >/dev/null 2>&1 || true
-        echo "Servicio detenido (systemctl --user stop $SERVICE_UNIT_NAME)."
-      else
-        echo 'Advertencia: systemctl no disponible; se omite el stop del servicio (SKIP: WSL sin systemd).'
-      fi
+    if ! _stop_service; then
+      return 1
     fi
     if rm -f "$SERVICE_PATH"; then
       echo "Unidad de servicio removida: $SERVICE_PATH"
@@ -801,6 +842,7 @@ step_service() {
     fi
     echo 'Nota: linger de systemd --user queda intacto (podría usarlo otro service del operador).'
   fi
+  return 0
 }
 
 step_hermes_entry() {
@@ -968,7 +1010,9 @@ _purge_config_surface() {
   _purge_artifact "$CONFIG_DIR/$CALLER_ID_FILE" "$IDX_CONFIG_CALLER" "Config $CALLER_ID_FILE"
   _purge_artifact "$CONFIG_DIR/$AUDIT_KEY_FILE" "$IDX_CONFIG_AUDIT_KEY" "Config $AUDIT_KEY_FILE"
   _purge_artifact "$CONFIG_DIR/setup" "$IDX_CONFIG_SETUP" 'Config setup/'
-  _purge_artifact "$CONFIG_DIR/backups" "$IDX_CONFIG_BACKUPS" 'Config backups/'
+  # backups/ NUNCA se borra: en macOS este dir ES el $DATA_DIR/backups (las
+  # únicas copias de recuperación del operador). --purge-config no lo toca.
+  _keep_artifact "$CONFIG_DIR/backups" "$IDX_CONFIG_BACKUPS" 'Config backups/ (es el data backups/: se preserva)'
   _purge_artifact "$CONFIG_DIR/templates" "$IDX_CONFIG_TEMPLATES" 'Config templates/'
   _purge_artifact "$CONFIG_DIR/scripts" "$IDX_CONFIG_SCRIPTS" 'Config scripts/ (copia)'
 }
@@ -1013,7 +1057,11 @@ _purge_artifact() {
 }
 
 run_apply() {
-  step_service
+  # El stop es el primer paso y el único que puede abortar: si sigue vivo el
+  # runtime, no se toca nada más (fail-closed, cero borrados).
+  if ! step_service; then
+    return 1
+  fi
   step_hermes_entry
   step_hermes_skill
   step_binary
@@ -1045,7 +1093,7 @@ main() {
       fi
       echo ''
     fi
-    run_apply
+    run_apply || exit 1
     echo ''
     print_table
     print_backup_guidance

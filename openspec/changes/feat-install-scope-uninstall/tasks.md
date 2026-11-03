@@ -104,6 +104,12 @@
   scripts/tests/uninstall_test.sh` = 0 (16 tests), `bash
   scripts/tests/run_tests.sh` = 0 (8/8), `go build -o /dev/null ./...` = 0,
   `go test -race ./...` = 0
+  **Corrección nativa 2026-11-03 (review-c8f016c62464c5ea, mismo issue/branch)**:
+  en macOS `--purge-config` ya no borra `backups/` (config dir == data dir: son las
+  copias del operador; `_purge_config_surface` lo excluye y la fila queda como
+  preservado por decisión), y el stop pasó de `|| true` a fail-closed (salida
+  retenida; si `is-active`/`launchctl print` sigue activo aborta con exit 1 y cero
+  borrados, si ya está inactivo advierte y continúa). Tests: 19 (3 nuevos).
 - [ ] **T3 (S3)** — `RemoveHermesServer` en `internal/admin/hermes.go` (molde
   `RemoveHermesTelegramOwnerBot`: golden byte-clean, idempotente, entradas
   hermanas sobreviven) + tests admin + decisión de uso del script (reescribe
