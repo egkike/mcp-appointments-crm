@@ -56,13 +56,48 @@
   `MCP_PORT`/`MCP_BIND` exportados en `.env` nuevo (inválidos/`.env` existentes
   byte-idéntico). Tests RED→GREEN: busy/two-levers, free, own-unit, no-tool
   warn+proceed, validez de puerto, precedencia de fuente **(mismo merge e9f5c8d)**
-- [ ] **T2 (S2/S4)** — `scripts/uninstall.sh` con el contrato D2/D4 completo
+- [x] **T2 (S2/S4)** — `scripts/uninstall.sh` con el contrato D2/D4 completo
   (dry-run default / `--apply` / `--purge-data` doble gate / verificación final
   en tabla) + shell tests: `scripts/tests/uninstall_test.sh` (doble run
   idempotente, keep-data default, live-DB fail-closed, dry-run no-op
   byte-evidence) + golden del dry-run con HOME sandbox; los flags de desacople
   son **Hermes-only** (`--purge-hermes-entry`; skill: default PURGA con
   `--keep-skill`), no per-agent (OQ-5)
+  **CLOSED 2026-11-03 — issue #165, branch `feat/uninstall-t2`**:
+  `scripts/uninstall.sh` (bash 3.2 floor; espejo inmutable de `resolve_paths()`
+  del installer, incluido el quirk `ENV_FILE` siempre en `~/.config`): sin
+  flags = dry-run con tabla por artefacto (BORRARÁ/PRESERVARÁ/TOCARÁ/NO EXISTE)
+  y **cero escrituras**; `--apply` ejecuta en orden inverso al install
+  (stop+unit+daemon-reload → desacople Hermes → binario+`.prev` → logs →
+  config → data) y cada paso reporta; `--purge-data` con doble gate (info de
+  DB/tamaño/estado de `backups/`, `--yes` + primera confirmación y segunda
+  «ÚLTIMA CONFIRMACIÓN» = `BORRAR` cuando stdin es TTY) y chequeo fail-closed
+  **antes de cualquier borrado** (MainPID vivo vía `systemctl --user show -p
+  MainPID` o `-wal`/`-shm` no vacíos); `$DATA_DIR/backups/` preservado siempre
+  e impreso como decisión; `--purge-config` purga el dir entero con la
+  advertencia literal del HMAC (en macOS, donde config==data, purga sólo la
+  superficie de config para no tocar la DB sin el doble gate);
+  `--purge-hermes-entry` remueve `mcp_servers.mcp-appointments` con awk línea a
+  línea (atomic replace, sibling y claves ajenas byte-exactas, `mcp_servers:`
+  sin hijos se elimina, no-op byte-idéntico si la entrada no existe,
+  `HERMES_HOME` respetado, nunca invoca el binario Go); skill default **PURGA**
+  (OQ-3) con `--keep-skill`; tabla final (dry-run y `--apply`) con estados
+  removido / preservado por decisión / no existía / intacto / PURGADO y
+  fail-closed si un removido reaparece; corre con nada instalado (exit 0).
+  Tests: 16 en `scripts/tests/uninstall_test.sh` (sandbox `HOME` mktemp, XDG_*
+  unset, fake `systemctl`/`launchctl`) — byte-evidence del dry-run (snapshot
+  nombres+sha256), golden `scripts/tests/golden/uninstall_dry_run_plan.txt`
+  (post-proceso `__HOME__`, fixture Linux con skip explícito en macOS),
+  apply/keep-data con hashes, doble run idempotente, doble confirmación,
+  live-DB y WAL no vacío fail-closed, purge-config con warning HMAC, Hermes
+  byte-clean/idempotente/childless/config-ausente, keep-skill, CLI y WSL sin
+  systemd. `run_tests.sh` no requiere cambios: descubre `*_test.sh` (8/8 suites
+  verdes). Sin cambios de comportamiento en `install.sh`; T3 (Go
+  `RemoveHermesServer`) sigue abierta. Pipeline: `bash -n` = 0, `shellcheck
+  scripts/uninstall.sh` = 0 (sin allowlist), `bash
+  scripts/tests/uninstall_test.sh` = 0 (16 tests), `bash
+  scripts/tests/run_tests.sh` = 0 (8/8), `go build -o /dev/null ./...` = 0,
+  `go test -race ./...` = 0
 - [ ] **T3 (S3)** — `RemoveHermesServer` en `internal/admin/hermes.go` (molde
   `RemoveHermesTelegramOwnerBot`: golden byte-clean, idempotente, entradas
   hermanas sobreviven) + tests admin + decisión de uso del script (reescribe
