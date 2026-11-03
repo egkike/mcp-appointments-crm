@@ -64,19 +64,21 @@ vivo sobre la DB, falla cerrado sin borrar.
 ### Requirement: La desinstalación desacopla el gateway Hermes solo con flags
 
 **GIVEN** una instalación que ya corrió la opción 7 de la TUI
-**WHEN** el operador pasa `--purge-hermes-entry` (y opcionalmente
-`--purge-skill`)
+**WHEN** el operador pasa `--purge-hermes-entry` (la skill, en cambio, se
+borra POR DEFAULT — OQ-3: un Hermes vivo no debe quedar con instrucciones
+huérfanas apuntando a un server inexistente — y `--keep-skill` la preserva)
 **THEN** y solo entonces el script quita `mcp_servers.mcp-appointments` del
 config del gateway con garantía byte-clean (claves ajenas y configuración
 de otros servidores `mcp_servers` sobreviven; re-marshale idempotente si ya
 no existe — molde `RemoveHermesTelegramOwnerBot`), y borra
-`~/.hermes/skills/recepcionista-negocio/` si y solo si se pasó `--purge-skill`.
+`~/.hermes/skills/recepcionista-negocio/` por default (salvo `--keep-skill`).
 
 #### Scenario: uninstall que corre ANTES de la opción 7 y con flags de purge
 
-WHEN `--apply --purge-hermes-entry --purge-skill` corre en un host sin entrada
-Hermes ni skill instalada
-THEN ambas remociones son no-ops idempotentes (sin error).
+WHEN `--apply --purge-hermes-entry` (sin `--keep-skill`) corre en un host sin
+entrada Hermes ni skill instalada
+THEN ambas remociones son no-ops idempotentes (sin error): la entrada ya no
+existía y la skill ya no existía.
 
 ### Requirement: El uninstall respeta PRD y verifica el estado al finalizar
 

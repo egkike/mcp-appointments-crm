@@ -53,9 +53,11 @@ Windows soportado vía WSL2 únicamente.
   shape: keys ajenas sobreviven, re-marshale byte-idéntico si ya no existe).
 - En uninstall.sh: NO va en el default; es un flag `--purge-hermes-entry`
   (misma regla: reversible y reversible el config tiene backups del
-  runtime). Con el flag se elimina la entrada y se avisa. La skill instalada por la cascada tiene su flag propio
-  `--purge-skill` (default NO: la skill es artefacto del gateway, no del MCP,
-  y puede seguir siendo útil).
+  runtime). Con el flag se elimina la entrada y se avisa.
+  **Skill — OQ-3 (owner 2026-11-01, prevalece sobre el postulado inicial que
+  esta sección dejaba escrito):** la skill `recepcionista-negocio` se borra
+  **por default** (un Hermes vivo no queda con instrucciones huérfanas
+  apuntando a un server inexistente); `--keep-skill` la conserva.
 - Ambos flags corren *ANTES* de borrar el binario (para evitar que el
   runtime Hermes siga llamando a un server ya borrado: el config se retira
   primero, el binario después).
