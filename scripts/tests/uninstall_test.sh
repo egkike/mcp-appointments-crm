@@ -271,6 +271,14 @@ test_dry_run_default_no_op_byte_evidence() {
     "_out_grep_fixed 'INTACTO'"
   assertTrue 'el plan invita a --apply' "_out_grep_fixed '--apply'"
   assertTrue 'el plan nombra el modo dry-run' "_out_grep_fixed 'dry-run'"
+  # Guía de backup (contrato aditivo): con la copia residente de scripts/ el
+  # plan sugiere el comando exacto.
+  assertTrue 'el plan imprime el comando de backup sugerido' \
+    "_out_grep_fixed 'Comando de backup sugerido: bash'"
+  assertTrue 'el comando sugerido apunta al backup.sh residente' \
+    "_out_grep_fixed '$P_DATA/scripts/backup.sh'"
+  assertTrue 'el plan aclara que backups/ se preserva siempre' \
+    "_out_grep_fixed 'se preserva siempre'"
 }
 
 test_golden_dry_run_plan() {
@@ -316,6 +324,12 @@ test_apply_removes_service_binary_logs_keep_data() {
   db_sha=$(_sha "$P_DATA/reservas.db")
   backups_sha=$(_sha "$P_DATA/backups/reservas-20260101.db.gz")
 
+  # Este sandbox modela un host SIN la copia residente del backup
+  # ($DATA_DIR/scripts/backup.sh borrado por el operador): la guía de backup
+  # debe caer al fallback manual, que es el camino que queda cuando la copia ya
+  # no está.
+  rm -f "$P_DATA/scripts/backup.sh"
+
   _run --apply
 
   assertEquals 'apply termina 0' 0 "$RUN_RC"
@@ -336,6 +350,14 @@ test_apply_removes_service_binary_logs_keep_data() {
   assertTrue 'la tabla reporta preservado por decisión' \
     "_out_grep_fixed 'preservado por decisión'"
   assertTrue 'cierra con estado OK' "_out_grep_fixed 'Estado final: OK'"
+  # Guía de backup, rama fallback: sin la copia residente no hay comando que
+  # sugerir, así que lista los tres archivos a copiar a mano.
+  assertTrue 'sin copia residente imprime el fallback manual' \
+    "_out_grep_fixed 'Rollback manual sin ese script:'"
+  assertTrue 'no sugiere un script que no existe' \
+    "! _out_grep_fixed 'Comando de backup sugerido: bash'"
+  assertTrue 'aclara que los .gz de backups/ no se tocan' \
+    "_out_grep_fixed 'no se tocan con ningún flag'"
 }
 
 test_double_run_idempotent() {

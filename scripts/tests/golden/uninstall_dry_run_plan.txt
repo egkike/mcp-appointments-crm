@@ -21,6 +21,9 @@ Plataforma: Linux (systemd --user)
   [TOCARÁ] data SHM: __HOME__/.local/share/mcp-appointments-crm/reservas.db-shm
   [TOCARÁ] data scripts/ (copia): __HOME__/.local/share/mcp-appointments-crm/scripts
   [PRESERVARÁ] data backups/ (preservado por decisión, nunca se borra): __HOME__/.local/share/mcp-appointments-crm/backups
+== Guía de backup (los datos del negocio no se van solos a otro lado) ==
+Comando de backup sugerido: bash "__HOME__/.local/share/mcp-appointments-crm/scripts/backup.sh" "__HOME__/.local/share/mcp-appointments-crm/reservas.db"
+Los exports .gz que ya existan en "__HOME__/.local/share/mcp-appointments-crm/backups/" no se tocan con ningún flag: backups/ se preserva siempre.
 Nota: linger de systemd --user queda intacto (no se toca en la desinstalación).
 
 Pasá --apply para ejecutar la desinstalación.

@@ -459,6 +459,21 @@ _render_verb() {
   esac
 }
 
+# print_backup_guidance: guía explícita de backup junto a las filas de datos, en
+# dry-run y en --apply. Refleja el estado ACTUAL del data dir: en --apply se
+# imprime después de los pasos, así que con --purge-data ya muestra el fallback
+# (la copia residente de scripts/ se purgó). Es texto aditivo: no agrega estado
+# ni filas a la tabla.
+print_backup_guidance() {
+  echo '== Guía de backup (los datos del negocio no se van solos a otro lado) =='
+  if [ -f "$DATA_SCRIPTS_DIR/backup.sh" ]; then
+    echo "Comando de backup sugerido: bash \"$DATA_SCRIPTS_DIR/backup.sh\" \"$DATA_DIR/$DB_BASENAME\""
+  else
+    echo "Rollback manual sin ese script: copiá \"$DATA_DIR/$DB_BASENAME\" junto con \"$DB_BASENAME-wal\" y \"$DB_BASENAME-shm\" si existen (los 3 archivos juntos; el par wal/shm sin el .db es inservible)."
+  fi
+  echo "Los exports .gz que ya existan en \"$DATA_DIR/backups/\" no se tocan con ningún flag: backups/ se preserva siempre."
+}
+
 print_table() {
   local i=0 count=${#ROW_LABEL[@]}
   if [ "$APPLY" -eq 1 ]; then
@@ -1033,6 +1048,7 @@ main() {
     run_apply
     echo ''
     print_table
+    print_backup_guidance
     if [ "$PLATFORM" = "linux" ]; then
       echo 'Nota: linger de systemd --user queda intacto (no se toca en la desinstalación).'
     fi
@@ -1061,6 +1077,7 @@ main() {
     echo ''
   fi
   print_table
+  print_backup_guidance
   if [ "$PLATFORM" = "linux" ]; then
     echo 'Nota: linger de systemd --user queda intacto (no se toca en la desinstalación).'
   fi

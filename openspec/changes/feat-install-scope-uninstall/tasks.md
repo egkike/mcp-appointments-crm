@@ -84,6 +84,11 @@
   (OQ-3) con `--keep-skill`; tabla final (dry-run y `--apply`) con estados
   removido / preservado por decisión / no existía / intacto / PURGADO y
   fail-closed si un removido reaparece; corre con nada instalado (exit 0).
+  Guía de backup aditiva junto a las filas de datos (dry-run y `--apply`):
+  comando sugerido si existe la copia residente `$DATA_DIR/scripts/backup.sh`,
+  fallback manual (los 3 archivos `.db` + `-wal`/`-shm` si existen) cuando no
+  está, y nota de que los `.gz` ya presentes en `$DATA_DIR/backups/` no se tocan
+  con ningún flag — sin estado nuevo en la tabla.
   Tests: 16 en `scripts/tests/uninstall_test.sh` (sandbox `HOME` mktemp, XDG_*
   unset, fake `systemctl`/`launchctl`) — byte-evidence del dry-run (snapshot
   nombres+sha256), golden `scripts/tests/golden/uninstall_dry_run_plan.txt`
@@ -91,7 +96,8 @@
   apply/keep-data con hashes, doble run idempotente, doble confirmación,
   live-DB y WAL no vacío fail-closed, purge-config con warning HMAC, Hermes
   byte-clean/idempotente/childless/config-ausente, keep-skill, CLI y WSL sin
-  systemd. `run_tests.sh` no requiere cambios: descubre `*_test.sh` (8/8 suites
+  systemd; las dos ramas de la guía de backup quedan cubiertas (golden con la
+  copia residente = comando sugerido; `--apply` sin la copia = fallback). `run_tests.sh` no requiere cambios: descubre `*_test.sh` (8/8 suites
   verdes). Sin cambios de comportamiento en `install.sh`; T3 (Go
   `RemoveHermesServer`) sigue abierta. Pipeline: `bash -n` = 0, `shellcheck
   scripts/uninstall.sh` = 0 (sin allowlist), `bash
