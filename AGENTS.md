@@ -97,13 +97,20 @@ The `status:approved` label is owner-granted and protected — it is NEVER self-
    go test -v -race ./...
    ```
 
-### GGA Rule
+### GGA Rule (DISABLED on this repo — owner decision 2026-11-03)
 
-- GGA (Gentleman Guardian Angel) runs automatically on commit
-- If GGA reports ANY error or warning → MUST fix ALL reported issues
-- After fixing → Repeat verification from step 1
-- Never ignore GGA findings
-- NOT use --no-verify without ask to the user
+- **GGA is DISABLED for this project**: the pre-commit hook no longer runs `gga run`;
+  commits are gated only by the Pre-Commit Checklist + the native review RDD gate.
+- The single IA gate for this repo is the
+  **Verification & Review Protocol** (native review by default, readback for
+  trivial/docs, JD only on explicit owner request).
+- The `.gga` project config is intentionally KEPT: re-enabling = re-adding the
+  `gga run || exit 1` block to `.git/hooks/pre-commit` (hook lives in the local
+  clone; `.gga` was never deleted).
+- Manual `gga run` stays available any time a unit wants an extra pre-commit pass;
+  the upstream vigilance item (B6) stays open.
+- NOT use `--no-verify` without ask to the user (rule unchanged, now moot while
+  no review hook blocks the commit).
 
 ### Always Ask Before Commit
 
@@ -116,29 +123,37 @@ Wait for user confirmation before proceeding.
 ### Delegated Worker Commits (standing authorization, 2026-10-17)
 
 When the orchestrator delegates an apply/implement work unit to a subagent (worker), the
-worker is **pre-authorized to commit that unit itself** after GGA passes. Contract:
+worker is **pre-authorized to commit that unit itself** after the Pre-Commit Checklist
+passes (**2026-11-03**: GGA is disabled on this repo — the worker pipeline no longer
+invokes GGA; the native reviewRDD is the sole IA gate, invoked by the orchestrator
+after the commit lands, never inside the worker). Contract:
 
 1. **Worker pipeline per unit:** full Pre-Commit Checklist (fmt/vet/lint/build/test -race)
-   → `git commit` (GGA hook fires) → fix determinable findings → re-run pipeline → commit again.
-2. **Bounded GGA loop:** max **5 rounds** GGA per unit. On an ambiguous verdict (parser STRICT
-   window or poisoned cache), run `gga cache clear` before retrying. Fix only findings the
-   worker can determine real; never loop on conceptual/minted findings past the cap.
+   → `git commit` → fix pipeline findings → re-run pipeline → commit again.
+2. **Bounded fix loop:** fix only pipeline findings the worker can determine real;
+   if a verification tool trips ambiguously (provider timeouts, noisy parser), run the
+   cache-clear command of that tool once and retry once, then stop. There is no GGA
+   round cap — that machinery left with GGA.
 3. **Worker authority boundaries (hard rules):**
-   - NEVER run `git commit --no-verify` (nor any bypass). If the verdict is PASSED but the
-     parser reads it ambiguously, or FAILED findings can't be determined real, or the round
-     cap is hit: abort — leave changes staged, commit NOTHING, and hand back to the
-     orchestrator with GGA logs and evidence. Only the owner decides `--no-verify`.
+   - NEVER run `git commit --no-verify` (nor any bypass). A red pipeline finding the
+     worker cannot determine real: abort — leave changes staged, commit NOTHING, and
+     hand back to the orchestrator with the check output as evidence. Only the owner
+     decides `--no-verify`.
    - NEVER use `git push`, create PRs, branches off-policy, or any destructive git command.
    - One commit per work unit (≤ ~400 authored changed lines); never the whole feature.
    - Only when this worker is the sole writer of the worktree at that moment
      (parallel writers require isolated worktrees).
-   - Record GGA round count and log path in the commit message body and in the feature doc.
+   - Record the pipeline result (commands + verdict) in the feature doc's Log; the
+     native review lineage belongs to the orchestrator's gate step.
 4. **What still asks the user (unchanged):** `--no-verify`, push, PR creation, merge,
    recovery/correction beyond one bounded pass, and any off-touched-scope change.
 
 Rationale: the GGA round-trip loop across sessions burned orchestrator context (24+ rounds
 of minted findings in PR #135). The worker that authored the code resolves findings with
 the diff context already loaded; the orchestrator receives one result per unit.
+(2026-11-03: the same rationale eventually severed GGA entirely from this repo —
+minted/pre-existing findings outweighed its pre-commit timing; RDD review + the
+deterministic pipeline took over that role.)
 
 ## Branch & Commit Strategy
 
@@ -342,7 +357,7 @@ Verification routing is **exclusive**: one path per change, never both by defaul
 | **Escalada a pedido** | JD (2 blind judges) | solo si owner pide explícitamente "judgment day" / "hagamos juicio" — no corre junto al review nativo por default |
 
 - Native review is the default gate; JD is a second-opinion escalation, never run together unless explicitly requested.
-- Delivery closes under ordinary repository policy (GGA hooks, CI green, PR review approval).
+- Delivery closes under ordinary repository policy (Pre-Commit Checklist, CI green, PR review approval; the IA gate is the Verification & Review Protocol — GGA disabled 2026-11-03).
 - Verification always precedes the gate: full pipeline + applicable functional checks.
 
 ### Judgment Day Process (escalada — solo a pedido)
