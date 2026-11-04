@@ -861,6 +861,49 @@ func (d *HermesDocument) RemoveHermesTelegramOwnerBot() bool {
 	return removed
 }
 
+// RemoveHermesServer deletes the whole mcp_servers.<HermesServerName> entry:
+// the desacople path of an uninstall that disclaims the server (feat-install-
+// scope-uninstall S3, the Go sibling of the shell mirror `_hermes_remove_entry`
+// in scripts/uninstall.sh). The entry is owned by this repo for every shape it
+// can hold (mapping or scalar), so it is dropped whole; url, headers and any
+// env block inside it go with it by definition of the operation.
+//
+// Contract:
+//   - Byte-clean. Everything the entry does not own survives verbatim: foreign
+//     top-level keys, other servers in the section, and the surrounding bytes of
+//     the document (key order, comments, scalar styles) are never reordered or
+//     rewritten. The merge-without-clobber robustness of ApplyHermesConfig
+//     applies to deletion as well — and here nothing else is read at all: the
+//     operation is keyed lookups and drops over already-parsed nodes.
+//   - The mcp_servers section itself is dropped only when the entry was its
+//     last child, so a single-server install ends without an empty
+//     `mcp_servers:` shell (same rule the shell mirror applies); with foreign
+//     servers still present the section stays at exactly its own bytes.
+//   - Idempotent. A document without the entry (no servers section, a
+//     non-mapping section, no entry, empty document) marshals back
+//     byte-identical and answers false: the flow can run on every host
+//     without producing a diff, and a zero-value document is never
+//     materialized into one (removal never creates a document).
+//
+// It cannot fail, so it returns no error: every path either drops the owned
+// key or leaves the document alone.
+//
+// The call is observable: it reports whether the entry was dropped, so callers
+// and tests can tell a real removal apart from the no-op idempotent pass.
+func (d *HermesDocument) RemoveHermesServer() bool {
+	servers, ok := childValue(d.fields.root, hermesServersSection)
+	if !ok || servers.Kind != yaml.MappingNode {
+		return false
+	}
+	if !dropChild(servers, HermesServerName) {
+		return false
+	}
+	if len(servers.Content) == 0 {
+		dropChild(d.fields.root, hermesServersSection)
+	}
+	return true
+}
+
 // ValidateTelegramBotToken validates the Telegram bot token shape
 // "<bot-id digits>:<hash>". It is deliberately a shape check, not a liveness
 // check: whether the token is accepted by Telegram is only knowable at gateway
