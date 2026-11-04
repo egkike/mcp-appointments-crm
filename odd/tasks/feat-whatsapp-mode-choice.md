@@ -1,7 +1,7 @@
 # Feature: WhatsApp mode choice (modos A/B del canal del negocio)
 
 **Type**: docs (contract + runbook) — sin Go
-**Status**: doc-first landed 2026-11-01 (change `feat-whatsapp-mode-choice`); delivery pendiente
+**Status**: COMPLETE 2026-11-04 (delivery docs + decisión TASK-3.1/3.2: no wizard, guía en installation.md; change archivado `archive/2026-11-04-feat-whatsapp-mode-choice`)
 **Origin**: owner 2026-11-01: "se debería poder utilizar cualquiera de las 2 opciones
 (a elección del usuario)... usuarios que quieran utilizar su propio nro para el negocio
 y otros que tengan un nro dedicado a su negocio. Podemos hacerlo así?" → respuesta técnica:
@@ -40,3 +40,4 @@ el gap es doc-first de runbook+contrato.
   modo + §9 C11/C12; `docs/PRD.md` changelog 1.27. Readback estructural OK.
   Smoke modo B (número dedicado) sin disparo — no hay número dedicado en demo;
   el change lo deja como spot-check C12 documentado, no bloqueo.
+- **L5** 2026-11-04 — **Decisión owner resuelta en conversación: NO wizard** — la opción 7 no ofrece la elección del modo; vale la guía del TUI de Hermes con walkthrough propio en `installation.md` (section nueva "Configurar el canal WhatsApp (modo A/B)": regla BEFORE-step-2, matriz A/B, spot-check C11/C12, teardown pointer). TASK-3.1 cerrada (close-out del backlog con triggers as-is) y TASK-3.2 en su ruta "si no" (sin change de código). Docs lane (ES según opción C, fuentes normativas EN por cross-ref), readback estructural como gate. PRD changelog 1.32; change cierre archived → `archive/2026-11-04-feat-whatsapp-mode-choice/` → feature doc COMPLETE.

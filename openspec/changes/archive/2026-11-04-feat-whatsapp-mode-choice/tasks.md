@@ -34,11 +34,8 @@
 
 ## Phase 3 — S3 (wizard oferta del modo; requiere decisión owner)
 
-- [ ] TASK-3.1 — decisión owner: ¿la opción 7 ofrece la elección del modo y
-  delega el pairing a `hermes whatsapp`? (superficie propuesta en D6)
-- [ ] TASK-3.2 — si su: change propio de code lane (TUI/consola + tests;
-  native review por routing). Si no: fila de no-funcional en el backlog del
-  repositorio (canal documentado en S1/S2 es suficiente para operar)
+- [x] **TASK-3.1** — decisión owner (2026-11-04): **NO** — la opción 7 no ofrece la elección del modo; el operador lo resuelve en el TUI de Hermes (`hermes whatsapp`) y este repo aporta la **guía** del procedimiento: `installation.md` § "Configurar el canal WhatsApp (modo A/B)" (regla choose-BEFORE-step-2 en ES + matriz + spot-check C11/C12 + pointer de desconexión). Difiere con disparos de reactivación (primer usuario externo / segunda instalación / productización).
+- [x] **TASK-3.2** — ruta "si no" ejecutada sin change de code: fila no-funcional ya registrada en el backlog (con triggers) + la guía del procedimiento como verificación del S3; no encapsuló review nativo alguno (docs lane → readback estructural). Change **cerrado y archivado** `archive/2026-11-04-feat-whatsapp-mode-choice/` (PRD changelog 1.32).
 
 ## Coverage check
 

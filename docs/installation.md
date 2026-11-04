@@ -566,6 +566,47 @@ operador; nunca exponer el puerto más allá del loopback.
 }
 ```
 
+## Configurar el canal WhatsApp (modo A/B)
+
+El canal oficial del producto se configura **en el wizard del runtime Hermes**
+(`hermes whatsapp`) — no en la TUI de este repo. La única decisión del operador
+con efecto observable es **el modo de instalación**, y se toma **antes del paso
+2** del runbook ([gateway-contract §7.5](gateway-contract.md), regla
+"choose BEFORE step 2"); los pasos 2–5 son idénticos en ambos modos (persona,
+gates y funnel son mode-invariant por diseño — [§6.1](gateway-contract.md)):
+
+| Modo | ¿Quién es el número receptor (`messenger_id`)? | Cuándo elegilo |
+|---|---|---|
+| **A — self-chat** | tu propio teléfono (el owner chatea consigo mismo) | demo / uso actual: un único operador que ya tiene el número del negocio |
+| **B — número dedicado** | el número del bot | producción / clientes externos: el bot tiene SIM/número propio y atiende desconocidos |
+
+**Procedimiento** (resumen del runbook [§7.5](gateway-contract.md); ese archivo
+es la fuente normativa):
+
+1. Decidí el modo con la regla de arriba (A/B — es una decisión de negocio, no
+   técnica: qué número va a recibir los mensajes del canal).
+2. Corré `hermes whatsapp` y elegí la opción 1 (modo A) u 2 (modo B);
+   terminá el pairing QR del modo elegido. El `messenger_id` queda grabado con
+   el número receptor del modo según la matriz.
+3. Verificá con el spot-check del modo ([§9](gateway-contract.md)):
+   **C11** (modo A — mensaje del owner en self-chat resuelve persona owner y
+   `messenger_id` = teléfono del owner) o **C12** (modo B — mensaje del owner y
+   de un desconocido al número del bot resuelven owner / loop de registro y
+   `messenger_id` = número del bot).
+
+> **Nota de decisión (2026-11-04):** este repo **no ofrece** un wizard del modo
+> en la opción 7 — la elección vive en el TUI de Hermes y esta sección es su
+> guía (decisión owner, change `feat-whatsapp-mode-choice`; difiere con
+> disparadores de reactivación: primer usuario externo, segunda instalación,
+> productización).
+
+**Desconexión del canal** (con o sin volver a configurarlo): la secuencia
+sin-residuo es revoke del dispositivo desde el teléfono del owner → wizard
+de Hermes imprime `WhatsApp left disabled` → bloque `platforms.whatsapp`
+removido del config → `.env` sin claves WHATSAPP_* → sesiones movidas fuera
+del runtime (backups). Verificado en vivo 2026-11-01; el detalle completo con
+logs de referencia vive en `odd/tasks/backlog.md` (reporte del onboarding).
+
 ## Desinstalación
 
 La baja completa del server vive en `scripts/uninstall.sh` (covenant de S2/S4 del
