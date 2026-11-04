@@ -56,7 +56,7 @@
   `MCP_PORT`/`MCP_BIND` exportados en `.env` nuevo (inválidos/`.env` existentes
   byte-idéntico). Tests RED→GREEN: busy/two-levers, free, own-unit, no-tool
   warn+proceed, validez de puerto, precedencia de fuente **(mismo merge e9f5c8d)**
-- [x] **T2 (S2/S4)** — `scripts/uninstall.sh` con el contrato D2/D4 completo
+- [x] **T2 (S2/S4) — APPROVED** — `scripts/uninstall.sh` con el contrato D2/D4 completo
   (dry-run default / `--apply` / `--purge-data` doble gate / verificación final
   en tabla) + shell tests: `scripts/tests/uninstall_test.sh` (doble run
   idempotente, keep-data default, live-DB fail-closed, dry-run no-op
