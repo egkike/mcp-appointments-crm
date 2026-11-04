@@ -562,9 +562,17 @@ _count_files() {
 # Hermes — desacople byte-clean (awk línea a línea, nunca re-marshal)
 # ---------------------------------------------------------------------------
 
+# _hermes_entry_present: true sólo si `mcp_servers:` (top-level, indent 0)
+# tiene como hijo directo la entrada. Una key homónima bajo otro padre o más
+# profunda no cuenta: nunca se reporta ni se toca.
 _hermes_entry_present() {
   [ -f "$HERMES_CONFIG" ] || return 1
-  grep -q -e '^  mcp-appointments:' "$HERMES_CONFIG"
+  awk '
+    /^mcp_servers:$/ { in_ms = 1; next }
+    in_ms && /^[^ #]/ { exit }
+    in_ms && /^  mcp-appointments:/ { found = 1; exit }
+    END { exit(found ? 0 : 1) }
+  ' "$HERMES_CONFIG"
 }
 
 # _hermes_remove_entry: quita el bloque mcp_servers.mcp-appointments respetando
@@ -590,8 +598,13 @@ _hermes_remove_entry() {
       ms = 0
       ent = 0
       for (i = 1; i <= n; i++) {
-        if (lines[i] ~ /^mcp_servers:[ \t]*$/) { ms = i }
-        if (lines[i] ~ /^  mcp-appointments:/) { ent = i; break }
+        if (lines[i] == "mcp_servers:") { ms = i; break }
+      }
+      if (ms > 0) {
+        for (i = ms + 1; i <= n; i++) {
+          if (lines[i] ~ /^[^ #]/) { break }
+          if (lines[i] ~ /^  mcp-appointments:/) { ent = i; break }
+        }
       }
       if (ent == 0) {
         for (i = 1; i <= n; i++) { print lines[i] }
@@ -635,19 +648,6 @@ _hermes_remove_entry() {
   fi
   CURRENT_TMP=""
   return 0
-}
-
-_hermes_entry_count() {
-  local count
-  if [ ! -f "$HERMES_CONFIG" ]; then
-    printf '0'
-    return 0
-  fi
-  count=$(grep -c -e 'mcp-appointments' "$HERMES_CONFIG" 2>/dev/null || true)
-  case "$count" in
-    ''|*[!0-9]*) count=0 ;;
-  esac
-  printf '%s' "$count"
 }
 
 # ---------------------------------------------------------------------------
@@ -870,7 +870,7 @@ step_service() {
 }
 
 step_hermes_entry() {
-  local idx="$IDX_HERMES_ENTRY" count
+  local idx="$IDX_HERMES_ENTRY"
   if [ "$PURGE_HERMES_ENTRY" -ne 1 ]; then
     if [ -f "$HERMES_CONFIG" ]; then
       echo "Entrada Hermes: se conserva ($HERMES_CONFIG); usá --purge-hermes-entry para quitarla."
@@ -895,13 +895,12 @@ step_hermes_entry() {
     APPLY_ERRORS=$((APPLY_ERRORS + 1))
     return 0
   fi
-  count=$(_hermes_entry_count)
-  if [ "$count" = "0" ]; then
-    echo "Entrada Hermes removida de $HERMES_CONFIG (verificación: grep -c mcp-appointments = 0)."
-    set_verb "$idx" remove
-  else
-    echo "Error: $HERMES_CONFIG todavía contiene $count referencia(s) a mcp-appointments." >&2
+  if _hermes_entry_present; then
+    echo "Error: $HERMES_CONFIG todavía contiene mcp_servers.mcp-appointments." >&2
     APPLY_ERRORS=$((APPLY_ERRORS + 1))
+  else
+    echo "Entrada Hermes removida de $HERMES_CONFIG (verificación: sin mcp_servers.mcp-appointments)."
+    set_verb "$idx" remove
   fi
 }
 
@@ -1014,9 +1013,7 @@ _step_config_purge() {
     echo "Config dir — no existía: $CONFIG_DIR"
     _config_verbs_all absent
     set_verb "$IDX_CONFIG_DIR" absent
-    return 0
-  fi
-  if _safe_rm_rf "$CONFIG_DIR"; then
+  elif _safe_rm_rf "$CONFIG_DIR"; then
     echo "Config dir purgado: $CONFIG_DIR"
     _config_verbs_all purge
     set_verb "$IDX_CONFIG_DIR" purge
@@ -1024,6 +1021,19 @@ _step_config_purge() {
     echo "Error: no se pudo purgar el config dir: $CONFIG_DIR" >&2
     APPLY_ERRORS=$((APPLY_ERRORS + 1))
     set_verb "$IDX_CONFIG_DIR" keep
+  fi
+  # Quirk del installer: ENV_FILE vive siempre en ~/.config/... aunque
+  # CONFIG_DIR esté overrideado por XDG_CONFIG_HOME. Es superficie de purge de
+  # primera clase: no puede quedar un .env colgado fuera del config dir.
+  if _path_exists "$ENV_FILE"; then
+    if _safe_rm_rf "$ENV_FILE"; then
+      echo "Config .env (ruta del quir) purgado: $ENV_FILE"
+      set_verb "$IDX_CONFIG_ENV" purge
+    else
+      echo "Error: no se pudo purgar $ENV_FILE" >&2
+      APPLY_ERRORS=$((APPLY_ERRORS + 1))
+      set_verb "$IDX_CONFIG_ENV" keep
+    fi
   fi
 }
 

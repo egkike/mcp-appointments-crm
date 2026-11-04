@@ -653,6 +653,61 @@ test_purge_hermes_entry_childless_drops_servers_key() {
     "cmp -s '$custom/config.yaml' '$TEST_TMP/expected.yaml'"
 }
 
+test_purge_hermes_entry_nested_same_name_untouched() {
+  # R3-001: sólo el hijo DIRECTO de `mcp_servers:` se remueve; una key
+  # homónima anidada bajo otro padre jamás se toca.
+  local custom="$TEST_HOME/hermes-nested" sha
+  mkdir -p "$custom"
+  # Homónima con el MISMO indent (2 espacios) bajo otro padre: el match por
+  # indent sola la removería por error.
+  printf 'plugins:\n  mcp-appointments:\n    command: /nested/bin\n\nlogging:\n  level: info\n' > "$custom/config.yaml"
+  sha=$(_sha "$custom/config.yaml")
+
+  _run_env HERMES_HOME "$custom" --apply --purge-hermes-entry
+
+  assertEquals 'sin mcp_servers: exit 0' 0 "$RUN_RC"
+  assertEquals 'config byte-idéntico (nada se toca)' "$sha" "$(_sha "$custom/config.yaml")"
+  assertTrue 'la fila reporta no existía' "_out_grep_fixed 'no existía'"
+
+  # Variante: entrada canónica + homónima anidada bajo plugins:.
+  printf 'plugins:\n  graph:\n    mcp-appointments:\n      command: /nested/bin\n\nmcp_servers:\n  mcp-appointments:\n    command: /ours\n  other-server:\n    command: /opt/other\n\nlogging:\n  level: info\n' > "$custom/config.yaml"
+
+  _run_env HERMES_HOME "$custom" --apply --purge-hermes-entry
+
+  assertEquals 'variante: exit 0' 0 "$RUN_RC"
+  assertTrue 'la entrada canónica se remueve' \
+    "! grep -q -F -e 'command: /ours' '$custom/config.yaml'"
+  assertTrue 'la homónima anidada sobrevive' \
+    "grep -q -F -e '      command: /nested/bin' '$custom/config.yaml'"
+  assertTrue 'el server hermano sobrevive' \
+    "grep -q -F -e '  other-server:' '$custom/config.yaml'"
+}
+
+test_purge_config_removes_env_file_outside_config_dir() {
+  # R3-002: con XDG_CONFIG_HOME overrideado el config dir vive en otro lado,
+  # pero ENV_FILE sigue en ~/.config (quir del installer): también se purga.
+  _seed_installation
+  local xdg="$TEST_HOME/xdg-config"
+  mkdir -p "$xdg/mcp-appointments-crm/setup"
+  printf 'MCP_PORT=3999\n' > "$xdg/mcp-appointments-crm/.env"
+  printf '{}\n' > "$xdg/mcp-appointments-crm/setup/setup_business.json"
+  printf 'k2\n' > "$xdg/mcp-appointments-crm/audit-hash-key"
+
+  : > "$OUT_FILE"
+  RUN_RC=0
+  XDG_CONFIG_HOME="$xdg" bash "$UNINSTALL_SH" --apply --purge-config --purge-data --yes \
+    > "$OUT_FILE" 2>&1 < /dev/null || RUN_RC=$?
+
+  assertEquals '--purge-config con quir termina 0' 0 "$RUN_RC"
+  assertTrue 'el config dir XDG se purga' "[ ! -e '$xdg/mcp-appointments-crm' ]"
+  assertTrue 'el .env del quir se purga' \
+    "[ ! -e '$HOME/.config/mcp-appointments-crm/.env' ]"
+  assertTrue 'advertencia HMAC impresa' \
+    "_out_grep_fixed 'invalida la auditoría histórica del HMAC'"
+  assertTrue 'la tabla reporta la fila .env como purgada' \
+    "_rows | grep -F -e '.env' | grep -q -F -e 'PURGADO'"
+}
+
 test_purge_hermes_entry_idempotent_noop() {
   _seed_installation
   _run --apply --purge-hermes-entry

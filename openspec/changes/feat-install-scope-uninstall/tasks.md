@@ -111,6 +111,7 @@
   retenida; si `is-active`/`launchctl print` sigue activo aborta con exit 1 y cero
   borrados, si ya está inactivo advierte y continúa). Tests: 19 (3 nuevos).
   Guard fail-closed de writer vivo en `--purge-data` (MainPID + `pgrep -f mcp-server`; pgrep ausente = abort) — lineage `review-8e58f5762b863a3d`, correction_lines: 90.
+  Hermes: sólo el hijo DIRECTO de `mcp_servers:` se remueve (homónimas anidadas intactas) y `--purge-config` purga también el `.env` del quir fuera de CONFIG_DIR — lineage `review-24fa1d3c116c285b`, correction_lines: 140.
 - [ ] **T3 (S3)** — `RemoveHermesServer` en `internal/admin/hermes.go` (molde
   `RemoveHermesTelegramOwnerBot`: golden byte-clean, idempotente, entradas
   hermanas sobreviven) + tests admin + decisión de uso del script (reescribe
