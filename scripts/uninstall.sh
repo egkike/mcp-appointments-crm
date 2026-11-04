@@ -993,15 +993,33 @@ step_config() {
   _remove_artifact "$CONFIG_DIR/scripts" "$IDX_CONFIG_SCRIPTS" 'Config scripts/ (copia)'
 }
 
+# _config_data_nested: "1" si DATA_DIR y CONFIG_DIR se contienen o son iguales.
+_config_data_nested() {
+  case "$DATA_DIR/" in "$CONFIG_DIR"/*) printf '1'; return 0 ;; esac
+  case "$CONFIG_DIR/" in "$DATA_DIR"/*) printf '1'; return 0 ;; esac
+  printf '0'
+}
+
+# _purge_config_containment_guard: R1-001. Con XDG, DATA_DIR puede quedar
+# anidado dentro de CONFIG_DIR y el rm -rf del config dir se llevaría la DB sin
+# los gates de --purge-data. Corre antes de CUALQUIER borrado; macOS queda
+# afuera (allí el purge es por superficie y preserva data/backups).
+_purge_config_containment_guard() {
+  if [ "$PURGE_CONFIG" -ne 1 ] || [ "$PURGE_DATA" -eq 1 ]; then return 0; fi
+  if [ "$PLATFORM" = "darwin" ] || [ "$(_config_data_nested)" = "0" ]; then return 0; fi
+  echo 'Error: el data dir está dentro del config dir (layout XDG anidado); --purge-config borraría también la DB de negocio sin los gates de --purge-data. Usá --purge-config junto con --purge-data --yes (doble confirmación cuida los datos), o re-habilitá XDG para separar directorios.' >&2
+  return 1
+}
+
 _step_config_purge() {
   if _path_exists "$CONFIG_DIR/$AUDIT_KEY_FILE"; then
     echo 'Advertencia: borrar audit-hash-key invalida la auditoría histórica del HMAC (ADR-0021): los registros antiguos pierden su identidad verificable.'
   fi
-  if [ "$CONFIG_DIR" = "$DATA_DIR" ]; then
-    # macOS: config y data comparten directorio. Se purga sólo la superficie
-    # de configuración para no tocar la DB del negocio sin --purge-data.
+  if [ "$(_config_data_nested)" = "1" ]; then
+    # macOS (mismo path) y XDG anidado: purga POR SUPERFICIE, nunca rm -rf del
+    # árbol; la DB y backups/ del data dir se tocan sólo con --purge-data.
     _purge_config_surface
-    echo "Nota: en macOS el config dir coincide con el data dir ($CONFIG_DIR); la DB y backups/ se tocan sólo con --purge-data."
+    echo "Nota: el data dir se contiene en el config dir ($CONFIG_DIR); se purga sólo la superficie de config."
     if _path_exists "$CONFIG_DIR"; then
       set_verb "$IDX_CONFIG_DIR" keep
     else
@@ -1091,6 +1109,10 @@ _purge_artifact() {
 }
 
 run_apply() {
+  # R1-001: contención config/data se evalúa antes de cualquier borrado.
+  if ! _purge_config_containment_guard; then
+    return 1
+  fi
   # El stop es el primer paso y el único que puede abortar: si sigue vivo el
   # runtime, no se toca nada más (fail-closed, cero borrados).
   if ! step_service; then

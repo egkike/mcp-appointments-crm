@@ -577,6 +577,54 @@ test_purge_data_pgrep_error_fail_closed() {
     "grep -q 'no se puede probar que no haya un proceso mcp-server vivo' '$OUT_FILE'"
 }
 
+# _seed_nested_xdg: layout XDG donde DATA_DIR queda DENTRO de CONFIG_DIR
+# (R1-001): DB + -wal/-shm + backups/ + superficie de config + unit.
+_seed_nested_xdg() {
+  NX_XDG="$TEST_HOME/xdg"; NX_CONFIG="$NX_XDG/mcp-appointments-crm"
+  NX_DATA="$NX_CONFIG/mcp-appointments-crm"
+  mkdir -p "$NX_CONFIG/setup" "$NX_DATA/backups" "$(dirname "$P_SERVICE")" "$P_BIN"
+  printf 'MCP_PORT=3000\n' > "$HOME/.config/mcp-appointments-crm/.env"
+  printf 'hmac-key\n' > "$NX_CONFIG/audit-hash-key"
+  printf '{}\n' > "$NX_CONFIG/setup/setup_business.json"
+  printf 'db-bytes\n' > "$NX_DATA/reservas.db"
+  printf 'gz\n' > "$NX_DATA/backups/reservas-20260101.db.gz"
+  printf '[Unit]\n' > "$P_SERVICE"; printf 'bin\n' > "$P_BIN/mcp-server"
+  : > "$NX_DATA/reservas.db-wal"; : > "$NX_DATA/reservas.db-shm"
+}
+
+_run_nested_xdg() {
+  : > "$OUT_FILE"
+  RUN_RC=0
+  XDG_CONFIG_HOME="$NX_XDG" XDG_DATA_HOME="$NX_XDG/mcp-appointments-crm" \
+    bash "$UNINSTALL_SH" "$@" > "$OUT_FILE" 2>&1 < /dev/null || RUN_RC=$?
+}
+
+test_purge_config_nested_data_dir_refuses() {
+  # R1-001: anidado + --purge-config sin --purge-data => refusal, cero borrados.
+  _seed_nested_xdg
+  _run_nested_xdg --apply --purge-config
+
+  assertNotEquals 'refusa fail-closed' 0 "$RUN_RC"
+  assertTrue 'nombra el layout XDG anidado' "_out_grep_fixed 'layout XDG anidado'"
+  assertTrue 'cero borrados: DB intacta' "[ -f '$NX_DATA/reservas.db' ]"
+  assertTrue 'cero borrados: unit y binario intactos' \
+    "[ -f '$P_SERVICE' ] && [ -f '$P_BIN/mcp-server' ]"
+}
+
+test_purge_config_nested_with_purge_data_allowed() {
+  # Con --purge-data procede, y backups/ se preserva (purge por superficie).
+  _seed_nested_xdg
+  local backups_sha; backups_sha=$(_sha "$NX_DATA/backups/reservas-20260101.db.gz")
+
+  _run_nested_xdg --apply --purge-config --purge-data --yes
+
+  assertEquals 'con --purge-data procede' 0 "$RUN_RC"
+  assertTrue 'DB y -wal/-shm purgados' \
+    "[ ! -e '$NX_DATA/reservas.db' ] && [ ! -e '$NX_DATA/reservas.db-wal' ] && [ ! -e '$NX_DATA/reservas.db-shm' ]"
+  assertEquals 'backups/ del layout anidado preservado (hash)' \
+    "$backups_sha" "$(_sha "$NX_DATA/backups/reservas-20260101.db.gz")"
+}
+
 # ---------------------------------------------------------------------------
 # T2/S4 — --purge-config y audit-hash-key (OQ-4)
 # ---------------------------------------------------------------------------
