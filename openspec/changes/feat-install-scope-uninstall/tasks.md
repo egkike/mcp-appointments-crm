@@ -110,6 +110,7 @@
   preservado por decisión), y el stop pasó de `|| true` a fail-closed (salida
   retenida; si `is-active`/`launchctl print` sigue activo aborta con exit 1 y cero
   borrados, si ya está inactivo advierte y continúa). Tests: 19 (3 nuevos).
+  Guard fail-closed de writer vivo en `--purge-data` (MainPID + `pgrep -f mcp-server`; pgrep ausente = abort) — lineage `review-8e58f5762b863a3d`, correction_lines: 90.
 - [ ] **T3 (S3)** — `RemoveHermesServer` en `internal/admin/hermes.go` (molde
   `RemoveHermesTelegramOwnerBot`: golden byte-clean, idempotente, entradas
   hermanas sobreviven) + tests admin + decisión de uso del script (reescribe

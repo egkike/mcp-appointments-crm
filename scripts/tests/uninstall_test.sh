@@ -80,6 +80,29 @@ EOS
   chmod +x "$FAKEBIN/systemctl"
 }
 
+# _write_fake_systemctl_inconclusive: manager PRESENTE pero indeciso
+# (`show -p MainPID` no imprime nada), fuerza el fallback de proceso directo.
+_write_fake_systemctl_inconclusive() {
+  cat > "$FAKEBIN/systemctl" <<'EOS'
+#!/bin/bash
+case "${1:-}" in
+  --user) case "${2:-}" in show) exit 0 ;; esac ;;
+esac
+exit 0
+EOS
+  chmod +x "$FAKEBIN/systemctl"
+}
+
+# _spawn_fake_writer: proceso vivo llamado "mcp-server" (pgrep -f lo matchea):
+# simula un `./mcp-server` lanzado a mano, fuera del service manager.
+_spawn_fake_writer() {
+  printf '#!/bin/bash\nsleep 60\n' > "$FAKEBIN/mcp-server"
+  chmod +x "$FAKEBIN/mcp-server"
+  "$FAKEBIN/mcp-server" >/dev/null 2>&1 &
+  FAKE_WRITER_PID=$!
+  sleep 1
+}
+
 # _paths_macos: layout Darwin (CONFIG_DIR == DATA_DIR, plist de launchd).
 _paths_macos() {
   P_CONFIG="$HOME/Library/Application Support/MCP Appointments CRM"
@@ -486,6 +509,45 @@ test_purge_data_nonempty_wal_fail_closed() {
   assertNotEquals 'aborta fail-closed por WAL no vacío' 0 "$RUN_RC"
   assertTrue 'nombra el archivo -wal' "_out_grep_fixed 'reservas.db-wal'"
   assertTrue 'la DB sigue ahí' "[ -f '$P_DATA/reservas.db' ]"
+}
+
+test_purge_data_manager_inconclusive_pgrep_writer_fail_closed() {
+  # R3-001: manager indeciso + writer vivo fuera de systemd => fail-closed.
+  _seed_installation
+  _write_fake_systemctl_inconclusive
+  _spawn_fake_writer
+
+  _run --apply --purge-data --yes
+
+  kill "$FAKE_WRITER_PID" 2>/dev/null || true
+
+  assertNotEquals 'aborta fail-closed' 0 "$RUN_RC"
+  assertTrue 'nombra el writer no gestionado' \
+    "_out_grep_fixed 'no gestionado por el service manager'"
+  assertTrue 'cero borrados: DB intacta' "[ -f '$P_DATA/reservas.db' ]"
+  assertTrue 'cero borrados: unit intacta' "[ -f '$P_SERVICE' ]"
+}
+
+test_purge_data_manager_missing_pgrep_no_match_allows() {
+  # WSL sin systemd: manager ausente + pgrep sin match => la purga procede.
+  _seed_installation
+  local nobin="$TEST_HOME/nobin"
+  local tool
+  mkdir -p "$nobin"
+  for tool in awk sed grep cat rm mv cp mkdir du find head tail tr uname id \
+    dirname basename ls chmod touch wc sort cut pgrep; do
+    ln -sf "$(command -v "$tool")" "$nobin/$tool"
+  done
+
+  : > "$OUT_FILE"
+  RUN_RC=0
+  PATH="$nobin" /bin/bash "$UNINSTALL_SH" --apply --purge-data --yes \
+    > "$OUT_FILE" 2>&1 < /dev/null || RUN_RC=$?
+  PATH="$PATH_BASE"
+
+  assertEquals 'sin systemctl y sin writer termina 0' 0 "$RUN_RC"
+  assertTrue 'DB purgada' "[ ! -e '$P_DATA/reservas.db' ]"
+  assertTrue 'backups/ preservado' "[ -d '$P_DATA/backups' ]"
 }
 
 # ---------------------------------------------------------------------------

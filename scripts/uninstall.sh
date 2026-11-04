@@ -731,9 +731,9 @@ purge_data_gate() {
   return 0
 }
 
-# purge_data_live_check: se corre ANTES de cualquier borrado. Un runtime vivo
-# sobre la DB (o un -wal/-shm no vacío, huella de un handle abierto) aborta la
-# purga entera; nunca se borra la DB por debajo de un proceso.
+# purge_data_live_check: se corre ANTES de cualquier borrado y es fail-closed.
+# Un MainPID vivo, un writer que el manager no ve, un pgrep ausente (liveness
+# no demostrable) o un -wal/-shm no vacío abortan la purga entera.
 purge_data_live_check() {
   local pid wal
   if [ "$PLATFORM" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
@@ -748,6 +748,16 @@ purge_data_live_check() {
         return 1
       fi
     fi
+  fi
+  # Canal directo: el manager no ve un `./mcp-server` lanzado a mano (ni existe
+  # en WSL sin systemd), así que la ausencia de MainPID no prueba liveness.
+  if ! command -v pgrep >/dev/null 2>&1; then
+    echo 'Error: no se puede probar que no haya un proceso mcp-server vivo (pgrep no está disponible); detenélo a mano y volvé a correr el uninstall.' >&2
+    return 1
+  fi
+  if pgrep -f 'mcp-server' >/dev/null 2>&1; then
+    echo 'Error: hay un proceso mcp-server corriendo (no gestionado por el service manager); detenélo a mano y volvé a correr el uninstall.' >&2
+    return 1
   fi
   for wal in "$DATA_DIR/$DB_BASENAME-wal" "$DATA_DIR/$DB_BASENAME-shm"; do
     if [ -f "$wal" ] && [ -s "$wal" ]; then
