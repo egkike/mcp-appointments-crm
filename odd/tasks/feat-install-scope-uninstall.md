@@ -77,3 +77,4 @@
   overview/matriz de assets/covenant blockquote "executed"/runbook paso 5;
   changelog histórico y sección legacy NSSM intactos por diseño), ci
   `41545271359` success. Siguiente: T2 (uninstall.sh) — data-risk, nueva sesión.
+- **L8** 2026-11-02/03 — **T2 (uninstall.sh) COMPLETO: review nativa APPROVED + authority burned** (`review-347cceb09c782b5b`, consumido `9f17d384...`, gates: 4 ciclos del review por las correcciones acotadas — ver trust chain abajo). Branch `feat/uninstall-t2` con 7 commits (2c5c85b feat base + 6b35ab1 backup guidance + 5 commits fix de hallazgos nativos: 8d222dc macOS backups/stop-failed, f3aa12e pgrep fail-closed, cc6c756 pgrep exit-status, 694c6d4 hier parent-anchored + env-file quirk, 0ea9696d XDG containment refuse); pipeline verde full: bash -n, shellcheck 0 findings, suite uninstall 26/26 + run_tests.sh 8/8, go build + go test -race 15/15 OK. Evidencia en el log de cada de las corrections inline.

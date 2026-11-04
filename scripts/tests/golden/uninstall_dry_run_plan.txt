@@ -1,0 +1,29 @@
+mcp-appointments-crm — plan de desinstalación (dry-run: no se escribe nada)
+Plataforma: Linux (systemd --user)
+
+== Plan de desinstalación por artefacto (dry-run) ==
+  [BORRARÁ] servicio systemd: __HOME__/.config/systemd/user/mcp-appointments-crm.service
+  [INTACTO] entrada Hermes mcp_servers.mcp-appointments: __HOME__/.hermes/config.yaml
+  [BORRARÁ] skill Hermes recepcionista-negocio: __HOME__/.hermes/skills/recepcionista-negocio
+  [BORRARÁ] binario: __HOME__/.local/bin/mcp-server
+  [BORRARÁ] binario previo: __HOME__/.local/bin/mcp-server.prev
+  [BORRARÁ] logs: __HOME__/.local/state/mcp-appointments-crm
+  [PRESERVARÁ] config .env: __HOME__/.config/mcp-appointments-crm/.env
+  [PRESERVARÁ] config caller-id: __HOME__/.config/mcp-appointments-crm/caller-id
+  [PRESERVARÁ] config audit-hash-key: __HOME__/.config/mcp-appointments-crm/audit-hash-key
+  [PRESERVARÁ] config setup/: __HOME__/.config/mcp-appointments-crm/setup
+  [PRESERVARÁ] config backups/: __HOME__/.config/mcp-appointments-crm/backups
+  [BORRARÁ] config templates/: __HOME__/.config/mcp-appointments-crm/templates
+  [NO EXISTE] config scripts/ (copia): __HOME__/.config/mcp-appointments-crm/scripts
+  [PRESERVARÁ] config dir completo: __HOME__/.config/mcp-appointments-crm (se conserva; --purge-config lo borra entero)
+  [TOCARÁ] data DB: __HOME__/.local/share/mcp-appointments-crm/reservas.db
+  [TOCARÁ] data WAL: __HOME__/.local/share/mcp-appointments-crm/reservas.db-wal
+  [TOCARÁ] data SHM: __HOME__/.local/share/mcp-appointments-crm/reservas.db-shm
+  [TOCARÁ] data scripts/ (copia): __HOME__/.local/share/mcp-appointments-crm/scripts
+  [PRESERVARÁ] data backups/ (preservado por decisión, nunca se borra): __HOME__/.local/share/mcp-appointments-crm/backups
+== Guía de backup (los datos del negocio no se van solos a otro lado) ==
+Comando de backup sugerido: bash "__HOME__/.local/share/mcp-appointments-crm/scripts/backup.sh" "__HOME__/.local/share/mcp-appointments-crm/reservas.db"
+Los exports .gz que ya existan en "__HOME__/.local/share/mcp-appointments-crm/backups/" no se tocan con ningún flag: backups/ se preserva siempre.
+Nota: linger de systemd --user queda intacto (no se toca en la desinstalación).
+
+Pasá --apply para ejecutar la desinstalación.
