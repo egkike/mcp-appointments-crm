@@ -28,7 +28,7 @@ release automation), not as a next numbered phase.
   profile/clients/services queries, owner-only maintenance and hours
   exceptions (auth via `X-Caller-Id` + RBAC). Full catalog: `docs/PRD.md` §3
   / `docs/SDD.md`.
-- **Latest release**: v0.10.0 (2026-11-01) — assets and install steps:
+- **Latest release**: v0.11.0 (2026-11-04) — assets and install steps:
   [Quickstart](#quickstart) / [`docs/installation.md`](./docs/installation.md).
 - **Platform covenant**: Linux + macOS native; Windows via **WSL2**
   (systemd-enabled). Native Windows install automation is out of scope
@@ -53,7 +53,7 @@ curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/s
 
 ```bash
 # pinned version (required — see note below)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.10.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.11.0
 ```
 
 > The pipe (`curl | bash`) works only for Paso 2; Paso 1 must run in a real terminal. See
@@ -72,7 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 > needs a real terminal — a piped invocation has no TTY, so it prints
 > `Error: el modo interactivo requiere una terminal.` and exits 1.
 >
-> **Updating: re-run Paso 2 with the newer tag** (e.g. `--version v0.10.0`). The pinned
+> **Updating: re-run Paso 2 with the newer tag** (e.g. `--version v0.11.0`). The pinned
 > deploy is idempotent — it swaps the binary and restarts the service while preserving
 > the database, `caller-id`, setup files and the Hermes entry. Paso 1 (wizard) is only
 > needed on a first-time install. *(Idempotent re-run verified 2026-09-26.)*
