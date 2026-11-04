@@ -600,6 +600,14 @@ es la fuente normativa):
 > disparadores de reactivación: primer usuario externo, segunda instalación,
 > productización).
 
+> **Número del canal (decisión owner 2026-11-04):** proyecto público — el
+> número que usa el canal es **decisión de cada instalación**: modo A con el
+> número propio del instalador o modo B con un número dedicado al bot, según
+> el uso que le quiera dar (igual para Telegram: el número del owner de la
+> allowlist es el del instalador — no hay número “del proyecto”). Los smokes
+> del repo se corrieron con números de prueba demostrativos; ningún número
+> queda asociado al proyecto.
+
 **Desconexión del canal** (con o sin volver a configurarlo): la secuencia
 sin-residuo es revoke del dispositivo desde el teléfono del owner → wizard
 de Hermes imprime `WhatsApp left disabled` → bloque `platforms.whatsapp`

@@ -45,7 +45,7 @@
 
 
 
-**Quedan abiertos del paquete tras estas disposiciones:** decisión de producción (número de bot dedicado + `dm_policy`; el canal WhatsApp queda sin configuración tras el teardown; el modo B aterra con el smoke C12 documentado) · T3 wizard: decisión owner **2026-11-04 — NO se construye** (disparos de reactivación intactos; guía del TUI de Hermes agregada en `installation.md` § Configurar el canal WhatsApp; change archived) · demo DB cleanup CLOSED (ver abajo) · dashboard `interactive_setup`-toggle no cubre la limpieza del `.env`/config.yaml (cosmético).
+**Quedan abiertos del paquete tras estas disposiciones:** decisión de producción — **RESUELTA por encuadre owner 2026-11-04: proyecto público** — el número del canal (WhatsApp o Telegram) es decisión de cada instalación (modo A self-chat o B dedicado; nada del proyecto queda asociado a un número; los números de los smokes eran demo-only). Sin decision pendiente del owner en este espacio; el que instala también elige `dm_policy` según uso. · T3 wizard: decisión owner **2026-11-04 — NO se construye** (disparos de reactivación intactos; guía del TUI de Hermes agregada en `installation.md` § Configurar el canal WhatsApp; change archived) · demo DB cleanup CLOSED (ver abajo) · dashboard `interactive_setup`-toggle no cubre la limpieza del `.env`/config.yaml (cosmético).
 ## Demo DB cleanup (2026-11-01) — CLOSED
 
 Limpieza ejecutada **vía tools del MCP** (caller owner `+5492617132740`, loopback `/mcp` — la misma regla tools-only que la skill v1.1.1 defiende, aplicada al operador). Verificación por re-lectura (`get_booking`) + confirmación read-only SQL:
