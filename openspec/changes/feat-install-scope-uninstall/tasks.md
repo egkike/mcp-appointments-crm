@@ -113,16 +113,23 @@
   Guard fail-closed de writer vivo en `--purge-data` (MainPID + `pgrep -f mcp-server`; pgrep ausente = abort) — lineage `review-8e58f5762b863a3d`, correction_lines: 90.
   Hermes: sólo el hijo DIRECTO de `mcp_servers:` se remueve (homónimas anidadas intactas) y `--purge-config` purga también el `.env` del quir fuera de CONFIG_DIR — lineage `review-24fa1d3c116c285b`, correction_lines: 140.
   R1-001: `--purge-config` se rehúsa fail-closed cuando el data dir está anidado en el config dir (layout XDG) sin `--purge-data`, y con `--purge-data` purga por superficie (backups/ intacto) — lineage `review-347cceb09c782b5b`, correction_lines: 80.
-- [ ] **T3 (S3)** — `RemoveHermesServer` en `internal/admin/hermes.go` (molde
+- [x] **T3 (S3)** — `RemoveHermesServer` en `internal/admin/hermes.go` (molde
   `RemoveHermesTelegramOwnerBot`: golden byte-clean, idempotente, entradas
   hermanas sobreviven) + tests admin + decisión de uso del script (reescribe
   el YAML por sí misma — atomic replace — o delega en el binario si está en
-  PATH; postulado: script independiente)
-- [ ] **T4** — docs del uninstall (sección nueva en installation.md + README)
-  y changelog PRD del release que lo traiga
-- [ ] **T5 (gates)** — pipeline completo (Go si T3 Go), shellcheck + tests de
+  PATH; postulado: script independiente) — **APLICADO 2026-11-04** (commit `9b51334`:
+  bool observable + section drop cuando queda vacía + scalar entry removida + zero-value
+  nunca materializado; 4 golden tests en `hermes_server_test.go`; script independiente
+  ratificado — el awk mirror es la implementación del script, la función Go es la
+  pieza reusable/desarrollada por contrato de paridad). Review nativa APPROVED + authority
+  burned (`review-00fc23b17663c48d`, tier medium, risk+reliability).
+- [x] **T4** — docs del uninstall (sección nueva en installation.md + README)
+  y changelog PRD del release que lo traiga — **APLICADO 2026-11-04**: `installation.md
+  § Desinstalación` (flags + inventory + covenant), `README.md § Uninstall` (EN), PRD
+  changelog 1.31 + ítem pendiente y orden de ejecución actualizados; issue #167.
+- [x] **T5 (gates)** — pipeline completo (Go si T3 Go), shellcheck + tests de
   shell de T2, native review por routing (uninstall = riesgo de data), GGA
-  por unit
+  por unit — **GATES COMPLETOS 2026-11-03/04**: pipeline Go (fmt/vet/build/test -race/suite/lint 0) y shell (bash -n, shellcheck 0 findings, suite uninstall 26/26 + run_tests.sh 8/8) verdes; native reviews por routing (riesgo data): T2 APPROVED + burned (`review-347cceb09c782b5b`), T3/T4 slice APPROVED + burned (`review-00fc23b17663c48d`, tier medium, risk+reliability, base `34eb8…` → `9b51334`); GGA desactivada por decisión owner 2026-11-03 (no aplica).
 
 ## Coverage check
 

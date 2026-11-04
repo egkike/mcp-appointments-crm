@@ -566,6 +566,38 @@ operador; nunca exponer el puerto más allá del loopback.
 }
 ```
 
+## Desinstalación
+
+La baja completa del server vive en `scripts/uninstall.sh` (covenant de S2/S4 del
+change `feat-install-scope-uninstall`, PR con [issue #167](https://github.com/egkike/mcp-appointments-crm/issues/167)).
+**Sin flags corre en dry-run**: imprime el plan completo por artefacto y no escribe
+nada; la ejecución exige `--apply`. Siempre empezar acá:
+
+```bash
+./scripts/uninstall.sh            # plan completo, cero escritura
+./scripts/uninstall.sh --apply    # ejecuta la desinstalación
+```
+
+El orden de reversión es el inverso del install (servicio → binario → config →
+entrada Hermes → skill), es idempotente (correrlo dos veces es no-op con reporte
+"nada que hacer") y termina con una verificación por artefacto
+(removido / preservado / no existía). **La data del negocio se preserva por
+default** — la DB `reservas.db` (con `-wal/-shm`) y los backups del operador
+(`backups/`) no se tocan salvo que pidas lo contrario explícitamente:
+
+| Flag | Efecto |
+|---|---|
+| `--purge-data` | Borra la DB del negocio y la copia de `scripts/`. **Doble gate**: `--yes` + dos confirmaciones interactivas en TTY, con chequeo fail-closed si detecta un runtime vivo sobre la DB. El directorio `backups/` se preserva SIEMPRE. |
+| `--purge-config` | Borra el directorio de configuración completo, incluido `audit-hash-key` (invalida la auditoría histórica del HMAC — va con advertencia explícita). |
+| `--purge-hermes-entry` | Quita `mcp_servers.mcp-appointments` de `~/.hermes/config.yaml` (byte-clean: claves y servers ajenos sobreviven verbatim; el hermano Go `RemoveHermesServer` de `internal/admin` comparte el molde `RemoveHermesTelegramOwnerBot`). |
+| `--keep-skill` | Conserva la skill `recepcionista-negocio` en `~/.hermes/skills/`. Por default **se borra** (OQ-3: un Hermes vivo no queda con instrucciones huérfanas apuntando a un server inexistente). |
+| `--yes` | Afirmación explícita no interactiva — requerida por `--purge-data`. |
+
+Los artefactos que cubre el script: unit del servicio (`mcp-appointments-crm`),
+binario, directorio de config (`XDG_CONFIG_HOME/mcp-appointments-crm`), directorio
+de datos (salvo purga), logs (`XDG_STATE_HOME`), entrada de Hermes y skill. Los
+backups del operador y los secrets que no sembró el installer no se tocan.
+
 ## Próximos pasos
 
 - Operación diaria/anual: ver [`docs/maintenance.md`](./maintenance.md).

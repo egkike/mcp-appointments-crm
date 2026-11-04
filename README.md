@@ -112,6 +112,17 @@ Decision 3 scope of [ADR-0014](./docs/architecture/0014-release-and-deploy-workf
 > release rationale (platform matrix, checksums; the Windows asset is dropped
 > per the 2026-11-01 platform covenant — T1 of `feat-install-scope-uninstall`).
 
+### Uninstall
+
+`scripts/uninstall.sh` reverses what the installer seeds with the reverse order
+and a per-artifact verification pass. **Dry-run is the default**: without flags
+it prints the full plan and writes nothing — execution requires `--apply`.
+Business data (`reservas.db` + operator `backups/`) is preserved unless
+`--purge-data --yes` (double-gated, fail-closed on a live runtime) is used.
+Hermes entry (`--purge-hermes-entry`) is byte-clean; the skill is purged by
+default with `--keep-skill` to preserve it. Full flag table and the artifact
+inventory: [docs/installation.md § Desinstalación](./docs/installation.md).
+
 ## Architecture
 
 - **Language**: Go 1.27.3 with `modernc.org/sqlite` (pure Go, no CGo)
