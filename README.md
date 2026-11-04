@@ -15,9 +15,13 @@ Windows is supported via **WSL2** (see the Windows install note below).
 
 ## Status
 
-🚧 **Pre-alpha** — under active development. Phases 1–5 are delivered; the current
-track is Fase N (support & improvements). Roadmap and phase history:
-[PRD §7 — Roadmap y Fases](./docs/PRD.md).
+🚧 **Pre-alpha** — under active development, but in a steady delivery cadence:
+all five planned phases are phase history
+([PRD §7 — Roadmap y Fases](./docs/PRD.md)) — db-layer, mcp-server-core,
+mcp-server-advanced, install-prompts and install-and-service were each closed
+behind a merged, review-gated change — and work now runs as **continuous
+support & improvements** (installer/uninstall hardening, channel contracts,
+release automation), not as a next numbered phase.
 
 - **Server capability**: 25 MCP tools covering the booking flow, client
   self-registration (`register_client`, anonymous seam), business/
