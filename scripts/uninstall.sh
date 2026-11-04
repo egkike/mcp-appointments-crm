@@ -755,10 +755,24 @@ purge_data_live_check() {
     echo 'Error: no se puede probar que no haya un proceso mcp-server vivo (pgrep no está disponible); detenélo a mano y volvé a correr el uninstall.' >&2
     return 1
   fi
-  if pgrep -f 'mcp-server' >/dev/null 2>&1; then
-    echo 'Error: hay un proceso mcp-server corriendo (no gestionado por el service manager); detenélo a mano y volvé a correr el uninstall.' >&2
-    return 1
-  fi
+  # R3-001 (validator): exit 0 = writer vivo, exit 1 = sin writer (única salida
+  # que permite el purge), >=2 = pgrep falló (no se puede probar liveness)
+  # — fail-closed también ahí, nunca se borra sin prueba de ausencia.
+  pgrep -f 'mcp-server' >/dev/null 2>&1
+  local pgrep_rc=$?
+  case $pgrep_rc in
+    0)
+      echo 'Error: hay un proceso mcp-server corriendo (no gestionado por el service manager); detenélo a mano y volvé a correr el uninstall.' >&2
+      return 1
+      ;;
+    1)
+      : # sin writer: sigue al check de WAL/SHM
+      ;;
+    *)
+      echo 'Error: no se puede probar que no haya un proceso mcp-server vivo (pgrep falló); detenélo a mano y volvé a correr el uninstall.' >&2
+      return 1
+      ;;
+  esac
   for wal in "$DATA_DIR/$DB_BASENAME-wal" "$DATA_DIR/$DB_BASENAME-shm"; do
     if [ -f "$wal" ] && [ -s "$wal" ]; then
       echo "Error: $wal no está vacío: hay (o quedó) un handle abierto sobre la DB. Cerrá el server y volvé a correr." >&2

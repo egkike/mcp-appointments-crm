@@ -550,6 +550,33 @@ test_purge_data_manager_missing_pgrep_no_match_allows() {
   assertTrue 'backups/ preservado' "[ -d '$P_DATA/backups' ]"
 }
 
+test_purge_data_pgrep_error_fail_closed() {
+  # R3-001 (validator round 2): pgrep con error de ejecución (exit >=2) NO certifica
+  # ausencia de writer — fail-closed también ahí (aborta sin borrar nada).
+  _seed_installation
+  local nobin="$TEST_HOME/nobin_err"
+  local tool
+  mkdir -p "$nobin"
+  for tool in awk sed grep cat rm mv cp mkdir du find head tail tr uname id \
+    dirname basename ls chmod touch wc sort cut; do
+    ln -sf "$(command -v "$tool")" "$nobin/$tool"
+  done
+  printf '#!/bin/bash\nexit 2\n' > "$nobin/pgrep"
+  chmod +x "$nobin/pgrep"
+
+  : > "$OUT_FILE"
+  RUN_RC=0
+  PATH="$nobin" /bin/bash "$UNINSTALL_SH" --apply --purge-data --yes \
+    > "$OUT_FILE" 2>&1 < /dev/null || RUN_RC=$?
+  PATH="$PATH_BASE"
+
+  assertTrue 'pgrep error aborta' "[ \${RUN_RC:-0} -ne 0 ]"
+  assertTrue 'sigue existiendo la DB' "[ -e '$P_DATA/reservas.db' ]"
+  assertTrue 'aborta sin borrar el unit' "[ -f '$P_SERVICE' ]"
+  assertTrue 'nombra el fallo de pgrep' \
+    "grep -q 'no se puede probar que no haya un proceso mcp-server vivo' '$OUT_FILE'"
+}
+
 # ---------------------------------------------------------------------------
 # T2/S4 — --purge-config y audit-hash-key (OQ-4)
 # ---------------------------------------------------------------------------
