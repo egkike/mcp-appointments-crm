@@ -192,7 +192,7 @@ The pre-commit pipeline (see
 ```bash
 go fmt ./...                     # format
 go vet ./...                     # vet
-golangci-lint run ./...          # lint (8 linters, .golangci.yml)
+golangci-lint run ./...          # lint (.golangci.yml)
 go build -o /dev/null ./...      # compile
 go test -v -race ./...           # test
 ```
