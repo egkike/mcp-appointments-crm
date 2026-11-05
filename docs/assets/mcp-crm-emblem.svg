@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="mcp-appointments-crm emblem">
+  <defs>
+    <radialGradient id="g" cx=".7" cy=".9" r=".55">
+      <stop offset="0" stop-color="#ff76c3" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#ff76c3" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#160f15"/>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <g transform="translate(166,66) scale(1.5)">
+    <circle cx="120" cy="120" r="86" fill="none" stroke="#f095c8" stroke-width="3" stroke-dasharray="10 14" opacity=".55"/>
+    <g fill="none" stroke="#ff76c3" stroke-width="3" stroke-linecap="round">
+      <path d="M120 34 c-16 0 -16 22 0 22 h44 a14 14 0 0 1 14 14 v10"/>
+      <path d="M120 206 c16 0 16 -22 0 -22 h-44 a14 14 0 0 1 -14 -14 v-10"/>
+    </g>
+    <circle cx="120" cy="46" r="7" fill="#ff76c3"/>
+    <circle cx="62" cy="184" r="7" fill="#c4daf6"/>
+    <rect x="84" y="96" width="72" height="48" rx="10" fill="#ff76c3" stroke="#160f15" stroke-width="4"/>
+    <text x="120" y="127" text-anchor="middle" font-family="'JetBrains Mono','Iosevka Term',ui-monospace,monospace" font-weight="700" font-size="21" fill="#160f15">10:30</text>
+  </g>
+</svg>

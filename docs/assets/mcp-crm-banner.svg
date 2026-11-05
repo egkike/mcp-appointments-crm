@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="mcp-appointments-crm — self-hosted bookings and CRM MCP server">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#241521"/>
+      <stop offset=".6" stop-color="#160f15"/>
+    </linearGradient>
+    <radialGradient id="glowRose" cx=".88" cy="1.1" r=".5">
+      <stop offset="0" stop-color="#ff76c3" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#ff76c3" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowTeal" cx=".08" cy="-.1" r=".5">
+      <stop offset="0" stop-color="#c4daf6" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#c4daf6" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="400" fill="url(#bg)"/>
+  <rect width="1280" height="400" fill="url(#glowRose)"/>
+  <rect width="1280" height="400" fill="url(#glowTeal)"/>
+
+  <!-- emblem: MCP channels feeding one booked-slot core -->
+  <g transform="translate(60,-6)">
+    <circle cx="120" cy="120" r="86" fill="none" stroke="#f095c8" stroke-width="3" stroke-dasharray="10 14" opacity=".55"/>
+    <circle cx="120" cy="120" r="66" fill="none" stroke="#c4daf6" stroke-width="2.5" stroke-dasharray="3 9" opacity=".4"/>
+    <g fill="none" stroke="#ff76c3" stroke-width="3" stroke-linecap="round">
+      <path d="M120 34 c-16 0 -16 22 0 22 h44 a14 14 0 0 1 14 14 v10"/>
+      <path d="M120 206 c16 0 16 -22 0 -22 h-44 a14 14 0 0 1 -14 -14 v-10"/>
+    </g>
+    <circle cx="120" cy="46" r="7" fill="#ff76c3"/>
+    <circle cx="62" cy="184" r="7" fill="#c4daf6"/>
+    <rect x="84" y="96" width="72" height="48" rx="10" fill="#ff76c3" stroke="#160f15" stroke-width="4"/>
+    <text x="120" y="127" text-anchor="middle" font-family="'JetBrains Mono','Iosevka Term',ui-monospace,monospace" font-weight="700" font-size="21" fill="#160f15">10:30</text>
+  </g>
+
+  <!-- wordmark -->
+  <g font-family="'JetBrains Mono','Iosevka Term',ui-monospace,monospace">
+    <text x="470" y="118" letter-spacing="7.2" font-size="12.5" fill="#c4daf6">SELF-HOSTED · GENTLE ECOSYSTEM</text>
+    <text x="464" y="188" font-weight="800" font-size="74" letter-spacing="-1.5" fill="#f6eff3">mcp</text>
+    <text x="464" y="262" font-weight="800" font-size="74" letter-spacing="-1.5" fill="#f6eff3">appointments<tspan fill="#ff76c3">-crm</tspan></text>
+    <text x="466" y="316" font-size="19" fill="#a78e9b">Bookings, clients and the front desk, spoken in MCP.</text>
+    <text x="466" y="344" font-size="19" fill="#a78e9b">Loopback-only, single Go binary, free of containers.</text>
+    <g font-size="14" fill="#a78e9b">
+      <text x="466" y="376" font-weight="600" fill="#f6eff3">25<tspan fill="#a78e9b"> tools</tspan></text>
+      <text x="580" y="376" font-weight="600" fill="#f6eff3">SQLite<tspan fill="#a78e9b">+FTS5</tspan></text>
+      <text x="716" y="376" font-weight="600" fill="#f6eff3">WAL<tspan fill="#a78e9b"> safe</tspan></text>
+      <text x="822" y="376" font-weight="600" fill="#f6eff3">127.0.0.1<tspan fill="#a78e9b">:3000</tspan></text>
+    </g>
+  </g>
+</svg>

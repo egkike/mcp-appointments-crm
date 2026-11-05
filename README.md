@@ -2,8 +2,10 @@
 
 <div align="center">
 
+<img width="100%" src="docs/assets/mcp-crm-banner.svg" alt="mcp-appointments-crm — self-hosted bookings and CRM MCP server (banner with the MCP channel emblem and a booked slot)" />
+
 <a href="https://github.com/Gentleman-Programming/gentle-ai">
-  <img width="220" src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle-AI" />
+  <img width="180" src="https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/docs/assets/brand/built-with-gentle-ai.png" alt="Built with Gentle-AI" />
 </a>
 
 </div>
