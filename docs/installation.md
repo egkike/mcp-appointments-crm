@@ -619,7 +619,14 @@ es la fuente normativa):
 > **Mitigación del operador mientras no exista enforcement per-channel upstream:**
 > no expongas `execute_code` (ni tools de código arbitrario) a sesiones del canal
 > o sin supervisión, y tratá todo agente host que pueda ejecutar código arbitrario
-> como capaz de saltarse las reglas conversacionales de la skill.
+> como capaz de saltarse las reglas conversacionales de la skill. **Movimiento
+> upstream (seguimiento 2026-11-04/05, follow-up posteado en #147647):** la
+> ventana v0.22.6 trajo dos primitivas de la familia — locks de escritura
+> autónoma per-skill y un hook `pre_llm_call` que puede bloquear el turno — pero
+> aún **sin allowlist per-channel/per-skill**, y cabe verificar si el lock es
+> reachable headless (nuestro VM es CLI/gateway) y si cubre la clase
+> `execute_code`; mientras no llegue un release que conteste esas dos preguntas,
+> ningún runtime version cuenta como enforceando esta boundary.
 
 **Desconexión del canal** (con o sin volver a configurarlo): la secuencia
 sin-residuo es revoke del dispositivo desde el teléfono del owner → wizard
