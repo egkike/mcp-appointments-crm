@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mcp-appointments-crm — banner · terminal card</title>
+<style>
+  :root{
+    --base:#1a1218; --surface:#241822; --s2:#342230;
+    --rose:#ff76c3; --rose2:#f095c8; --text:#f6eff3; --sub:#a78e9b;
+    --green:#b4e7c7; --overlay:#342230;
+    --mono:"IosevkaTerm NF","Iosevka Term","JetBrains Mono",ui-monospace,monospace;
+  }
+  body{margin:0;background:var(--base);color:var(--text);font-family:var(--mono);display:grid;place-items:center;min-height:100vh;padding:32px;gap:24px}
+  .wrap{display:grid;gap:28px;justify-items:center}
+  h1{font-size:13px;font-weight:600;color:var(--sub);letter-spacing:.08em;text-transform:uppercase;margin:0}
+  /* ── banner 1280×400 ── */
+  .banner{
+    width:1280px;height:400px;border-radius:16px;border:1px solid var(--overlay);
+    background:
+      radial-gradient(42% 90% at 12% 20%, #f095c81f, #0000 70%),
+      radial-gradient(38% 80% at 90% 85%, #b4e7c714, #0000 70%),
+      var(--base);
+    display:flex;align-items:center;gap:0;padding:0 56px;box-sizing:border-box;position:relative;overflow:hidden
+  }
+  /* terminal window */
+  .term{
+    width:560px;height:272px;background:var(--surface);border:1px solid var(--s2);
+    border-radius:10px;box-shadow:0 24px 60px #00000059;overflow:hidden;flex:none
+  }
+  .term-bar{height:34px;background:var(--s2);display:flex;align-items:center;gap:8px;padding:0 14px}
+  .dot{width:10px;height:10px;border-radius:999px}
+  .term-body{padding:14px 18px;font-size:14.5px;line-height:1.75;color:var(--sub)}
+  .c-green{color:var(--green)}.c-text{color:var(--text)}.c-rose{color:var(--rose)}
+  .row{margin:4px 0;border-left:2px solid var(--s2);padding-left:12px}
+  .row.on{border-left-color:var(--rose);background:#f095c80d}
+  .cursor{display:inline-block;width:9px;height:17px;background:var(--rose);vertical-align:-3px;animation:blink 1.06s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){.cursor{animation:none}}
+  /* wordmark block */
+  .brand{margin-left:64px;min-width:0}
+  .kicker{color:var(--rose2);letter-spacing:.28em;font-size:13px;margin:0 0 10px}
+  .title{margin:0;font-size:45px;font-weight:800;letter-spacing:-.02em;color:var(--text);line-height:1.05}
+  .title .thin{color:var(--rose)}
+  .sub{margin:14px 0 0;color:var(--sub);font-size:17px;max-width:46ch;line-height:1.5}
+  .chips{display:flex;gap:10px;margin-top:22px;flex-wrap:wrap}
+  .chip{border:1px solid var(--s2);border-radius:999px;color:var(--sub);font-size:12.5px;padding:5px 13px}
+  /* 48px icon test */
+  .icon-row{display:flex;align-items:flex-end;gap:18px}
+  .icon{width:48px;height:48px;border-radius:10px;background:var(--base);border:1px solid var(--s2);display:grid;place-items:center}
+  .icon svg{width:40px;height:40px}
+  .icon-cap{color:var(--sub);font-size:11px;text-align:center;max-width:64px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Direction 01 — Terminal booking card · tradeoff: temática TUI del ecosistema; el wordmark pesa menos que la escena</h1>
+  <div class="banner" role="img" aria-label="MCP Appointments CRM banner: a terminal booking card next to the project wordmark">
+    <div class="term" aria-hidden="true">
+      <div class="term-bar">
+        <span class="dot" style="background:#ff718f"></span>
+        <span class="dot" style="background:#e0c27a"></span>
+        <span class="dot" style="background:#b4e7c7"></span>
+        <span style="margin-left:8px;font-size:11px;color:var(--sub)">mcp-server admin tui</span>
+      </div>
+      <div class="term-body">
+        <div><span class="c-green">check_availability</span> <span class="c-text">corte · mañana</span></div>
+        <div class="row">09:00 — Romina <span class="c-text">· Lavado de Cabello</span></div>
+        <div class="row on">10:30 — <span class="c-text">Santiago</span> · Corte <span style="color:var(--green)">✓ slot</span></div>
+        <div class="row">11:15 — libre</div>
+        <div style="margin-top:10px">
+          <span class="c-rose">create_booking</span> <span class="c-text">10:30</span> <span class="cursor"></span>
+        </div>
+      </div>
+    </div>
+    <div class="brand">
+      <p class="kicker">GENTLE ECOSYSTEM · MCP SERVER</p>
+      <div class="title">Appointments <span class="thin">CRM</span></div>
+      <p class="sub">Self-hosted bookings &amp; CRM for your agent — pure Go, SQLite+FTS5, loopback only.</p>
+      <div class="chips"><span class="chip">25 tools</span><span class="chip">127.0.0.1:3000</span><span class="chip">no containers</span></div>
+    </div>
+  </div>
+  <div class="icon-row">
+    <div>
+      <div class="icon">
+        <svg viewBox="0 0 40 40" aria-hidden="true">
+          <rect x="4" y="7" width="32" height="27" rx="4" fill="none" stroke="#ff76c3" stroke-width="3"/>
+          <rect x="11" y="19" width="13" height="9" rx="2" fill="#ff76c3"/>
+          <line x1="12" y1="4" x2="12" y2="11" stroke="#f6eff3" stroke-width="3" stroke-linecap="round"/>
+          <line x1="28" y1="4" x2="28" y2="11" stroke="#f6eff3" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="icon-cap">48px · Hub icon</p>
+    </div>
+    <div>
+      <div class="icon" style="border-radius:12px;background:linear-gradient(135deg,#241822,#342230)">
+        <svg viewBox="0 0 40 40" aria-hidden="true">
+          <rect x="4" y="7" width="32" height="27" rx="4" fill="none" stroke="#ff76c3" stroke-width="3"/>
+          <rect x="11" y="19" width="13" height="9" rx="2" fill="#ffd6ee"/>
+          <line x1="12" y1="4" x2="12" y2="11" stroke="#ffd6ee" stroke-width="3" stroke-linecap="round"/>
+          <line x1="28" y1="4" x2="28" y2="11" stroke="#ffd6ee" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="icon-cap">48px · slot variant</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

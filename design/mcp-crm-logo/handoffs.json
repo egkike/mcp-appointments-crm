@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "chosen": "03-emblem-abstract.html",
+  "handoffs": {
+    "03-emblem-abstract.html": {
+      "status": "implemented",
+      "queued": false,
+      "sentAt": "2026-11-05T18:01:14.701Z",
+      "startedAt": "2026-11-05T18:01:38.668Z",
+      "implementedAt": "2026-11-05T18:04:17.458Z"
+    }
+  }
+}

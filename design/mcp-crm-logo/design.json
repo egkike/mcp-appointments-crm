@@ -1,0 +1,9 @@
+{
+  "title": "mcp-appointments-crm — banner & logo",
+  "brief": "Banner/primera-imagen del README (que alimenta el icono 48px del Gentle Hub y el social preview de GitHub). Audiencia: developers del ecosistema Gentle y públicos que buscan un MCP server de bookings/CRM. Identidad coherente con la paleta Gentle (rose #ff76c3 sobre plum #1a1218). Cada artboard muestra el banner 1280×400 + el test del render a 48px (como lo pinta el Hub).",
+  "artboards": [
+    { "file": "01-terminal-card.html", "title": "Terminal booking card", "tradeoff": "Temática TUI del ecosistema (la escena cuenta la historia del producto); el wordmark pesa menos que la escena", "width": 1360, "height": 760 },
+    { "file": "02-calendar-minimal.html", "title": "Calendar minimal", "tradeoff": "Limpio, legible a chico y no tech-only; menos identidad Gentle y más producto genérico", "width": 1360, "height": 760 },
+    { "file": "03-emblem-abstract.html", "title": "Emblem abstracto", "tradeoff": "Mejor logo puro a 48px (funciona standalone con motion); el banner vive del contraste del emblem y el wordmark lowercase es menos convencional", "width": 1360, "height": 760 }
+  ]
+}
