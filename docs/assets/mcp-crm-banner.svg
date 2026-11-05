@@ -34,7 +34,7 @@
 
   <!-- wordmark -->
   <g font-family="'JetBrains Mono','Iosevka Term',ui-monospace,monospace">
-    <text x="470" y="118" letter-spacing="7.2" font-size="12.5" fill="#c4daf6">SELF-HOSTED · GENTLE ECOSYSTEM</text>
+    <text x="470" y="118" letter-spacing="7.2" font-size="12.5" fill="#c4daf6">SELF-HOSTED MCP SERVER</text>
     <text x="464" y="188" font-weight="800" font-size="74" letter-spacing="-1.5" fill="#f6eff3">mcp</text>
     <text x="464" y="262" font-weight="800" font-size="74" letter-spacing="-1.5" fill="#f6eff3">appointments<tspan fill="#ff76c3">-crm</tspan></text>
     <text x="466" y="316" font-size="19" fill="#a78e9b">Bookings, clients and the front desk, spoken in MCP.</text>
