@@ -9,7 +9,9 @@
 `mcp-appointments-crm` ships as a single Go binary (pure Go via `modernc.org/sqlite`,
 no CGo, no Docker) for the covenant platforms (Linux/macOS x86_64/arm64 — 4 assets;
 Windows runs WSL2 with the Linux asset, the Windows archive shipped only up to v0.10.0).
-Every `vX.Y.Z` tag publishes the archives + a SHA256
+**The deployment target is a 24/7 host** — a VPS or an always-on local machine (the
+user-level service expects to survive logouts/boots; laptop/suspend availability is
+not a supported mode). Every `vX.Y.Z` tag publishes the archives + a SHA256
 `checksums.txt` on GitHub Releases, built by the tag-triggered GoReleaser workflow with no
 manual upload. The only historical release assembled by hand is the `v0.3.0` demo, which
 ships a single Linux x86_64 archive plus `checksums.txt`; every tag after the pipeline

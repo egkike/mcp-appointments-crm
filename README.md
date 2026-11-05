@@ -46,6 +46,14 @@ release automation), not as a next numbered phase.
 
 ## Quickstart
 
+> **Deployment target: a Linux/macOS server — a VPS or an always-on local
+> machine that stays up 24/7.** The MCP service registers user-level
+> (systemd `--user` + linger on Linux, launchd on macOS), so it survives
+> logouts and boots, and the Hermes gateway is expected as its same-host
+> always-on neighbor: the pair is a 24/7 front desk, not a laptop app
+> (suspend kills availability; Windows = WSL2 on a host that boots into
+> WSL — see the Windows note below).
+
 ### Install — Linux / macOS
 
 **Paso 1 — Interactive wizard (requires a TTY):**

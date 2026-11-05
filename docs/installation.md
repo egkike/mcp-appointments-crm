@@ -43,6 +43,13 @@ Verificá estos ítems antes de empezar:
 1 → 2 → 3 → 4. Con el canal ya funcionando, después de la opción 7 el smoke sale
 end-to-end al toque (canal vivo + tools + skill recién renovada por la cascada).
 
+> **Host objetivo (24/7):** una VPS o una máquina local **siempre-encendida**
+> que no suspende — el servicio MCP es user-level (`systemd --user` + linger
+> en Linux; launchd user-agent en macOS, que requiere que la sesión del
+> usuario esté activa). El upgrade del host apaga el server: una laptop que
+> suspende al cerrar la tapa mata la disponibilidad; en Windows, WSL2 hereda
+> el arranque del host Windows (ver nota Windows de arriba).
+
 > ⚠️ **Puerto (rama A — se fija ANTES del paso 2):** si el agente del canal ya
 > corre en esta máquina y su WhatsApp/config ya está activo, el puente de
 > WhatsApp (`bridge.js`) ya tiene — o tomará — `127.0.0.1:3000`. Cuando el
