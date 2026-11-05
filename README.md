@@ -34,6 +34,10 @@ release automation), not as a next numbered phase.
   (systemd-enabled). Native Windows install automation is out of scope
   (owner decision 2026-11-01).
 - **Agent pairing**: the clean, standard install pairs with **Hermes**
+  ([hermes-agent.nousresearch.com](https://hermes-agent.nousresearch.com/) —
+  the only first-class-supported agent; install it per its own docs; this
+  repo configures it to talk to the MCP server, it does not install or pin
+  the runtime)
   (see [`docs/gateway-contract.md`](./docs/gateway-contract.md)); any other
   MCP-capable agent connects via the
   [agent connector guide](./docs/installation.md#conectar-tu-agente-mcp-hermes-u-otros).

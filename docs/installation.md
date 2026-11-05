@@ -66,6 +66,19 @@ end-to-end al toque (canal vivo + tools + skill recién renovada por la cascada)
 negocio) → 3 → 4. El resultado final es idéntico: ambos caminos convergen en la
 opción 7.
 
+> **El agente recomendado (soporte de primera clase):** [Hermes](https://hermes-agent.nousresearch.com/)
+> (NousResearch) es el único agente con integración de primera clase del
+> producto — canal WhatsApp/Telegram + la skill de recepción instalada como
+> skill oficial (`~/.hermes/skills/`, estándar verificado en la doc del
+> producto); cualquier otro agente MCP se conecta con la guía de abajo.
+> **Instalalo siguiendo la doc oficial del site** — el runtime es de Nous y se
+> actualiza con su propio updater (`hermes update`); este repo no lo instala ni
+> lo versiona: solo lo configura para hablar con nuestro MCP server. Verificación
+> mínima antes de seguir: `hermes --version` responde y el gateway del canal
+> está vivo. El contrato del pairing (canales, skill, security boundary) está
+> en [gateway-contract.md](gateway-contract.md). Referencia operativa
+> (2026-11): los smokes de este repo corren contra Hermes **v0.22.7**.
+
 **Otros agentes (no Hermes):** no hay installer — la guía documentada es
 [Conectar tu agente MCP](#conectar-tu-agente-mcp-hermes-u-otros) (el step 3
 equivale al snippet de config de tu agente + smoke con `curl`; el `caller-id`
