@@ -608,6 +608,19 @@ es la fuente normativa):
 > del repo se corrieron con números de prueba demostrativos; ningún número
 > queda asociado al proyecto.
 
+> **Seguridad del canal (leé esto antes de activar el bot con clientes):** el
+> contrato tools-only del canal (el bot toca los datos del negocio **sólo** por
+> los tools MCP) lo enuncia la skill y lo **enforcea el runtime Hermes, no este
+> server** — el server es loopback-only y no ve qué más deja ejecutar el host.
+> Un `execute_code` activo en sesiones del canal puede esquivar el contrato por
+> completo: ocurrió en vivo durante el ciclo v0.10.0 (el bot de WhatsApp escribió
+> `reservas.db` sin `create_booking` en el log — issue upstream open
+> [NousResearch/hermes-agent#147647](https://github.com/NousResearch/hermes-agent/issues/147647)).
+> **Mitigación del operador mientras no exista enforcement per-channel upstream:**
+> no expongas `execute_code` (ni tools de código arbitrario) a sesiones del canal
+> o sin supervisión, y tratá todo agente host que pueda ejecutar código arbitrario
+> como capaz de saltarse las reglas conversacionales de la skill.
+
 **Desconexión del canal** (con o sin volver a configurarlo): la secuencia
 sin-residuo es revoke del dispositivo desde el teléfono del owner → wizard
 de Hermes imprime `WhatsApp left disabled` → bloque `platforms.whatsapp`
