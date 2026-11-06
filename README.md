@@ -113,6 +113,10 @@ agent connector guide in `docs/installation.md` (§ “Conectar tu agente MCP
 > **macOS note:** the installer's macOS path is implemented and the published
 > releases ship the `Darwin` archives since v0.4.0 (`install.sh` resolves them via
 > `uname`, see [ADR-0014](./docs/architecture/0014-release-and-deploy-workflow.md)).
+> It is also **verified end-to-end in CI** since 2026-11-06 (issue #173): the
+> `Install macOS` job runs on macos-15 on every installer-relevant PR and merge
+> commit — real `install.sh --version`, real `launchctl bootstrap` with a running
+> agent PID, then bootout teardown ([PR #174](https://github.com/egkike/mcp-appointments-crm/pull/174)).
 > Windows runs through **WSL2** — see the block below.
 
 ### Install — Windows

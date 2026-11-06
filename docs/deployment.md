@@ -288,6 +288,13 @@ mcp-server --version
 > así que `install.sh` resuelve la plataforma con `uname -s`/`uname -m` y descarga
 > el archivo correcto. Un build local desde el source sigue siendo el fallback
 > ([PRD §7](./PRD.md#7-roadmap-y-fases)).
+>
+> **Verificado end-to-end en CI** (2026-11-06, issue #173): el job `Install macOS`
+> corre en `macos-15` en cada PR y merge-commit que toque el instalador —
+> `install.sh --version` real (curl + checksum + tar), agente launchd cargado con
+> PID vivo vía `launchctl bootstrap`, y teardown con `bootout`
+> ([PR #174](https://github.com/egkike/mcp-appointments-crm/pull/174),
+> `scripts/tests/macos_smoke_test.sh`).
 
 Mismo camino `curl | bash` que Linux (detecta `Darwin` vía `uname -s`):
 
