@@ -42,6 +42,61 @@ func TestNewDatabase_SpaceInPath(t *testing.T) {
 	}
 }
 
+// TestNewDatabase_RejectsPathWithQuery (follow-up a los advisories R1-001/R3-001
+// del review del PR #176, issue #177): un MCP_DB_PATH que traiga '?'
+// (query string propia) antes llegaba a la DSN como doble '?' malformado y el
+// driver ignoraba los _pragma en silencio (foreign_keys OFF = integridad
+// degradada fail-open). Fail-closed: NewDatabase rechaza con error semántico.
+func TestNewDatabase_RejectsPathWithQuery(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "reservas.db?cache=shared")
+	db, err := NewDatabase(ctx, bad)
+	if err == nil {
+		_ = db.Conn.Close()
+		t.Fatalf("NewDatabase(%q) succeeded — se esperaba rechazo semántico por '?'", bad)
+	}
+	if !strings.Contains(err.Error(), "inválido") {
+		t.Fatalf("NewDatabase(%q) error %q — se espera mensaje semántico en español que nombre el '?'", bad, err)
+	}
+}
+
+// TestNewDatabase_AcceptsHashInPath: '#' en filenames exóticos es legal y NO
+// rompe la composición (url.URL.String() lo escapea dentro del component
+// Path) — guard de no-regresión para el rejection del '?'.
+func TestNewDatabase_AcceptsHashInPath(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "reservas#2.db")
+	db, err := NewDatabase(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabase(%q): %v", dbPath, err)
+	}
+	defer func() { _ = db.Conn.Close() }()
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("db file not created: %v", err)
+	}
+}
+
+// TestNewDatabase_MemoryPragmas: la rama ':memory:' de buildDSN debe aplicar
+// los pragmas productivos de verdad (no solo concatenarlos) — verific que
+// foreign_keys quedó ON tras abrir.
+func TestNewDatabase_MemoryPragmas(t *testing.T) {
+	ctx := context.Background()
+	db, err := NewDatabase(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("NewDatabase(:memory:): %v", err)
+	}
+	defer func() { _ = db.Conn.Close() }()
+	var fk int
+	if err := db.Conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatalf("query foreign_keys: %v", err)
+	}
+	if fk != 1 {
+		t.Fatalf("PRAGMA foreign_keys = %d, want 1 (el pragmas del DSN se ignoraron en ':memory:?')", fk)
+	}
+}
+
 // newTestDB creates an in-memory SQLite DB with pragmas matching production
 // and the full schema applied (idempotent).
 func newTestDB(t *testing.T) *sql.DB {
