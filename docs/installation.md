@@ -84,7 +84,7 @@ opción 7.
 > mínima antes de seguir: `hermes --version` responde y el gateway del canal
 > está vivo. El contrato del pairing (canales, skill, security boundary) está
 > en [gateway-contract.md](gateway-contract.md). Referencia operativa
-> (2026-11): los smokes de este repo corren contra Hermes **v0.22.7**.
+> (2026-11-06): los smokes de este repo corrieron contra Hermes **v0.22.7**; el VM de producción corre **v0.23.0** (`2bd378ed1b8d`, Hearth Release) verificado con server **v0.11.2** (healthz + gateway activo), y la upgraded-notes de v0.23.0 no toca nuestra instalación (el gateway corre `gateway run`, no el temporal `hermes mcp serve`).
 
 **Otros agentes (no Hermes):** no hay installer — la guía documentada es
 [Conectar tu agente MCP](#conectar-tu-agente-mcp-hermes-u-otros) (el step 3
@@ -640,13 +640,17 @@ es la fuente normativa):
 > no expongas `execute_code` (ni tools de código arbitrario) a sesiones del canal
 > o sin supervisión, y tratá todo agente host que pueda ejecutar código arbitrario
 > como capaz de saltarse las reglas conversacionales de la skill. **Movimiento
-> upstream (seguimiento 2026-11-04/05, follow-up posteado en #147647):** la
+> upstream (seguimiento 2026-11-04/05/06, follow-up posteado en #147647):** la
 > ventana v0.22.6 trajo dos primitivas de la familia — locks de escritura
 > autónoma per-skill y un hook `pre_llm_call` que puede bloquear el turno — pero
 > aún **sin allowlist per-channel/per-skill**, y cabe verificar si el lock es
 > reachable headless (nuestro VM es CLI/gateway) y si cubre la clase
-> `execute_code`; mientras no llegue un release que conteste esas dos preguntas,
-> ningún runtime version cuenta como enforceando esta boundary.
+> `execute_code`; el release v0.23.0 (2026-11-05, Hearth) tampoco contesta esas
+> preguntas — su única referencia a `pre_llm_call` es una API de plugin genérica
+> (hook de block al que cualquier plugin se suscribe), ningún match para
+> allowlist ni `execute_code`, y #147647 sigue OPEN sin respuesta del equipo.
+> Mientras tanto, ningún runtime version — incluida la v0.23.0 del VM de
+> producción — cuenta como enforceando esta boundary.
 
 **Desconexión del canal** (con o sin volver a configurarlo): la secuencia
 sin-residuo es revoke del dispositivo desde el teléfono del owner → wizard
