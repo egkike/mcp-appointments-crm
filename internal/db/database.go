@@ -44,7 +44,13 @@ type DB struct {
 // which the driver decodes back before the syscall. ":memory:" keeps its
 // special-case (it is not a filesystem path).
 func buildDSN(dbPath string) string {
-	if dbPath == ":memory:" || strings.HasPrefix(dbPath, "file:") {
+	// modernc solo procesa query params en URIs con scheme file:: un raw
+	// ":memory:?_pragma=…" deja journal_mode en "memory" (verifyPragmas
+	// fallaba) — la forma canónica documentada del driver es file::memory:.
+	if dbPath == ":memory:" {
+		return "file::memory:" + "?" + pragmaQuery()
+	}
+	if strings.HasPrefix(dbPath, "file:") {
 		return dbPath + "?" + pragmaQuery()
 	}
 	pathURI := url.URL{Scheme: "file", Path: dbPath}
@@ -76,6 +82,14 @@ func pragmaQuery() string {
 // busy_timeout) are set via the DSN (see buildDSN) so they apply to every
 // connection in the pool.
 func NewDatabase(ctx context.Context, dbPath string) (*DB, error) {
+	// Fail-closed (issue #177): un '?' en el path compondría una DSN
+	// malformada (doble '?') y el driver ignoraría los _pragma en silencio —
+	// foreign_keys OFF = integridad degradada sin crash ni log. Rechazo
+	// semántico antes de tocar el driver; '#' es legal (url.URL lo escapea
+	// dentro del component Path) y tiene test guard.
+	if strings.ContainsRune(dbPath, '?') {
+		return nil, fmt.Errorf("el path de la base de datos es inválido: contiene '?': usá un path de filesystem sin query string (el '?' rompe la composición del DSN y los pragmas quedarían en silent-ignore)")
+	}
 	dir := filepath.Dir(dbPath)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
@@ -87,7 +101,7 @@ func NewDatabase(ctx context.Context, dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 
-	if err := verifyPragmas(ctx, conn); err != nil {
+	if err := verifyPragmas(ctx, conn, dbPath == ":memory:"); err != nil {
 		_ = conn.Close()
 		return nil, err
 	}
@@ -109,14 +123,18 @@ func (db *DB) Close() error {
 }
 
 // verifyPragmas asserts that critical SQLite pragmas are active on the
-// connection: WAL journal mode, synchronous NORMAL, foreign_keys enabled,
-// and busy_timeout set.
-func verifyPragmas(ctx context.Context, conn *sql.DB) error {
+// connection: synchronous NORMAL, foreign_keys enabled, busy_timeout set, and
+// WAL journal mode for file-backed databases. isMemory relaxes only the WAL
+// assertion: an in-memory database structurally cannot use
+// journal_mode=WAL (sqlite reports "memory"), so relaxing it is what makes
+// NewDatabase(":memory:") possible while foreign_keys et al. stay verified
+// below (issue #177).
+func verifyPragmas(ctx context.Context, conn *sql.DB, isMemory bool) error {
 	var mode string
 	if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
 		return fmt.Errorf("query journal_mode: %w", err)
 	}
-	if mode != "wal" {
+	if mode != "wal" && !isMemory {
 		return fmt.Errorf("expected WAL journal mode, got %q", mode)
 	}
 
