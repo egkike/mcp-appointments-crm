@@ -286,7 +286,7 @@ if launchctl print "$DOMAIN" > "$Fx/launchctl-print.txt" 2>&1; then
 		(HOME="$SMOKE_HOME" MCP_SETUP_DIR="$SBOX_SETUP" MCP_BIND="127.0.0.1" MCP_PORT="$SMOKE_PORT" MCP_DB_PATH="$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/reservas.db" "$BIN_DIR/mcp-server" > "$Fx/standalone.log" 2>&1 & echo $! > "$Fx/standalone.pid") || true
 		sleep 2
 		if [ -f "$Fx/standalone.pid" ] && kill -0 "$(cat "$Fx/standalone.pid")" 2>/dev/null; then
-			pass "binary runs standalone (still alive after 2s) — launchd spawn relay is the suspect, not the binary; agent PID-less after 20s"
+			fail "launchd agent did not spawn within ~20s (binary runs standalone: the spawn relay itself is broken, not the binary)"
 		else
 			fail "no pid line, no running state, no ps process, and standalone run failed — genuine crash"
 		fi
