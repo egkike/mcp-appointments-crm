@@ -115,6 +115,22 @@ fi
 if [ -f "$REPO_ROOT/scripts/backup.sh" ]; then
 	cp "$REPO_ROOT/scripts/backup.sh" "$STAGE/scripts/backup.sh" || die "stage backup script"
 fi
+# The launchd agent does NOT inherit the smoke's sandboxed HOME: it boots
+# with the runner's real home, where the server's boot resolvers (mirrors of
+# install.sh's per-OS table) find neither the sandboxed setup JSONs nor a
+# 0700 config dir, and the process crash-loops. install.sh never renders
+# MCP_SETUP_DIR — an operator's real install legitimately runs against the
+# real HOME — so the HARNESS pins the sandboxed location inside the STAGED
+# template copy: inject one EnvironmentVariables entry right after
+# MCP_DB_PATH. resolveConfigDirOS honors MCP_SETUP_DIR for the config dir
+# too (its parent), so the audit-hash key also lands inside the sandbox.
+SBOX_SETUP="$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/setup"
+awk -v ins="    <key>MCP_SETUP_DIR</key><string>$SBOX_SETUP</string>" \
+	'/MCP_DB_PATH/{print; print ins; next}{print}' \
+	"$STAGE/setup/service/com.mcp.appointments.server.plist" \
+	> "$STAGE/setup/service/com.mcp.appointments.server.plist.tmp" || die "plist inject"
+mv "$STAGE/setup/service/com.mcp.appointments.server.plist.tmp" \
+	"$STAGE/setup/service/com.mcp.appointments.server.plist" || die "plist tmp move"
 
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -154,10 +170,22 @@ PLIST_PATH="$SMOKE_HOME/Library/LaunchAgents/com.mcp.appointments.server.plist"
 ENV_PATH="$SMOKE_HOME/.config/mcp-appointments-crm/.env"
 
 mkdir -p "$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/setup" || die "HOME setup dir"
-for f in setup_business.json setup_staff.json setup_services.json; do
-	printf '{}\n' > "$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/setup/$f" || die "setup stub $f"
-done
-pass "staged setup JSON stubs in sandboxed HOME"
+# Realistic minimum shapes, mirroring internal/config/setup_types.go: the
+# server imports them at boot (setup_seeder.LoadSetup) — staff/services are
+# JSON arrays and business_hours needs every day key with {open,close} or
+# null, otherwise the agent crash-loops at seed import and the PID assert
+# can never see a live process.
+cat > "$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/setup/setup_business.json" <<'EOF'
+{"name":"Smoke Test Business","currency_code":"ARS","currency_symbol":"$","timezone":"America/Argentina/Buenos_Aires","slot_interval_minutes":30,"business_hours":{"monday":{"open":"09:00","close":"18:00"},"tuesday":{"open":"09:00","close":"18:00"},"wednesday":{"open":"09:00","close":"18:00"},"thursday":{"open":"09:00","close":"18:00"},"friday":{"open":"09:00","close":"18:00"},"saturday":null,"sunday":null}}
+EOF
+cat > "$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/setup/setup_staff.json" <<'EOF'
+[{"name":"Smoke Person","status":"active","specialties":[],"schedule":[{"day_of_week":0,"start_time":"00:00","end_time":"23:59"},{"day_of_week":1,"start_time":"00:00","end_time":"23:59"},{"day_of_week":2,"start_time":"00:00","end_time":"23:59"},{"day_of_week":3,"start_time":"00:00","end_time":"23:59"},{"day_of_week":4,"start_time":"00:00","end_time":"23:59"},{"day_of_week":5,"start_time":"00:00","end_time":"23:59"},{"day_of_week":6,"start_time":"00:00","end_time":"23:59"}]}]
+EOF
+cat > "$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/setup/setup_services.json" <<'EOF'
+[{"name":"Smoke Service","duration_minutes":30,"price":100,"is_active":1}]
+EOF
+chmod 700 "$SMOKE_HOME/Library/Application Support/MCP Appointments CRM" || die "chmod app dir"
+pass "staged realistic setup JSON fixtures (mirroring internal/config/setup_types.go)"
 
 HOME="$SMOKE_HOME"
 HERMES_HOME="$SMOKE_HOME/.hermes"
@@ -255,7 +283,7 @@ if launchctl print "$DOMAIN" > "$Fx/launchctl-print.txt" 2>&1; then
 	else
 		# Standalone probe: if the binary runs fine on its own, the failure
 		# belongs to the launchd spawn relay (env wiring), not the binary.
-		(HOME="$SMOKE_HOME" MCP_BIND="127.0.0.1" MCP_PORT="$SMOKE_PORT" MCP_DB_PATH="$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/reservas.db" "$BIN_DIR/mcp-server" > "$Fx/standalone.log" 2>&1 & echo $! > "$Fx/standalone.pid") || true
+		(HOME="$SMOKE_HOME" MCP_SETUP_DIR="$SBOX_SETUP" MCP_BIND="127.0.0.1" MCP_PORT="$SMOKE_PORT" MCP_DB_PATH="$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/reservas.db" "$BIN_DIR/mcp-server" > "$Fx/standalone.log" 2>&1 & echo $! > "$Fx/standalone.pid") || true
 		sleep 2
 		if [ -f "$Fx/standalone.pid" ] && kill -0 "$(cat "$Fx/standalone.pid")" 2>/dev/null; then
 			pass "binary runs standalone (still alive after 2s) — launchd spawn relay is the suspect, not the binary; agent PID-less after 20s"
