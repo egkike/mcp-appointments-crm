@@ -122,14 +122,16 @@ case "$ARCH" in
 	x86_64) ASSET_PATH="mcp-appointments-crm_Darwin_x86_64.tar.gz" ;;
 	*) die "unsupported runner arch: $ARCH" ;;
 esac
-mkdir -p "$Fx/release" || die "release dir"
-ASSET_FILE="$Fx/release/$ASSET_PATH"
+# download_and_verify composes the URL as <base>/<tag>/<asset> (GitHub
+# Releases shape), so the fake release must carry the tag subdirectory too.
+mkdir -p "$Fx/release/$SMOKE_TAG" || die "release dir"
+ASSET_FILE="$Fx/release/$SMOKE_TAG/$ASSET_PATH"
 if ! ( cd "$STAGE" && tar -czf "$ASSET_FILE" mcp-server setup scripts ); then
 	die "tar staging failed"
 fi
 rm -rf "$STAGE" || die "cannot remove staging"
 RAW_HASH=$(shasum -a 256 "$ASSET_FILE" | awk '{print $1}')
-printf '%s  %s\n' "$RAW_HASH" "$ASSET_PATH" > "$Fx/release/checksums.txt" || die "checksums.txt write"
+printf '%s  %s\n' "$RAW_HASH" "$ASSET_PATH" > "$Fx/release/$SMOKE_TAG/checksums.txt" || die "checksums.txt write"
 pass "staged checksummed fake release: $ASSET_PATH"
 
 # curl file:// URLs need an absolute path with no spaces; mktemp chose this
@@ -169,9 +171,15 @@ if [ "$INSTALL_RC" -eq 0 ]; then
 	pass "install.sh --version $SMOKE_TAG exited 0 (real curl + checksum + tar + launchctl path)"
 else
 	fail "install.sh --version $SMOKE_TAG exited $INSTALL_RC"
-	say "----- install.log tail -----"
-	tail -20 "$Fx/install.log" >&2
+	say "----- install.log ($(wc -c < "$Fx/install.log") bytes, invisible chars shown) -----"
+	cat -ev "$Fx/install.log" >&2
 	say "----- end install.log -----"
+	# Diagnostic rerun under bash -x: same env, so the trace reproduces the
+	# failure line-for-line and gives the CI log the exact failing command.
+	bash -x "$INSTALLER" --version "$SMOKE_TAG" > "$Fx/install-x.log" 2>&1
+	say "----- bash -x trace tail -----"
+	tail -80 "$Fx/install-x.log" >&2
+	say "----- end bash -x trace tail -----"
 fi
 
 # Restore the runner's HOME so later asserts and any failure hygiene step the
