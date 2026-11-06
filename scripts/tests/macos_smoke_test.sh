@@ -19,6 +19,10 @@
 # The harness never touches the network (file:// release base) and keeps every
 # filesystem interaction inside its own mktemp prefix via a sandboxed HOME.
 # Requires bash 3.2 (macOS stock) — anything newer is not used on purpose.
+# ENFORCED, not claimed (R3-001, reliability advisory on the PR #174 review):
+# the preflight guard aborts with a clear message under a non-bash interpreter
+# or a bash older than 3.x, instead of failing later with a cryptic
+# version-quirk symptom (set -u substitution behavior differs on old bash).
 
 set -u
 umask 077
@@ -47,6 +51,23 @@ die() {
 	say "ABORT: $1"
 	exit 1
 }
+
+# --- Interpreter guard (enforces the bash 3.2 promise above) ----------------
+# Deliberately BEFORE the darwin skip: mis-invocation (sh/dash) must fail
+# loudly everywhere, not silently take the SKIP path.
+if [ -z "${BASH_VERSION:-}" ]; then
+	die "this harness must run under bash (BASH_VERSION unset — for example, invoked via sh/dash); re-run with: bash $0"
+fi
+BASH_MAJOR=$(printf "%s" "$BASH_VERSION" | cut -d. -f1)
+case "$BASH_MAJOR" in
+	''|*[!0-9]*)
+		die "cannot parse bash major version from '$BASH_VERSION'"
+		;;
+esac
+if [ "$BASH_MAJOR" -lt 3 ]; then
+	die "bash $BASH_VERSION is too old: the harness targets stock macOS bash 3.2, so major >= 3 is required"
+fi
+pass "interpreter guard: bash $BASH_VERSION (major $BASH_MAJOR) satisfies the bash 3.2 promise"
 
 # ---------------------------------------------------------------------------
 # Preflight: this harness is darwin-only on purpose (it exercises launchctl,
