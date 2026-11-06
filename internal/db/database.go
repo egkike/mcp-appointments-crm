@@ -33,23 +33,22 @@ type DB struct {
 // buildDSN appends modernc.org/sqlite _pragma query parameters to dbPath so
 // that per-connection pragmas (foreign_keys, busy_timeout, journal_mode,
 // synchronous) are applied to every connection in the pool.
-// For non-URL paths like ":memory:", it falls back to direct concatenation.
-// The path component is parsed by net/url, so paths containing "?" or "#"
-// may be misinterpreted as URI components — callers should avoid such
-// characters in dbPath. For typical Linux/macOS XDG paths, this is safe.
+//
+// Issue #175: the DSN must be a PROPER file: URI (url.URL with Path set),
+// never a bare path glued to a query string. url.Parse().String() on a plain
+// filesystem path silently re-encodes ordinary characters — spaces in
+// ~/Library/Application Support/… (the documented macOS install path) become
+// literal "%20" in the filename and the driver then seeks a directory named
+// "Application%20Support" that does not exist (SQLITE_CANTOPEN, error 14).
+// A file:-prefixed URI keeps the percent-encoding inside the URI component,
+// which the driver decodes back before the syscall. ":memory:" keeps its
+// special-case (it is not a filesystem path).
 func buildDSN(dbPath string) string {
-	u, err := url.Parse(dbPath)
-	if err != nil {
-		// Fallback for paths that aren't valid URLs (e.g., ":memory:").
-		// Safe because ":memory:" contains no URL-special characters.
+	if dbPath == ":memory:" || strings.HasPrefix(dbPath, "file:") {
 		return dbPath + "?" + pragmaQuery()
 	}
-	q := u.Query()
-	for _, p := range pragmaParams() {
-		q.Add("_pragma", p)
-	}
-	u.RawQuery = q.Encode()
-	return u.String()
+	pathURI := url.URL{Scheme: "file", Path: dbPath}
+	return pathURI.String() + "?" + pragmaQuery()
 }
 
 // pragmaParams returns the 4 production pragma values applied to every connection.
