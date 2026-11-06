@@ -105,6 +105,11 @@ pass "built real darwin binary with ldflags version $SMOKE_TAG"
 #    mcp-server); resolve_service_template favors EXTRACT_DIR/setup/service;
 #    seed_skill_pristine favors EXTRACT_DIR/setup/templates.
 # ---------------------------------------------------------------------------
+# The sandboxed HOME is defined HERE (before staging) because the plist
+# injection below references it; section 3 only exports it.
+SMOKE_HOME="$Fx/home"
+SBOX_SETUP="$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/setup"
+BIN_DIR="$SMOKE_HOME/.local/bin"
 STAGE="$Fx/release-stage"
 mkdir -p "$STAGE/setup/service" "$STAGE/setup/templates" "$STAGE/scripts" || die "staging mkdir"
 cp "$Fx/build/mcp-server" "$STAGE/mcp-server" || die "stage binary"
@@ -160,11 +165,9 @@ RELEASE_BASE="file://$Fx/release"
 # ---------------------------------------------------------------------------
 # 3. Sandbox HOME + setup stubs, then run the real installer end-to-end.
 # ---------------------------------------------------------------------------
-# Threads HOME through every subprocess: resolve_paths, the LaunchAgents dir,
-# the .env file — the whole install tree lives inside the temp prefix, so the
-# harness never mutates the runner user's real HOME.
-SMOKE_HOME="$Fx/home"
-BIN_DIR="$SMOKE_HOME/.local/bin"
+# Note: SMOKE_HOME/SBOX_SETUP/BIN_DIR live in the staging section (section 2)
+# because the plist injection also needs them. This section adds the rest of
+# the sandbox TREE paths and exports the environment.
 LOG_DIR="$SMOKE_HOME/Library/Logs/MCP Appointments CRM"
 PLIST_PATH="$SMOKE_HOME/Library/LaunchAgents/com.mcp.appointments.server.plist"
 ENV_PATH="$SMOKE_HOME/.config/mcp-appointments-crm/.env"
