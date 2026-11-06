@@ -3,12 +3,44 @@ package db
 import (
 	"context"
 	"database/sql"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
 )
+
+// TestNewDatabase_SpaceInPath (issue #175): the DSN builder must emit a
+// proper file: URI so real install paths with spaces (macOS
+// ~/Library/Application Support/…) open instead of producing
+// SQLITE_CANTOPEN (14). Guards the exact DSN composition the server boots on.
+func TestNewDatabase_SpaceInPath(t *testing.T) {
+	ctx := context.Background()
+	dirWithSpaces := filepath.Join(t.TempDir(), "Application Support", "MCP Appointments CRM")
+	if err := os.MkdirAll(dirWithSpaces, 0o700); err != nil {
+		t.Fatalf("mkdir spaced dir: %v", err)
+	}
+	dbPath := filepath.Join(dirWithSpaces, "reservas.db")
+
+	db, err := NewDatabase(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("NewDatabase spaced path: %v", err)
+	}
+	defer func() { _ = db.Conn.Close() }()
+
+	var mode string
+	if err := db.Conn.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err != nil {
+		t.Fatalf("query journal_mode: %v", err)
+	}
+	if mode != "wal" {
+		t.Fatalf("journal_mode = %q, want wal", mode)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("db file not created: %v", err)
+	}
+}
 
 // newTestDB creates an in-memory SQLite DB with pragmas matching production
 // and the full schema applied (idempotent).
