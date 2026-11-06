@@ -217,13 +217,34 @@ else
 fi
 
 LAUNCHCTL_UID="$(id -u)"
-if launchctl print "gui/$LAUNCHCTL_UID/com.mcp.appointments.server" > "$Fx/launchctl-print.txt" 2>&1; then
+DOMAIN="gui/$LAUNCHCTL_UID/com.mcp.appointments.server"
+if launchctl print "$DOMAIN" > "$Fx/launchctl-print.txt" 2>&1; then
 	pass "launchd service actually loaded (launchctl print ok)"
-	PID_LINE=$(grep -E 'pid = [0-9]+' "$Fx/launchctl-print.txt" | head -n 1 | grep -Eo '[0-9]+')
-	if [ -n "$PID_LINE" ] && [ "$PID_LINE" != "0" ]; then
-		pass "agent holds a running PID ($PID_LINE) — RunAtLoad + KeepAlive honored"
+	# RunAtLoad spawns asynchronously: a healthy agent may be registered a
+	# few milliseconds before its program holds a PID, so retry before
+	# declaring a failed spawn (a broken binary crashes AND respawns under
+	# KeepAlive, which this loop never mistakes for success — pid stays 0).
+	SPAWNED=""
+	i=0
+	while [ "$i" -lt 20 ]; do
+		launchctl print "$DOMAIN" > "$Fx/launchctl-print.txt" 2>&1 || true
+		SPAWNED=$(grep -E 'pid = [0-9]+' "$Fx/launchctl-print.txt" | head -n 1 | grep -Eo '[0-9]+' | head -n 1)
+		if [ -n "$SPAWNED" ] && [ "$SPAWNED" != "0" ]; then
+			break
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	if [ -n "$SPAWNED" ] && [ "$SPAWNED" != "0" ]; then
+		pass "agent holds a running PID ($SPAWNED) — RunAtLoad + KeepAlive honored"
 	else
-		fail "agent loaded but no running PID visible in launchctl print"
+		fail "agent loaded but no running PID after ~20s (crash loop or slow spawn)"
+		say "----- last launchctl print (head) -----"
+		head -40 "$Fx/launchctl-print.txt" >&2
+		say "----- agent stdout log -----"
+		[ -f "$LOG_DIR/mcp-server.out.log" ] && cat "$LOG_DIR/mcp-server.out.log" >&2
+		say "----- agent stderr log -----"
+		[ -f "$LOG_DIR/mcp-server.err.log" ] && cat "$LOG_DIR/mcp-server.err.log" >&2
 	fi
 else
 	fail "launchd service not loaded (launchctl print failed)"
