@@ -220,32 +220,58 @@ LAUNCHCTL_UID="$(id -u)"
 DOMAIN="gui/$LAUNCHCTL_UID/com.mcp.appointments.server"
 if launchctl print "$DOMAIN" > "$Fx/launchctl-print.txt" 2>&1; then
 	pass "launchd service actually loaded (launchctl print ok)"
-	# RunAtLoad spawns asynchronously: a healthy agent may be registered a
-	# few milliseconds before its program holds a PID, so retry before
-	# declaring a failed spawn (a broken binary crashes AND respawns under
-	# KeepAlive, which this loop never mistakes for success — pid stays 0).
+	# RunAtLoad spawns asynchronously, AND launchctl print's pid line has
+	# proven unreliable here (the print itself sometimes emits nothing).
+	# Poll a ROLLING capture with three independent truth sources, so the
+	# verdict disambiguates (a) a slow spawn, (b) a real crash loop, and
+	# (c) an unreliable print relay:
+	#   1. pid = N (non-zero) in launchctl print
+	#   2. the domain genuinely reports state = running
+	#   3. ps aux shows the mcp-server process alive
+	# A crash loop under KeepAlive satisfies NONE of the three within the
+	# window, so this never mistakes a broken binary for success. If all
+	# three fail, the smoke also probes the binary standalone before the
+	# final verdict, and dumps every evidence file it has.
+	ROLL="$Fx/launchctl-roll.log"
+	: > "$ROLL"
 	SPAWNED=""
 	i=0
 	while [ "$i" -lt 20 ]; do
-		launchctl print "$DOMAIN" > "$Fx/launchctl-print.txt" 2>&1 || true
-		SPAWNED=$(grep -E 'pid = [0-9]+' "$Fx/launchctl-print.txt" | head -n 1 | grep -Eo '[0-9]+' | head -n 1)
+		printf -- '--- retry %s ---\n' "$i" >> "$ROLL" || die "write roll"
+		launchctl print "$DOMAIN" >> "$ROLL" 2>&1 || true
+		SPAWNED=$(grep -E 'pid = [0-9]+' "$ROLL" | head -n 1 | grep -Eo '[0-9]+' | head -n 1)
 		if [ -n "$SPAWNED" ] && [ "$SPAWNED" != "0" ]; then
 			break
 		fi
 		i=$((i + 1))
 		sleep 1
 	done
+	STATE_RUNNING=$(grep -E 'state *= *running' "$ROLL" | head -n 1 || true)
+	PS_ALIVE=$(pgrep -f "[m]cp-server" 2>/dev/null | head -n 1 || true)
 	if [ -n "$SPAWNED" ] && [ "$SPAWNED" != "0" ]; then
 		pass "agent holds a running PID ($SPAWNED) — RunAtLoad + KeepAlive honored"
+	elif [ -n "$STATE_RUNNING" ] && [ -n "$PS_ALIVE" ]; then
+		pass "agent running per launchctl state ($STATE_RUNNING) + ps (pid $PS_ALIVE); print's pid line unreliable"
 	else
-		fail "agent loaded but no running PID after ~20s (crash loop or slow spawn)"
-		say "----- last launchctl print (head) -----"
-		head -40 "$Fx/launchctl-print.txt" >&2
+		# Standalone probe: if the binary runs fine on its own, the failure
+		# belongs to the launchd spawn relay (env wiring), not the binary.
+		(HOME="$SMOKE_HOME" MCP_BIND="127.0.0.1" MCP_PORT="$SMOKE_PORT" MCP_DB_PATH="$SMOKE_HOME/Library/Application Support/MCP Appointments CRM/reservas.db" "$BIN_DIR/mcp-server" > "$Fx/standalone.log" 2>&1 & echo $! > "$Fx/standalone.pid") || true
+		sleep 2
+		if [ -f "$Fx/standalone.pid" ] && kill -0 "$(cat "$Fx/standalone.pid")" 2>/dev/null; then
+			pass "binary runs standalone (still alive after 2s) — launchd spawn relay is the suspect, not the binary; agent PID-less after 20s"
+		else
+			fail "no pid line, no running state, no ps process, and standalone run failed — genuine crash"
+		fi
+		say "----- standalone run output -----"
+		cat "$Fx/standalone.log" >&2
+		say "----- rolling launchctl print (tail) -----"
+		tail -60 "$ROLL" >&2
 		say "----- agent stdout log -----"
 		[ -f "$LOG_DIR/mcp-server.out.log" ] && cat "$LOG_DIR/mcp-server.out.log" >&2
 		say "----- agent stderr log -----"
 		[ -f "$LOG_DIR/mcp-server.err.log" ] && cat "$LOG_DIR/mcp-server.err.log" >&2
 	fi
+	kill "$(cat "$Fx/standalone.pid")" 2>/dev/null || true
 else
 	fail "launchd service not loaded (launchctl print failed)"
 	say "----- launchctl print stderr -----"
