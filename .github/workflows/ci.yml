@@ -92,6 +92,17 @@ jobs:
       - name: Build
         run: go build -o /dev/null ./...
 
+      # The Linux pipeline only proves linux targets (goos), so a
+      # darwin-only compilation break would otherwise surface at release
+      # time, after the tag exists. Cross-builds cost seconds on this same
+      # runner and gate every Go PR; the release (.goreleaser.yaml) ships
+      # darwin/amd64 and darwin/arm64.
+      - name: Cross-build darwin amd64
+        run: GOOS=darwin GOARCH=amd64 go build -o /dev/null ./...
+
+      - name: Cross-build darwin arm64
+        run: GOOS=darwin GOARCH=arm64 go build -o /dev/null ./...
+
       - name: Test (race enabled)
         run: go test -v -race -count=1 ./...
 
