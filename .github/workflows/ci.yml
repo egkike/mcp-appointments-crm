@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-26.04
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      installer: ${{ steps.filter.outputs.installer }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -52,6 +53,18 @@ jobs:
               - 'pkg/**'
               - 'scripts/**'
               - '.golangci.yml'
+              - '.github/workflows/ci.yml'
+            # Installer-relevant paths: the file:// fake release the macOS
+            # smoke stages carries the built binary plus setup/ contents, and
+            # the installer itself is scripts/. Go-only PRs skip the small,
+            # starvation-prone macOS runner pool (reproductor-musica doctrine,
+            # issue #66 there); darwin COMPILATION stays gated on every Go
+            # PR via the cross-builds in the ci job.
+            installer:
+              - 'scripts/**'
+              - 'setup/**'
+              - 'go.mod'
+              - 'go.sum'
               - '.github/workflows/ci.yml'
 
   ci:
@@ -108,3 +121,41 @@ jobs:
 
       - name: Dependency vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+  # macOS installer smoke — native launchd path of scripts/install.sh
+  # (render_launchd_plist + launchctl bootstrap), which the Linux pipeline can
+  # never execute. Scoped by the `installer` filter so the small, starvation-
+  # prone macOS runner pool only serves installer-relevant PRs; a SKIPPED
+  # instance here is still reported as a satisfying check instance (the same
+  # #16 doctrine the ci job follows for docs-only pushes). macos-14 runner
+  # images retired on 2026-11-02; macos-15 is the pinned stable successor.
+  install-macos:
+    name: Install macOS
+    needs: changes
+    if: needs.changes.outputs.installer == 'true'
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+          check-latest: true
+
+      # Real-binary e2e on native darwin: build cmd/mcp-server, stage a
+      # checksummed fake release, run scripts/install.sh --version over
+      # file:// URLs (this IS the live bash 3.2 gate for the whole script and
+      # the launchd bootstrap), then prove the agent teardown via bootout and
+      # the idempotent second bootout.
+      - name: Install smoke (native launchd e2e)
+        run: bash scripts/tests/macos_smoke_test.sh
+
+      - name: Print macOS shell hygiene
+        if: failure()
+        run: |
+          echo "bash: $(bash --version | head -1)"
+          echo "uname: $(uname -srm)"
