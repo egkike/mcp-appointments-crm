@@ -1,0 +1,78 @@
+name: Feature Request
+description: Propose a new capability or a change in behaviour
+title: "feat: "
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## How this repository works
+
+        This project accepts **issues only** — pull requests are closed
+        automatically. Reporting the request here is the whole contribution; the
+        maintainer implements it if it is accepted. See
+        [CONTRIBUTING.md](https://github.com/egkike/mcp-appointments-crm/blob/main/CONTRIBUTING.md).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched the open and closed issues and this is not a duplicate
+          required: true
+        - label: I understand this repository takes issues only, not pull requests
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - MCP tools (new tool, or arguments / response shape)
+        - Setup wizard or admin TUI (`admin tui`)
+        - Installer or service registration (systemd / launchd)
+        - SQLite storage or schema
+        - Hermes / agent connection (gateway contract)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you cannot do today, and what it costs you. Lead with this — a request that names the problem can be redesigned; one that only names an implementation usually gets closed as out of scope.
+      placeholder: |
+        I need to ... but today the only way is ...
+        This matters because ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed shape
+      description: The behaviour you would like, as concretely as you can state it. A tool call and its response are the most useful form.
+      placeholder: |
+        Tool: create_...
+        Input: { ... }
+        Response: { ... }
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What you already tried or discarded, and why it was not enough.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Screenshots, related issues, constraints from your deployment.
+    validations:
+      required: false

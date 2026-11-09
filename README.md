@@ -158,10 +158,11 @@ inventory: [docs/installation.md § Desinstalación](./docs/installation.md).
 
 ## Documentation
 
+- [Contributing](./CONTRIBUTING.md) — this repository takes **issues only** (bug and feature forms; no pull requests)
 - [Docs index & language conventions](./docs/README.md) — which doc is for whom, in which language (owner decision 2026-11-01)
 - [PRD](./docs/PRD.md) — Product Requirements Document (canonical source)
 - [SDD](./docs/SDD.md) — original idea and analysis
-- [PR Template](./docs/common/prd-template.md) — reusable template for new PRs
+- [PRD Template](./docs/common/prd-template.md) — reusable template for new PRDs
 - [Architecture Decisions](./docs/architecture/) — ADRs
 - [AGENTS.md](./AGENTS.md) — project conventions, coding standards, commit/PR process
 - [Installation](./docs/installation.md) — from-zero install guide (wizard + install.sh)
@@ -228,7 +229,8 @@ burned receipt** (receipt-driven development). Spec deltas and history live in
 `openspec/`, architectural decisions in `docs/architecture/` (ADRs).
 **Judgment Day** (dual blind review) is available as an explicit owner-requested
 escalation. Delivery follows ordinary repository policy: issue-first PRs, CI
-green, owner squash-merge.
+green, owner squash-merge — external contributions are **issues only**, never
+PRs ([`CONTRIBUTING.md`](./CONTRIBUTING.md)).
 
 ## License
 

@@ -1,0 +1,137 @@
+name: Bug Report
+description: Report something that does not work as documented
+title: "bug: "
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## How this repository works
+
+        This project accepts **issues only** — pull requests are closed
+        automatically. Reporting the bug here is the whole contribution; the
+        maintainer implements the fix. See
+        [CONTRIBUTING.md](https://github.com/egkike/mcp-appointments-crm/blob/main/CONTRIBUTING.md).
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched the open and closed issues and this is not a duplicate
+          required: true
+        - label: I understand this repository takes issues only, not pull requests
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What is broken
+      description: One or two sentences. The detail belongs in the fields below.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - MCP tools (tool call, arguments or response)
+        - Setup wizard or admin TUI (`admin tui`)
+        - Installer or service registration (systemd / launchd)
+        - SQLite storage or schema
+        - Hermes / agent connection (gateway contract)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal and in order. A report we cannot replay is a report we cannot fix.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Paste the exact error text. Semantic errors are user-facing by design; raw dumps are not, so quote what you actually saw.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### Environment
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `mcp-server --version`.
+      placeholder: e.g. v0.11.2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux (Ubuntu / Debian)
+        - Linux (Arch / Manjaro)
+        - Linux (Fedora / RHEL)
+        - Linux (other)
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows via WSL2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How was it installed
+      options:
+        - Interactive wizard (`setup/`)
+        - "`install.sh`"
+        - Built from source (`go build`)
+        - Upgraded from a previous release
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and evidence
+      description: |
+        Service state (`systemctl --user status mcp-appointments-crm` on Linux, the
+        launchd equivalent on macOS), the MCP tool response, and the relevant log
+        lines. Redact secrets, API keys, caller IDs and customer data before pasting.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Workarounds you tried, when it started, related issues.
+    validations:
+      required: false

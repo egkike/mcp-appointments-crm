@@ -1,0 +1,62 @@
+# Redirects unsolicited pull requests back to the issue tracker.
+#
+# POLICY, NOT A SECURITY CONTROL. GitHub cannot disable pull requests on a public
+# repository, so this workflow is the only mechanical enforcement of the
+# CONTRIBUTING.md rule "this repository accepts issues only". It is a courtesy
+# redirect with a truthful comment, not an access control: nothing here stops a
+# determined person from pushing a fork.
+#
+# Threat model. This runs on `pull_request_target`, so it holds a write token in
+# the base-branch context. It therefore NEVER checks out the pull request head and
+# never executes contributor code. Every value it uses arrives through `env:` as a
+# typed event field, so no `${{ }}` expression is interpolated into a `run:`
+# script — that interpolation is the standard script-injection vector on this
+# trigger.
+name: close-unsolicited-prs
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: close-unsolicited-prs-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  redirect-to-issues:
+    name: Close PR and redirect to issues
+    runs-on: ubuntu-latest
+    # Fail-closed trust boundary (review finding R3-001). The job closes the PR
+    # unless the author holds one of the associations below. An enumerated
+    # deny-list was the first shape and it failed open: an association value that
+    # GitHub adds later would leave the PR open by omission, which is exactly how
+    # MANNEQUIN entered the set. So the trusted associations are enumerated and
+    # everything unknown is closed. CONTRIBUTOR stays trusted: anyone with a
+    # merged contribution here has earned the benefit of the doubt, and the
+    # maintainer must never have a PR closed by this job.
+    if: >-
+      !contains(
+        fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'),
+        github.event.pull_request.author_association
+      )
+    steps:
+      - name: Close the pull request with the contribution policy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr close "$PR_NUMBER" --comment "$(cat <<'EOF'
+          Thanks for the interest. This repository does not accept pull requests: it
+          takes **issues only**, and the maintainer implements the fix or the feature
+          under an internal delivery gate. See CONTRIBUTING.md in the default branch.
+
+          Please reopen this as a Bug Report or a Feature Request and it will get
+          triaged. Closing this PR without review is the documented policy, not a
+          judgement about your change.
+          EOF
+          )"

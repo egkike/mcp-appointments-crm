@@ -8,9 +8,10 @@
 | Document | Language | Audience | Why |
 |---|---|---|---|
 | [`README.md`](../README.md) | EN | GitHub public + any MCP agent integrator | repo landing; the **standard install is Hermes**; other agents → connector guide |
+| [`CONTRIBUTING.md`](../CONTRIBUTING.md) | EN | GitHub public: anyone reporting a bug or a feature | issue intake happens before any code exists and shares the README audience; it states repository policy (issues only), not operator procedure |
 | [`AGENTS.md`](../AGENTS.md) | EN | dev agents + contributors | coding conventions read by automated agents |
 | [`gateway-contract.md`](./gateway-contract.md) | EN | protocol/contract readers (any agent framework) | it is a cross-system contract: protocol-level artifacts stay EN (same rule as code comments and PR titles) |
-| [`deployment.md`](./docs/deployment.md) | EN | release/infra ops | release engineering with `release.yml`/GoReleaser; **migration ES = pending task (optional)** — same runbook audience as `installation.md` |
+| [`deployment.md`](./deployment.md) | EN | release/infra ops | release engineering with `release.yml`/GoReleaser; **migration ES = pending task (optional)** — same runbook audience as `installation.md` |
 | [`installation.md`](./installation.md) | ES | the owner/operator doing a from-zero install | operator manual |
 | [`PRD.md`](./PRD.md) | ES | the owner (product decisions, changelog, roadmap) | product source of truth |
 | [`SDD.md`](./SDD.md) | ES | the owner (original analysis) | historical product doc |

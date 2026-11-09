@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Quickstart (install in three steps)
+    url: https://github.com/egkike/mcp-appointments-crm/blob/main/README.md#quickstart
+    about: Read this before reporting an install failure — the standard path is covered step by step.
+  - name: Installation and troubleshooting (Spanish)
+    url: https://github.com/egkike/mcp-appointments-crm/blob/main/docs/installation.md
+    about: The canonical install manual, including known failures and their fixes.
+  - name: Contribution policy
+    url: https://github.com/egkike/mcp-appointments-crm/blob/main/CONTRIBUTING.md
+    about: This repository accepts issues only — pull requests are closed automatically.
