@@ -232,6 +232,72 @@ After any PR is squash-merged into `main`, wait for the CI run triggered on `mai
 - A squash-merge commit whose CI was cancelled provides no CI evidence for that exact SHA — and it is a potential release baseline (DoD: "CI pasa en cada release").
 - If a run is still cancelled for this reason, do not merge or push again until it is green or re-run the superseded run (`gh run rerun <id>`) and observe it to completion.
 
+### Main Branch Gate — recovery procedure
+
+The `main-ci-gate` ruleset (id `20610142`) is the enforcement, and it has no bypass:
+`bypass_actors` is empty and `current_user_can_bypass` reads `never`. When the
+pull-request path itself is unavailable, nothing reaches `main` until the ruleset is
+edited. The ruleset lives outside the repository, so `git revert` cannot restore it —
+**capture it before you touch it**.
+
+Relax the gate only for these three cases:
+
+1. A required check is permanently absent for a valid commit. A run that dies at
+   startup emits **no check runs at all**, and an absent check blocks where a skipped
+   one does not. Try `gh run rerun <id>` first: startup failures are often transient,
+   and rerunning the same SHA is the cheapest fix.
+2. The gate blocks the fix to the gate itself.
+3. An emergency revert of a commit that broke `main`.
+
+#### 1. Capture the rollback artifact and a PUT-valid payload
+
+```bash
+gh api repos/egkike/mcp-appointments-crm/rulesets/20610142 > /tmp/main-ci-gate.backup.json
+jq '{name, target, enforcement, conditions, rules, bypass_actors}' \
+  /tmp/main-ci-gate.backup.json > /tmp/main-ci-gate.payload.json
+```
+
+Keep the backup: it is the only path back to the strict configuration. Keep the
+payload too — a `PUT` that sends the whole `GET` response fails, because the response
+carries read-only fields (`id`, `node_id`, `created_at`, `current_user_can_bypass`,
+`_links`).
+
+#### 2. Relax the minimum
+
+Add a bypass for your own user. Do **not** remove the required checks or the
+`pull_request` rule: that leaves `main` ungated until someone remembers to put them
+back, and the storage for that memory is a human under incident pressure.
+
+```bash
+ACTOR_ID=$(gh api user --jq .id)
+jq --argjson id "$ACTOR_ID" \
+  '.bypass_actors = [{actor_id: $id, actor_type: "User", bypass_mode: "always"}]' \
+  /tmp/main-ci-gate.payload.json > /tmp/main-ci-gate.relaxed.json
+gh api -X PUT repos/egkike/mcp-appointments-crm/rulesets/20610142 \
+  --input /tmp/main-ci-gate.relaxed.json
+```
+
+#### 3. Restore, then prove the restore
+
+```bash
+gh api -X PUT repos/egkike/mcp-appointments-crm/rulesets/20610142 \
+  --input /tmp/main-ci-gate.payload.json
+gh api repos/egkike/mcp-appointments-crm/rulesets/20610142 \
+  --jq '{bypass: .bypass_actors, can_bypass: .current_user_can_bypass, rules: [.rules[].type]}'
+```
+
+The procedure is **not complete** until all four hold:
+
+- `bypass_actors` is `[]`
+- `current_user_can_bypass` is `never`
+- `rules` contains both `pull_request` and `required_status_checks`
+- `allowed_merge_methods` is `["squash"]` and `required_approving_review_count` is `0`
+  — a positive count is unsatisfiable, because GitHub forbids self-approval.
+
+Report the incident and the verified restore in the issue that covers the change. A
+relaxation that is not followed by a proved restore is an open security defect, not a
+forgotten step.
+
 ---
 
 ## Cybersecurity Standards (Extended)
