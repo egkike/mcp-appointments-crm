@@ -23,6 +23,10 @@ review gate that only the maintainer can drive. Code arriving from outside that
 gate cannot be evaluated or granted a receipt, so it cannot be merged. Issues are
 the input that flow accepts.
 
+**Scope:** this rule binds outside contributors. The maintainer's own changes —
+documentation included — land as issue-linked pull requests through the gates
+described in [`AGENTS.md`](./AGENTS.md).
+
 You do not need to label, assign, claim, or comment "I'll take this" — there is
 nothing for you to reserve, and the issue form stamps its one `type:` label by
 itself.

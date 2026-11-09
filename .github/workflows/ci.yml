@@ -1,11 +1,13 @@
 # CI for code changes — MCP Appointments CRM
 #
-# Verifies Go code on every PR (and on direct pushes to main). The workflow
+# Verifies Go code on every PR (and on every merge into main). The workflow
 # itself runs on every push/PR so that a required status check is ALWAYS
 # reported; path filtering happens at the JOB level via dorny/paths-filter.
 # When no Go code changed, the "ci" job is skipped and GitHub treats a skipped
 # required check as approved (an absent check would instead block the push).
-# Docs-only changes therefore flow to main directly without friction.
+# Docs-only changes still get that check reported (the jobs are skipped, which
+# GitHub counts as satisfying the required check) — but they now reach main only
+# through a pull request, like every other change.
 #
 # Pipeline mirrors AGENTS.md "Pre-Commit Checklist":
 #   go fmt -> go vet -> golangci-lint -> go build -> go test -race -> govulncheck
