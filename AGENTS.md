@@ -73,7 +73,7 @@ Every pull request into `main` must pass the `pr-gate` required status check
 2. **Owner approval:** every linked issue must carry the `status:approved` label (owner-granted, protected label — never self-assigned by agents).
 3. **Type label:** the PR must carry EXACTLY ONE `type:*` label (`type:feature`, `type:bug`, `type:docs`, `type:refactor`).
 
-Docs-only changes that follow the direct-merge docs workflow (no PR) are unaffected.
+This gate applies to **every** change landing on `main`, documentation included: no file type reaches `main` without a pull request that satisfies the three conditions above.
 
 **If the gate fails after you relabel the linked issue:** re-run the failed check (Actions → pr-gate → Re-run), or toggle any PR label — relabeling the issue does not re-trigger the gate.
 
@@ -161,16 +161,17 @@ deterministic pipeline took over that role.)
 
 | Type | Examples | Branch | Push Direct to main | PR Required |
 |------|----------|--------|---------------------|------------|
-| **Documentation** | `docs/**`, `README.md`, and repository tracking docs (`odd/`, `openspec/changes/archive/`) | `main` | ✅ Yes | ❌ No |
+| **Documentation** | `docs/**`, `README.md`, and repository tracking docs (`odd/`, `openspec/changes/archive/`) | Feature branch | ❌ No | ✅ Yes |
 | **Code Changes** | `*.go`, `go.mod`, `go.sum`, `scripts/`, `internal/`, `cmd/` | Feature branch | ❌ No | ✅ Yes |
+| **Config / CI** | `.github/**` (workflows, issue templates, ruleset-adjacent config; a change to `.github/workflows/**` also governs delivery, so it never ships without a PR), `setup/`, `templates/`, `.golangci.yml` | Feature branch | ❌ No | ✅ Yes |
 
 **Workflow for docs** (`docs/**`, `README.md`, and tracking docs):
 1. Create a feature branch (e.g., `feat/feat-auth-propose`, `feat/feat-auth-specs`).
 2. Commit the `.md` file(s) on that branch.
-3. Orchestrator shows the changes to the user for review.
-4. After approval: `git checkout main && git merge --ff-only <branch> && git push origin main`.
-5. Delete the local feature branch (`git branch -d`).
-6. No PR is opened (the merge to main is direct).
+3. Push the branch and open a PR against `main` that closes an issue carrying `status:approved` and carries exactly one `type:*` label.
+4. CI checks + reviewer approval required.
+5. Confirm the `pr-gate` check is green, then squash and merge after approval.
+6. Delete the local feature branch (`git branch -d`).
 
 **Workflow for code** (`.go`, `go.mod`, etc.):
 1. Create a feature branch (e.g., `feat/feat-auth-apply`).
@@ -210,7 +211,7 @@ deterministic pipeline took over that role.)
    □ Si pasa → Commit + Push
    □ Si PR > budget lines → hacer chained PR (ver abajo)
    ```
-3. **Create PR** (si hay código): `gh pr create`
+3. **Create PR:** `gh pr create`
 4. **Wait for merge users notification**
 5. **Continue with next task**
 
@@ -225,11 +226,11 @@ deterministic pipeline took over that role.)
 
 ### Post-Merge CI Sequencing
 
-After any merge to `main`, wait for the merge commit's CI run to finish green **before making the next push to `main`** (including the docs/tracking follow-up commit).
+After any PR is squash-merged into `main`, wait for the CI run triggered on `main` by that squash-merge commit to finish green **before landing the next change on `main`** (including the docs/tracking follow-up commit).
 
-- `ci.yml` uses concurrency with cancel-in-progress: consecutive pushes cancel the older run, leaving a red/cancelled badge on the merge commit.
-- A merge commit whose CI was cancelled provides no CI evidence for that exact SHA — and the merge commit is a potential release baseline (DoD: "CI pasa en cada release").
-- If a run is still cancelled for this reason, do not push again until it is green or re-run the superseded run (`gh run rerun <id>`) and observe it to completion.
+- `ci.yml` uses concurrency with cancel-in-progress: consecutive pushes to `main` cancel the older run, leaving a red/cancelled badge on the squash-merge commit.
+- A squash-merge commit whose CI was cancelled provides no CI evidence for that exact SHA — and it is a potential release baseline (DoD: "CI pasa en cada release").
+- If a run is still cancelled for this reason, do not merge or push again until it is green or re-run the superseded run (`gh run rerun <id>`) and observe it to completion.
 
 ---
 
