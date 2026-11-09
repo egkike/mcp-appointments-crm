@@ -30,11 +30,21 @@ on:
     types: [unlabeled]
 
 concurrency:
-  # Per-PR (pull_request_target makes github.ref the base ref for every PR,
-  # so the group key must come from the PR number; issue events get a
-  # unique per-run group).
-  group: pr-gate-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
+  # Every run gets its own group, on purpose: nothing may cancel another run of
+  # this workflow. Its result IS the required status check
+  # "Validate issue linkage, approval, and type label", and any cancellation
+  # leaves a `cancelled` check run on that context. A cancelled required check
+  # leaves the pull request merge box BLOCKED, and it does not recover when a
+  # newer `success` for the same context arrives (observed on PR #182: `opened`
+  # was cancelled by `labeled`, both on the same head SHA).
+  #
+  # Lowering `cancel-in-progress` to false is not enough: with a shared group key
+  # GitHub cancels an already-pending run when a newer one enters the group, which
+  # produces the same `cancelled` check run. Keying by `github.run_id` means no two
+  # runs ever share a group, so nothing queues against anything and nothing is
+  # cancelled. The cost is a duplicate ~5s metadata-only run on a PR that receives
+  # several events; the alternative costs a blocked merge.
+  group: pr-gate-${{ github.run_id }}
 
 permissions:
   contents: read
