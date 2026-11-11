@@ -147,7 +147,7 @@ inventory: [docs/installation.md § Desinstalación](./docs/installation.md).
 
 ## Architecture
 
-- **Language**: Go 1.27.3 with `modernc.org/sqlite` (pure Go, no CGo)
+- **Language**: Go 1.27.4 with `modernc.org/sqlite` (pure Go, no CGo)
 - **Database**: SQLite with WAL mode, FTS5 full-text search, `busy_timeout=5000`
 - **TUI**: [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea) ecosystem
 - **Transport**: MCP over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3000` (loopback only) — go-sdk v1.7.0, implemented (`feat-mcp-transport`, archived 2026-08-19)
@@ -174,7 +174,7 @@ inventory: [docs/installation.md § Desinstalación](./docs/installation.md).
 
 ## Development
 
-Requires Go 1.27.3+.
+Requires Go 1.27.4+.
 
 ### Run the server locally
 
