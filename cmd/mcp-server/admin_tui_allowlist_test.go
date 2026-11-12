@@ -196,7 +196,9 @@ func TestRunConfigureHermesFlowAudit_AdvisoryFailureKeepsTheFlow(t *testing.T) {
 // TestWriteAllowlistAdvisory_ConsoleFailureIsNotAnError locks R4-003 at the seam:
 // the advisory is the last, non-essential step of a flow whose config write
 // already succeeded, so a console it cannot write to answers nil instead of
-// surfacing an error the operator cannot act on.
+// surfacing an error the operator cannot act on. This case carries no fallback
+// console, so it also pins the nil-fallback path (the retry on stderr is locked by
+// TestWriteAllowlistAdvisory_RetriesOnTheFallbackConsole).
 func TestWriteAllowlistAdvisory_ConsoleFailureIsNotAnError(t *testing.T) {
 	audit := auditFor(func(_ context.Context, _ string) (string, error) {
 		return narrowToolsList, nil
@@ -271,5 +273,70 @@ func TestDefaultAllowlistAudit_UsesTheRealRunner(t *testing.T) {
 		defaultAllowlistAudit.platforms[0] != "whatsapp" ||
 		defaultAllowlistAudit.platforms[1] != "telegram" {
 		t.Errorf("audited platforms = %v, want [whatsapp telegram]", defaultAllowlistAudit.platforms)
+	}
+	// R4-002: the production audit must carry a fallback console, or a refused
+	// stdout write would drop the security notice with nobody learning it.
+	if defaultAllowlistAudit.fallback == nil {
+		t.Error("defaultAllowlistAudit.fallback = nil, want stderr as the advisory's fallback console")
+	}
+}
+
+// TestWriteAllowlistAdvisory_RetriesOnTheFallbackConsole locks R4-002: the
+// advisory is a security notice, so a console that refuses the write must not
+// make it vanish without a trace. The same text is retried on the fallback
+// console (stderr in production), and the flow still answers nil.
+func TestWriteAllowlistAdvisory_RetriesOnTheFallbackConsole(t *testing.T) {
+	var fallback bytes.Buffer
+	audit := auditFor(func(_ context.Context, _ string) (string, error) {
+		return narrowToolsList, nil
+	})
+	audit.fallback = &fallback
+
+	if err := writeAllowlistAdvisory(context.Background(), failingConsole{}, audit); err != nil {
+		t.Fatalf("writeAllowlistAdvisory() error = %v, want nil despite the console failure", err)
+	}
+
+	got := fallback.String()
+	for _, want := range []string{
+		"Allowlist del canal whatsapp: mínima ✓",
+		"Allowlist del canal telegram: mínima ✓",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("fallback output = %q, want the advisory retried with %q", got, want)
+		}
+	}
+}
+
+// TestWriteAllowlistAdvisory_BothConsolesFailKeepsTheFlowNonFailing closes the
+// loop: when the fallback fails too there is no operator action left, so the step
+// stays non-failing instead of inventing an error the flow cannot use.
+func TestWriteAllowlistAdvisory_BothConsolesFailKeepsTheFlowNonFailing(t *testing.T) {
+	audit := auditFor(func(_ context.Context, _ string) (string, error) {
+		return narrowToolsList, nil
+	})
+	audit.fallback = failingConsole{}
+
+	if err := writeAllowlistAdvisory(context.Background(), failingConsole{}, audit); err != nil {
+		t.Fatalf("writeAllowlistAdvisory() error = %v, want nil when both consoles fail", err)
+	}
+}
+
+// TestWriteAllowlistAdvisory_PrimarySuccessLeavesTheFallbackSilent keeps the
+// retry from becoming a duplicate print on a healthy console.
+func TestWriteAllowlistAdvisory_PrimarySuccessLeavesTheFallbackSilent(t *testing.T) {
+	var out, fallback bytes.Buffer
+	audit := auditFor(func(_ context.Context, _ string) (string, error) {
+		return narrowToolsList, nil
+	})
+	audit.fallback = &fallback
+
+	if err := writeAllowlistAdvisory(context.Background(), &out, audit); err != nil {
+		t.Fatalf("writeAllowlistAdvisory() error = %v, want nil", err)
+	}
+	if !strings.Contains(out.String(), "Allowlist del canal whatsapp") {
+		t.Errorf("output = %q, want the advisory on the primary console", out.String())
+	}
+	if fallback.Len() != 0 {
+		t.Errorf("fallback output = %q, want it untouched when the primary console worked", fallback.String())
 	}
 }
