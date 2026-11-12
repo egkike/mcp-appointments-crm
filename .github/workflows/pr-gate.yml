@@ -34,7 +34,15 @@ concurrency:
   # so the group key must come from the PR number; issue events get a
   # unique per-run group).
   group: pr-gate-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
+  # NEVER cancel a run of this workflow: its job is a REQUIRED status check of
+  # the main-ci-gate ruleset, and GitHub counts a cancelled required check as a
+  # failure. A PR that receives two events within the same second (the normal
+  # case of a PR created already carrying its type:* label: opened + labeled)
+  # used to cancel the first run mid-flight and block itself with CLEAN content
+  # (#188 and #190 both hit this on 2026-11-12). The gate takes seconds; letting
+  # the older run finish keeps the newest conclusion authoritative anyway, and
+  # the anti-relabel protection survives because label events still trigger it.
+  cancel-in-progress: false
 
 permissions:
   contents: read
