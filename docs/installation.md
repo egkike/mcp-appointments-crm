@@ -636,14 +636,20 @@ es la fuente normativa):
 > completo: ocurrió en vivo durante el ciclo v0.10.0 (el bot de WhatsApp escribió
 > `reservas.db` sin `create_booking` en el log — issue upstream open
 > [NousResearch/hermes-agent#147647](https://github.com/NousResearch/hermes-agent/issues/147647)).
-> **⚠️ Paso obligatorio antes de dar el canal a clientes: restringir los tools del canal.**
-> Los bundles de canal de Hermes son **full access por default**: `hermes-whatsapp`,
-> `hermes-telegram`, etc. se expanden a las core tools completas, que incluyen
-> `terminal`, `write_file`, `patch`, `execute_code`, `browser_exec`,
-> `computer_use` y `delegate_task`. Cualquiera de ellas puede escribir
-> `reservas.db` sin pasar por los tools MCP — es la clase del incidente de este
-> repo (ciclo v0.10.0). El bot solo necesita los tools del CRM: el resto es
-> superficie de ataque.
+> **⚠️ Allowlist mínima recomendada antes de dar el canal a clientes.** Lo que este
+> proyecto **recomienda y prueba** es el conjunto indispensable para que el bot del
+> CRM funcione: `mcp-appointments`, `skills`, `clarify`, `memory`, `todo`. Todo lo
+> demás — `terminal`, `file`, `execute_code`, `browser`, `computer_use`,
+> `delegation`, `cronjob`, `image_gen`, `tts`, `vision`, `session_search`,
+> `connections`, `web` — **no hace falta** para atender reservas y cada tool extra es
+> superficie de ataque: cualquiera puede escribir `reservas.db` sin pasar por los
+> tools MCP (es la clase del incidente de este repo, ciclo v0.10.0). Los bundles de
+> canal de Hermes son **full access por default**, así que esto no viene hecho.
+>
+> **Si querés habilitar tools adicionales en tu canal, es tu decisión y tu
+> responsabilidad** — este proyecto solo garantiza el funcionamiento con la lista
+> mínima de arriba. Los plugins de terceros también cuentan: deshabilitá los que no
+> uses (por ejemplo `homeassistant`, domótica, sin relación con el CRM).
 >
 > **1. Auditá qué tiene el canal hoy:**
 >
@@ -651,42 +657,46 @@ es la fuente normativa):
 > hermes tools list --platform whatsapp     # o: --platform telegram
 > ```
 >
-> **2. Restringilo al mínimo** (un solo comando; `disable` acepta varios toolsets):
+> **2. Dejalo en el mínimo** — el mismo comando para cada canal que uses:
 >
 > ```bash
 > hermes tools disable --platform whatsapp \
 >   code_execution terminal file browser web computer_use \
->   delegation cronjob image_gen tts vision session_search connections
+>   delegation cronjob image_gen tts vision session_search connections homeassistant
+>
+> hermes tools disable --platform telegram \
+>   code_execution terminal file browser web computer_use \
+>   delegation cronjob image_gen tts vision session_search connections homeassistant
 > ```
 >
-> **3. Verificá el resultado** — debe quedar exactamente así:
+> **3. Verificá el resultado** — ambos canales deben quedar idénticos:
 >
 > ```bash
-> hermes tools list --platform whatsapp
+> hermes tools list --platform whatsapp   # y luego: --platform telegram
 > #   ✓ enabled  skills · todo · memory · clarify
 > #   MCP servers:
 > #     mcp-appointments  all tools enabled
 > ```
 >
 > Si `mcp-appointments` no aparece, **no sigas**: el bot se quedaría sin los tools
-> del negocio. Repetí el paso 2 para `--platform telegram` si vas a usar ese canal.
-> El `cli` del owner queda intacto siempre: la restricción es por plataforma, nunca
-> global.
+> del negocio. El `cli` del owner queda intacto siempre: la restricción es por
+> plataforma, nunca global.
 >
-> **Aprendizajes de la verificación en vivo (VM, 2026-11-12):** deshabilitar sólo
+> **Lo que aprendimos probándolo (VM, 2026-11-12):** deshabilitar sólo
 > `code_execution` **no alcanza** (quedan `terminal` y `file`, que escriben la DB
 > igual) — la mitigación es la allowlist completa, no un `disable` suelto. Y no hay
 > "deshacer" por nombre de bundle (`enable --platform whatsapp hermes-whatsapp`
-> devuelve `Unknown toolset`): para revertir, habilitá los toolsets de a uno o
-> restaurá el `~/.hermes/config.yaml` del backup que hagas antes de empezar.
+> devuelve `Unknown toolset`): hacé backup de `~/.hermes/config.yaml` antes de
+> empezar y, para revertir, habilitá los toolsets de a uno.
 > **Prueba final, la que importa:** abrí una sesión nueva en el canal (`/new` en el
-> topic) y pedí *"ejecutá `echo hola` en la terminal"* — debe responder que no
-> tiene esa herramienta. Después pedí el catálogo de servicios: debe traerlo del
-> CRM. Así quedó verificado acá (log del gateway: `api_calls=2` sin tool call para
-> el pedido de terminal, `api_calls=9` con el catálogo real).
+> topic) y pedí *"ejecutá `echo hola` en la terminal"* — debe responder que no tiene
+> esa herramienta. Después pedí el catálogo de servicios: debe traerlo del CRM. Así
+> quedó verificado acá (log del gateway: `api_calls=2` sin tool call para el pedido
+> de terminal, `api_calls=9` con el catálogo real).
 >
 > **Deuda operativa:** repetí la auditoría del paso 1 después de cada upgrade del
 > runtime o si volvés a parear el canal — el default es **abierto**, no cerrado.
+
 > **Movimiento
 > upstream (seguimiento 2026-11-04→06, follow-up posteado en #147647):** la
 > ventana v0.22.6 trajo dos primitivas de la familia — locks de escritura
