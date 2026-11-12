@@ -127,10 +127,19 @@ func RunHermesToolsList(ctx context.Context, platform string) (string, error) {
 // together, so the budget is the tighter of the two — the caller's deadline when
 // it is earlier than hermesToolsListTimeout, the 5s budget otherwise. Values
 // survive either way; only cancellation is dropped.
+//
+// The caller's deadline only wins while it is still USABLE (remaining > 0). An
+// already-expired caller deadline, or a clock jump, would otherwise hand the probe
+// a context that is dead on arrival: the command fails for a reason that has
+// nothing to do with it, and the advisory reports "el comando falló", sending the
+// operator to fix a command that is fine (native review R4-002). Falling through
+// to the 5s budget keeps the audit evidence instead of misclassifying it.
 func hermesToolsListContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	parent := context.WithoutCancel(ctx)
-	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < hermesToolsListTimeout {
-		return context.WithDeadline(parent, deadline)
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 && remaining < hermesToolsListTimeout {
+			return context.WithDeadline(parent, deadline)
+		}
 	}
 	return context.WithTimeout(parent, hermesToolsListTimeout)
 }
@@ -391,10 +400,15 @@ func runtimeReportTruncationMarker(channel string, kept int) string {
 // them is enough (native review R3-unbounded-validutf8 — the former loop
 // re-validated the whole prefix after every byte it dropped, i.e. O(n²)). The
 // remaining validity check is a single pass, so the cost is one scan of the
-// prefix instead of one scan per dropped byte. A prefix that is still invalid
-// after the backwalk was never a valid encoding cut mid-rune (a report that is
-// not UTF-8 at all), and it yields the empty prefix, which the caller renders as
-// the fixed unprintable-report line.
+// prefix instead of one scan per dropped byte.
+//
+// A prefix that is still invalid after the backwalk was never a valid encoding cut
+// mid-rune: an invalid byte sits somewhere in the middle of the report. Discarding
+// the whole report there would throw away everything the runtime said up to that
+// byte, so the forward walk keeps the longest valid prefix — the operator loses the
+// corrupted tail, not the report (native review R4-001). A report whose FIRST bytes
+// are invalid still yields the empty prefix, which the caller renders as the fixed
+// unprintable-report line.
 func validUTF8Prefix(s string) string {
 	for dropped := 0; dropped < utf8.UTFMax-1 && s != ""; dropped++ {
 		if r, size := utf8.DecodeLastRuneInString(s); r != utf8.RuneError || size > 1 {
@@ -402,8 +416,15 @@ func validUTF8Prefix(s string) string {
 		}
 		s = s[:len(s)-1]
 	}
-	if !utf8.ValidString(s) {
-		return ""
+	if utf8.ValidString(s) {
+		return s
+	}
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			return s[:i]
+		}
+		i += size
 	}
 	return s
 }
