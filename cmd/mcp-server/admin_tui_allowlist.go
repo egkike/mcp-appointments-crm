@@ -56,7 +56,7 @@ type allowlistAudit struct {
 // the same process owns (native review R4-002).
 var defaultAllowlistAudit = allowlistAudit{
 	runToolsList: tui.RunHermesToolsList,
-	platforms:    []string{"whatsapp", "telegram"},
+	platforms:    tui.DefaultAllowlistPlatforms(),
 	fallback:     os.Stderr,
 }
 

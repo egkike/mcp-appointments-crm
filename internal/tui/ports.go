@@ -142,4 +142,11 @@ type Deps struct {
 	// composition root did not wire it: the regeneration reports it instead of
 	// guessing a name.
 	BusinessProfile admin.BusinessProfileReader
+	// AllowlistRunner is the read-only channel-allowlist probe the option-7
+	// success screen runs (issue #195). It follows the same seam contract as the
+	// rest of Deps: the composition root supplies the production value
+	// (tui.RunHermesToolsList) and no test ever executes a real binary. Nil means
+	// nothing was wired, and the screen then degrades to the advisory's generic
+	// risk notice instead of claiming an audit it could not run.
+	AllowlistRunner ToolsListRunner
 }

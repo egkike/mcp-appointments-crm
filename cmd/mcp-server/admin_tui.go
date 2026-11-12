@@ -76,6 +76,7 @@ func runAdminTUIProgram(ctx context.Context) error {
 		BusinessProfile: identity.businessProfiles,
 		Hermes:          tui.NewHermesBootstrap(resolveHermes),
 		Audit:           identity.audit,
+		AllowlistRunner: tui.RunHermesToolsList,
 	})
 }
 

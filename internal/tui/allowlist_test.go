@@ -48,6 +48,24 @@ const expectedMinimalWhatsAppLine = "Allowlist del canal whatsapp: mínima ✓ (
 // expectedMinimalTelegramLine is the same state for the second documented channel.
 const expectedMinimalTelegramLine = "Allowlist del canal telegram: mínima ✓ (skills, todo, memory, clarify + mcp-appointments)\n"
 
+// TestDefaultAllowlistPlatforms pins the audited channels to the two the product
+// documents end-to-end (whatsapp as the primary business channel, telegram as the
+// alternative one plus the owner bot) and pins that callers get a copy: the list
+// is the single source both presentations read, so no caller can reshape what the
+// next audit asks about.
+func TestDefaultAllowlistPlatforms(t *testing.T) {
+	want := []string{"whatsapp", "telegram"}
+	if got := DefaultAllowlistPlatforms(); !slices.Equal(got, want) {
+		t.Fatalf("DefaultAllowlistPlatforms() = %v, want %v", got, want)
+	}
+
+	mutated := append(DefaultAllowlistPlatforms(), "slack")
+	mutated[0] = "discord"
+	if got := DefaultAllowlistPlatforms(); !slices.Equal(got, want) {
+		t.Errorf("DefaultAllowlistPlatforms() after a caller mutated its slice = %v, want %v", got, want)
+	}
+}
+
 // expectedWhatsAppDisableCommand is the exact remediation the operator must run
 // for a channel whose bundle is still full access.
 const expectedWhatsAppDisableCommand = "hermes tools disable --platform whatsapp code_execution terminal file browser web computer_use delegation cronjob image_gen tts vision session_search connections homeassistant"
