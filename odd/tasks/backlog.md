@@ -135,3 +135,20 @@ Everything else (B1..B14) is CLOSED with evidence — verified 2026-10-27 agains
 
 **Owner decision (option C):** un idioma canónico por doc según audiencia, SIN traducciones duplicadas por-doc (no README.es.md ni secciones espejo completas); resumenes en el otro idioma solo si se suman como `<details>`. Manifest de referencia: `docs/README.md` (tabla doc→idioma→audiencia + regla de nacimiento para docs nuevos). Estado del patrón: contratos/infra en EN (gateway-contract, deployment, README, AGENTS, ADRs); manuales de operación del owner en ES (installation, PRD, SDD, maintenance, demo-plan). Candidato pendiente: migrar `deployment.md` a ES (opcional, es runbook del owner) — registrado como tarea pequeña si el owner lo quiere; el commit/reference del README ahora linkea el índice.
 - **L-sweep 2026-11-03 (GGA off)** — **decisión owner: GGA DESACTIVADO para este repo; el único gate IA es el review nativo RDD**. Pre-commit hook local desarmado (`.git/hooks/pre-commit` reducido a comentario con la línea de re-activación); `.gga` conservado intacto (re-activo = re-agregar el bloque al hook); `gga run` manual queda disponible a pedido; item B6 (vigilancia upstream #113) sigue dropped-passive. Motivo: los loops de GGA tejieron la mayoría del costo de las sesiones (24+ rounds minted en PR #135, parser STRICT #113/#148) y el review nativo cubre ese rol con receipts y corrección acotada. Enmienda de AGENTS.md: GGA Rule marcada DISABLED (con instrucción de re-activación), Worker commit contract re-escrito sin cap de 5 rondas GGA (loop de pipeline only, hand-off con output de checks), Verification routing note actualizada.
+
+## Deuda documentada — advisories informativos del advisory de allowlist (2026-11-12)
+
+**Decisión del owner**: cerrar el ciclo de advisories del canal-allowlist y dejar los hallazgos restantes como **deuda documentada**, sin más rondas de fix. Razón: cada fix-set genera advisories nuevos sobre el código que introduce (curva observada 6 → 7 → 2 → 2 → 4); el valor restante es de precisión sobre caminos degradados, no de comportamiento normal.
+
+**Pendientes registrados** (todos `informational`, ninguno bloqueante) del lineage `review-43a2d36e3f0cfce1`, sobre el código que entró en `73337e1`:
+
+| ID | Lente | Ubicación | Severidad |
+|---|---|---|---|
+| `R3-1` | reliability | `internal/tui/allowlist.go:376-389` | SUGGESTION |
+| `R3-2` | reliability | `internal/tui/allowlist.go:152-154` | SUGGESTION |
+| `R4-001` | resilience | `internal/tui/allowlist.go:146-151` | WARNING |
+| `R4-002` | resilience | `internal/tui/allowlist.go:380-387` | WARNING |
+
+**Cómo retomarlos si alguna vez se decide**: los textos de los reviewers no sobreviven al burn; hay que reconstruirlos desde la ubicación (patrón usado en issues #197/#199/#201/#203) o esperar a que un review futuro los re-detecte en un cambio que toque esas líneas.
+
+**Política propuesta (pendiente de escribir en AGENTS.md si el owner la adopta)**: el review nativo corre sobre el cambio original; los fixes que cierran advisories *informativos* no se re-revisan — la verificación es tests + CI.
