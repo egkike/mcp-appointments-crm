@@ -640,17 +640,19 @@ es la fuente normativa):
 > no expongas `execute_code` (ni tools de código arbitrario) a sesiones del canal
 > o sin supervisión, y tratá todo agente host que pueda ejecutar código arbitrario
 > como capaz de saltarse las reglas conversacionales de la skill. **Movimiento
-> upstream (seguimiento 2026-11-04/05/06, follow-up posteado en #147647):** la
+> upstream (seguimiento 2026-11-04→06, follow-up posteado en #147647):** la
 > ventana v0.22.6 trajo dos primitivas de la familia — locks de escritura
-> autónoma per-skill y un hook `pre_llm_call` que puede bloquear el turno — pero
-> aún **sin allowlist per-channel/per-skill**, y cabe verificar si el lock es
-> reachable headless (nuestro VM es CLI/gateway) y si cubre la clase
-> `execute_code`; el release v0.23.0 (2026-11-05, Hearth) tampoco contesta esas
-> preguntas — su única referencia a `pre_llm_call` es una API de plugin genérica
-> (hook de block al que cualquier plugin se suscribe), ningún match para
-> allowlist ni `execute_code`, y #147647 sigue OPEN sin respuesta del equipo.
-> Mientras tanto, ningún runtime version — incluida la v0.23.0 del VM de
-> producción — cuenta como enforceando esta boundary.
+> autónoma per-skill y un hook `pre_llm_call` que puede bloquear el turno.
+> **v0.23.0 contesta media pregunta (verificado en el VM, v0.23.1):** el lock
+> pasó a ser comando CLI headless — `hermes curator lock <skill>` — enforceado
+> en todos los write paths del agente, pero **sólo para el directorio de la
+> skill** (`skill_manage`, `write_file`/`patch` y terminal, incluso con
+> `--yolo`); su propia docstring limita el enforcement: *"It is a policy check,
+> not a sandbox"* — y la clase `execute_code` → datos de negocio (una DB fuera
+> de todo skill dir) **sigue sin estar bloqueada**. Sin allowlist
+> per-channel/per-skill, y #147647 sigue OPEN sin respuesta del equipo:
+> ningún runtime version — incluida la v0.23.x del VM de producción — cuenta
+> como enforceando esta boundary.
 
 **Desconexión del canal** (con o sin volver a configurarlo): la secuencia
 sin-residuo es revoke del dispositivo desde el teléfono del owner → wizard
