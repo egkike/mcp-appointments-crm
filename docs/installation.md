@@ -636,10 +636,17 @@ es la fuente normativa):
 > completo: ocurrió en vivo durante el ciclo v0.10.0 (el bot de WhatsApp escribió
 > `reservas.db` sin `create_booking` en el log — issue upstream open
 > [NousResearch/hermes-agent#147647](https://github.com/NousResearch/hermes-agent/issues/147647)).
-> **Mitigación del operador mientras no exista enforcement per-channel upstream:**
-> no expongas `execute_code` (ni tools de código arbitrario) a sesiones del canal
-> o sin supervisión, y tratá todo agente host que pueda ejecutar código arbitrario
-> como capaz de saltarse las reglas conversacionales de la skill. **Movimiento
+> **Mitigación del operador (ejecutable — verificá con un comando):** desde la
+> línea v0.23.x el runtime **sí** separa toolsets por plataforma: en
+> `~/.hermes/config.yaml` el mapa `platform_toolsets` le da `code_execution`
+> **sólo a `cli`**, mientras cada canal (`whatsapp`, `telegram`, `discord`, …)
+> recibe únicamente su toolset de canal. Auditá tu instalación con
+> `hermes tools list` y, si un canal apareciera con toolsets de código, quitáselo
+> con `hermes tools disable --platform whatsapp code_execution`. Dos límites
+> honestos: es per-**platform**, no per-**skill** (no podés acotar un canal
+> skill por skill), y la separación no es retroactiva a instalaciones viejas —
+> por eso el chequeo es un **audit que corrés vos**, no una promesa del runtime.
+> **Movimiento
 > upstream (seguimiento 2026-11-04→06, follow-up posteado en #147647):** la
 > ventana v0.22.6 trajo dos primitivas de la familia — locks de escritura
 > autónoma per-skill y un hook `pre_llm_call` que puede bloquear el turno.
@@ -648,11 +655,11 @@ es la fuente normativa):
 > en todos los write paths del agente, pero **sólo para el directorio de la
 > skill** (`skill_manage`, `write_file`/`patch` y terminal, incluso con
 > `--yolo`); su propia docstring limita el enforcement: *"It is a policy check,
-> not a sandbox"* — y la clase `execute_code` → datos de negocio (una DB fuera
-> de todo skill dir) **sigue sin estar bloqueada**. Sin allowlist
-> per-channel/per-skill, y #147647 sigue OPEN sin respuesta del equipo:
-> ningún runtime version — incluida la v0.23.x del VM de producción — cuenta
-> como enforceando esta boundary.
+> not a sandbox"* — pero el lock **no** protege los datos del negocio: una DB
+> fuera de todo skill dir queda fuera de su alcance, y lo que cubre esa clase es
+> la separación de toolsets por plataforma de arriba. #147647 sigue OPEN sin
+> respuesta del equipo: el boundary está **entregado por configuración** en
+> v0.23.x, pendiente de confirmar en qué release se introdujo.
 
 **Desconexión del canal** (con o sin volver a configurarlo): la secuencia
 sin-residuo es revoke del dispositivo desde el teléfono del owner → wizard
