@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"io"
+	"os"
 
 	"github.com/egkike/mcp-appointments-crm/internal/tui"
 )
@@ -26,12 +27,17 @@ import (
 // by the flow and faked by the tests, so no test ever executes a real binary.
 type toolsListRunner = tui.ToolsListRunner
 
-// allowlistAudit bundles the advisory's inputs: the runner seam and the channels
-// to audit. It mirrors identityDeps (the composition root constructs the
-// production value once, flows receive it by value).
+// allowlistAudit bundles the advisory's inputs: the runner seam, the channels
+// to audit and the fallback console. It mirrors identityDeps (the composition
+// root constructs the production value once, flows receive it by value).
 type allowlistAudit struct {
 	runToolsList toolsListRunner
 	platforms    []string
+	// fallback is the console the advisory retries on when the operator console
+	// refuses the write. Production points it at stderr; a nil fallback keeps the
+	// step a plain best-effort write, which is what a unit test with no real
+	// stderr and no second writer wants (native review R4-002).
+	fallback io.Writer
 }
 
 // defaultAllowlistAudit is the production wiring of the advisory.
@@ -44,18 +50,25 @@ type allowlistAudit struct {
 // channel the operator "really" uses: an absent platform is reported by Hermes
 // itself, and a platform whose audit fails is named in the advisory with the
 // category of the failure, never dropped silently.
+//
+// The fallback console is stderr: a security notice the operator never reads is
+// a silent loss, so a refused stdout write is retried once on the other stream
+// the same process owns (native review R4-002).
 var defaultAllowlistAudit = allowlistAudit{
 	runToolsList: tui.RunHermesToolsList,
 	platforms:    []string{"whatsapp", "telegram"},
+	fallback:     os.Stderr,
 }
 
 // writeAllowlistAdvisory prints the advisory as the last step of the flow.
 //
 // The step is best effort by design: config.yaml is already written when the
 // advisory runs, so a console the advisory cannot write to must never turn a
-// successful config write into a flow failure (native review R4-003). Its failure
-// is dropped here, not propagated; the error return stays only because the caller
-// returns this call directly as the flow's result.
+// successful config write into a flow failure (native review R4-003). It is not
+// silent, though: a refused write is retried on the fallback console, and only a
+// failure of both is dropped, because at that point there is no operator action
+// left to offer (native review R4-002). The error return stays only because the
+// caller returns this call directly as the flow's result.
 //
 // A failed audit is not an error either: the values are read-only and never
 // interpolated into the output, so there is nothing to sanitize and nothing that
@@ -65,7 +78,22 @@ func writeAllowlistAdvisory(ctx context.Context, stdout io.Writer, audit allowli
 	if text == "" {
 		return nil
 	}
-	// Best effort, deliberately unchecked: see the doc comment above.
-	_ = writeConsole(stdout, text)
+	writeAdvisoryText(stdout, audit.fallback, text)
 	return nil
+}
+
+// writeAdvisoryText writes the advisory to the operator console and, when that
+// console refuses the write, retries the SAME text on the fallback console so the
+// security notice cannot vanish with nobody learning it was lost (native review
+// R4-002). A failure of both is absorbed: the config write already succeeded and
+// this is the last, non-essential step of the flow.
+func writeAdvisoryText(primary, fallback io.Writer, text string) {
+	if err := writeConsole(primary, text); err == nil {
+		return
+	}
+	if fallback == nil {
+		return
+	}
+	// Best effort by contract: if stderr is gone too, the write is dropped.
+	_ = writeConsole(fallback, text)
 }

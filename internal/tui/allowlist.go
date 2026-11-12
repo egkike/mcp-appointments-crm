@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -110,13 +111,28 @@ func RunHermesToolsList(ctx context.Context, platform string) (string, error) {
 	return string(out), nil
 }
 
-// hermesToolsListContext derives the probe's own budget. The parent is
-// context.WithoutCancel so the audit is not aborted for a reason that has
-// nothing to do with it: a cancelled console flow (Ctrl-C upstream, a closed
-// stdin) must not erase the evidence the operator already asked for. The 5s
-// bound stays, and no value carried by the caller is lost.
+// hermesToolsListContext derives the probe's own budget.
+//
+// The parent is context.WithoutCancel, so the audit is not aborted for a reason
+// that has nothing to do with it: a cancelled console flow (Ctrl-C upstream, a
+// closed stdin) must not erase evidence the operator already asked for. That
+// detachment is deliberate and BOUNDED, not an oversight (native review
+// R4-003): a flow cancelled mid-advisory still waits for the probe, but never
+// longer than hermesToolsListTimeout and never longer than a deadline the caller
+// itself carried — so the worst case an operator can observe is that one probe,
+// and the report it produces is exactly the evidence the cancelled flow wanted.
+//
+// Detaching cancellation must not detach the caller's DEADLINE (native review
+// R3-withoutcancel-values): context.WithoutCancel drops Done and Deadline
+// together, so the budget is the tighter of the two — the caller's deadline when
+// it is earlier than hermesToolsListTimeout, the 5s budget otherwise. Values
+// survive either way; only cancellation is dropped.
 func hermesToolsListContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), hermesToolsListTimeout)
+	parent := context.WithoutCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < hermesToolsListTimeout {
+		return context.WithDeadline(parent, deadline)
+	}
+	return context.WithTimeout(parent, hermesToolsListTimeout)
 }
 
 // auditFailure is why a channel could not be audited. It is a closed set of
@@ -280,6 +296,22 @@ func channelAllowlistBlockedAdvice(channel, output string) string {
 		"Detalle y verificación: " + installationDocPointer + ".\n"
 }
 
+// toolsetNamePattern is the shape a report-derived name must have before it is
+// appended to the remediation command. That command is COPY-PASTED INTO A SHELL
+// by the operator, and the names come from the runtime report — data this
+// program does not control — so a name carrying spaces, `;`, backticks, `$(`,
+// quotes or newlines would turn a copy-paste into code execution on the
+// operator's host (native review R1-report-derived-command). Lowercase ASCII
+// alphanumerics plus `-` and `_` is all a real toolset name needs
+// (code_execution, computer_use, session_search, …).
+var toolsetNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// isSafeToolsetName reports whether a report-derived name may be printed inside
+// the remediation command.
+func isSafeToolsetName(name string) bool {
+	return toolsetNamePattern.MatchString(name)
+}
+
 // disableCommandToolsets is the exact list the remediation command prints: the
 // documented dangerous toolsets first — so the documented command stays
 // recognizable — then every extra toolset the runtime report shows as enabled
@@ -287,9 +319,18 @@ func channelAllowlistBlockedAdvice(channel, output string) string {
 // what keeps the printed command actionable when the runtime ships a toolset the
 // documented list does not name yet: the operator disables what the report
 // actually shows instead of a stale list.
+//
+// A derived name is only kept when it looks like a toolset name
+// (isSafeToolsetName). Anything else is dropped from the COMMAND only: the report
+// itself is still printed verbatim right above it (bounded), so the operator
+// loses nothing the runtime said and gains a command that cannot execute the
+// report's content.
 func disableCommandToolsets(output string) []string {
 	names := slices.Clone(dangerousChannelToolsets)
 	for _, enabled := range enabledChannelToolsets(output) {
+		if !isSafeToolsetName(enabled) {
+			continue
+		}
 		if slices.Contains(minimalChannelToolsets, enabled) || slices.Contains(names, enabled) {
 			continue
 		}
@@ -302,6 +343,12 @@ func disableCommandToolsets(output string) []string {
 // on a line boundary when one exists so no tool entry is left half-printed, and
 // appends a marker that names the truncation and the command that prints the
 // whole report. A silent cut would be indistinguishable from a complete report.
+//
+// A report that survives the cut as nothing (it opens with bytes that are not
+// UTF-8, so no valid prefix can be printed) gets one fixed explanation line
+// instead of an empty body (native review R4-001): a header, a blank line and a
+// marker would read as a formatting bug rather than as a report the console
+// cannot render.
 func boundedRuntimeReport(channel, output string) string {
 	trimmed := strings.TrimRight(output, " \t\n")
 	if len(trimmed) <= maxRuntimeReportBytes {
@@ -311,21 +358,52 @@ func boundedRuntimeReport(channel, output string) string {
 	if lastNewline := strings.LastIndexByte(cut, '\n'); lastNewline > 0 {
 		cut = cut[:lastNewline]
 	}
-	return cut + "\n" + runtimeReportTruncationMarker(channel)
+	if cut == "" {
+		return runtimeReportUnprintableLine(channel) + "\n" + runtimeReportTruncationMarker(channel, 0)
+	}
+	return cut + "\n" + runtimeReportTruncationMarker(channel, len(cut))
 }
 
-// runtimeReportTruncationMarker names the cut and where the whole report lives.
-func runtimeReportTruncationMarker(channel string) string {
+// runtimeReportUnprintableLine replaces an empty report body. Fixed copy only:
+// nothing from the runtime is interpolated, and the operator still learns where
+// the whole report lives.
+func runtimeReportUnprintableLine(channel string) string {
+	return fmt.Sprintf(
+		"[el reporte no se pudo mostrar porque no es texto UTF-8; corré `%s tools list --platform %s` para verlo completo]",
+		hermesBinary, channel)
+}
+
+// runtimeReportTruncationMarker names the cut, the number of report bytes that
+// were ACTUALLY kept (native review R3-marker-precision: naming the cap told the
+// operator a larger number than the block shows) and where the whole report
+// lives.
+func runtimeReportTruncationMarker(channel string, kept int) string {
 	return fmt.Sprintf(
 		"[… reporte truncado: se muestran sólo los primeros %d bytes; corré `%s tools list --platform %s` para verlo completo]",
-		maxRuntimeReportBytes, hermesBinary, channel)
+		kept, hermesBinary, channel)
 }
 
 // validUTF8Prefix drops a partial rune left by a byte-boundary cut, so the report
 // printed to a terminal is always valid UTF-8.
+//
+// A UTF-8 encoded rune is at most utf8.UTFMax (4) bytes, so a byte-boundary cut
+// can leave at most three bytes of ONE broken rune at the tail: walking back over
+// them is enough (native review R3-unbounded-validutf8 — the former loop
+// re-validated the whole prefix after every byte it dropped, i.e. O(n²)). The
+// remaining validity check is a single pass, so the cost is one scan of the
+// prefix instead of one scan per dropped byte. A prefix that is still invalid
+// after the backwalk was never a valid encoding cut mid-rune (a report that is
+// not UTF-8 at all), and it yields the empty prefix, which the caller renders as
+// the fixed unprintable-report line.
 func validUTF8Prefix(s string) string {
-	for len(s) > 0 && !utf8.ValidString(s) {
+	for dropped := 0; dropped < utf8.UTFMax-1 && s != ""; dropped++ {
+		if r, size := utf8.DecodeLastRuneInString(s); r != utf8.RuneError || size > 1 {
+			break
+		}
 		s = s[:len(s)-1]
+	}
+	if !utf8.ValidString(s) {
+		return ""
 	}
 	return s
 }

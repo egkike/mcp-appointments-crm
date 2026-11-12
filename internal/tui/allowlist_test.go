@@ -3,10 +3,13 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // The advisory is read-only operator copy: these tests pin the exact strings the
@@ -328,16 +331,34 @@ func TestBoundedRuntimeReport(t *testing.T) {
 	long := big.String()
 
 	got := boundedRuntimeReport("whatsapp", long)
-	marker := "[… reporte truncado: se muestran sólo los primeros 8192 bytes; corré `hermes tools list --platform whatsapp` para verlo completo]"
-	if !strings.HasSuffix(got, marker) {
-		t.Errorf("boundedRuntimeReport(long) = %q, want it to end with %q", got, marker)
+	body, marker := splitBoundedReport(t, got)
+	if len(body) > maxRuntimeReportBytes {
+		t.Errorf("report body = %d bytes, want at most %d", len(body), maxRuntimeReportBytes)
 	}
-	if body := strings.TrimSuffix(got, "\n"+marker); len(body) > 8192 {
-		t.Errorf("report body = %d bytes, want at most 8192", len(body))
-	}
-	if !strings.HasSuffix(strings.TrimSuffix(got, "\n"+marker), "verbose  enabled") {
+	if !strings.HasSuffix(body, "verbose  enabled") {
 		t.Errorf("boundedRuntimeReport(long) = %q, want the cut on a line boundary", got)
 	}
+	// R3-marker-precision: the marker names what was ACTUALLY kept, not the cap,
+	// so the operator is never told a larger number than they can read.
+	if want := fmt.Sprintf("los primeros %d bytes", len(body)); !strings.Contains(marker, want) {
+		t.Errorf("marker = %q, want it to contain %q", marker, want)
+	}
+	if !strings.Contains(marker, "hermes tools list --platform whatsapp") {
+		t.Errorf("marker = %q, want it to name the whole-report command", marker)
+	}
+}
+
+// splitBoundedReport separates the kept report body from the truncation marker
+// the bounded report appends, so a test can assert both independently: the body
+// length is what the marker must quote, and quoting a self-computed length would
+// make the assertion circular.
+func splitBoundedReport(t *testing.T, bounded string) (body, marker string) {
+	t.Helper()
+	idx := strings.LastIndex(bounded, "\n[")
+	if idx < 0 {
+		t.Fatalf("bounded report = %q, want a truncation marker", bounded)
+	}
+	return bounded[:idx], bounded[idx+1:]
 }
 
 // TestChannelAllowlistAdvice_BoundsTheRuntimeReport locks the console-level
@@ -475,5 +496,267 @@ func TestChannelAllowlistIsMinimal(t *testing.T) {
 				t.Errorf("channelAllowlistIsMinimal(%q) = %v, want %v", tt.output, got, tt.want)
 			}
 		})
+	}
+}
+
+// hostileToolsList is a runtime report whose enabled-toolset line carries names
+// that are NOT toolset identifiers: a report is runtime-owned data, so a name
+// with spaces, `;`, `$(`, quotes or a pipe is attacker-controlled the moment the
+// operator pastes the printed command into a shell.
+const hostileToolsList = `  ✓ enabled  skills · todo · memory · clarify · notebook · hermes-whatsapp · alpha; touch /tmp/pwned · $(id) · "quoted" | sh
+  MCP servers:
+    mcp-appointments  all tools enabled
+`
+
+// TestDisableCommandToolsets_DropsUnsafeReportNames locks R1-report-derived-command:
+// the remediation command is copied and pasted into a shell, so only plain
+// toolset identifiers may be appended to it. Legitimate extras the documented
+// list does not name yet are still derived from the report.
+func TestDisableCommandToolsets_DropsUnsafeReportNames(t *testing.T) {
+	names := disableCommandToolsets(hostileToolsList)
+
+	want := append(slices.Clone(dangerousChannelToolsets), "notebook", "hermes-whatsapp")
+	if !slices.Equal(names, want) {
+		t.Fatalf("disableCommandToolsets() = %v, want %v", names, want)
+	}
+	for _, name := range names {
+		if strings.ContainsAny(name, " \t\n;&|`$()\"'") {
+			t.Errorf("toolset name %q carries shell metacharacters", name)
+		}
+	}
+}
+
+// TestChannelAllowlistAdvice_RemediationCommandIsSafeButReportIsVerbatim pins
+// both halves of the R1 contract at the console level: the printed command
+// carries no injected name, while the report itself is still printed as the
+// runtime sent it (bounded), so dropping the name from the command hides nothing
+// from the operator.
+func TestChannelAllowlistAdvice_RemediationCommandIsSafeButReportIsVerbatim(t *testing.T) {
+	got := ChannelAllowlistAdvice(context.Background(), "whatsapp",
+		fakeToolsList(hostileToolsList, nil, nil))
+
+	command := remediationCommandLine(t, got)
+	if !strings.HasSuffix(command, " notebook hermes-whatsapp") {
+		t.Errorf("command = %q, want it to end with the safe derived names", command)
+	}
+	for _, injected := range []string{"touch /tmp/pwned", "$(id)", `"quoted"`, "| sh"} {
+		if strings.Contains(command, injected) {
+			t.Errorf("command = %q, must not carry the report name %q", command, injected)
+		}
+	}
+	for _, reported := range []string{"alpha; touch /tmp/pwned", "$(id)"} {
+		if !strings.Contains(got, reported) {
+			t.Errorf("advice = %q, want the verbatim report to keep %q", got, reported)
+		}
+	}
+}
+
+// remediationCommandLine extracts the `hermes tools disable` line from the
+// advice, so shell-safety assertions are scoped to the command the operator
+// copies instead of the whole block (which legitimately prints the report).
+func remediationCommandLine(t *testing.T, advice string) string {
+	t.Helper()
+	for _, line := range strings.Split(advice, "\n") {
+		if strings.HasPrefix(line, hermesBinary+" tools disable") {
+			return line
+		}
+	}
+	t.Fatalf("advice = %q, want a %q line", advice, hermesBinary+" tools disable")
+	return ""
+}
+
+// TestValidUTF8Prefix_DropsOnlyTheCutRune locks R3-unbounded-validutf8: a byte
+// boundary cut leaves at most three bytes of ONE broken rune (UTF-8 encodes a
+// rune in at most four bytes), so the backwalk is bounded and the prefix is
+// always valid UTF-8 without re-scanning the whole string per byte dropped.
+func TestValidUTF8Prefix_DropsOnlyTheCutRune(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: ""},
+		{name: "ascii only", input: "abc", want: "abc"},
+		{name: "valid multi-byte tail is kept", input: "abcé", want: "abcé"},
+		{name: "one byte of a two-byte rune", input: "abcé"[:4], want: "abc"},
+		{name: "two bytes of a three-byte rune", input: "abc€"[:5], want: "abc"},
+		{name: "three bytes of a four-byte rune", input: "abc🙂"[:6], want: "abc"},
+		{name: "report that is not UTF-8 at all", input: strings.Repeat("\xff", 8), want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validUTF8Prefix(tt.input)
+			if got != tt.want {
+				t.Errorf("validUTF8Prefix(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("validUTF8Prefix(%q) = %q, want valid UTF-8", tt.input, got)
+			}
+		})
+	}
+}
+
+// TestBoundedRuntimeReport_MultiByteCutStaysValidUTF8 locks the console-visible
+// effect of R3-unbounded-validutf8: a report full of multi-byte characters cut
+// mid-rune still prints valid UTF-8, and the marker quotes the bytes kept.
+func TestBoundedRuntimeReport_MultiByteCutStaysValidUTF8(t *testing.T) {
+	// 1 + 8200 bytes: the 8192-byte cut lands in the middle of an "é".
+	report := "x" + strings.Repeat("é", 4100)
+
+	got := boundedRuntimeReport("whatsapp", report)
+	if !utf8.ValidString(got) {
+		t.Fatalf("bounded report is not valid UTF-8: %q", got)
+	}
+	body, marker := splitBoundedReport(t, got)
+	if want := fmt.Sprintf("los primeros %d bytes", len(body)); !strings.Contains(marker, want) {
+		t.Errorf("marker = %q, want it to contain %q", marker, want)
+	}
+	if !strings.HasPrefix(body, "xé") {
+		t.Errorf("report body = %q, want the report's own content", body)
+	}
+}
+
+// TestBoundedRuntimeReport_UnprintableBodyExplainsItself locks R4-001: when the
+// valid prefix is empty (a report that opens with bytes that are not UTF-8) the
+// block must not print a header, an empty body and a marker — it prints one
+// fixed line saying the report could not be shown and how to see it.
+func TestBoundedRuntimeReport_UnprintableBodyExplainsItself(t *testing.T) {
+	report := strings.Repeat("\xff", maxRuntimeReportBytes+16)
+
+	got := boundedRuntimeReport("whatsapp", report)
+	if !utf8.ValidString(got) {
+		t.Fatalf("bounded report is not valid UTF-8: %q", got)
+	}
+	body, marker := splitBoundedReport(t, got)
+	if strings.TrimSpace(body) == "" {
+		t.Errorf("report body is empty, want the fixed explanation line")
+	}
+	for _, want := range []string{"no se pudo mostrar", "hermes tools list --platform whatsapp"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("report body = %q, want it to contain %q", body, want)
+		}
+	}
+	// The marker stays, with the honest count: zero report bytes were shown.
+	if !strings.Contains(marker, "los primeros 0 bytes") {
+		t.Errorf("marker = %q, want the truncation marker with the bytes actually kept", marker)
+	}
+}
+
+// TestChannelAllowlistAdvice_UnprintableReportKeepsTheBlockReadable locks the
+// operator-level shape of R4-001: the blocked block still names the state and the
+// remediation command, and the unprintable report is explained instead of
+// looking like a broken printer.
+func TestChannelAllowlistAdvice_UnprintableReportKeepsTheBlockReadable(t *testing.T) {
+	got := ChannelAllowlistAdvice(context.Background(), "whatsapp",
+		fakeToolsList(strings.Repeat("\xff", maxRuntimeReportBytes+16), nil, nil))
+
+	for _, want := range []string{
+		"Allowlist del canal whatsapp: no puedo confirmar que sea la mínima",
+		"no se pudo mostrar",
+		"hermes tools disable --platform whatsapp",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("advice = %q, want it to contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "\xff") {
+		t.Errorf("advice = %q, must not print non-UTF-8 report bytes", got)
+	}
+}
+
+// TestHermesToolsListContext_UsesTheDefaultBudget locks one half of
+// R3-withoutcancel-values: with no deadline to honour, the probe gets its own 5s
+// budget — also when the caller carried a LATER one, which the probe must not
+// inherit (it only ever shortens, never extends).
+func TestHermesToolsListContext_UsesTheDefaultBudget(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		build func() (context.Context, context.CancelFunc)
+	}{
+		{
+			name:  "no caller deadline",
+			build: func() (context.Context, context.CancelFunc) { return context.WithCancel(context.Background()) },
+		},
+		{
+			name: "later caller deadline",
+			build: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), time.Minute)
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			parent, cancelParent := tt.build()
+			defer cancelParent()
+
+			probe, cancelProbe := hermesToolsListContext(parent)
+			defer cancelProbe()
+
+			deadline, ok := probe.Deadline()
+			if !ok {
+				t.Fatal("probe context has no deadline, want the 5s audit budget")
+			}
+			if remaining := time.Until(deadline); remaining > hermesToolsListTimeout || remaining < hermesToolsListTimeout-time.Second {
+				t.Errorf("probe budget = %v, want ~%v", remaining, hermesToolsListTimeout)
+			}
+		})
+	}
+}
+
+// TestHermesToolsListContext_RespectsAnEarlierCallerDeadline locks the other half
+// of R3-withoutcancel-values: detaching cancellation must not detach a real
+// deadline — an earlier caller deadline wins over the 5s budget.
+func TestHermesToolsListContext_RespectsAnEarlierCallerDeadline(t *testing.T) {
+	parent, cancelParent := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancelParent()
+
+	probe, cancelProbe := hermesToolsListContext(parent)
+	defer cancelProbe()
+
+	deadline, ok := probe.Deadline()
+	if !ok {
+		t.Fatal("probe context has no deadline, want the caller's earlier deadline")
+	}
+	if remaining := time.Until(deadline); remaining > time.Second {
+		t.Errorf("probe budget = %v, want the caller's ~1ms deadline instead of %v", remaining, hermesToolsListTimeout)
+	}
+}
+
+// TestHermesToolsListContext_KeepsCallerValues pins the "values survive
+// detachment" half of the same comment, so a later refactor cannot quietly swap
+// WithoutCancel for Background.
+func TestHermesToolsListContext_KeepsCallerValues(t *testing.T) {
+	type contextKey struct{}
+	parent := context.WithValue(context.Background(), contextKey{}, "evidence")
+
+	probe, cancelProbe := hermesToolsListContext(parent)
+	defer cancelProbe()
+
+	if got := probe.Value(contextKey{}); got != "evidence" {
+		t.Errorf("probe value = %v, want the caller's value", got)
+	}
+}
+
+// TestValidUTF8Prefix_HasBoundedCost locks the cost half of
+// R3-unbounded-validutf8: the former loop re-validated the WHOLE prefix after
+// every byte it dropped, so a string whose first invalid byte sits in the middle
+// cost O(n²) — one full scan per dropped byte. The backwalk must stay bounded and
+// the validation a single pass. The input is a valid head, one byte that can
+// never form a rune, and a valid tail, which is the shape that maximises the old
+// cost; size is well past the 8192-byte print cap so the difference between "one
+// pass" and "one pass per byte dropped" cannot hide behind scheduling noise.
+func TestValidUTF8Prefix_HasBoundedCost(t *testing.T) {
+	const half = 1 << 20 // 2 MiB total, invalid byte in the middle
+	garbage := strings.Repeat("a", half) + "\xff" + strings.Repeat("a", half)
+
+	start := time.Now()
+	got := validUTF8Prefix(garbage)
+	elapsed := time.Since(start)
+
+	if !utf8.ValidString(got) {
+		t.Errorf("validUTF8Prefix(garbage) is not valid UTF-8: %q", got)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("validUTF8Prefix(%d bytes) took %v, want a bounded backwalk (≤5s) instead of one full re-scan per dropped byte", len(garbage), elapsed)
 	}
 }
