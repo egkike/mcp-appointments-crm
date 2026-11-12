@@ -3,8 +3,10 @@ package tui
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The advisory is read-only operator copy: these tests pin the exact strings the
@@ -159,7 +161,7 @@ func TestChannelAllowlistAdvice_UnauditableReturnsEmpty(t *testing.T) {
 
 // TestAllowlistAdvisory_OneSectionPerChannel locks the multi-channel contract:
 // every audited channel gets its own section and a channel that cannot be
-// audited is skipped silently.
+// audited is named instead of vanishing (native review R3-partial-audit-silent-skip).
 func TestAllowlistAdvisory_OneSectionPerChannel(t *testing.T) {
 	var asked []string
 	runner := func(_ context.Context, platform string) (string, error) {
@@ -172,11 +174,214 @@ func TestAllowlistAdvisory_OneSectionPerChannel(t *testing.T) {
 
 	got := AllowlistAdvisory(context.Background(), []string{"whatsapp", "telegram"}, runner)
 
-	if want := "\n" + expectedMinimalWhatsAppLine; got != want {
-		t.Errorf("AllowlistAdvisory() = %q, want %q", got, want)
+	// The audited channel keeps its one-liner and the unauditable one is named:
+	// a partial audit that printed nothing for telegram would read as "both fine".
+	if !strings.HasPrefix(got, "\n"+expectedMinimalWhatsAppLine) {
+		t.Errorf("AllowlistAdvisory() = %q, want it to start with %q", got, expectedMinimalWhatsAppLine)
+	}
+	for _, want := range []string{
+		"Allowlist del canal telegram: no se pudo auditar",
+		"el comando `hermes tools list` falló",
+		"sólo los tools del CRM",
+		"ninguna ejecución de código o shell",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("AllowlistAdvisory() = %q, want it to contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "cualquier otro agente con canal") {
+		t.Errorf("AllowlistAdvisory() = %q, must not print the generic advice when a channel was audited", got)
 	}
 	if len(asked) != 2 || asked[0] != "whatsapp" || asked[1] != "telegram" {
 		t.Errorf("audited platforms = %v, want [whatsapp telegram]", asked)
+	}
+}
+
+// TestAllowlistAdvisory_GenericNamesTheFailureCategory locks R4-001: the three
+// ways an audit can fail are operationally different, so the generic advisory
+// names the category instead of collapsing them into one sentence. Raw error text
+// stays out of the console either way.
+func TestAllowlistAdvisory_GenericNamesTheFailureCategory(t *testing.T) {
+	tests := []struct {
+		name        string
+		output      string
+		err         error
+		wantContain string
+		wantOmit    []string
+	}{
+		{
+			name:        "binary unavailable",
+			err:         &exec.Error{Name: hermesBinary, Err: exec.ErrNotFound},
+			wantContain: "binario `hermes` no disponible en este host",
+			wantOmit:    []string{"executable file not found", hermesBinary + ": "},
+		},
+		{
+			name:        "command failed",
+			err:         errors.New("exit status 2"),
+			wantContain: "el comando `hermes tools list` falló",
+			wantOmit:    []string{"exit status"},
+		},
+		{
+			name:        "empty report",
+			output:      "   \n",
+			wantContain: "el comando no devolvió ningún reporte",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := AllowlistAdvisory(context.Background(), []string{"whatsapp", "telegram"},
+				fakeToolsList(tt.output, tt.err, nil))
+
+			for _, want := range []string{"no se pudo auditar", tt.wantContain} {
+				if !strings.Contains(got, want) {
+					t.Errorf("generic advice = %q, want it to contain %q", got, want)
+				}
+			}
+			for _, omit := range tt.wantOmit {
+				if strings.Contains(got, omit) {
+					t.Errorf("generic advice = %q, must not contain %q", got, omit)
+				}
+			}
+		})
+	}
+}
+
+// TestAllowlistAdvisory_GenericReportsEveryCategory locks the mixed-host case:
+// when the channels failed for different reasons the operator sees both, so
+// fixing the PATH is not confused with a broken command.
+func TestAllowlistAdvisory_GenericReportsEveryCategory(t *testing.T) {
+	runner := func(_ context.Context, platform string) (string, error) {
+		if platform == "whatsapp" {
+			return "", &exec.Error{Name: hermesBinary, Err: exec.ErrNotFound}
+		}
+		return "", errors.New("exit status 2")
+	}
+
+	got := AllowlistAdvisory(context.Background(), []string{"whatsapp", "telegram"}, runner)
+
+	for _, want := range []string{
+		"binario `hermes` no disponible en este host",
+		"el comando `hermes tools list` falló",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generic advice = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+// TestChannelAllowlistAdvice_DerivesExtraToolsetsFromReport locks R1-001: the
+// printed command must cover every toolset the report shows as enabled beyond the
+// minimal set, even one the documented list does not name yet. Documented names
+// come first (so the known command stays recognizable), derived names after it in
+// report order.
+func TestChannelAllowlistAdvice_DerivesExtraToolsetsFromReport(t *testing.T) {
+	unknownToolsets := `  ✓ enabled  skills · todo · memory · clarify · notebook · terminal · alpha
+  MCP servers:
+    mcp-appointments  all tools enabled
+`
+
+	got := ChannelAllowlistAdvice(context.Background(), "whatsapp",
+		fakeToolsList(unknownToolsets, nil, nil))
+
+	wantCommand := expectedWhatsAppDisableCommand + " notebook alpha"
+	if !strings.Contains(got, wantCommand) {
+		t.Errorf("advice = %q, want the command %q", got, wantCommand)
+	}
+	if strings.Contains(got, "terminal notebook") || strings.Contains(got, "alpha notebook") {
+		t.Errorf("advice = %q, want the derived names in report order after the documented list", got)
+	}
+}
+
+// TestChannelAllowlistAdvice_DocumentedCommandWithoutExtras keeps the synthetic
+// case honest: a report whose extras are all documented prints the literal
+// documented command, unchanged.
+func TestChannelAllowlistAdvice_DocumentedCommandWithoutExtras(t *testing.T) {
+	documentedOnly := `  ✓ enabled  skills · todo · memory · clarify · terminal · file
+  MCP servers:
+    mcp-appointments  all tools enabled
+`
+
+	got := ChannelAllowlistAdvice(context.Background(), "whatsapp",
+		fakeToolsList(documentedOnly, nil, nil))
+
+	if !strings.Contains(got, expectedWhatsAppDisableCommand+"\n") {
+		t.Errorf("advice = %q, want the documented command %q", got, expectedWhatsAppDisableCommand)
+	}
+}
+
+// TestBoundedRuntimeReport locks R4-002: the runtime report is printed verbatim
+// but bounded, and a truncated report says so and names how to see it whole.
+func TestBoundedRuntimeReport(t *testing.T) {
+	small := "  ✓ enabled  skills · todo\n  MCP servers:\n"
+	if got := boundedRuntimeReport("whatsapp", small); got != strings.TrimRight(small, "\n") {
+		t.Errorf("boundedRuntimeReport(small) = %q, want the report unchanged", got)
+	}
+	if strings.Contains(boundedRuntimeReport("whatsapp", small), "truncado") {
+		t.Error("boundedRuntimeReport(small) must not claim a truncation")
+	}
+
+	var big strings.Builder
+	for i := 0; i < 4000; i++ {
+		big.WriteString("    tool_that_does_something_verbose  enabled\n")
+	}
+	long := big.String()
+
+	got := boundedRuntimeReport("whatsapp", long)
+	marker := "[… reporte truncado: se muestran sólo los primeros 8192 bytes; corré `hermes tools list --platform whatsapp` para verlo completo]"
+	if !strings.HasSuffix(got, marker) {
+		t.Errorf("boundedRuntimeReport(long) = %q, want it to end with %q", got, marker)
+	}
+	if body := strings.TrimSuffix(got, "\n"+marker); len(body) > 8192 {
+		t.Errorf("report body = %d bytes, want at most 8192", len(body))
+	}
+	if !strings.HasSuffix(strings.TrimSuffix(got, "\n"+marker), "verbose  enabled") {
+		t.Errorf("boundedRuntimeReport(long) = %q, want the cut on a line boundary", got)
+	}
+}
+
+// TestChannelAllowlistAdvice_BoundsTheRuntimeReport locks the console-level
+// effect of R4-002: an oversized report can never flood the terminal.
+func TestChannelAllowlistAdvice_BoundsTheRuntimeReport(t *testing.T) {
+	var big strings.Builder
+	big.WriteString("  ✓ enabled  skills · terminal\n  MCP servers:\n")
+	for i := 0; i < 4000; i++ {
+		big.WriteString("    tool_that_does_something_verbose  enabled\n")
+	}
+
+	got := ChannelAllowlistAdvice(context.Background(), "whatsapp",
+		fakeToolsList(big.String(), nil, nil))
+
+	if len(got) > 8192+2048 {
+		t.Errorf("advice is %d bytes, want it bounded near 8192", len(got))
+	}
+	if !strings.Contains(got, "reporte truncado") {
+		t.Errorf("advice = %q, want the truncation marker", got)
+	}
+	if !strings.Contains(got, "hermes tools list --platform whatsapp") {
+		t.Errorf("advice = %q, want the marker to name the whole-report command", got)
+	}
+}
+
+// TestHermesToolsListContext_IgnoresCallerCancellation locks R3-timeout-context-inherit:
+// the probe owns its 5s budget instead of inheriting the caller's cancellation, so
+// an unrelated abort of the console flow cannot cancel the audit.
+func TestHermesToolsListContext_IgnoresCallerCancellation(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	probe, cancelProbe := hermesToolsListContext(parent)
+	defer cancelProbe()
+
+	if err := probe.Err(); err != nil {
+		t.Fatalf("probe context error = %v, want nil: the audit must not inherit the caller's cancellation", err)
+	}
+	deadline, ok := probe.Deadline()
+	if !ok {
+		t.Fatal("probe context has no deadline, want the 5s audit budget")
+	}
+	if remaining := time.Until(deadline); remaining > hermesToolsListTimeout || remaining < hermesToolsListTimeout-time.Second {
+		t.Errorf("probe budget = %v, want ~%v", remaining, hermesToolsListTimeout)
 	}
 }
 

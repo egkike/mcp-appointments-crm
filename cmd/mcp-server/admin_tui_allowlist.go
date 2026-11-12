@@ -42,22 +42,30 @@ type allowlistAudit struct {
 // the server entry and the Telegram block is optional, so auditing both and
 // letting the runtime answer is simpler and more honest than inferring which
 // channel the operator "really" uses: an absent platform is reported by Hermes
-// itself, and a platform whose audit fails is skipped silently (the generic
-// advisory covers the unknown case).
+// itself, and a platform whose audit fails is named in the advisory with the
+// category of the failure, never dropped silently.
 var defaultAllowlistAudit = allowlistAudit{
 	runToolsList: tui.RunHermesToolsList,
 	platforms:    []string{"whatsapp", "telegram"},
 }
 
-// writeAllowlistAdvisory prints the advisory as the last step of the flow. It
-// returns an error only when the console itself cannot be written (the
-// writeConsole contract of this package); a failed audit is not an error — the
-// values are read-only and never interpolated into the output, so nothing to
-// sanitize and nothing that can turn a successful config write into a failure.
+// writeAllowlistAdvisory prints the advisory as the last step of the flow.
+//
+// The step is best effort by design: config.yaml is already written when the
+// advisory runs, so a console the advisory cannot write to must never turn a
+// successful config write into a flow failure (native review R4-003). Its failure
+// is dropped here, not propagated; the error return stays only because the caller
+// returns this call directly as the flow's result.
+//
+// A failed audit is not an error either: the values are read-only and never
+// interpolated into the output, so there is nothing to sanitize and nothing that
+// can leak runtime text into the console.
 func writeAllowlistAdvisory(ctx context.Context, stdout io.Writer, audit allowlistAudit) error {
 	text := tui.AllowlistAdvisory(ctx, audit.platforms, audit.runToolsList)
 	if text == "" {
 		return nil
 	}
-	return writeConsole(stdout, text)
+	// Best effort, deliberately unchecked: see the doc comment above.
+	_ = writeConsole(stdout, text)
+	return nil
 }

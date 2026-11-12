@@ -2,11 +2,14 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // This file implements the read-only allowlist advisory of the "Configurar
@@ -23,17 +26,29 @@ import (
 //   - It NEVER writes the Hermes config. config.yaml is runtime-owned; the
 //     advisory only reads the runtime's own report and prints it.
 //   - It NEVER reimplements the resolver. The state comes from
-//     `hermes tools list --platform <channel>`, printed verbatim.
-//   - It NEVER prints an error. A failed or undecidable audit degrades to the
-//     generic advisory, so a filesystem path, a driver message or a stack trace
-//     can never reach the console (issue #157 sanitization contract: nothing to
-//     sanitize because nothing is interpolated).
+//     `hermes tools list --platform <channel>`, printed verbatim and bounded
+//     (maxRuntimeReportBytes, with an explicit truncation marker and the command
+//     that prints the whole report).
+//   - It NEVER prints an error. A failed or undecidable audit degrades to a fixed
+//     failure category (binary unavailable / command failed / empty report), so a
+//     filesystem path, a driver message or a stack trace can never reach the
+//     console (issue #157 sanitization contract: nothing to sanitize because
+//     nothing is interpolated).
+//   - It NEVER hides a channel it could not audit: a partial audit names every
+//     skipped channel with its category, and a total failure prints the generic
+//     advisory.
 //   - It NEVER claims safety it cannot prove: anything the parser does not
 //     recognize as the documented minimal shape is reported as "not confirmed".
 
 // hermesToolsListTimeout bounds the audit subprocess. The command is a local CLI
 // listing: a few seconds is generous, and the flow must never hang on it.
 const hermesToolsListTimeout = 5 * time.Second
+
+// maxRuntimeReportBytes bounds the verbatim report the advisory prints. The
+// runtime owns that report and can grow it as it lists tools: an unbounded print
+// would flood the console the operator is reading, so the block is capped and a
+// marker names where to read the whole thing.
+const maxRuntimeReportBytes = 8192
 
 // hermesBinary is the runtime CLI the advisory queries. It is a literal, never
 // operator input: the channel is a fixed platform name from
@@ -85,7 +100,7 @@ type ToolsListRunner func(ctx context.Context, platform string) (string, error)
 // surface) and only its stdout is used: stderr belongs to the runtime and is
 // never echoed to the operator.
 func RunHermesToolsList(ctx context.Context, platform string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, hermesToolsListTimeout)
+	ctx, cancel := hermesToolsListContext(ctx)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, hermesBinary, "tools", "list", "--platform", platform).Output() //nolint:gosec // fixed argv: literal binary, literal verb, platform is a hardcoded channel name
@@ -95,73 +110,224 @@ func RunHermesToolsList(ctx context.Context, platform string) (string, error) {
 	return string(out), nil
 }
 
+// hermesToolsListContext derives the probe's own budget. The parent is
+// context.WithoutCancel so the audit is not aborted for a reason that has
+// nothing to do with it: a cancelled console flow (Ctrl-C upstream, a closed
+// stdin) must not erase the evidence the operator already asked for. The 5s
+// bound stays, and no value carried by the caller is lost.
+func hermesToolsListContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), hermesToolsListTimeout)
+}
+
+// auditFailure is why a channel could not be audited. It is a closed set of
+// categories — never a raw error — so the advisory can tell the operator which
+// action is due (install the CLI, fix the command, run it by hand) without
+// interpolating a driver message, a path or a stack trace (issue #157).
+type auditFailure int
+
+const (
+	auditOK auditFailure = iota
+	auditBinaryUnavailable
+	auditCommandFailed
+	auditEmptyReport
+)
+
+// description is the fixed operator copy for one category. Literal text only:
+// nothing here can carry runtime output.
+func (f auditFailure) description() string {
+	switch f {
+	case auditBinaryUnavailable:
+		return "binario `hermes` no disponible en este host"
+	case auditCommandFailed:
+		return "el comando `hermes tools list` falló"
+	case auditEmptyReport:
+		return "el comando no devolvió ningún reporte"
+	case auditOK:
+		return ""
+	}
+	return ""
+}
+
+// unauditableChannel pairs a skipped platform with its reason, so the composer
+// can name it instead of letting it disappear from the output.
+type unauditableChannel struct {
+	platform string
+	failure  auditFailure
+}
+
 // ChannelAllowlistAdvice renders the advisory for ONE channel. An empty string
 // means the channel could not be audited (runner missing, command failed, no
 // output at all): the composer decides whether the generic advisory is due.
 func ChannelAllowlistAdvice(ctx context.Context, channel string, run ToolsListRunner) string {
+	advice, _ := channelAllowlistAdvice(ctx, channel, run)
+	return advice
+}
+
+// channelAllowlistAdvice is ChannelAllowlistAdvice plus the failure category, so
+// the multi-channel composer can explain why a channel was skipped.
+func channelAllowlistAdvice(ctx context.Context, channel string, run ToolsListRunner) (string, auditFailure) {
 	if run == nil {
-		return ""
+		// A nil seam means there is no auditor at all: same operator action as a
+		// missing binary (check the host), so it reports the same category.
+		return "", auditBinaryUnavailable
 	}
 	output, err := run(ctx, channel)
 	if err != nil {
-		return ""
+		return "", classifyToolsListFailure(err)
 	}
 	// A report with no bytes is not evidence of anything: claim nothing.
 	if strings.TrimSpace(output) == "" {
-		return ""
+		return "", auditEmptyReport
 	}
 	if channelAllowlistIsMinimal(output) {
 		return fmt.Sprintf(
 			"Allowlist del canal %s: mínima ✓ (skills, todo, memory, clarify + mcp-appointments)\n",
-			channel)
+			channel), auditOK
 	}
-	return channelAllowlistBlockedAdvice(channel, output)
+	return channelAllowlistBlockedAdvice(channel, output), auditOK
+}
+
+// classifyToolsListFailure maps the runner's error to an operator category. It
+// only asks whether the binary was found: the error value itself is never kept,
+// formatted or printed.
+func classifyToolsListFailure(err error) auditFailure {
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+		return auditBinaryUnavailable
+	}
+	return auditCommandFailed
 }
 
 // AllowlistAdvisory composes the advisory the console prints after the Hermes
-// config write: one section per audited channel, and the generic advisory when no
-// channel could be audited at all. The leading blank line separates it from the
-// skill cascade output.
+// config write: one section per audited channel, one explicit line per channel
+// that could not be audited, and the generic advisory when no channel could be
+// audited at all. The leading blank line separates it from the skill cascade
+// output.
 func AllowlistAdvisory(ctx context.Context, platforms []string, run ToolsListRunner) string {
 	var b strings.Builder
 	b.WriteString("\n")
 
 	audited := false
+	// One entry per unauditable channel, in platform order. A channel that is
+	// skipped silently would read as "that one is fine", which is exactly the
+	// mistake this advisory exists to prevent.
+	skipped := make([]unauditableChannel, 0, len(platforms))
 	for _, platform := range platforms {
-		advice := ChannelAllowlistAdvice(ctx, platform, run)
+		advice, failure := channelAllowlistAdvice(ctx, platform, run)
 		if advice == "" {
-			// Skipped silently: a channel that cannot be audited contributes no
-			// evidence, and the generic advisory covers the unknown case.
+			skipped = append(skipped, unauditableChannel{platform: platform, failure: failure})
 			continue
 		}
 		audited = true
 		b.WriteString(advice)
 	}
 	if !audited {
-		return allowlistGenericAdvice
+		return allowlistGenericAdvice(skipped)
+	}
+	for _, channel := range skipped {
+		b.WriteString(channelAllowlistSkippedLine(channel))
 	}
 	return b.String()
 }
 
 // allowlistGenericAdvice is the fallback for every case the advisory cannot
 // probe. The risk it names is NOT Hermes-specific: any agent with a channel ships
-// its own tools, and this line is the only signal that operator will get.
-const allowlistGenericAdvice = "\n" +
-	"Allowlist del canal: no se pudo auditar (hermes no está disponible en este host o el comando falló).\n" +
-	"Si usás Hermes o cualquier otro agente con canal (WhatsApp, Telegram, Discord, …), verificá que ese canal exponga sólo los tools del CRM y ninguna ejecución de código o shell: cualquier tool extra puede escribir la base del negocio sin pasar por los MCP del CRM.\n" +
-	"Detalle: " + installationDocPointer + ".\n"
+// its own tools, and this line is the only signal that operator will get. The
+// parenthetical names the categories actually observed, because "the binary is
+// missing" and "the command broke" send the operator to different places.
+func allowlistGenericAdvice(skipped []unauditableChannel) string {
+	reason := "hermes no está disponible en este host o el comando falló"
+	if reasons := auditFailureDescriptions(skipped); len(reasons) > 0 {
+		reason = strings.Join(reasons, "; ")
+	}
+	return "\n" +
+		"Allowlist del canal: no se pudo auditar (" + reason + ").\n" +
+		"Si usás Hermes o cualquier otro agente con canal (WhatsApp, Telegram, Discord, …), verificá que ese canal exponga sólo los tools del CRM y ninguna ejecución de código o shell: cualquier tool extra puede escribir la base del negocio sin pasar por los MCP del CRM.\n" +
+		"Detalle: " + installationDocPointer + ".\n"
+}
+
+// auditFailureDescriptions returns the distinct failure categories in a stable
+// order (the order of the categories themselves), so the same host always prints
+// the same sentence.
+func auditFailureDescriptions(skipped []unauditableChannel) []string {
+	var descriptions []string
+	for _, failure := range []auditFailure{auditBinaryUnavailable, auditCommandFailed, auditEmptyReport} {
+		if slices.ContainsFunc(skipped, func(c unauditableChannel) bool { return c.failure == failure }) {
+			descriptions = append(descriptions, failure.description())
+		}
+	}
+	return descriptions
+}
+
+// channelAllowlistSkippedLine names one channel that could not be audited. It
+// reuses the generic advisory's wording, shortened: the operator must verify that
+// channel by hand rather than assume the audited one speaks for both.
+func channelAllowlistSkippedLine(channel unauditableChannel) string {
+	return fmt.Sprintf("Allowlist del canal %s: no se pudo auditar (%s).\n",
+		channel.platform, channel.failure.description()) +
+		"Verificá a mano que ese canal exponga sólo los tools del CRM y ninguna ejecución de código o shell.\n"
+}
 
 // channelAllowlistBlockedAdvice renders the actionable block: the runtime's own
-// report printed as-is (never parsed into a summary the operator cannot verify),
-// the recommended list, the exact command, and the doc pointer.
+// report printed as-is but bounded (never parsed into a summary the operator
+// cannot verify), the recommended list, the exact command, and the doc pointer.
 func channelAllowlistBlockedAdvice(channel, output string) string {
 	return fmt.Sprintf("Allowlist del canal %s: no puedo confirmar que sea la mínima ⚠\n", channel) +
 		fmt.Sprintf("Salida literal de `%s tools list --platform %s`:\n", hermesBinary, channel) +
-		strings.TrimRight(output, " \t\n") + "\n" +
+		boundedRuntimeReport(channel, output) + "\n" +
 		"\nAllowlist mínima recomendada: " + minimalAllowlistSummary + "\n" +
 		"Aplicala con:\n" +
-		fmt.Sprintf("%s tools disable --platform %s %s\n", hermesBinary, channel, strings.Join(dangerousChannelToolsets, " ")) +
+		fmt.Sprintf("%s tools disable --platform %s %s\n", hermesBinary, channel, strings.Join(disableCommandToolsets(output), " ")) +
 		"Detalle y verificación: " + installationDocPointer + ".\n"
+}
+
+// disableCommandToolsets is the exact list the remediation command prints: the
+// documented dangerous toolsets first — so the documented command stays
+// recognizable — then every extra toolset the runtime report shows as enabled
+// beyond the minimal set, in report order. Deriving the extras from the report is
+// what keeps the printed command actionable when the runtime ships a toolset the
+// documented list does not name yet: the operator disables what the report
+// actually shows instead of a stale list.
+func disableCommandToolsets(output string) []string {
+	names := slices.Clone(dangerousChannelToolsets)
+	for _, enabled := range enabledChannelToolsets(output) {
+		if slices.Contains(minimalChannelToolsets, enabled) || slices.Contains(names, enabled) {
+			continue
+		}
+		names = append(names, enabled)
+	}
+	return names
+}
+
+// boundedRuntimeReport caps the verbatim report at maxRuntimeReportBytes, cutting
+// on a line boundary when one exists so no tool entry is left half-printed, and
+// appends a marker that names the truncation and the command that prints the
+// whole report. A silent cut would be indistinguishable from a complete report.
+func boundedRuntimeReport(channel, output string) string {
+	trimmed := strings.TrimRight(output, " \t\n")
+	if len(trimmed) <= maxRuntimeReportBytes {
+		return trimmed
+	}
+	cut := validUTF8Prefix(trimmed[:maxRuntimeReportBytes])
+	if lastNewline := strings.LastIndexByte(cut, '\n'); lastNewline > 0 {
+		cut = cut[:lastNewline]
+	}
+	return cut + "\n" + runtimeReportTruncationMarker(channel)
+}
+
+// runtimeReportTruncationMarker names the cut and where the whole report lives.
+func runtimeReportTruncationMarker(channel string) string {
+	return fmt.Sprintf(
+		"[… reporte truncado: se muestran sólo los primeros %d bytes; corré `%s tools list --platform %s` para verlo completo]",
+		maxRuntimeReportBytes, hermesBinary, channel)
+}
+
+// validUTF8Prefix drops a partial rune left by a byte-boundary cut, so the report
+// printed to a terminal is always valid UTF-8.
+func validUTF8Prefix(s string) string {
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // channelAllowlistIsMinimal decides the "already minimal" state conservatively.
