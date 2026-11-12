@@ -162,3 +162,23 @@ Dos de los tres apuntan al contrato del runner `nil` del seam que los tests usan
 **Cómo retomarlos si alguna vez se decide**: los textos de los reviewers no sobreviven al burn; hay que reconstruirlos desde la ubicación (patrón usado en issues #197/#199/#201/#203) o esperar a que un review futuro los re-detecte en un cambio que toque esas líneas.
 
 **Política propuesta (pendiente de escribir en AGENTS.md si el owner la adopta)**: el review nativo corre sobre el cambio original; los fixes que cierran advisories *informativos* no se re-revisan — la verificación es tests + CI.
+
+## Pendiente — revisar el puerto default del MCP (3000) vs. cambiar a otro (owner, 2026-11-12)
+
+**La pregunta del owner**: si sabemos que Hermes (y otros agentes/frameworks) usan **3000 por default**, ¿nos convendría mover nuestro puerto default a otro, por ejemplo **3001**?
+
+**Lo que hay hoy (verificado)**:
+- El MCP escucha en `127.0.0.1:3000` por default (`cmd/mcp-server/main.go`), y el puerto/bind se configuran con `MCP_PORT`/`MCP_BIND` (ADR-0007).
+- **Precedencia**: `.env` > variable de entorno exportada > `3000`. Implementado y testeado en T1/T1.5 (`feat-install-scope-uninstall`).
+- **Pre-flight de puerto** (T1.5): antes de tocar el service unit, el installer detecta si el puerto efectivo está ocupado y **aborta nombrando las dos palancas** (`MCP_PORT` en el `.env`, o `bridge_port` del agente). Listeners del propio unit o del binario reemplazado no cuentan como conflicto.
+- **Ya existe la recomendación** `MCP_PORT=3001` para hosts que corran el canal WhatsApp (`installation.md` Paso 9 y PRD 1.28), porque el puente `bridge.js` de Hermes también usa 3000 "por default, never allocates".
+- El contrato documentado asume 3000: `gateway-contract.md` (C9 loopback), PRD, ADR-0007, la skill `recepcionista-negocio` y los ejemplos de conexión de otros agentes.
+
+**Costo del cambio de default**: `grep -rl 3000` alcanza **220 archivos** (docs, código, scripts, units, plists, templates). Incluye contrato publicado, skill instalada en Hermes y **todas las instalaciones existentes** ⇒ cambio breaking con migración.
+
+**Opciones a evaluar mañana**:
+1. **Statu quo**: default 3000 + pre-flight existente + recomendación puntual de 3001 para hosts con canal. Costo cero, fricción: el usuario debe intervenir en el primer arranque.
+2. **Default 3001**: elimina la colisión más común (bridge de Hermes) pero rompe el contrato y exige migración de instalaciones, docs, skill y tests (220 archivos).
+3. **Default adaptativo**: 3000 si está libre, 3001 si está ocupado, informando cuál se usó — no rompe el contrato, pero introduce un puerto variable que complica soporte y la URL que se escribe en la config del agente.
+
+**Criterio de decisión**: cuánta fricción real genera el 3000 en instalaciones nuevas (¿el pre-flight ya es suficiente?) frente al costo de romper un contrato extendido. **No hay decisión tomada**: análisis para mañana.
