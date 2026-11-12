@@ -215,6 +215,12 @@ type AppModel struct {
 	// a successful Hermes config write (ADR-0020 §4). It lives only between two
 	// screens of the same decision; menuScreen resets it.
 	skillRegen skillInputs
+
+	// allowlistPending marks the option-7 success screen as the one the read-only
+	// channel-allowlist advisory belongs to (issue #195). The probe answers later
+	// and in the meantime the operator can leave; without this flag the late
+	// message would append itself to whatever screen happened to be open.
+	allowlistPending bool
 }
 
 // NewAppModel builds the initial model. ctx is propagated into every core call
@@ -282,6 +288,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.onSkillState(msg)
 	case skillResultMsg:
 		return m.onSkillResult(msg)
+	case allowlistMsg:
+		return m.onAllowlist(msg)
 	case resultMsg:
 		return m.onResult(msg)
 
@@ -978,7 +986,12 @@ func (m AppModel) onSkillState(msg skillStateMsg) (tea.Model, tea.Cmd) {
 
 // onSkillResult lands the regeneration outcome and closes the option 7 cascade
 // with one screen: the config facts, the skill summary token (the exact
-// vocabulary install.sh reports) and the Hermes loader note.
+// vocabulary install.sh reports) and the Hermes loader note. It also dispatches
+// the read-only channel-allowlist advisory (issue #195), which is the ONLY place
+// this interface can tell the operator that the channel bundle is full access by
+// default: the config is already written, so the advisory must never delay this
+// screen nor turn it into an error. The probe runs in the returned tea.Cmd and
+// appends its lines through allowlistMsg.
 func (m AppModel) onSkillResult(msg skillResultMsg) (tea.Model, tea.Cmd) {
 	m.busy = false
 	lines := []string{
@@ -988,10 +1001,45 @@ func (m AppModel) onSkillResult(msg skillResultMsg) (tea.Model, tea.Cmd) {
 		"Telegram: " + m.hermesTelegram.Summary(),
 		"Archivo: " + m.deps.Hermes.Path,
 	}
+	kind := infoSuccess
 	if msg.err != nil {
-		return m.withInfo(infoError, append(lines, skillOutcomeErrorLine(msg.err))...), nil
+		// The advisory is due on BOTH cascade outcomes: a failed regeneration does
+		// not change the fact that the channel may still be full access.
+		lines = append(lines, skillOutcomeErrorLine(msg.err))
+		kind = infoError
+	} else {
+		lines = append(lines, resultLines(msg.outcome)...)
 	}
-	return m.withInfo(infoSuccess, append(lines, resultLines(msg.outcome)...)...), nil
+
+	m = m.withInfo(kind, lines...)
+	m.allowlistPending = true
+	return m, allowlistAdvisoryCmd(m.ctx, m.deps.AllowlistRunner)
+}
+
+// onAllowlist appends the advisory to the success screen once the probe answers.
+// It preserves the severity the screen already had, so a failed skill cascade
+// stays an error screen with the advisory added instead of being repainted as a
+// success. A screen that no longer belongs to this cascade (the operator left
+// while the probe was running) keeps its own content: a late advisory is dropped,
+// never painted on an unrelated screen.
+func (m AppModel) onAllowlist(msg allowlistMsg) (tea.Model, tea.Cmd) {
+	if !m.allowlistPending || m.screen != screenInfo {
+		return m, nil
+	}
+	m.allowlistPending = false
+
+	advisory := allowlistScreenLines(msg.text)
+	if len(advisory) == 0 {
+		return m, nil
+	}
+
+	lines := make([]string, 0, len(m.infoLines)+len(advisory)+1)
+	lines = append(lines, m.infoLines...)
+	// The blank line is the same separator the console advisory opens with: the
+	// risk notice must not read as one more config fact.
+	lines = append(lines, "")
+	lines = append(lines, advisory...)
+	return m.withInfo(m.infoKind, lines...), nil
 }
 
 // onResult lands a write. A seed or recovery failure re-derives the gate instead
@@ -1088,6 +1136,9 @@ func (m AppModel) withScreen(next screen) AppModel {
 	m.screen = next
 	m.errLine = ""
 	m.noticeLine = ""
+	// Leaving a screen detaches the late advisory: it belongs to the cascade that
+	// opened the success screen, not to the next one (see onAllowlist).
+	m.allowlistPending = false
 	return m
 }
 

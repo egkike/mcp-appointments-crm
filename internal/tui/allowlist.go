@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // This file implements the read-only allowlist advisory of the "Configurar
@@ -101,6 +103,54 @@ var dangerousChannelToolsets = []string{
 // its stdout verbatim. It is the injectable seam of the advisory: production uses
 // RunHermesToolsList, tests inject fakes so no test ever executes a real binary.
 type ToolsListRunner func(ctx context.Context, platform string) (string, error)
+
+// DefaultAllowlistPlatforms returns the channels the option-7 advisory audits:
+// whatsapp (the primary business channel) and telegram (the alternative channel
+// plus the owner bot). The copy and the state of each channel still come from
+// AllowlistAdvisory; this list only decides WHICH channels are asked about.
+//
+// There is exactly one list, here, so the console flow (defaultAllowlistAudit in
+// cmd/mcp-server) and the Bubble Tea success screen cannot drift on which
+// channels the operator is told about. A fresh slice per call keeps it immutable
+// for callers: this package carries no mutable state.
+func DefaultAllowlistPlatforms() []string {
+	return []string{"whatsapp", "telegram"}
+}
+
+// allowlistMsg lands the advisory on the option-7 success screen. It carries no
+// error field on purpose: AllowlistAdvisory is a total function (a failed probe
+// degrades to the generic risk notice inside the text), and an error field here
+// would invite the one thing this screen must never do — turn a successful
+// config write into an error screen.
+type allowlistMsg struct {
+	text string
+}
+
+// allowlistAdvisoryCmd runs the read-only probe OFF the Update loop and delivers
+// the composed advisory as a message. The audit spawns a child process (bounded
+// by hermesToolsListTimeout, i.e. milliseconds to five seconds), so it can never
+// be resolved inline in a handler: the operator sees the config facts and the
+// skill outcome immediately, and the advisory appends itself when it arrives.
+func allowlistAdvisoryCmd(ctx context.Context, run ToolsListRunner) tea.Cmd {
+	return func() tea.Msg {
+		return allowlistMsg{text: AllowlistAdvisory(ctx, DefaultAllowlistPlatforms(), run)}
+	}
+}
+
+// allowlistScreenLines splits the composed advisory into the line-oriented shape
+// the info screen renders: it styles one entry per line, so every section (the ✓
+// state, the remediation command, the doc pointer) must be its own entry. The
+// blank lines the composer uses as separators carry nothing and would only widen
+// the frame.
+func allowlistScreenLines(text string) []string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if trimmed := strings.TrimRight(line, " \t"); trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	return lines
+}
 
 // RunHermesToolsList is the production ToolsListRunner. The command is bounded by
 // hermesToolsListTimeout, runs without a shell (no interpolation, no quoting
