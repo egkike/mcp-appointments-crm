@@ -636,16 +636,32 @@ es la fuente normativa):
 > completo: ocurrió en vivo durante el ciclo v0.10.0 (el bot de WhatsApp escribió
 > `reservas.db` sin `create_booking` en el log — issue upstream open
 > [NousResearch/hermes-agent#147647](https://github.com/NousResearch/hermes-agent/issues/147647)).
-> **Mitigación del operador (ejecutable — verificá con un comando):** desde la
-> línea v0.23.x el runtime **sí** separa toolsets por plataforma: en
-> `~/.hermes/config.yaml` el mapa `platform_toolsets` le da `code_execution`
-> **sólo a `cli`**, mientras cada canal (`whatsapp`, `telegram`, `discord`, …)
-> recibe únicamente su toolset de canal. Auditá tu instalación con
-> `hermes tools list` y, si un canal apareciera con toolsets de código, quitáselo
-> con `hermes tools disable --platform whatsapp code_execution`. Dos límites
-> honestos: es per-**platform**, no per-**skill** (no podés acotar un canal
-> skill por skill), y la separación no es retroactiva a instalaciones viejas —
-> por eso el chequeo es un **audit que corrés vos**, no una promesa del runtime.
+> **Mitigación del operador (probada end-to-end — hacé esto antes de dar el canal a clientes):**
+> los bundles de canal de Hermes son **full access por default**: `hermes-whatsapp`,
+> `hermes-telegram`, etc. se expanden a las core tools completas, que incluyen
+> `terminal`, `write_file`, `patch`, `execute_code`, `browser_exec`, `computer_use`
+> y `delegate_task`. Cualquiera de ellas puede escribir `reservas.db` sin pasar por
+> los tools MCP — es la clase del incidente de este repo (ciclo v0.10.0).
+> **La mitigación es una allowlist mínima por canal**, y deshabilitar sólo
+> `code_execution` **no alcanza** (quedan `terminal` y `file`):
+>
+> ```yaml
+> platform_toolsets:
+>   whatsapp: [mcp-appointments, skills, clarify, memory, todo]
+>   telegram: [mcp-appointments, skills, clarify, memory, todo]
+> ```
+>
+> Se aplica con `hermes tools disable --platform <platform> <toolset>` (reescribe el
+> composite a lista explícita) o escribiendo la lista; se **verifica** consultando el
+> resolver del runtime — `_get_platform_tools(cfg, "<platform>")` en
+> `hermes_cli/tools_config.py` — y en vivo: un mensaje al bot pidiendo ejecutar algo
+> debe responder que no tiene la herramienta, mientras los tools del CRM siguen
+> funcionando (probado en el VM 2026-11-12: `api_calls=2` sin tool call para el
+> pedido de terminal, `api_calls=9` con el catálogo real). El CLI del owner queda
+> intacto: la restricción es por plataforma, no global.
+> **Límite honesto:** el estado por defecto está abierto, no cerrado — nada en la
+> instalación avisa que hay que hacer esto, y `platform_toolsets` elige *qué* bundle
+> asigna, **no recorta su contenido**.
 > **Movimiento
 > upstream (seguimiento 2026-11-04→06, follow-up posteado en #147647):** la
 > ventana v0.22.6 trajo dos primitivas de la familia — locks de escritura
