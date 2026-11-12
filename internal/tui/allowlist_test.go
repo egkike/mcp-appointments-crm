@@ -750,11 +750,12 @@ func TestHermesToolsListContext_UsesTheDefaultBudget(t *testing.T) {
 // TestHermesToolsListContext_RespectsAnEarlierCallerDeadline locks the other half
 // of R3-withoutcancel-values: detaching cancellation must not detach a real
 // deadline — an earlier caller deadline wins over the 5s budget. The margin is
-// deliberately generous (250ms, no sleep involved): since R4-002 the caller's
-// deadline only counts while it is still usable, so a deadline the test creates
-// and then reads must not be able to expire in between.
+// deliberately generous and above hermesToolsListMinProbeBudget (900ms, no sleep
+// involved): the caller's deadline only counts while it is usable and long enough
+// to start the probe, so a deadline the test creates and then reads must expire
+// neither in between nor below the minimum.
 func TestHermesToolsListContext_RespectsAnEarlierCallerDeadline(t *testing.T) {
-	parent, cancelParent := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	parent, cancelParent := context.WithTimeout(context.Background(), 900*time.Millisecond)
 	defer cancelParent()
 
 	probe, cancelProbe := hermesToolsListContext(parent)
@@ -859,5 +860,47 @@ func TestValidUTF8Prefix_HasBoundedCost(t *testing.T) {
 	}
 	if elapsed > 5*time.Second {
 		t.Errorf("validUTF8Prefix(%d bytes) took %v, want a bounded backwalk (≤5s) instead of one full re-scan per dropped byte", len(garbage), elapsed)
+	}
+}
+
+// TestBoundedRuntimeReport_ShortReportWithCorruptedByteIsSanitized pins the
+// second advisory round's R4-002: the size cut only decides WHETHER to bound the
+// report, never whether it is safe to print. A report short enough to skip the
+// cut used to be returned raw, pushing malformed bytes into the terminal.
+func TestBoundedRuntimeReport_ShortReportWithCorruptedByteIsSanitized(t *testing.T) {
+	report := "  ✓ enabled  skills\n  \xffcorrupted middle\n  ✓ enabled  memory"
+
+	got := boundedRuntimeReport("whatsapp", report)
+	if !utf8.ValidString(got) {
+		t.Fatalf("short report came back with invalid UTF-8: %q", got)
+	}
+	if !strings.Contains(got, "✓ enabled  skills") {
+		t.Errorf("valid head was dropped: %q", got)
+	}
+	if strings.Contains(got, "memory") {
+		t.Errorf("tail after the corrupted byte leaked through: %q", got)
+	}
+	if !strings.Contains(got, "reporte truncado") {
+		t.Errorf("processed report did not name the truncation: %q", got)
+	}
+}
+
+// TestHermesToolsListContext_TooShortCallerDeadlineFallsBackToTheBudget pins the
+// second advisory round's R4-001: a deadline that is alive but shorter than the
+// cost of exec'ing the probe is the same trap as an expired one — the audit dies
+// and the operator is told the command failed.
+func TestHermesToolsListContext_TooShortCallerDeadlineFallsBackToTheBudget(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	probe, cancelProbe := hermesToolsListContext(parent)
+	defer cancelProbe()
+
+	deadline, ok := probe.Deadline()
+	if !ok {
+		t.Fatal("probe context has no deadline")
+	}
+	if remaining := time.Until(deadline); remaining < hermesToolsListTimeout/2 {
+		t.Fatalf("probe budget = %v, want the default %v budget instead of the too-short caller deadline", remaining, hermesToolsListTimeout)
 	}
 }

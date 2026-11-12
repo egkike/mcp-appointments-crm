@@ -45,6 +45,12 @@ import (
 // listing: a few seconds is generous, and the flow must never hang on it.
 const hermesToolsListTimeout = 5 * time.Second
 
+// hermesToolsListMinProbeBudget is the least caller deadline worth honouring: a
+// probe that has less time than this cannot even finish exec'ing, so taking the
+// caller's deadline there would kill the audit and report a command failure for
+// a reason unrelated to the command.
+const hermesToolsListMinProbeBudget = 250 * time.Millisecond
+
 // maxRuntimeReportBytes bounds the verbatim report the advisory prints. The
 // runtime owns that report and can grow it as it lists tools: an unbounded print
 // would flood the console the operator is reading, so the block is capped and a
@@ -137,7 +143,12 @@ func RunHermesToolsList(ctx context.Context, platform string) (string, error) {
 func hermesToolsListContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	parent := context.WithoutCancel(ctx)
 	if deadline, ok := ctx.Deadline(); ok {
-		if remaining := time.Until(deadline); remaining > 0 && remaining < hermesToolsListTimeout {
+		// A deadline that is alive but shorter than the cost of exec'ing the probe
+		// is the same trap as an expired one: the process cannot even start, the
+		// audit dies, and the operator is told the command failed (native review
+		// R4-001 of the second advisory round). It falls through to the normal
+		// budget instead — the probe is read-only and the operator asked for it.
+		if remaining := time.Until(deadline); remaining > hermesToolsListMinProbeBudget && remaining < hermesToolsListTimeout {
 			return context.WithDeadline(parent, deadline)
 		}
 	}
@@ -360,8 +371,20 @@ func disableCommandToolsets(output string) []string {
 // cannot render.
 func boundedRuntimeReport(channel, output string) string {
 	trimmed := strings.TrimRight(output, " \t\n")
+	// Sanitize on BOTH paths. A report short enough to skip the size cut can still
+	// carry an invalid byte in the middle, and returning it raw would push
+	// malformed bytes into the operator's terminal (native review R4-002 of the
+	// second advisory round). The size cut below only decides WHETHER to bound the
+	// report, never whether it is safe to print.
 	if len(trimmed) <= maxRuntimeReportBytes {
-		return trimmed
+		cut := validUTF8Prefix(trimmed)
+		if len(cut) == len(trimmed) {
+			return cut
+		}
+		if cut == "" {
+			return runtimeReportUnprintableLine(channel) + "\n" + runtimeReportTruncationMarker(channel, 0)
+		}
+		return cut + "\n" + runtimeReportTruncationMarker(channel, len(cut))
 	}
 	cut := validUTF8Prefix(trimmed[:maxRuntimeReportBytes])
 	if lastNewline := strings.LastIndexByte(cut, '\n'); lastNewline > 0 {
