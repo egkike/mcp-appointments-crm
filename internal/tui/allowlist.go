@@ -546,11 +546,20 @@ func enabledChannelToolsets(output string) []string {
 		if len(fields) < 2 || fields[0] != "enabled" {
 			continue
 		}
+		// The runtime prints "<name>  <emoji> <description>" per line, so only the
+		// first field of each entry is the toolset name. The middle dot is kept as a
+		// separator because this package's fixtures use it to put several toolsets
+		// on one line; the real report never does. Splitting only on the dot made
+		// every name carry its description, so a healthy minimal channel never
+		// matched and the advisory alarmed on every install (found on the VM with
+		// v0.12.1).
 		names := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(body), "enabled"))
-		for _, name := range strings.Split(names, "·") {
-			if tool := strings.TrimSpace(name); tool != "" {
-				enabled = append(enabled, tool)
+		for _, entry := range strings.Split(names, "·") {
+			fields := strings.Fields(entry)
+			if len(fields) == 0 {
+				continue
 			}
+			enabled = append(enabled, fields[0])
 		}
 	}
 	return enabled

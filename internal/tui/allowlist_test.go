@@ -922,3 +922,40 @@ func TestHermesToolsListContext_TooShortCallerDeadlineFallsBackToTheBudget(t *te
 		t.Fatalf("probe budget = %v, want the default %v budget instead of the too-short caller deadline", remaining, hermesToolsListTimeout)
 	}
 }
+
+// TestChannelAllowlistIsMinimal_RealRuntimeReportReproducesTheFalseNegative pins
+// the defect found on the production VM with v0.12.1: the parser split enabled
+// names on the middle dot used only by this package's fixtures, but the runtime
+// prints "<name>  <emoji> <description>", so every name carried its description
+// and the conservative detector answered "not minimal" for a channel that was
+// exactly minimal. A detector that always alarms is worse than no detector.
+func TestChannelAllowlistIsMinimal_RealRuntimeReportReproducesTheFalseNegative(t *testing.T) {
+	report := strings.Join([]string{
+		"Built-in toolsets (whatsapp):",
+		"  ✗ disabled  web  🔍 Web Search & Scraping",
+		"  ✗ disabled  code_execution  ⚡ Code Execution",
+		"  ✓ enabled  skills  📚 Skills",
+		"  ✓ enabled  todo  📋 Task Planning",
+		"  ✓ enabled  memory  💾 Memory",
+		"  ✓ enabled  clarify  ❓ Clarifying Questions",
+		"Plugin toolsets (whatsapp):",
+		"  ✗ disabled  homeassistant  🔌 Homeassistant",
+		"MCP servers:",
+		"  mcp-appointments  all tools enabled",
+		"",
+	}, "\n")
+
+	got := enabledChannelToolsets(report)
+	want := []string{"skills", "todo", "memory", "clarify"}
+	if len(got) != len(want) {
+		t.Fatalf("enabledChannelToolsets() = %q (%d), want %q (%d)", got, len(got), want, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("enabled[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+	if !channelAllowlistIsMinimal(report) {
+		t.Error("channelAllowlistIsMinimal() = false for a channel that IS minimal; the detector would alarm on every healthy install")
+	}
+}
