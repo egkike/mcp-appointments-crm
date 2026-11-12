@@ -1,0 +1,208 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/egkike/mcp-appointments-crm/internal/tui"
+)
+
+// This file pins the console wiring of the option-7 allowlist advisory (issue
+// #195): what the operator reads after the config write, and the guarantee that
+// a failed audit never breaks a flow whose write already succeeded. Every case
+// injects a fake runner through the allowlistAudit seam; no test executes a real
+// hermes binary.
+
+// narrowToolsList is the runtime report of a channel already at the minimal
+// allowlist.
+const narrowToolsList = `  ✓ enabled  skills · todo · memory · clarify
+  MCP servers:
+    mcp-appointments  all tools enabled
+`
+
+// fullAccessToolsList is the default messaging bundle (full access).
+const fullAccessToolsList = `  ✓ enabled  skills · todo · memory · clarify · terminal · file
+  MCP servers:
+    mcp-appointments  all tools enabled
+`
+
+// auditFor builds the injectable seam from a fake runner. The audited channels
+// are the production defaults, so the table also pins which platforms the
+// advisory probes.
+func auditFor(run toolsListRunner) allowlistAudit {
+	return allowlistAudit{runToolsList: run, platforms: defaultAllowlistAudit.platforms}
+}
+
+// TestWriteAllowlistAdvisory covers the three operator-visible states of the
+// advisory through the seam.
+func TestWriteAllowlistAdvisory(t *testing.T) {
+	tests := []struct {
+		name        string
+		run         toolsListRunner
+		wantExact   string
+		wantContain []string
+		wantOmit    []string
+	}{
+		{
+			name: "minimal allowlist prints one line per documented channel",
+			run: func(_ context.Context, _ string) (string, error) {
+				return narrowToolsList, nil
+			},
+			wantExact: "\n" +
+				"Allowlist del canal whatsapp: mínima ✓ (skills, todo, memory, clarify + mcp-appointments)\n" +
+				"Allowlist del canal telegram: mínima ✓ (skills, todo, memory, clarify + mcp-appointments)\n",
+		},
+		{
+			name: "full access bundle prints the block and the exact command",
+			run: func(_ context.Context, platform string) (string, error) {
+				if platform == "whatsapp" {
+					return fullAccessToolsList, nil
+				}
+				return narrowToolsList, nil
+			},
+			wantContain: []string{
+				"Allowlist del canal whatsapp:",
+				strings.TrimRight(fullAccessToolsList, "\n"),
+				"mcp-appointments, skills, clarify, memory, todo",
+				"hermes tools disable --platform whatsapp code_execution terminal file browser web computer_use delegation cronjob image_gen tts vision session_search connections homeassistant",
+				"Allowlist del canal telegram: mínima ✓",
+			},
+			wantOmit: []string{"Allowlist del canal whatsapp: mínima ✓"},
+		},
+		{
+			name: "hermes absent falls back to the generic advisory",
+			run: func(_ context.Context, _ string) (string, error) {
+				return "", errors.New("exec: \"hermes\": executable file not found in $PATH")
+			},
+			wantContain: []string{"no se pudo auditar", `docs/installation.md → "Allowlist mínima recomendada"`},
+			wantOmit:    []string{"mínima ✓", "hermes tools disable", "executable file not found"},
+		},
+		{
+			name: "command failure falls back to the generic advisory",
+			run: func(_ context.Context, _ string) (string, error) {
+				return "boom: /home/kike/.hermes/config.yaml is corrupt", errors.New("exit status 1")
+			},
+			wantContain: []string{"no se pudo auditar"},
+			wantOmit:    []string{"mínima ✓", "hermes tools disable", "config.yaml"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := writeAllowlistAdvisory(context.Background(), &out, auditFor(tt.run)); err != nil {
+				t.Fatalf("writeAllowlistAdvisory() error = %v, want nil", err)
+			}
+
+			got := out.String()
+			if tt.wantExact != "" && got != tt.wantExact {
+				t.Fatalf("output = %q, want %q", got, tt.wantExact)
+			}
+			for _, want := range tt.wantContain {
+				if !strings.Contains(got, want) {
+					t.Errorf("output = %q, want it to contain %q", got, want)
+				}
+			}
+			for _, omit := range tt.wantOmit {
+				if strings.Contains(got, omit) {
+					t.Errorf("output = %q, must not contain %q", got, omit)
+				}
+			}
+		})
+	}
+}
+
+// TestRunConfigureHermesFlowAudit_PrintsTheAdvisoryLast locks the placement the
+// brief requires: the advisory is the last thing the operator reads, after the
+// config write and after the ADR-0020 skill cascade.
+func TestRunConfigureHermesFlowAudit_PrintsTheAdvisoryLast(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	hermesPath := prepareHermesConsole(t)
+	identity := consoleIdentity(t, dbPath)
+
+	var out bytes.Buffer
+	// Configure Hermes -> prefilled phone -> token -> chat id -> prefilled
+	// Telegram phone -> confirm. Trailing newlines keep an unexpected extra
+	// prompt from failing the run for the wrong reason.
+	stdin := newConsoleInput(strings.NewReader(
+		"\n" + telegramTestToken + "\n" + telegramTestChatID + "\n\ns\n\n\n"))
+
+	audit := auditFor(func(_ context.Context, _ string) (string, error) {
+		return narrowToolsList, nil
+	})
+	err := runConfigureHermesFlowAudit(context.Background(), identity, stdin, &out,
+		tui.HermesConfig{Path: hermesPath, EndpointURL: consoleHermesEndpoint(t)}, audit)
+	if err != nil {
+		t.Fatalf("runConfigureHermesFlowAudit() error = %v, want the flow to finish", err)
+	}
+
+	got := out.String()
+	written := strings.Index(got, "Configuración de Hermes actualizada.")
+	if written < 0 {
+		t.Fatalf("output = %q, want the config confirmation", got)
+	}
+	wantTail := "\n" +
+		"Allowlist del canal whatsapp: mínima ✓ (skills, todo, memory, clarify + mcp-appointments)\n" +
+		"Allowlist del canal telegram: mínima ✓ (skills, todo, memory, clarify + mcp-appointments)\n"
+	if !strings.HasSuffix(got, wantTail) {
+		t.Errorf("output = %q, want it to end with %q", got, wantTail)
+	}
+	if idx := strings.Index(got, "Allowlist del canal whatsapp:"); idx < written {
+		t.Errorf("advisory at %d, want it after the config confirmation at %d", idx, written)
+	}
+}
+
+// TestRunConfigureHermesFlowAudit_AdvisoryFailureKeepsTheFlow locks the contract
+// the whole advisory is subordinate to: a failed audit (hermes absent, command
+// broken, unknown channel) never turns a successful config write into an error.
+func TestRunConfigureHermesFlowAudit_AdvisoryFailureKeepsTheFlow(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	hermesPath := prepareHermesConsole(t)
+	identity := consoleIdentity(t, dbPath)
+
+	var out bytes.Buffer
+	stdin := newConsoleInput(strings.NewReader(
+		"\n" + telegramTestToken + "\n" + telegramTestChatID + "\n\ns\n\n\n"))
+
+	audit := auditFor(func(_ context.Context, _ string) (string, error) {
+		return "", errors.New("exec: hermes: not found")
+	})
+	err := runConfigureHermesFlowAudit(context.Background(), identity, stdin, &out,
+		tui.HermesConfig{Path: hermesPath, EndpointURL: consoleHermesEndpoint(t)}, audit)
+	if err != nil {
+		t.Fatalf("runConfigureHermesFlowAudit() error = %v, want nil despite the failed audit", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "Configuración de Hermes actualizada.") {
+		t.Errorf("output = %q, want the config confirmation to survive", got)
+	}
+	if !strings.Contains(got, "no se pudo auditar") {
+		t.Errorf("output = %q, want the generic advisory", got)
+	}
+	// The failed audit is not an error the operator must act on: after the
+	// advisory line there is no menu "Error: ..." (the skill-cascade error that
+	// may precede it belongs to a different step and is asserted elsewhere).
+	if idx := strings.Index(got, "no se pudo auditar"); idx >= 0 && strings.Contains(got[idx:], "Error: ") {
+		t.Errorf("output = %q, want no error line after the advisory", got)
+	}
+}
+
+// TestDefaultAllowlistAudit_UsesTheRealRunner keeps the production wiring honest:
+// the default seam is the real Hermes CLI runner and the audited platforms are
+// the two channels this product documents.
+func TestDefaultAllowlistAudit_UsesTheRealRunner(t *testing.T) {
+	if defaultAllowlistAudit.runToolsList == nil {
+		t.Fatal("defaultAllowlistAudit.runToolsList = nil, want the production runner")
+	}
+	if len(defaultAllowlistAudit.platforms) != 2 ||
+		defaultAllowlistAudit.platforms[0] != "whatsapp" ||
+		defaultAllowlistAudit.platforms[1] != "telegram" {
+		t.Errorf("audited platforms = %v, want [whatsapp telegram]", defaultAllowlistAudit.platforms)
+	}
+}

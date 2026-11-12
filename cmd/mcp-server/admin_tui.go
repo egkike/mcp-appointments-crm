@@ -1565,7 +1565,21 @@ func runAddSelfAsClientFlow(ctx context.Context, identity identityDeps, input *c
 // the operator can finish the bootstrap by hand (ADR-0017 Decision 1). The chain
 // itself lives in tui.ApplyHermesConfigWithTelegram, the same helper the Bubble
 // Tea wizard runs, so the console never re-derives the path or the endpoint.
+//
+// The last step, after the ADR-0020 skill cascade, is the read-only allowlist
+// advisory (issue #195): it reports what the configured channels expose today and,
+// when it cannot prove the minimal allowlist, the exact `hermes tools disable`
+// commands. It never writes the runtime config and never turns a successful write
+// into a failure.
 func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, hermes tui.HermesConfig) error {
+	return runConfigureHermesFlowAudit(ctx, identity, input, stdout, hermes, defaultAllowlistAudit)
+}
+
+// runConfigureHermesFlowAudit is runConfigureHermesFlow with the allowlist
+// advisory's runner injected, so a test exercises the whole option-7 flow —
+// including the advisory step — without executing a real `hermes` binary. The
+// production entry point above always passes defaultAllowlistAudit.
+func runConfigureHermesFlowAudit(ctx context.Context, identity identityDeps, input *consoleInput, stdout io.Writer, hermes tui.HermesConfig, audit allowlistAudit) error {
 	owner, err := admin.ActiveOwner(ctx, identity.accounts)
 	if err != nil {
 		return err
@@ -1647,14 +1661,19 @@ func runConfigureHermesFlow(ctx context.Context, identity identityDeps, input *c
 				"La skill recepcionista instalada difiere del template del sistema. ¿Reemplazarla? Se descartan los cambios manuales. Puede tratarse de una modificación de Hermes (procedural memory) o manual.")
 		})
 		if skillErr == nil {
-			return writeConsole(stdout, "Skill recepcionista: "+string(outcome)+"\nHermes recarga el índice de skills en su próximo arranque.\n")
-		}
-		// Sanitized like every console print (issue #157): the regeneration
-		// failure may be a plain filesystem error with a config path on it.
-		if werr := writeConsole(stdout, fmt.Sprintf("Error: %s\n", consoleErrorText(skillErr))); werr != nil {
+			if werr := writeConsole(stdout, "Skill recepcionista: "+string(outcome)+"\nHermes recarga el índice de skills en su próximo arranque.\n"); werr != nil {
+				return werr
+			}
+		} else if werr := writeConsole(stdout, fmt.Sprintf("Error: %s\n", consoleErrorText(skillErr))); werr != nil {
+			// Sanitized like every console print (issue #157): the regeneration
+			// failure may be a plain filesystem error with a config path on it.
 			return werr
 		}
-		return nil
+		// Issue #195: the allowlist advisory is the LAST thing the operator
+		// reads, on both skill outcomes (success and cascade failure), because it
+		// is the only signal that the channel may still be full access. A failed
+		// audit never becomes an error here: the write already succeeded.
+		return writeAllowlistAdvisory(ctx, stdout, audit)
 	}
 	return writeHermesSnippetFallback(stdout, hermes, snippet, err)
 }

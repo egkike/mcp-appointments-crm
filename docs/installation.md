@@ -651,6 +651,14 @@ es la fuente normativa):
 > mínima de arriba. Los plugins de terceros también cuentan: deshabilitá los que no
 > uses (por ejemplo `homeassistant`, domótica, sin relación con el CRM).
 >
+> **La opción 7 de `mcp-server admin tui` ("Configurar Hermes") ya audita esto por
+> vos**: al terminar la escritura del server entry corre `hermes tools list` sobre
+> los canales `whatsapp` y `telegram` e imprime el estado de cada uno — una línea si
+> la allowlist ya es mínima, o el bloque con el comando `hermes tools disable`
+> exacto si no puede confirmarlo. Es **sólo lectura**: la opción 7 nunca modifica
+> `~/.hermes/config.yaml` más allá de la entrada `mcp-appointments`, y si `hermes`
+> no está disponible te deja el aviso genérico con el puntero a esta sección.
+>
 > **1. Auditá qué tiene el canal hoy:**
 >
 > ```bash
