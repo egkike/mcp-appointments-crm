@@ -149,6 +149,16 @@ Everything else (B1..B14) is CLOSED with evidence — verified 2026-10-27 agains
 | `R4-001` | resilience | `internal/tui/allowlist.go:146-151` | WARNING |
 | `R4-002` | resilience | `internal/tui/allowlist.go:380-387` | WARNING |
 
+**Segunda tanda (PR #208, wiring del advisory en la TUI) — misma decisión, 2026-11-12**: el review `review-620516a374297bfb` dejó tres hallazgos más, también `informational` y también parkeados:
+
+| ID | Lente | Ubicación | Severidad |
+|---|---|---|---|
+| `R3-allowlist-stale-probe` | reliability | `internal/tui/model.go:1040-1046` | WARNING |
+| `R3-nil-runner-contract` | reliability | `internal/tui/ports.go:146-152` | SUGGESTION |
+| `R4-001` | resilience | `internal/tui/ports.go:145-151` | WARNING |
+
+Dos de los tres apuntan al contrato del runner `nil` del seam que los tests usan para inyectar el probe — el único código que el implementador tocó fuera de sus superficies autorizadas.
+
 **Cómo retomarlos si alguna vez se decide**: los textos de los reviewers no sobreviven al burn; hay que reconstruirlos desde la ubicación (patrón usado en issues #197/#199/#201/#203) o esperar a que un review futuro los re-detecte en un cambio que toque esas líneas.
 
 **Política propuesta (pendiente de escribir en AGENTS.md si el owner la adopta)**: el review nativo corre sobre el cambio original; los fixes que cierran advisories *informativos* no se re-revisan — la verificación es tests + CI.
