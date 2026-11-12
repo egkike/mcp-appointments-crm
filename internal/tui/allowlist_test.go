@@ -643,6 +643,50 @@ func TestBoundedRuntimeReport_UnprintableBodyExplainsItself(t *testing.T) {
 	}
 }
 
+// TestValidUTF8Prefix_KeepsTheValidPrefixBeforeACorruptedByte locks R4-001: an
+// invalid byte in the MIDDLE of the string is not a mid-rune cut, so it must not
+// discard the whole prefix — the operator keeps everything the runtime said
+// before the corruption instead of losing the report for one bad byte.
+func TestValidUTF8Prefix_KeepsTheValidPrefixBeforeACorruptedByte(t *testing.T) {
+	input := "✓ enabled  skills" + "\xff" + "todo\n"
+
+	got := validUTF8Prefix(input)
+
+	if !utf8.ValidString(got) {
+		t.Fatalf("validUTF8Prefix(corrupted middle byte) = %q, want valid UTF-8", got)
+	}
+	if want := "✓ enabled  skills"; got != want {
+		t.Errorf("validUTF8Prefix(corrupted middle byte) = %q, want the valid prefix %q", got, want)
+	}
+}
+
+// TestBoundedRuntimeReport_CorruptedMiddleByteKeepsThePrefix locks the
+// operator-visible half of R4-001: a report that is valid up to a corrupted byte
+// inside the printed window still shows what it could read instead of collapsing
+// to the fixed "could not be shown" line.
+func TestBoundedRuntimeReport_CorruptedMiddleByteKeepsThePrefix(t *testing.T) {
+	head := "  ✓ enabled  skills · terminal"
+	// The corrupted byte sits well inside the 8192-byte printed window, and the
+	// report is longer than the cap, so the cut is a plain byte-boundary cut with
+	// one bad byte behind it.
+	report := head + "\n" + strings.Repeat("f", 4000-len(head)-1) + "\xff" + strings.Repeat("tail\n", 2000)
+	if len(report) <= maxRuntimeReportBytes {
+		t.Fatalf("report is %d bytes, want it past the %d-byte cap", len(report), maxRuntimeReportBytes)
+	}
+
+	got := boundedRuntimeReport("whatsapp", report)
+	if !utf8.ValidString(got) {
+		t.Fatalf("bounded report is not valid UTF-8: %q", got)
+	}
+	body, _ := splitBoundedReport(t, got)
+	if !strings.HasPrefix(body, head) {
+		t.Errorf("report body = %q, want it to keep the report's valid head %q", body, head)
+	}
+	if strings.Contains(body, "no se pudo mostrar") {
+		t.Errorf("report body = %q, must not discard the whole report for one corrupted middle byte", body)
+	}
+}
+
 // TestChannelAllowlistAdvice_UnprintableReportKeepsTheBlockReadable locks the
 // operator-level shape of R4-001: the blocked block still names the state and the
 // remediation command, and the unprintable report is explained instead of
@@ -705,9 +749,12 @@ func TestHermesToolsListContext_UsesTheDefaultBudget(t *testing.T) {
 
 // TestHermesToolsListContext_RespectsAnEarlierCallerDeadline locks the other half
 // of R3-withoutcancel-values: detaching cancellation must not detach a real
-// deadline — an earlier caller deadline wins over the 5s budget.
+// deadline — an earlier caller deadline wins over the 5s budget. The margin is
+// deliberately generous (250ms, no sleep involved): since R4-002 the caller's
+// deadline only counts while it is still usable, so a deadline the test creates
+// and then reads must not be able to expire in between.
 func TestHermesToolsListContext_RespectsAnEarlierCallerDeadline(t *testing.T) {
-	parent, cancelParent := context.WithTimeout(context.Background(), time.Millisecond)
+	parent, cancelParent := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancelParent()
 
 	probe, cancelProbe := hermesToolsListContext(parent)
@@ -718,7 +765,61 @@ func TestHermesToolsListContext_RespectsAnEarlierCallerDeadline(t *testing.T) {
 		t.Fatal("probe context has no deadline, want the caller's earlier deadline")
 	}
 	if remaining := time.Until(deadline); remaining > time.Second {
-		t.Errorf("probe budget = %v, want the caller's ~1ms deadline instead of %v", remaining, hermesToolsListTimeout)
+		t.Errorf("probe budget = %v, want the caller's earlier deadline instead of %v", remaining, hermesToolsListTimeout)
+	}
+}
+
+// TestHermesToolsListContext_ExpiredCallerDeadlineGetsTheDefaultBudget locks
+// R4-002: an already-expired caller deadline (or a clock jump) must not hand the
+// probe a context that is dead on arrival. Such a probe fails for a reason that
+// has nothing to do with the command, and the advisory would report it as
+// "el comando falló", pointing the operator at a command that is fine.
+func TestHermesToolsListContext_ExpiredCallerDeadlineGetsTheDefaultBudget(t *testing.T) {
+	parent, cancelParent := context.WithDeadline(context.Background(), time.Now().Add(-time.Minute))
+	defer cancelParent()
+
+	probe, cancelProbe := hermesToolsListContext(parent)
+	defer cancelProbe()
+
+	if err := probe.Err(); err != nil {
+		t.Fatalf("probe context error = %v, want nil: an expired caller deadline must not kill the probe", err)
+	}
+	deadline, ok := probe.Deadline()
+	if !ok {
+		t.Fatal("probe context has no deadline, want the 5s audit budget")
+	}
+	if remaining := time.Until(deadline); remaining > hermesToolsListTimeout || remaining < hermesToolsListTimeout-time.Second {
+		t.Errorf("probe budget = %v, want ~%v", remaining, hermesToolsListTimeout)
+	}
+}
+
+// TestAllowlistAdvisory_ExpiredCallerDeadlineStillAudits locks the
+// operator-visible half of R4-002: the expired caller deadline falls through to
+// the normal probe budget, so a cancelled flow still gets its audit evidence
+// instead of a "command failed" category it cannot act on.
+func TestAllowlistAdvisory_ExpiredCallerDeadlineStillAudits(t *testing.T) {
+	expired, cancelExpired := context.WithDeadline(context.Background(), time.Now().Add(-time.Minute))
+	defer cancelExpired()
+
+	// Models RunHermesToolsList: the command runs under the PROBE context, so a
+	// probe context that is dead on arrival fails exactly like a broken command
+	// (the classification this test forbids).
+	run := func(ctx context.Context, platform string) (string, error) {
+		probe, cancelProbe := hermesToolsListContext(ctx)
+		defer cancelProbe()
+		if err := probe.Err(); err != nil {
+			return "", fmt.Errorf("hermes tools list --platform %s: %w", platform, err)
+		}
+		return minimalHermesToolsList, nil
+	}
+
+	got := AllowlistAdvisory(expired, []string{"whatsapp"}, run)
+
+	if !strings.Contains(got, expectedMinimalWhatsAppLine) {
+		t.Errorf("advisory = %q, want the audited minimal line for whatsapp", got)
+	}
+	if strings.Contains(got, auditCommandFailed.description()) {
+		t.Errorf("advisory = %q, must not report a command failure for an expired caller deadline", got)
 	}
 }
 
