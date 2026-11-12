@@ -193,6 +193,73 @@ func TestRunConfigureHermesFlowAudit_AdvisoryFailureKeepsTheFlow(t *testing.T) {
 	}
 }
 
+// TestWriteAllowlistAdvisory_ConsoleFailureIsNotAnError locks R4-003 at the seam:
+// the advisory is the last, non-essential step of a flow whose config write
+// already succeeded, so a console it cannot write to answers nil instead of
+// surfacing an error the operator cannot act on.
+func TestWriteAllowlistAdvisory_ConsoleFailureIsNotAnError(t *testing.T) {
+	audit := auditFor(func(_ context.Context, _ string) (string, error) {
+		return narrowToolsList, nil
+	})
+
+	if err := writeAllowlistAdvisory(context.Background(), failingConsole{}, audit); err != nil {
+		t.Fatalf("writeAllowlistAdvisory() error = %v, want nil despite the console failure", err)
+	}
+}
+
+// failingConsole is an io.Writer that always refuses to write, standing in for a
+// closed terminal: the advisory must swallow that failure.
+type failingConsole struct{}
+
+func (failingConsole) Write(_ []byte) (int, error) {
+	return 0, errors.New("console closed")
+}
+
+// advisoryRefusingConsole succeeds on every write of the flow except the
+// advisory, so the test exercises the real option-7 flow and fails only at the
+// step R4-003 is about.
+type advisoryRefusingConsole struct {
+	inner bytes.Buffer
+}
+
+func (w *advisoryRefusingConsole) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), "Allowlist del canal") {
+		return 0, errors.New("console closed")
+	}
+	return w.inner.Write(p)
+}
+
+// TestRunConfigureHermesFlowAudit_AdvisoryWriteFailureKeepsTheFlow locks R4-003
+// end to end: the config was already written when the advisory prints, so a
+// console failure there must not turn a successful write into a flow error.
+func TestRunConfigureHermesFlowAudit_AdvisoryWriteFailureKeepsTheFlow(t *testing.T) {
+	dbPath, _ := prepareAdminTUI(t)
+	seedOwnerForTest(t, dbPath, ownerPhone, "Dueño")
+	hermesPath := prepareHermesConsole(t)
+	identity := consoleIdentity(t, dbPath)
+
+	out := &advisoryRefusingConsole{}
+	stdin := newConsoleInput(strings.NewReader(
+		"\n" + telegramTestToken + "\n" + telegramTestChatID + "\n\ns\n\n\n"))
+
+	audit := auditFor(func(_ context.Context, _ string) (string, error) {
+		return narrowToolsList, nil
+	})
+	err := runConfigureHermesFlowAudit(context.Background(), identity, stdin, out,
+		tui.HermesConfig{Path: hermesPath, EndpointURL: consoleHermesEndpoint(t)}, audit)
+	if err != nil {
+		t.Fatalf("runConfigureHermesFlowAudit() error = %v, want nil despite the unwritable advisory", err)
+	}
+
+	got := out.inner.String()
+	if !strings.Contains(got, "Configuración de Hermes actualizada.") {
+		t.Errorf("output = %q, want the config confirmation to survive", got)
+	}
+	if strings.Contains(got, "Allowlist del canal") {
+		t.Errorf("output = %q, want the advisory write to have failed silently", got)
+	}
+}
+
 // TestDefaultAllowlistAudit_UsesTheRealRunner keeps the production wiring honest:
 // the default seam is the real Hermes CLI runner and the audited platforms are
 // the two channels this product documents.
