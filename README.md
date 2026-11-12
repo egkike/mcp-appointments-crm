@@ -30,7 +30,7 @@ release automation), not as a next numbered phase.
   profile/clients/services queries, owner-only maintenance and hours
   exceptions (auth via `X-Caller-Id` + RBAC). Full catalog: `docs/PRD.md` §3
   / `docs/SDD.md`.
-- **Latest release**: v0.12.1 (2026-11-12) — minor: option 7 now audits the
+- **Latest release**: v0.12.1 (2026-11-12) — patch: the allowlist advisory is now visible in the TUI; option 7 audits the
   channel tool allowlist (read-only advisory, three states), plus the
   security-doc corrections on the per-platform tool boundary and a CI fix.
   Assets and install steps:
