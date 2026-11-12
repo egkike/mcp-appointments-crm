@@ -636,32 +636,57 @@ es la fuente normativa):
 > completo: ocurrió en vivo durante el ciclo v0.10.0 (el bot de WhatsApp escribió
 > `reservas.db` sin `create_booking` en el log — issue upstream open
 > [NousResearch/hermes-agent#147647](https://github.com/NousResearch/hermes-agent/issues/147647)).
-> **Mitigación del operador (probada end-to-end — hacé esto antes de dar el canal a clientes):**
-> los bundles de canal de Hermes son **full access por default**: `hermes-whatsapp`,
+> **⚠️ Paso obligatorio antes de dar el canal a clientes: restringir los tools del canal.**
+> Los bundles de canal de Hermes son **full access por default**: `hermes-whatsapp`,
 > `hermes-telegram`, etc. se expanden a las core tools completas, que incluyen
-> `terminal`, `write_file`, `patch`, `execute_code`, `browser_exec`, `computer_use`
-> y `delegate_task`. Cualquiera de ellas puede escribir `reservas.db` sin pasar por
-> los tools MCP — es la clase del incidente de este repo (ciclo v0.10.0).
-> **La mitigación es una allowlist mínima por canal**, y deshabilitar sólo
-> `code_execution` **no alcanza** (quedan `terminal` y `file`):
+> `terminal`, `write_file`, `patch`, `execute_code`, `browser_exec`,
+> `computer_use` y `delegate_task`. Cualquiera de ellas puede escribir
+> `reservas.db` sin pasar por los tools MCP — es la clase del incidente de este
+> repo (ciclo v0.10.0). El bot solo necesita los tools del CRM: el resto es
+> superficie de ataque.
 >
-> ```yaml
-> platform_toolsets:
->   whatsapp: [mcp-appointments, skills, clarify, memory, todo]
->   telegram: [mcp-appointments, skills, clarify, memory, todo]
+> **1. Auditá qué tiene el canal hoy:**
+>
+> ```bash
+> hermes tools list --platform whatsapp     # o: --platform telegram
 > ```
 >
-> Se aplica con `hermes tools disable --platform <platform> <toolset>` (reescribe el
-> composite a lista explícita) o escribiendo la lista; se **verifica** consultando el
-> resolver del runtime — `_get_platform_tools(cfg, "<platform>")` en
-> `hermes_cli/tools_config.py` — y en vivo: un mensaje al bot pidiendo ejecutar algo
-> debe responder que no tiene la herramienta, mientras los tools del CRM siguen
-> funcionando (probado en el VM 2026-11-12: `api_calls=2` sin tool call para el
-> pedido de terminal, `api_calls=9` con el catálogo real). El CLI del owner queda
-> intacto: la restricción es por plataforma, no global.
-> **Límite honesto:** el estado por defecto está abierto, no cerrado — nada en la
-> instalación avisa que hay que hacer esto, y `platform_toolsets` elige *qué* bundle
-> asigna, **no recorta su contenido**.
+> **2. Restringilo al mínimo** (un solo comando; `disable` acepta varios toolsets):
+>
+> ```bash
+> hermes tools disable --platform whatsapp \
+>   code_execution terminal file browser web computer_use \
+>   delegation cronjob image_gen tts vision session_search connections
+> ```
+>
+> **3. Verificá el resultado** — debe quedar exactamente así:
+>
+> ```bash
+> hermes tools list --platform whatsapp
+> #   ✓ enabled  skills · todo · memory · clarify
+> #   MCP servers:
+> #     mcp-appointments  all tools enabled
+> ```
+>
+> Si `mcp-appointments` no aparece, **no sigas**: el bot se quedaría sin los tools
+> del negocio. Repetí el paso 2 para `--platform telegram` si vas a usar ese canal.
+> El `cli` del owner queda intacto siempre: la restricción es por plataforma, nunca
+> global.
+>
+> **Aprendizajes de la verificación en vivo (VM, 2026-11-12):** deshabilitar sólo
+> `code_execution` **no alcanza** (quedan `terminal` y `file`, que escriben la DB
+> igual) — la mitigación es la allowlist completa, no un `disable` suelto. Y no hay
+> "deshacer" por nombre de bundle (`enable --platform whatsapp hermes-whatsapp`
+> devuelve `Unknown toolset`): para revertir, habilitá los toolsets de a uno o
+> restaurá el `~/.hermes/config.yaml` del backup que hagas antes de empezar.
+> **Prueba final, la que importa:** abrí una sesión nueva en el canal (`/new` en el
+> topic) y pedí *"ejecutá `echo hola` en la terminal"* — debe responder que no
+> tiene esa herramienta. Después pedí el catálogo de servicios: debe traerlo del
+> CRM. Así quedó verificado acá (log del gateway: `api_calls=2` sin tool call para
+> el pedido de terminal, `api_calls=9` con el catálogo real).
+>
+> **Deuda operativa:** repetí la auditoría del paso 1 después de cada upgrade del
+> runtime o si volvés a parear el canal — el default es **abierto**, no cerrado.
 > **Movimiento
 > upstream (seguimiento 2026-11-04→06, follow-up posteado en #147647):** la
 > ventana v0.22.6 trajo dos primitivas de la familia — locks de escritura
