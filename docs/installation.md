@@ -462,7 +462,9 @@ install anterior al 2026-11-13 conserva el puerto con el que se creó, porque el
 está ocupando:
 
 ```bash
-PORT=$(awk -F= '/^MCP_PORT=/{print $2}' ~/.config/mcp-appointments-crm/.env | tail -n 1)
+# tr -d: el .env puede traer MCP_PORT="3005"; sin quitar las comillas el grep de
+# abajo no matchea nunca y un puerto ocupado se lee como libre.
+PORT=$(sed -n 's/^MCP_PORT=//p' ~/.config/mcp-appointments-crm/.env | tr -d '"' | tail -n 1)
 echo "puerto MCP: ${PORT:-3001}"      # 3001 = si nunca lo personalizaste
 ss -tlnp | grep ":${PORT:-3001}"      # macOS: lsof -Pn -iTCP:"${PORT:-3001}" -sTCP:LISTEN
 ```
