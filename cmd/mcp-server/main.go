@@ -6,7 +6,7 @@
 //   - Sharing a single BookingValidator across Create and Reschedule use cases
 //   - Wiring the 5 domain use cases with their correct dependency sets
 //   - Serving the MCP streamable-HTTP endpoint (/mcp) and the health probe
-//     (/healthz) on 127.0.0.1:3000, with a graceful 10s drain on SIGTERM/SIGINT
+//     (/healthz) on 127.0.0.1:3001, with a graceful 10s drain on SIGTERM/SIGINT
 //   - Dispatching the CLI before serve mode: `admin tui` (identity & accounts,
 //     ADR-0016) and the reserved `hermes chat` run as sub-commands; unknown
 //     arguments fail fast with a semantic error instead of starting the server

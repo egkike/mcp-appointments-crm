@@ -11,9 +11,15 @@ import (
 )
 
 // Default listener values for the MCP server (REQ-MT-013 / ADR-0007).
+//
+// defaultPort is 3001, not the more familiar 3000: the Hermes WhatsApp bridge
+// also defaults to 3000 and never allocates an alternative, so under the
+// documented install order (Hermes first, this server second) 3000 is already
+// taken by a prerequisite before we ever start. Sitting on 3001 keeps the two
+// services from colliding without the operator having to know about it.
 const (
 	defaultBind = "127.0.0.1"
-	defaultPort = "3000"
+	defaultPort = "3001"
 )
 
 // Config holds the MCP server configuration. Bind and Port are resolved by
@@ -81,7 +87,7 @@ type Config struct {
 
 // LoadConfig resolves MCP_BIND and MCP_PORT with ADR-0007 precedence:
 // environment variables > ~/.config/mcp-appointments-crm/.env > defaults
-// 127.0.0.1:3000. Version falls back to buildinfo.Version ("dev" when unset).
+// 127.0.0.1:3001. Version falls back to buildinfo.Version ("dev" when unset).
 //
 // It returns an error when the .env tier is configured but unreadable (fail
 // fast instead of silently binding defaults); a missing .env file is not an
