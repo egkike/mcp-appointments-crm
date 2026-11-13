@@ -50,6 +50,23 @@ Tier `high` (por `process_boundary`/`shell_source` en `scripts/install.sh`), 4 l
 
 **Pendiente de disposición**: se tratan como trabajo posterior. Si se deciden arreglar, va en su propio candidato (los textos del reviewer no sobreviven al burn: reconstruir desde la ubicación con `git show 8d1fd42:<path> | sed -n '<ini>,<fin>p'`).
 
+## Disposición de los advisories (rama `refactor/dispose-advisories`, issue #231)
+
+Los textos del reviewer **no** sobrevivieron al burn: cada advisory se reconstruyó desde el código de su propio commit (`8d1fd42` para el PR 1, `370a02f` para el PR 2) y se clasificó sólo si el defecto era verificable en esa ubicación. Lo que no se pudo sustanciar queda como NO-ACTION, no como parche especulativo.
+
+| ID | Clase | Qué se hizo | Por qué |
+|---|---|---|---|
+| `R1-001` (risk, `install.sh:1799-1804`) | **REAL** | `mcp_effective_port` parsea el valor del `.env` como `config.LoadDotEnv` (trim + comillas) y `preflight_port_available` valida el puerto resuelto (entero 1-65535, fail-closed nombrando el archivo) | El `awk` crudo devolvía `"3005"` para `MCP_PORT="3005"`: el sondeo no matchea nunca, el pre-flight declaraba libre un puerto ocupado y la unit volvía al crash-loop que el chequeo existe para evitar |
+| `R4-001` (resilience, `config.go:22`) | **NO-ACTION** (by design) | nada | "Sin fallback automático" es decisión registrada en ADR-0007: el server no reasigna puerto al chocar, y las dos palancas recíprocas están documentadas. El ángulo de valor inválido se cierra en la capa que recibe input del operador (instalador), no en `LoadConfig` |
+| `R2-1` (readability, `install.sh:1517-1803`) | **REAL** | El literal `3001` pasa a la global única `DEFAULT_MCP_PORT`, y `print_post_install_summary` resuelve con `mcp_effective_port` en vez de su propio `${MCP_PORT:-3001}` | El default estaba escrito tres veces y el resumen ya **divergía**: con `.env` en 3100 y nada exportado imprimía `:3001` mientras la unit bindeaba 3100 (upgrade = todo host con `.env` previo) |
+| `R2-2` (readability, `config.go:15-19`) | **COSMETIC** | El párrafo que explica el 3001 se movió del bloque `const` a la constante `defaultPort` | Colgaba arriba de `defaultBind` sin nombrarlo: quien buscaba por qué el bind es loopback leía una explicación de puertos |
+| `R3-001` (reliability, `installation.md:448-470`) | **REAL** | Paso nuevo antes de elegir salida: leer el `MCP_PORT` real del `.env` y quién ocupa el puerto (`ss`/`lsof`), más la nota de que un install previo al 2026-11-13 conserva el puerto con que se creó | El bloque mandaba "elegí un puerto libre" sin forma de saber cuál es el del host ni quién lo tiene, y presentaba `3001` como default del host cuando manda el `.env` |
+| `R4-001` (resilience, `maintenance.md:101`) | **REAL** | La verificación post-upgrade resuelve el puerto desde el `.env` en vez de hardcodear `3001` | §2.1 dice que el upgrade **preserva** el `.env` con su puerto personalizado: en cualquier host personalizado el `curl` hardcodeado falla y un upgrade sano se lee como roto |
+
+Fuera de la tabla, error factual: la fila 1.47 del PRD citaba `#229` como PR de entrega cuando `#229` es la issue — el PR que entregó registros, contrato y specs es **#230** (`Closes #229`). Corregido en la fila, sin otro cambio en ella.
+
+Baja confianza, y por eso la disposición se apoya en la evidencia, no en el texto perdido: en `R4-001` del PR 1 no se tocó nada (una constante correcta; el defecto supuesto es una decisión de ADR-0007) y en `R2-2` el cambio es sólo de forma.
+
 ## Log
 
 - **L1** 2026-11-13 (owner): "Tomando en cuenta que el órden habitual y recomendado o ideal es: 1- Instalar y dejar funcionando Hermes en el Server. 2- Instalar nuestro MCP y configurarlo. Cual de los caminos consideras el más conveniente para nuestro proyecto? Yo tenía entendido que nuestro MCP primero lee el puerto definido en el archivo .env y usa eso, y si no hay .env usa el 3000... es así?"

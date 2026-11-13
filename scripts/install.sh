@@ -31,6 +31,14 @@ SKILL_INSTALL_OUTCOME=""
 # SKILL_SEED_OUTCOME carries the pristine-skill-template seed result printed
 # by the deploy summary (B11: run_deploy must seed the config template).
 SKILL_SEED_OUTCOME=""
+# DEFAULT_MCP_PORT is the product default port, and it is the SAME value as
+# defaultPort in internal/mcp/config.go. Two call sites need it here — the .env
+# written on a first install (ensure_env_file) and the pre-flight fallback
+# (mcp_effective_port) — and neither may disagree with the Go constant: the
+# pre-flight exists to verify the port the server will bind, so a drift between
+# the two literals would let the installer check one port while the server
+# binds another. Move both together.
+DEFAULT_MCP_PORT=3001
 # BASH_SOURCE is unset when the script is read from stdin (`curl | bash -s`);
 # the :-$0 fallback keeps `set -u` from aborting before main() in pipe mode.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
@@ -1514,7 +1522,7 @@ ensure_env_file() {
   fi
   {
     printf 'MCP_BIND=%s\n' "${MCP_BIND:-127.0.0.1}"
-    printf 'MCP_PORT=%s\n' "${port:-3001}"
+    printf 'MCP_PORT=%s\n' "${port:-$DEFAULT_MCP_PORT}"
   } | atomic_write "$ENV_FILE"
   chmod 0600 "$ENV_FILE"
 }
@@ -1756,7 +1764,11 @@ _post_install_backup_cmd() {
 print_post_install_summary() {
   local bind port backup_cmd
   bind="${MCP_BIND:-127.0.0.1}"
-  port="${MCP_PORT:-3001}"
+  # Resolve the port the same way the pre-flight does, not with a second
+  # `${MCP_PORT:-...}`: on every upgrade the .env already exists, so the
+  # exported variable is not what the unit gets and this summary would print
+  # one port while the server listens on another.
+  port=$(mcp_effective_port)
   backup_cmd=$(_post_install_backup_cmd)
   printf '\n'
   echo "Despliegue completado: $INSTALL_TAG"
@@ -1792,15 +1804,26 @@ print_post_install_summary() {
 # touched and names the two levers documented in docs/installation.md Paso 0.
 
 # mcp_effective_port: the port the unit will bind — ENV_FILE wins (that is
-# what the systemd EnvironmentFile feeds the binary), else the exported
-# MCP_PORT, else the product default 3001.
+# what the systemd EnvironmentFile feeds the binary, and what the binary's own
+# dotenv tier reads on macOS), else the exported MCP_PORT, else the product
+# default.
 mcp_effective_port() {
   local port=""
   if [ -f "${ENV_FILE:-}" ]; then
     port=$(awk -F= '/^MCP_PORT=/{print $2}' "$ENV_FILE" 2>/dev/null \
       | tr -d '\r' | tail -n 1)
+    # Mirror internal/config.LoadDotEnv, the parser the binary itself uses: it
+    # trims the value and strips surrounding quotes, so `MCP_PORT="3005"`
+    # binds 3005. Parsing it raw here would probe the literal ':"3005"', which
+    # no listener ever matches — the pre-flight would report a busy port as
+    # free and the unit would crash-loop on the very collision it was added to
+    # catch. Keep this in step with LoadDotEnv.
+    port=$(trim_value "$port")
+    case "$port" in
+      \"*\"|\'*\') port=${port:1:${#port}-2} ;;
+    esac
   fi
-  printf '%s' "${port:-${MCP_PORT:-3001}}"
+  printf '%s' "${port:-${MCP_PORT:-$DEFAULT_MCP_PORT}}"
 }
 
 # _port_listener_pids: space-joined pids listening on the port. Returns 2
@@ -1862,6 +1885,24 @@ _pid_is_ours_mcp() {
 preflight_port_available() {
   local port pids pid foreign=""
   port=$(mcp_effective_port)
+  # Validate what we are about to probe. ensure_env_file validates the
+  # EXPORTED value, but on an upgrade it returns before that block, and the
+  # .env it leaves untouched is never checked anywhere: an unusable MCP_PORT
+  # there (non-numeric, out of range, an inline comment glued to the value)
+  # makes every probe below match nothing, so the pre-flight would pass and the
+  # unit would crash-loop on a bad value instead of a busy port. Fail closed
+  # and name the file — this check runs BEFORE the unit is touched, which is
+  # the whole point of the pre-flight.
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "Error: el puerto MCP resuelto no es un entero válido: '$port' (revisá MCP_PORT en $ENV_FILE)." >&2
+      return 1
+      ;;
+  esac
+  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "Error: el puerto MCP resuelto está fuera de rango: '$port' (1-65535, revisá MCP_PORT en $ENV_FILE)." >&2
+    return 1
+  fi
   pids=$(_port_listener_pids "$port")
   if [ $? -eq 2 ]; then
     echo "Advertencia: no se pudo verificar el puerto $port (ss/lsof ausentes); el chequeo de puerto se salteó." >&2
