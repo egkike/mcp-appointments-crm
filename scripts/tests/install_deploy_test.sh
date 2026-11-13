@@ -817,4 +817,57 @@ test_preflight_no_probe_tool_warns_and_proceeds() {
     "printf '%s' \"$out\" | grep -q 'Advertencia'"
 }
 
+# The pre-flight must resolve the port with the SAME parser the binary uses
+# (internal/config.LoadDotEnv trims and strips one quote pair). Parsing the
+# value raw would probe the literal `:"3005"`, match no listener, report a busy
+# port as free and crash-loop the unit on the very collision it exists to catch.
+test_mcp_effective_port_strips_quotes_like_the_binary() {
+  _ensure_env_port_setup
+  mkdir -p "$(dirname "$ENV_FILE")"
+  printf 'MCP_BIND=127.0.0.1\nMCP_PORT="3005"\n' > "$ENV_FILE"
+  assertEquals 'quoted value resolves unquoted' \
+    "$( ( unset MCP_PORT; mcp_effective_port ) )" '3005'
+}
+
+# The .env an upgrade leaves untouched is never validated by ensure_env_file
+# (it returns early), so an unusable value there must fail closed here — before
+# the unit is touched — instead of probing a port that no listener can match.
+test_preflight_rejects_invalid_env_port() {
+  _ensure_env_port_setup
+  mkdir -p "$(dirname "$ENV_FILE")"
+  printf 'MCP_BIND=127.0.0.1\nMCP_PORT=abc\n' > "$ENV_FILE"
+  local out rc=0
+  out=$( ( unset MCP_PORT; preflight_port_available ) 2>&1 ) || rc=$?
+  assertTrue 'non-numeric .env port fails closed' "[ ${rc:-0} -ne 0 ]"
+  assertTrue 'names the file to fix' \
+    "printf '%s' \"$out\" | grep -q 'MCP_PORT en'"
+}
+
+test_preflight_rejects_out_of_range_env_port() {
+  _ensure_env_port_setup
+  mkdir -p "$(dirname "$ENV_FILE")"
+  printf 'MCP_BIND=127.0.0.1\nMCP_PORT=99999\n' > "$ENV_FILE"
+  local out rc=0
+  out=$( ( unset MCP_PORT; preflight_port_available ) 2>&1 ) || rc=$?
+  assertTrue 'out-of-range .env port fails closed' "[ ${rc:-0} -ne 0 ]"
+  assertTrue 'names the accepted range' \
+    "printf '%s' \"$out\" | grep -q '1-65535'"
+}
+
+# The summary must report the port the unit WILL bind. Deriving it with its own
+# `${MCP_PORT:-3001}` printed one port while the server listened on another on
+# every upgrade, where the .env — not the exported variable — is what the unit
+# gets.
+test_print_post_install_summary_uses_effective_port() {
+  _ensure_env_port_setup
+  INSTALL_TAG="v0.3.0"
+  DATA_DIR="$TEST_HOME/data"
+  mkdir -p "$DATA_DIR" "$(dirname "$ENV_FILE")"
+  printf 'MCP_BIND=127.0.0.1\nMCP_PORT=3100\n' > "$ENV_FILE"
+  local out
+  out=$( ( unset MCP_PORT; print_post_install_summary ) 2>&1 )
+  assertTrue 'summary names the .env port, not the default' \
+    "printf '%s' \"$out\" | grep -q '127.0.0.1:3100/mcp'"
+}
+
 . "$(dirname "$0")/lib/shunit2" || exit 1

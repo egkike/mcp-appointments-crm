@@ -454,8 +454,20 @@ El log muestra `bind: address already in use` para el puerto configurado. El
 default del MCP es `3001` y el puente de WhatsApp de Hermes (`bridge.js`) usa
 `3000` por default (añadido el 2026-11-01 con la prueba de onboarding), así que
 los dos ya no chocan con sus defaults. Un choque significa que otro proceso —el
-bridge, si le moviste la config, u otro cualquiera— ocupa ese puerto. Dos salidas
-equivalentes, elegí UNA:
+bridge, si le moviste la config, u otro cualquiera— ocupa ese puerto.
+
+Ojo: ese `3001` es el default del producto, no necesariamente el de tu host. Un
+install anterior al 2026-11-13 conserva el puerto con el que se creó, porque el
+`.env` no se reescribe nunca. Antes de tocar nada, leé el puerto real y quién lo
+está ocupando:
+
+```bash
+PORT=$(awk -F= '/^MCP_PORT=/{print $2}' ~/.config/mcp-appointments-crm/.env | tail -n 1)
+echo "puerto MCP: ${PORT:-3001}"      # 3001 = si nunca lo personalizaste
+ss -tlnp | grep ":${PORT:-3001}"      # macOS: lsof -Pn -iTCP:"${PORT:-3001}" -sTCP:LISTEN
+```
+
+Con ese puerto y ese pid a la vista, dos salidas equivalentes, elegí UNA:
 
 1. **Mover el MCP**: editá `~/.config/mcp-appointments-crm/.env` para usar otro
    puerto libre — `MCP_PORT=<puerto libre>` (`docs/installation.md` §Paso 2) — y
