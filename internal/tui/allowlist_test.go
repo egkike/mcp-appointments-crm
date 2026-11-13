@@ -604,7 +604,7 @@ func TestValidUTF8Prefix_DropsOnlyTheCutRune(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := validUTF8Prefix(tt.input)
+			got, _ := validUTF8Prefix(tt.input)
 			if got != tt.want {
 				t.Errorf("validUTF8Prefix(%q) = %q, want %q", tt.input, got, tt.want)
 			}
@@ -668,8 +668,11 @@ func TestBoundedRuntimeReport_UnprintableBodyExplainsItself(t *testing.T) {
 func TestValidUTF8Prefix_KeepsTheValidPrefixBeforeACorruptedByte(t *testing.T) {
 	input := "✓ enabled  skills" + "\xff" + "todo\n"
 
-	got := validUTF8Prefix(input)
+	got, corrupted := validUTF8Prefix(input)
 
+	if !corrupted {
+		t.Error("validUTF8Prefix(corrupted middle byte) reported no corruption, want it flagged")
+	}
 	if !utf8.ValidString(got) {
 		t.Fatalf("validUTF8Prefix(corrupted middle byte) = %q, want valid UTF-8", got)
 	}
@@ -870,7 +873,7 @@ func TestValidUTF8Prefix_HasBoundedCost(t *testing.T) {
 	garbage := strings.Repeat("a", half) + "\xff" + strings.Repeat("a", half)
 
 	start := time.Now()
-	got := validUTF8Prefix(garbage)
+	got, _ := validUTF8Prefix(garbage)
 	elapsed := time.Since(start)
 
 	if !utf8.ValidString(got) {
@@ -898,8 +901,11 @@ func TestBoundedRuntimeReport_ShortReportWithCorruptedByteIsSanitized(t *testing
 	if strings.Contains(got, "memory") {
 		t.Errorf("tail after the corrupted byte leaked through: %q", got)
 	}
-	if !strings.Contains(got, "reporte truncado") {
-		t.Errorf("processed report did not name the truncation: %q", got)
+	// R4-002: the cut was forced by a corrupted byte, not by the size cap, so
+	// the marker must say so — the operator has to be able to tell a report that
+	// is too long from one the runtime emitted broken.
+	if !strings.Contains(got, "byte no válido UTF-8") {
+		t.Errorf("processed report did not name the corrupted byte: %q", got)
 	}
 }
 
@@ -957,5 +963,115 @@ func TestChannelAllowlistIsMinimal_RealRuntimeReportReproducesTheFalseNegative(t
 	}
 	if !channelAllowlistIsMinimal(report) {
 		t.Error("channelAllowlistIsMinimal() = false for a channel that IS minimal; the detector would alarm on every healthy install")
+	}
+}
+
+// TestBoundedRuntimeReport_ManyShortLinesAreBounded locks R3-1: the byte cap is
+// not a bound on what the operator reads. A report of thousands of two-byte lines
+// fits inside maxRuntimeReportBytes and still turns into thousands of styled rows
+// on the info screen (viewInfo styles and joins every line, with no viewport), so
+// the line count needs its own bound.
+func TestBoundedRuntimeReport_ManyShortLinesAreBounded(t *testing.T) {
+	var report strings.Builder
+	for i := 0; i < 3000; i++ {
+		report.WriteString("a\n")
+	}
+	if len(report.String()) > maxRuntimeReportBytes {
+		t.Fatalf("fixture is %d bytes, want it inside the %d-byte cap so only the line bound can catch it",
+			len(report.String()), maxRuntimeReportBytes)
+	}
+
+	got := boundedRuntimeReport("whatsapp", report.String())
+	if !utf8.ValidString(got) {
+		t.Fatalf("bounded report is not valid UTF-8: %q", got)
+	}
+
+	body, marker := splitBoundedReport(t, got)
+	if lines := strings.Count(body, "\n") + 1; lines > maxRuntimeReportLines {
+		t.Errorf("report body has %d lines, want at most %d", lines, maxRuntimeReportLines)
+	}
+	if !strings.Contains(marker, "hermes tools list --platform whatsapp") {
+		t.Errorf("marker = %q, want it to name the whole-report command", marker)
+	}
+}
+
+// TestBoundedRuntimeReport_OneHugeLineIsBounded locks the other half of R3-1: a
+// report with no newline at all stays ONE row of the full byte budget, which the
+// terminal wraps into dozens of visual lines and the info screen never clamps.
+func TestBoundedRuntimeReport_OneHugeLineIsBounded(t *testing.T) {
+	report := strings.Repeat("a", 4000)
+
+	got := boundedRuntimeReport("whatsapp", report)
+	body, marker := splitBoundedReport(t, got)
+
+	// The ellipsis marks the clamp, so one rune over the cap is expected.
+	if runes := utf8.RuneCountInString(body); runes > maxRuntimeReportLineRunes+1 {
+		t.Errorf("report body is %d runes on a single line, want at most %d: %q", runes, maxRuntimeReportLineRunes, body)
+	}
+	if !strings.HasSuffix(body, "…") {
+		t.Errorf("report body = %q, want the clamp marked with an ellipsis", body)
+	}
+	if !strings.Contains(marker, "hermes tools list --platform whatsapp") {
+		t.Errorf("marker = %q, want it to name the whole-report command", marker)
+	}
+}
+
+// TestChannelAllowlistAdvice_BoundedReportKeepsTheRemediationCommand is the
+// regression guard for the fix itself: the report is unbounded runtime data, but
+// the recommended list, the command and the doc pointer are OUR actionable text
+// and they come AFTER the report. A bound applied at the render boundary would
+// truncate the command an operator copy-pastes into a shell — the bound must stay
+// on the report.
+func TestChannelAllowlistAdvice_BoundedReportKeepsTheRemediationCommand(t *testing.T) {
+	var report strings.Builder
+	report.WriteString(dangerousHermesToolsList)
+	report.WriteString("  MCP servers:\n  ✓ enabled  mcp-appointments\n")
+	for i := 0; i < 3000; i++ {
+		report.WriteString("    filler_line_long_enough_to_look_like_a_toolset  enabled\n")
+	}
+
+	advice := ChannelAllowlistAdvice(context.Background(), "whatsapp",
+		fakeToolsList(report.String(), nil, nil))
+
+	for _, want := range []string{
+		"Aplicala con:",
+		expectedWhatsAppDisableCommand,
+		"Detalle y verificación: " + installationDocPointer,
+	} {
+		if !strings.Contains(advice, want) {
+			t.Errorf("advisory = %q, want it to keep %q", advice, want)
+		}
+	}
+}
+
+// TestAllowlistScreenLines pins the splitter the info screen depends on: the
+// composer's blank separator lines carry nothing and only widen the frame, so
+// they are dropped along with trailing padding, and the remaining order is the
+// operator-visible order.
+func TestAllowlistScreenLines(t *testing.T) {
+	got := allowlistScreenLines("uno\n\ndos  \n   \ntres\n")
+	if joined := strings.Join(got, "|"); joined != "uno|dos|tres" {
+		t.Errorf("allowlistScreenLines() = %q, want %q", joined, "uno|dos|tres")
+	}
+}
+
+// TestChannelAllowlistAdvice_NilRunnerReportsAnUnwiredAuditor locks R3-nil-runner-
+// contract: a nil seam is a wiring defect in the composition root, not a host
+// without the binary. Telling the operator to check whether `hermes` is installed
+// sends them to the wrong place, so the two causes get their own copy.
+func TestChannelAllowlistAdvice_NilRunnerReportsAnUnwiredAuditor(t *testing.T) {
+	if got := ChannelAllowlistAdvice(context.Background(), "whatsapp", nil); got != "" {
+		t.Errorf("ChannelAllowlistAdvice(nil runner) = %q, want empty", got)
+	}
+
+	got := AllowlistAdvisory(context.Background(), []string{"whatsapp"}, nil)
+	if !strings.Contains(got, "no se pudo auditar") {
+		t.Errorf("advisory = %q, want the generic unauditable notice", got)
+	}
+	if !strings.Contains(got, "auditor de allowlist no está cableado") {
+		t.Errorf("advisory = %q, want it to name the unwired auditor", got)
+	}
+	if strings.Contains(got, "binario `hermes` no disponible en este host") {
+		t.Errorf("advisory = %q, must not blame a missing binary for an unwired seam", got)
 	}
 }

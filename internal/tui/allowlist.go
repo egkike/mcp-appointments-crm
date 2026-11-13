@@ -59,6 +59,21 @@ const hermesToolsListMinProbeBudget = 250 * time.Millisecond
 // marker names where to read the whole thing.
 const maxRuntimeReportBytes = 8192
 
+// maxRuntimeReportLines bounds how many report LINES the advisory prints. The byte
+// cap is not a bound on what the operator reads: a report of thousands of
+// two-byte lines fits inside any byte budget and still turns into thousands of
+// styled rows (the info screen styles and joins every line, with no viewport), so
+// the line count needs its own bound (native review R3-1 of the fifth round).
+const maxRuntimeReportLines = 200
+
+// maxRuntimeReportLineRunes bounds ONE report line. The counterpart case of
+// maxRuntimeReportLines: a report with no newline at all spends the whole byte
+// budget on a single row, which the terminal wraps into dozens of visual lines and
+// the frame cannot hold. The clamp is safe here because the report is data this
+// program does not control; the advisory's OWN actionable text (the recommended
+// list, the remediation command, the doc pointer) is never clamped.
+const maxRuntimeReportLineRunes = 300
+
 // hermesBinary is the runtime CLI the advisory queries. It is a literal, never
 // operator input: the channel is a fixed platform name from
 // defaultAllowlistAudit and the argv is built by this package.
@@ -122,8 +137,15 @@ func DefaultAllowlistPlatforms() []string {
 // degrades to the generic risk notice inside the text), and an error field here
 // would invite the one thing this screen must never do — turn a successful
 // config write into an error screen.
+//
+// seq identifies the cascade that armed the probe. The probe runs off the Update
+// loop for up to hermesToolsListTimeout, so a second option-7 cascade can start
+// before the first one answers; without the token the screen cannot tell which
+// answer is current and paints a stale audit over the newer run (native review
+// R3-allowlist-stale-probe).
 type allowlistMsg struct {
 	text string
+	seq  uint64
 }
 
 // allowlistAdvisoryCmd runs the read-only probe OFF the Update loop and delivers
@@ -131,9 +153,9 @@ type allowlistMsg struct {
 // by hermesToolsListTimeout, i.e. milliseconds to five seconds), so it can never
 // be resolved inline in a handler: the operator sees the config facts and the
 // skill outcome immediately, and the advisory appends itself when it arrives.
-func allowlistAdvisoryCmd(ctx context.Context, run ToolsListRunner) tea.Cmd {
+func allowlistAdvisoryCmd(ctx context.Context, run ToolsListRunner, seq uint64) tea.Cmd {
 	return func() tea.Msg {
-		return allowlistMsg{text: AllowlistAdvisory(ctx, DefaultAllowlistPlatforms(), run)}
+		return allowlistMsg{text: AllowlistAdvisory(ctx, DefaultAllowlistPlatforms(), run), seq: seq}
 	}
 }
 
@@ -174,9 +196,12 @@ func RunHermesToolsList(ctx context.Context, platform string) (string, error) {
 // closed stdin) must not erase evidence the operator already asked for. That
 // detachment is deliberate and BOUNDED, not an oversight (native review
 // R4-003): a flow cancelled mid-advisory still waits for the probe, but never
-// longer than hermesToolsListTimeout and never longer than a deadline the caller
-// itself carried — so the worst case an operator can observe is that one probe,
-// and the report it produces is exactly the evidence the cancelled flow wanted.
+// longer than hermesToolsListTimeout and, WHEN THE CALLER'S DEADLINE IS HONOURED,
+// never longer than that deadline — so the worst case an operator can observe is
+// that one probe, and the report it produces is exactly the evidence the
+// cancelled flow wanted. The floor below qualifies the promise: a deadline shorter
+// than hermesToolsListMinProbeBudget is deliberately NOT honoured, and the probe
+// then runs on its own budget (native review R4-001 of the fifth round).
 //
 // Detaching cancellation must not detach the caller's DEADLINE (native review
 // R3-withoutcancel-values): context.WithoutCancel drops Done and Deadline
@@ -184,12 +209,15 @@ func RunHermesToolsList(ctx context.Context, platform string) (string, error) {
 // it is earlier than hermesToolsListTimeout, the 5s budget otherwise. Values
 // survive either way; only cancellation is dropped.
 //
-// The caller's deadline only wins while it is still USABLE (remaining > 0). An
-// already-expired caller deadline, or a clock jump, would otherwise hand the probe
-// a context that is dead on arrival: the command fails for a reason that has
-// nothing to do with it, and the advisory reports "el comando falló", sending the
-// operator to fix a command that is fine (native review R4-002). Falling through
-// to the 5s budget keeps the audit evidence instead of misclassifying it.
+// The caller's deadline only wins while it is still USABLE: it must be later than
+// the 250ms floor of hermesToolsListMinProbeBudget and earlier than the default
+// budget. An already-expired caller deadline, or a clock jump, would otherwise
+// hand the probe a context that is dead on arrival: the command fails for a reason
+// that has nothing to do with it, and the advisory reports "el comando falló",
+// sending the operator to fix a command that is fine (native review R4-002). The
+// same reasoning covers a deadline that is alive but too short to exec the probe.
+// Falling through to the 5s budget keeps the audit evidence instead of
+// misclassifying it.
 func hermesToolsListContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	parent := context.WithoutCancel(ctx)
 	if deadline, ok := ctx.Deadline(); ok {
@@ -216,6 +244,11 @@ const (
 	auditBinaryUnavailable
 	auditCommandFailed
 	auditEmptyReport
+	// auditRunnerNotWired is a composition-root defect, not a host condition: the
+	// screen was built without the probe seam. It exists as its own category so the
+	// operator is never told to check whether the binary is installed when the real
+	// fault is that nothing was wired (native review R3-nil-runner-contract).
+	auditRunnerNotWired
 )
 
 // description is the fixed operator copy for one category. Literal text only:
@@ -228,6 +261,8 @@ func (f auditFailure) description() string {
 		return "el comando `hermes tools list` falló"
 	case auditEmptyReport:
 		return "el comando no devolvió ningún reporte"
+	case auditRunnerNotWired:
+		return "el auditor de allowlist no está cableado en esta compilación"
 	case auditOK:
 		return ""
 	}
@@ -253,9 +288,10 @@ func ChannelAllowlistAdvice(ctx context.Context, channel string, run ToolsListRu
 // the multi-channel composer can explain why a channel was skipped.
 func channelAllowlistAdvice(ctx context.Context, channel string, run ToolsListRunner) (string, auditFailure) {
 	if run == nil {
-		// A nil seam means there is no auditor at all: same operator action as a
-		// missing binary (check the host), so it reports the same category.
-		return "", auditBinaryUnavailable
+		// A nil seam is not a host without the binary: it is a Deps built without
+		// the probe. Reporting it as a missing binary would send the operator to
+		// check an installation that is fine.
+		return "", auditRunnerNotWired
 	}
 	output, err := run(ctx, channel)
 	if err != nil {
@@ -336,7 +372,7 @@ func allowlistGenericAdvice(skipped []unauditableChannel) string {
 // the same sentence.
 func auditFailureDescriptions(skipped []unauditableChannel) []string {
 	var descriptions []string
-	for _, failure := range []auditFailure{auditBinaryUnavailable, auditCommandFailed, auditEmptyReport} {
+	for _, failure := range []auditFailure{auditBinaryUnavailable, auditCommandFailed, auditEmptyReport, auditRunnerNotWired} {
 		if slices.ContainsFunc(skipped, func(c unauditableChannel) bool { return c.failure == failure }) {
 			descriptions = append(descriptions, failure.description())
 		}
@@ -409,10 +445,20 @@ func disableCommandToolsets(output string) []string {
 	return names
 }
 
-// boundedRuntimeReport caps the verbatim report at maxRuntimeReportBytes, cutting
-// on a line boundary when one exists so no tool entry is left half-printed, and
-// appends a marker that names the truncation and the command that prints the
-// whole report. A silent cut would be indistinguishable from a complete report.
+// boundedRuntimeReport caps the verbatim report the advisory prints: on bytes
+// (maxRuntimeReportBytes), on lines (maxRuntimeReportLines) and on the length of a
+// single line (maxRuntimeReportLineRunes). Cutting on a line boundary when one
+// exists keeps a tool entry from being left half-printed, and a marker names the
+// truncation and the command that prints the whole report: a silent cut would be
+// indistinguishable from a complete report.
+//
+// The three bounds answer different shapes of the same hazard. The byte cap alone
+// bounds BYTES, not what the operator reads: a report of thousands of short lines
+// fits the byte budget and still becomes thousands of rendered rows, and a report
+// with no newline spends the whole budget on one wrapped row. Every bound here
+// applies to the report — data this program does not control, printed verbatim —
+// and never to the advisory's own text, which is what makes the remediation
+// command safe from truncation.
 //
 // A report that survives the cut as nothing (it opens with bytes that are not
 // UTF-8, so no valid prefix can be printed) gets one fixed explanation line
@@ -421,30 +467,94 @@ func disableCommandToolsets(output string) []string {
 // cannot render.
 func boundedRuntimeReport(channel, output string) string {
 	trimmed := strings.TrimRight(output, " \t\n")
+
+	kept := trimmed
+	// corrupted records that the UTF-8 sanitization stopped at a byte that is
+	// invalid INSIDE the report, rather than at the size boundary or at a rune the
+	// cut landed in the middle of. The two are different operator facts and each
+	// gets its own marker (native review R4-002 of the fifth round).
+	corrupted := false
+	sizeCut := false
+
 	// Sanitize on BOTH paths. A report short enough to skip the size cut can still
 	// carry an invalid byte in the middle, and returning it raw would push
 	// malformed bytes into the operator's terminal (native review R4-002 of the
 	// second advisory round). The size cut below only decides WHETHER to bound the
 	// report, never whether it is safe to print.
-	if len(trimmed) <= maxRuntimeReportBytes {
-		cut := validUTF8Prefix(trimmed)
-		if len(cut) == len(trimmed) {
-			return cut
+	if len(trimmed) > maxRuntimeReportBytes {
+		sizeCut = true
+		kept, corrupted = validUTF8Prefix(trimmed[:maxRuntimeReportBytes])
+		if lastNewline := strings.LastIndexByte(kept, '\n'); lastNewline > 0 {
+			kept = kept[:lastNewline]
 		}
-		if cut == "" {
-			return runtimeReportUnprintableLine(channel) + "\n" + runtimeReportTruncationMarker(channel, 0)
-		}
-		return cut + "\n" + runtimeReportTruncationMarker(channel, len(cut))
+	} else {
+		kept, corrupted = validUTF8Prefix(trimmed)
 	}
-	cut := validUTF8Prefix(trimmed[:maxRuntimeReportBytes])
-	if lastNewline := strings.LastIndexByte(cut, '\n'); lastNewline > 0 {
-		cut = cut[:lastNewline]
+
+	if kept == "" {
+		return runtimeReportUnprintableLine(channel) + "\n" + runtimeReportCutMarker(channel, 0, reportCutByCorruption)
 	}
-	if cut == "" {
-		return runtimeReportUnprintableLine(channel) + "\n" + runtimeReportTruncationMarker(channel, 0)
+
+	kept, linesCut := boundReportLines(kept)
+	kept, widthCut := boundReportLineWidth(kept)
+
+	cut := reportCutNone
+	switch {
+	case corrupted:
+		cut = reportCutByCorruption
+	case sizeCut:
+		cut = reportCutByBytes
+	case linesCut || widthCut:
+		cut = reportCutByLines
 	}
-	return cut + "\n" + runtimeReportTruncationMarker(channel, len(cut))
+	if cut == reportCutNone {
+		return kept
+	}
+	return kept + "\n" + runtimeReportCutMarker(channel, len(kept), cut)
 }
+
+// boundReportLines keeps at most maxRuntimeReportLines lines, cutting whole lines
+// so a tool entry that survives is never half-printed.
+func boundReportLines(report string) (string, bool) {
+	lines := strings.Split(report, "\n")
+	if len(lines) <= maxRuntimeReportLines {
+		return report, false
+	}
+	return strings.Join(lines[:maxRuntimeReportLines], "\n"), true
+}
+
+// boundReportLineWidth clamps any single line longer than maxRuntimeReportLineRunes
+// and marks the clamp with an ellipsis. The clamp counts RUNES, not bytes, so it
+// never splits a multi-byte character in half.
+func boundReportLineWidth(report string) (string, bool) {
+	lines := strings.Split(report, "\n")
+	clamped := false
+	for i, line := range lines {
+		if utf8.RuneCountInString(line) <= maxRuntimeReportLineRunes {
+			continue
+		}
+		runes := []rune(line)
+		lines[i] = string(runes[:maxRuntimeReportLineRunes]) + "…"
+		clamped = true
+	}
+	if !clamped {
+		return report, false
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+// reportCut names which bound ended the printed report. Each reason is a distinct
+// operator fact: a report that is too big, a report with too many or too long
+// lines, and a report the runtime emitted as broken UTF-8 send the operator to
+// different conclusions about their own channel.
+type reportCut int
+
+const (
+	reportCutNone reportCut = iota
+	reportCutByBytes
+	reportCutByLines
+	reportCutByCorruption
+)
 
 // runtimeReportUnprintableLine replaces an empty report body. Fixed copy only:
 // nothing from the runtime is interpolated, and the operator still learns where
@@ -455,14 +565,20 @@ func runtimeReportUnprintableLine(channel string) string {
 		hermesBinary, channel)
 }
 
-// runtimeReportTruncationMarker names the cut, the number of report bytes that
-// were ACTUALLY kept (native review R3-marker-precision: naming the cap told the
-// operator a larger number than the block shows) and where the whole report
-// lives.
-func runtimeReportTruncationMarker(channel string, kept int) string {
-	return fmt.Sprintf(
-		"[… reporte truncado: se muestran sólo los primeros %d bytes; corré `%s tools list --platform %s` para verlo completo]",
-		kept, hermesBinary, channel)
+// runtimeReportCutMarker names the cut, the number of report bytes that were
+// ACTUALLY kept (native review R3-marker-precision: naming the cap told the
+// operator a larger number than the block shows), WHICH bound produced it, and
+// where the whole report lives.
+func runtimeReportCutMarker(channel string, kept int, cut reportCut) string {
+	what := fmt.Sprintf("truncado: se muestran sólo los primeros %d bytes", kept)
+	switch cut {
+	case reportCutByLines:
+		what = fmt.Sprintf("truncado: se muestran sólo los primeros %d bytes (recortado en cantidad o largo de líneas)", kept)
+	case reportCutByCorruption:
+		what = fmt.Sprintf("cortado en un byte no válido UTF-8: se muestran sólo los primeros %d bytes", kept)
+	}
+	return fmt.Sprintf("[… reporte %s; corré `%s tools list --platform %s` para verlo completo]",
+		what, hermesBinary, channel)
 }
 
 // validUTF8Prefix drops a partial rune left by a byte-boundary cut, so the report
@@ -482,7 +598,13 @@ func runtimeReportTruncationMarker(channel string, kept int) string {
 // corrupted tail, not the report (native review R4-001). A report whose FIRST bytes
 // are invalid still yields the empty prefix, which the caller renders as the fixed
 // unprintable-report line.
-func validUTF8Prefix(s string) string {
+//
+// The second result reports WHICH of the two happened: false means the prefix ends
+// where the byte budget ended (or where a rune was split by it), true means the
+// walk stopped at a byte the runtime emitted broken. The caller prints a different
+// marker for each, because "the report is too long" and "the report is corrupted"
+// are different facts about the operator's own installation.
+func validUTF8Prefix(s string) (string, bool) {
 	for dropped := 0; dropped < utf8.UTFMax-1 && s != ""; dropped++ {
 		if r, size := utf8.DecodeLastRuneInString(s); r != utf8.RuneError || size > 1 {
 			break
@@ -490,16 +612,16 @@ func validUTF8Prefix(s string) string {
 		s = s[:len(s)-1]
 	}
 	if utf8.ValidString(s) {
-		return s
+		return s, false
 	}
 	for i := 0; i < len(s); {
 		r, size := utf8.DecodeRuneInString(s[i:])
 		if r == utf8.RuneError && size == 1 {
-			return s[:i]
+			return s[:i], true
 		}
 		i += size
 	}
-	return s
+	return s, false
 }
 
 // channelAllowlistIsMinimal decides the "already minimal" state conservatively.
