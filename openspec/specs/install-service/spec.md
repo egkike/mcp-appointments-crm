@@ -121,7 +121,7 @@ El pipeline deploy MUST requerir los tres setup JSONs (`setup_business.json`, `s
 
 ### REQ-INS-007 — `.env` creado si no existe, nunca sobrescrito
 
-El instalador MUST escribir `{CONFIG_DIR}/.env` con `MCP_BIND=127.0.0.1` y `MCP_PORT=3000` **solo si el archivo no existe**. Un `.env` existente MUST quedar byte-idéntico tras cualquier re-run o upgrade (las personalizaciones del usuario sobreviven). El instalador MUST NOT escribir jamás un bind no-loopback (`127.0.0.0/8` o `::1` solamente, ADR-0007). La precedencia `env vars > .env > defaults` del binario queda intacta.
+El instalador MUST escribir `{CONFIG_DIR}/.env` con `MCP_BIND=127.0.0.1` y `MCP_PORT=3001` **solo si el archivo no existe**. Un `.env` existente MUST quedar byte-idéntico tras cualquier re-run o upgrade (las personalizaciones del usuario sobreviven). El instalador MUST NOT escribir jamás un bind no-loopback (`127.0.0.0/8` o `::1` solamente, ADR-0007). La precedencia `env vars > .env > defaults` del binario queda intacta.
 
 #### Scenario: .env existente no se sobrescribe (upgrade)
 
@@ -133,7 +133,7 @@ El instalador MUST escribir `{CONFIG_DIR}/.env` con `MCP_BIND=127.0.0.1` y `MCP_
 
 - GIVEN un host sin `.env`
 - WHEN el deploy se completa
-- THEN `.env` existe con `MCP_BIND=127.0.0.1` y `MCP_PORT=3000`, permisos owner-only
+- THEN `.env` existe con `MCP_BIND=127.0.0.1` y `MCP_PORT=3001`, permisos owner-only
 
 ### REQ-INS-008 — Registro de servicio user-level (Linux: systemd + linger)
 
@@ -169,13 +169,13 @@ En macOS, el instalador MUST instalar el LaunchAgent en `~/Library/LaunchAgents/
 
 ### REQ-INS-010 — Log final de post-instalación accionable
 
-Al completar el deploy, el script MUST imprimir un log final que incluya, como mínimo: (a) una línea de comando `backup.sh` copy-pasteable que referencie el `MCP_DB_PATH` real en uso, (b) el bloque "Recommended additional tools" no vacío en español, (c) la URL del endpoint MCP (`http://127.0.0.1:3000/mcp`) y la ruta resuelta de la DB. Declarar el `MCP_DB_PATH` exacto en el log sigue mitigando el riesgo de DB split-brain (riesgo 5 del proposal), pero el mecanismo cambió: el default del binario es ahora la ruta XDG (issue #90), de modo que una ejecución manual y el servicio comparten la misma DB por defecto, y el log es lo que deja esa ruta efectiva auditable.
+Al completar el deploy, el script MUST imprimir un log final que incluya, como mínimo: (a) una línea de comando `backup.sh` copy-pasteable que referencie el `MCP_DB_PATH` real en uso, (b) el bloque "Recommended additional tools" no vacío en español, (c) la URL del endpoint MCP (`http://127.0.0.1:3001/mcp`) y la ruta resuelta de la DB. Declarar el `MCP_DB_PATH` exacto en el log sigue mitigando el riesgo de DB split-brain (riesgo 5 del proposal), pero el mecanismo cambió: el default del binario es ahora la ruta XDG (issue #90), de modo que una ejecución manual y el servicio comparten la misma DB por defecto, y el log es lo que deja esa ruta efectiva auditable.
 
 #### Scenario: Log final contiene los cuatro elementos (DoD 7, 8, 9)
 
 - GIVEN el deploy completado exitosamente
 - WHEN se lee la salida final del script
-- THEN contiene la línea `backup.sh` con la ruta real de la DB, un bloque "Recommended additional tools" no vacío en español, la URL `http://127.0.0.1:3000/mcp` y la ruta resuelta de la DB
+- THEN contiene la línea `backup.sh` con la ruta real de la DB, un bloque "Recommended additional tools" no vacío en español, la URL `http://127.0.0.1:3001/mcp` y la ruta resuelta de la DB
 
 ### REQ-INS-011 — Verificación post-install del binario instalado
 

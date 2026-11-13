@@ -30,7 +30,7 @@
 
 | Fase | Resultado |
 |---|---|
-| Server verification | healthz `0.9.1` + ambos servicios user-level activos; disco 75%; cero errores en journal 24h. Node v26.8.1 presente. **Finding de config**: el resolver del puerto del bridge (`standalone_bridge_port`) es literal "never allocates" y su default 3000 lo tiene el server MCP → el onboarding exigió `platforms.whatsapp.extra.bridge_port: 3005` | 
+| Server verification | healthz `0.9.1` + ambos servicios user-level activos; disco 75%; cero errores en journal 24h. Node v26.8.1 presente. **Finding de config**: el resolver del puerto del bridge (`standalone_bridge_port`) es literal "never allocates" y entonces su default 3000 lo tenía el server MCP (el default del server pasó a 3001 el 2026-11-13, issue #229) → el onboarding exigió `platforms.whatsapp.extra.bridge_port: 3005` |
 | Onboarding (ruta wizard nativo) | `hermes whatsapp` personal (self-chat) + allowlist owner + fail-secure del flag enable (se escribe post-pairing); QR paired a las 14:00; bridge connectado en 3005, `✓ whatsapp connected` | 
 | Smoke persona owner | saludo con display name real (2 api_calls); probe agenda → **escaneo admin** (persona owner, R2 §8.1); `update_business_profile` `whatsapp`+`messenger_id` verificado por readback `get_business_profile`; flujo reserva con cadena MCP real (`search_services_advanced` → `search_professionals_advanced` → `check_availability`) | 
 | Findings | (1) el agent escribió el booking directamente via `execute_code` (no `create_booking` en el tool log; fila `6a1f72e6` durante la ventana execute_code) e inventó una fase "confirm" → **skill v1.1.1 tools-only** (#161 → PR #162, squash `728c497`, review nativo APPROVED+burned `review-639ab13ce772dbd1` HIGH 2 lentes). (2) advisory R3-001 SUGGESTION informational (disposition pendiente) | 
@@ -183,22 +183,24 @@ Dos de los tres apuntan al contrato del runner `nil` del seam que los tests usan
 
 **Política pendiente de escribir en AGENTS.md (decisión del owner, 2026-11-13)**: la tabla de routing de la *Verification & Review Protocol* hoy rutea **business logic → native review** como default, lo que choca con el contrato RDD: cuando `assess` responde `reviewDue: false`, **no se corre review nativo**. El owner confirmó que manda el `assess` (es el caso de la issue #219: risk medium, `under_budget`, review omitido por decisión). Falta reescribir la tabla para que la fila "Default" diga "según `assess`" en vez de "native review" incondicional, y aclarar que un recordatorio de **autoridad** RDD prevalece sobre `reviewDue` (son preguntas distintas: riesgo vs autoridad). **Pendiente de doc, no de código.**
 
-## Pendiente — revisar el puerto default del MCP (3000) vs. cambiar a otro (owner, 2026-11-12)
+## RESUELTO — el puerto default del MCP pasó a 3001 (owner, 2026-11-12 → decidido y entregado 2026-11-13)
 
-**La pregunta del owner**: si sabemos que Hermes (y otros agentes/frameworks) usan **3000 por default**, ¿nos convendría mover nuestro puerto default a otro, por ejemplo **3001**?
+**La pregunta del owner (2026-11-12)**: si sabemos que Hermes (y otros agentes/frameworks) usan **3000 por default**, ¿nos convendría mover nuestro puerto default a otro, por ejemplo **3001**?
 
-**Lo que hay hoy (verificado)**:
-- El MCP escucha en `127.0.0.1:3000` por default (`cmd/mcp-server/main.go`), y el puerto/bind se configuran con `MCP_PORT`/`MCP_BIND` (ADR-0007).
-- **Precedencia**: `.env` > variable de entorno exportada > `3000`. Implementado y testeado en T1/T1.5 (`feat-install-scope-uninstall`).
-- **Pre-flight de puerto** (T1.5): antes de tocar el service unit, el installer detecta si el puerto efectivo está ocupado y **aborta nombrando las dos palancas** (`MCP_PORT` en el `.env`, o `bridge_port` del agente). Listeners del propio unit o del binario reemplazado no cuentan como conflicto.
-- **Ya existe la recomendación** `MCP_PORT=3001` para hosts que corran el canal WhatsApp (`installation.md` Paso 9 y PRD 1.28), porque el puente `bridge.js` de Hermes también usa 3000 "por default, never allocates".
-- El contrato documentado asume 3000: `gateway-contract.md` (C9 loopback), PRD, ADR-0007, la skill `recepcionista-negocio` y los ejemplos de conexión de otros agentes.
+**Decisión (owner, 2026-11-13, issue #217 → issue #229)**: sí — el default del producto es **3001**. Razón: el puente WhatsApp del runtime Hermes tiene **3000** por default y su resolver *nunca asigna otro* (`standalone_bridge_port` es literal "never allocates"), así que con el orden de instalación documentado (Hermes primero, este server después) el puerto estaba tomado antes de arrancar; mover el nuestro es la palanca que no depende del runtime.
 
-**Costo del cambio de default**: `grep -rl 3000` alcanza **220 archivos** (docs, código, scripts, units, plists, templates). Incluye contrato publicado, skill instalada en Hermes y **todas las instalaciones existentes** ⇒ cambio breaking con migración.
+**Estado de la entrega**:
+- **PR #226** — código + instalador + tests: `defaultPort = "3001"` (`internal/mcp/config.go`), doctext de `cmd/mcp-server/main.go`, los literales de `scripts/install.sh` (nuevo `.env`, summary, pre-flight) y los tests de las tres capas.
+- **PR #228** — docs de operación: `README.md`, `AGENTS.md`, `docs/installation.md`, `docs/deployment.md`, `docs/maintenance.md`, `docs/demo-plan.md`, banner y cards de `design/`; retira la recomendación obsoleta "si corrés WhatsApp poné `MCP_PORT=3001`".
+- **PR #229** — registros, contrato y specs: ADR-0007 (default y precedencia), los ADRs que lo citan (0001, 0008, 0012, 0014, 0017, 0018, 0019), `docs/gateway-contract.md` (§1, §6.1 *Port hygiene* reescrito, C9), las specs vivas (`mcp-transport`, `install-service` REQ-INS-007, `setup-seeder`), `openspec/config.yaml`, el cuerpo del PRD y una fila nueva de changelog (1.47); `docs/SDD.md` y `openspec/changes/archive/**` quedan congelados.
 
-**Opciones a evaluar mañana**:
-1. **Statu quo**: default 3000 + pre-flight existente + recomendación puntual de 3001 para hosts con canal. Costo cero, fricción: el usuario debe intervenir en el primer arranque.
-2. **Default 3001**: elimina la colisión más común (bridge de Hermes) pero rompe el contrato y exige migración de instalaciones, docs, skill y tests (220 archivos).
-3. **Default adaptativo**: 3000 si está libre, 3001 si está ocupado, informando cuál se usó — no rompe el contrato, pero introduce un puerto variable que complica soporte y la URL que se escribe en la config del agente.
+**Lo que NO cambió (y por qué el cambio es seguro)**:
+- **Sin migración**: `ensure_env_file` no reescribe un `.env` existente, así que **ninguna instalación desplegada se mueve** — cada una queda fijada por su propio dotenv (REQ-INS-007).
+- **Precedencia (sin cambios de comportamiento)**: entorno del proceso (shell/`systemd EnvironmentFile`) > archivo `.env` > default del código, implementada con `firstNonEmpty(os.Getenv(...), dotenv[...], default)` y testeada en T1/T1.5. (Corregido: la redacción previa de este item decía `.env` > variable exportada y era falsa; también quedó invertida en las filas 1.30 y 1.34 del changelog del PRD, que se conservan como historia y se corrigen con la fila 1.47.)
+- **`MCP_BIND`**: sigue `127.0.0.1` por default; el bind es palanca de seguridad (loopback), no de comodidad.
+- **Pre-flight de puerto** (T1.5): antes de tocar el service unit, el installer detecta si el puerto efectivo está ocupado y aborta nombrando las dos palancas (`MCP_PORT` en el `.env`, o `bridge_port` del agente). Listeners del propio unit o del binario reemplazado no cuentan como conflicto; con el default en 3001 ese camino deja de dispararse por la colisión más común.
+- **El `3000` del bridge es correcto y se queda**: lo que se retiró fue la *recomendación* de movernos, ya innecesaria.
 
-**Criterio de decisión**: cuánta fricción real genera el 3000 en instalaciones nuevas (¿el pre-flight ya es suficiente?) frente al costo de romper un contrato extendido. **No hay decisión tomada**: análisis para mañana.
+**Costo medido (corrige la estimación previa)**: los "220 archivos" de este item eran falsos (contaban `.git/`). La medición real fue **279 hits en 63 archivos**, con **124 hits / 27 archivos** afectables por el cambio de default (26 sin `docs/SDD.md`, que el owner dejó congelado). El resto son menciones del bridge, historia (changelog, `openspec/changes/archive/**`) o números que no son puertos.
+
+**Issue #217**: el análisis que pedía queda cerrado por esta decisión y su entrega; **closable** una vez mergeado el PR #229 (la release es decisión aparte del owner).

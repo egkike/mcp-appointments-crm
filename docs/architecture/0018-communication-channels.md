@@ -38,7 +38,7 @@ emisor (cliente | profesional | owner) —su propio número→ número del negoc
 gateway/agent Hermes: lee `from` → inyecta header `X-Caller-Id`
         │
         ▼
-MCP server (127.0.0.1:3000) → auth.CallerResolver(id)
+MCP server (127.0.0.1:3001) → auth.CallerResolver(id)
         ├── accounts(id, is_active=1) ──► Caller{Role, ProfessionalID}   (owner | admin | staff)
         │        └── clients(id) ──────► + ClientID   (doble rol, ADR-0011)
         ├── accounts(id, is_active=0) ─► 401 cuenta deshabilitada
@@ -95,7 +95,7 @@ Se retira la sección multi-user de [ADR-0012](./0012-hermes-chat-local.md) y su
     es el canal primario.
 - **Loopback enforcement sin cambios**: el canal del negocio sigue siendo la única interfaz
   expuesta al exterior, y **todos** los canales hablan con el MCP server estrictamente por
-  `127.0.0.1:3000`. El bot privado de Telegram mantiene el mismo requisito.
+  `127.0.0.1:3001`. El bot privado de Telegram mantiene el mismo requisito.
 
 ## References
 

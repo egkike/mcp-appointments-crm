@@ -14,7 +14,7 @@ The server never changes for channels: the gateway reads the sender of each inbo
 | Source | the `from` field of the inbound message |
 | Value | injected **verbatim** — no normalization, no added/removed characters |
 | Scope | per sender, per request: never a static conversation-level id where the sender can vary |
-| Endpoint | the MCP server, strictly over `127.0.0.1:3000` (loopback invariant, ADR-0018) |
+| Endpoint | the MCP server, strictly over `127.0.0.1:3001` (loopback invariant, ADR-0018) |
 | Missing/empty header | fails before any handler: HTTP `401` → JSON-RPC `-32000` `"no se proporcionó X-Caller-Id"`; no caller is invented |
 | Byte stability | the stored `id` must equal the exact bytes the gateway sends next time — the resolver looks up `clients.id == phone` |
 
@@ -94,7 +94,7 @@ A self-chat sender (B) is a valid sender: treat it like any other `from` and let
 
 **Mode-invariant (by design):** the persona selection (R2/R3, §8.1), the G0–G4 delete gates, the TUI-only exclusions and the registration funnel are identical in both modes — the skill resolves the persona from the sender's role, never from which number is the bot. Nothing in the MCP server, the tools or the skill branches on the mode; the only mode-dependent artifacts are the operator steps (§7.5 branch) and the `messenger_id` value.
 
-**Port hygiene (same-host install):** when the MCP server and the Hermes gateway share a host, exactly ONE of these two levers is required for the WhatsApp channel to start — the runtime bridge defaults to `127.0.0.1:3000`, the same address the MCP server serves (its documented default; `standalone_bridge_port` "never allocates"). Lever 1 (recommended, docs of this repo): set **`MCP_PORT=3001`** in `~/.config/mcp-appointments-crm/.env` and re-run TUI option 7 so the `mcp_servers` entry derives the new URL. Lever 2: preset the bridge via the gateway config (`platforms.whatsapp.extra.bridge_port`, e.g. `3005`).
+**Port hygiene (same-host install):** the two defaults no longer collide — the MCP server defaults to `127.0.0.1:3001` (ADR-0007) while the Hermes runtime bridge defaults to `127.0.0.1:3000` and never allocates an alternative (`standalone_bridge_port` is literal), so a same-host install starts the WhatsApp channel without port tuning. The bridge keeps its own default; this server is the one that moved. When an operator moves either side, exactly one of these two levers is required: move the MCP server by setting **`MCP_PORT`** in `~/.config/mcp-appointments-crm/.env` and re-running TUI option 7 so the `mcp_servers` entry derives the new URL, or move the bridge via the gateway config (`platforms.whatsapp.extra.bridge_port`, e.g. `3005`).
 
 ## 7. Operator runbook
 
@@ -257,7 +257,7 @@ Ambiguity, cancellation, a different object, or an off-topic message during G2 c
 | C6 | The request body **never** carries role or persona; the server ignores anything it does carry | §8.1, ADR-0018 D2 |
 | C7 | No caller id is cached across senders (no shared conversational state) | §1 |
 | C8 | Skill v1.1 is installed and indexed **before** the first message of the conversation | §7.5 step 3 |
-| C9 | All traffic to the server goes through `127.0.0.1:3000` (loopback invariant) | §1 |
+| C9 | All traffic to the server goes through `127.0.0.1:3001` (loopback invariant) | §1 |
 | C10 | An owner chat delete produces **one single** tool call, after the two confirmations (G3 after G2) | §8.1 |
 | C11 | **Modo A spot-check:** the owner's self-chat message resolves owner (agenda probe shows admin conduct, §7.5 step 5); `messenger_id` = owner phone | §6/§6.1 |
 | C12 | **Modo B spot-check:** an owner-phone message and an unknown-phone message to the bot's number resolve owner and run the registration loop respectively; `messenger_id` = bot number | §6/§6.1 |

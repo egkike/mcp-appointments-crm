@@ -12,7 +12,7 @@ updates, and easy backups. The project has properties that weaken that argument:
 
 1. **Pure-Go SQLite**: We use `modernc.org/sqlite` (no CGo), so the binary is
    fully self-contained and cross-compiles cleanly to 5 platforms.
-2. **Loopback-only transport**: The MCP server binds to `127.0.0.1:3000`. No
+2. **Loopback-only transport**: The MCP server binds to `127.0.0.1:3001`. No
    public exposure, no TLS, no authentication. The isolation Docker provides
    (network namespaces, capabilities) does not add value.
 3. **SQLite wants direct filesystem access**: SQLite performs best and is

@@ -22,6 +22,18 @@ review on 2026-06-25, the user identified two gaps:
 This ADR documents the WHY of the configuration model implemented in
 the PRD (§3.1, §3.5, §5.2, §6.3).
 
+**Default port changed to `3001` (2026-11-13, issue #229)**: this ADR is
+the canonical record of the default, and the product default is `3001`,
+not `3000`. The Hermes WhatsApp bridge claims `127.0.0.1:3000` and never
+allocates another one (`standalone_bridge_port` is literal), so under the
+documented install order — Hermes first, this server second — `3000` is
+already taken by a prerequisite before we ever start (see
+`internal/mcp/config.go`). Installations already deployed keep their own
+`MCP_PORT`: the installer never rewrites an existing `.env`
+(REQ-INS-007), so nothing moves under them. The earlier "set
+`MCP_PORT=3001` for WhatsApp" advice is retired — the default now
+resolves the collision on its own.
+
 ## Decision 1: Configuration sources with precedence (env vars > .env > defaults)
 
 The server reads configuration from three sources, in this priority
@@ -30,7 +42,7 @@ order:
 1. **System environment variables** (`MCP_BIND`, `MCP_PORT`)
 2. **`~/.config/mcp-appointments-crm/.env`** (or platform-native
    equivalent per `docs/PRD.md §3.5 Install Layout`)
-3. **Hardcoded defaults** (`127.0.0.1:3000`)
+3. **Hardcoded defaults** (`127.0.0.1:3001`)
 
 If the `.env` file doesn't exist, the server starts with the defaults
 without error. This matches the 12-factor app convention (env vars are
@@ -55,7 +67,7 @@ operator edits a file instead of remembering shell commands).
 If the configured port is in use, the server **fails with a clear
 error message** rather than trying the next free port.
 
-**Rejected alternative**: try port 3000, if in use try 3001, 3002,
+**Rejected alternative**: try port 3001, if in use try 3002, 3003,
 etc.
 
 **Why the alternative is rejected**:
@@ -65,22 +77,22 @@ etc.
   port. Falling back to "the next free one" violates the
   configuration.
 - **Multi-instance support breaks**: two instances configured
-  with `MCP_PORT=3000` would both fall back to the same next free
+  with `MCP_PORT=3001` would both fall back to the same next free
   port, colliding again.
 - **Client configuration mismatch**: the operator's client
-  (Hermes, curl, MCP config) is also configured with port 3000.
-  A silent fallback to 3001 means the client can't find the
+  (Hermes, curl, MCP config) is also configured with port 3001.
+  A silent fallback to 3002 means the client can't find the
   server.
 - **Discoverability**: how does the operator know the actual port?
   They have to read the server logs (if they have access) or
   grep the filesystem (if we write it somewhere).
-- **Race conditions**: between the bind attempt on 3000 and the
-  bind on 3001, another process could grab 3001.
+- **Race conditions**: between the bind attempt on 3001 and the
+  bind on 3002, another process could grab 3002.
 
 **The error message** (per `docs/PRD.md §6.3`): the user-facing
-error is a clear, actionable string like `Error: puerto 3000 en
+error is a clear, actionable string like `Error: puerto 3001 en
 uso. Configurá MCP_PORT con otro valor (ej. export
-MCP_PORT=3001 && mcp-server).`
+MCP_PORT=3005 && mcp-server).`
 
 ## Decision 3: `127.0.0.1` (literal IPv4), not `localhost` (hostname)
 

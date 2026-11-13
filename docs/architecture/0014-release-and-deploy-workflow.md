@@ -40,7 +40,7 @@ several constraints accumulated across previous ADRs and the PRD:
    - [ADR-0001](./0001-no-docker.md) — single binary, no container runtime.
    - [ADR-0002](./0002-user-level-install.md) — user-level service registration
      (`systemd --user` / `launchd` / Task Scheduler) and `loginctl enable-linger` on Linux.
-   - [ADR-0007](./0007-server-config.md) — loopback-only bind (`127.0.0.1:3000` by default,
+   - [ADR-0007](./0007-server-config.md) — loopback-only bind (`127.0.0.1:3001` by default,
      validated at startup, no automatic port fallback) and env-file precedence.
    - [ADR-0005](./0005-optional-external-tools.md) — scripts never silently install
      system tools; a dependent script checks and prints an OS-specific install
@@ -149,7 +149,7 @@ What `install.sh` does (in order):
    there is no `--system` flag, no `/usr/local/bin` path, and no `sudo`). Ensures `~/.local/bin`
    is on `PATH` and prints a hint if not.
 6. **Write config** `~/.config/mcp-appointments-crm/.env` if absent (defaults
-   `MCP_BIND=127.0.0.1`, `MCP_PORT=3000`). Never overwrites an existing `.env`.
+   `MCP_BIND=127.0.0.1`, `MCP_PORT=3001`). Never overwrites an existing `.env`.
    Respects `XDG_CONFIG_HOME` / `XDG_DATA_HOME` / `XDG_STATE_HOME` when set.
 7. **Register user-level service**:
    - Linux: `~/.config/systemd/user/mcp-appointments-crm.service` with
@@ -163,7 +163,7 @@ What `install.sh` does (in order):
 9. **Verify the installed version, not HTTP**: runs `mcp-server --version` and requires
    the reported version to match the requested tag, then on Linux polls
    `systemctl --user is-active mcp-appointments-crm`. The script issues **no** HTTP
-   request. Operators check liveness with `curl --fail http://127.0.0.1:3000/healthz`
+   request. Operators check liveness with `curl --fail http://127.0.0.1:3001/healthz`
    (`GET /mcp` answers 405 by design). On failure it prints a
    `journalctl --user -u mcp-appointments-crm -n 50 --no-pager` hint.
 10. **Loopback validation** is not in the script — it is enforced by the binary
@@ -256,7 +256,7 @@ the binary's fixed `.env` path, `%USERPROFILE%\.config\mcp-appointments-crm\.env
 
 - **Verification after every install** (manual operator checks):
   ```bash
-  curl --fail http://127.0.0.1:3000/healthz           # liveness (GET /mcp answers 405)
+  curl --fail http://127.0.0.1:3001/healthz           # liveness (GET /mcp answers 405)
   systemctl --user is-active mcp-appointments-crm   # Linux
   launchctl list | grep com.mcp.appointments        # macOS
   journalctl --user -u mcp-appointments-crm -n 50   # Linux logs
@@ -330,7 +330,7 @@ the binary's fixed `.env` path, `%USERPROFILE%\.config\mcp-appointments-crm\.env
 
 ## References
 
-- `docs/PRD.md §3.1` — loopback transport (`127.0.0.1:3000` + Streamable HTTP).
+- `docs/PRD.md §3.1` — loopback transport (`127.0.0.1:3001` + Streamable HTTP).
 - `docs/PRD.md §3.5` — install layout (XDG / platform-native paths), cross-compilation matrix, `.env` precedence.
 - `docs/PRD.md §3.6` — rollback plan (binary restore + SQLite backup).
 - `docs/PRD.md §8` — roadmap (Phase 5 install-and-service, Phase 4 config-wizard / install.sh prompts).
