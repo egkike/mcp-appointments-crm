@@ -1514,7 +1514,7 @@ ensure_env_file() {
   fi
   {
     printf 'MCP_BIND=%s\n' "${MCP_BIND:-127.0.0.1}"
-    printf 'MCP_PORT=%s\n' "${port:-3000}"
+    printf 'MCP_PORT=%s\n' "${port:-3001}"
   } | atomic_write "$ENV_FILE"
   chmod 0600 "$ENV_FILE"
 }
@@ -1756,7 +1756,7 @@ _post_install_backup_cmd() {
 print_post_install_summary() {
   local bind port backup_cmd
   bind="${MCP_BIND:-127.0.0.1}"
-  port="${MCP_PORT:-3000}"
+  port="${MCP_PORT:-3001}"
   backup_cmd=$(_post_install_backup_cmd)
   printf '\n'
   echo "Despliegue completado: $INSTALL_TAG"
@@ -1793,14 +1793,14 @@ print_post_install_summary() {
 
 # mcp_effective_port: the port the unit will bind — ENV_FILE wins (that is
 # what the systemd EnvironmentFile feeds the binary), else the exported
-# MCP_PORT, else the product default 3000.
+# MCP_PORT, else the product default 3001.
 mcp_effective_port() {
   local port=""
   if [ -f "${ENV_FILE:-}" ]; then
     port=$(awk -F= '/^MCP_PORT=/{print $2}' "$ENV_FILE" 2>/dev/null \
       | tr -d '\r' | tail -n 1)
   fi
-  printf '%s' "${port:-${MCP_PORT:-3000}}"
+  printf '%s' "${port:-${MCP_PORT:-3001}}"
 }
 
 # _port_listener_pids: space-joined pids listening on the port. Returns 2

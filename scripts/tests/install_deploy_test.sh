@@ -204,7 +204,7 @@ test_ensure_env_file_creates() {
   assertTrue 'env file created' "[ -f \"$ENV_FILE\" ]"
   assertEquals 'env perms' '600' "$(stat -c %a "$ENV_FILE")"
   assertTrue 'MCP_BIND' "grep -q '^MCP_BIND=127.0.0.1$' \"$ENV_FILE\""
-  assertTrue 'MCP_PORT' "grep -q '^MCP_PORT=3000$' \"$ENV_FILE\""
+  assertTrue 'MCP_PORT' "grep -q '^MCP_PORT=3001$' \"$ENV_FILE\""
 }
 
 test_ensure_env_file_preserves() {
@@ -455,7 +455,7 @@ test_print_post_install_summary() {
     "printf '%s' \"$out\" | grep -q 'backup.sh.*$DATA_DIR/reservas.db'"
   assertTrue 'recommended tools block' \
     "printf '%s' \"$out\" | grep -qi 'herramientas recomendadas\|recommended additional tools'"
-  assertTrue 'endpoint URL' "printf '%s' \"$out\" | grep -q '127.0.0.1:3000/mcp'"
+  assertTrue 'endpoint URL' "printf '%s' \"$out\" | grep -q '127.0.0.1:3001/mcp'"
   assertTrue 'MCP_DB_PATH' "printf '%s' \"$out\" | grep -q \"$DATA_DIR/reservas.db\""
 }
 
@@ -714,21 +714,24 @@ test_mcp_effective_port_precedence() {
   assertEquals '.env wins over env' \
     "$(MCP_PORT=3001 mcp_effective_port)" '3002'
   rm -f "$ENV_FILE"
-  assertEquals 'no .env, no env -> 3000' '3000' \
+  assertEquals 'no .env, no env -> 3001' '3001' \
     "$([ -n "${MCP_PORT:-}" ] && unset MCP_PORT; mcp_effective_port)"
 }
 
 test_ensure_env_file_honors_exported_port() {
   _ensure_env_port_setup
-  MCP_PORT=3001 ensure_env_file
+  # The exported value must stay DISTINCT from the product default (3001), or the
+  # two halves below become indistinguishable and the test stops proving that the
+  # export is honoured at all.
+  MCP_PORT=3101 ensure_env_file
   assertEquals 'export ok' 0 $?
   assertTrue '.env carries exported port' \
-    "grep -q 'MCP_PORT=3001' '$ENV_FILE'"
+    "grep -q 'MCP_PORT=3101' '$ENV_FILE'"
 
   _ensure_env_port_setup
   ensure_env_file >/dev/null 2>&1
-  assertTrue 'default .env still writes 3000' \
-    "grep -q 'MCP_PORT=3000' '$ENV_FILE'"
+  assertTrue 'default .env still writes 3001' \
+    "grep -q 'MCP_PORT=3001' '$ENV_FILE'"
 }
 
 test_ensure_env_file_rejects_invalid_export() {

@@ -10,7 +10,7 @@ import (
 )
 
 // TestLoadConfigDefaults covers REQ-MT-013 defaults: no env vars and no .env
-// file resolve to 127.0.0.1:3000 with the buildinfo version.
+// file resolve to 127.0.0.1:3001 with the buildinfo version.
 func TestLoadConfigDefaults(t *testing.T) {
 	cfg, err := loadConfigFrom(filepath.Join(t.TempDir(), ".env"))
 	if err != nil {
@@ -20,8 +20,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Bind != "127.0.0.1" {
 		t.Errorf("Bind = %q, want %q", cfg.Bind, "127.0.0.1")
 	}
-	if cfg.Port != "3000" {
-		t.Errorf("Port = %q, want %q", cfg.Port, "3000")
+	if cfg.Port != "3001" {
+		t.Errorf("Port = %q, want %q", cfg.Port, "3001")
 	}
 	if cfg.Version != buildinfo.Version {
 		t.Errorf("Version = %q, want buildinfo.Version %q", cfg.Version, buildinfo.Version)
@@ -131,8 +131,8 @@ func TestLoadConfigMissingDotEnvIsSilent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Bind != "127.0.0.1" || cfg.Port != "3000" {
-		t.Errorf("cfg = %+v, want defaults 127.0.0.1:3000", cfg)
+	if cfg.Bind != "127.0.0.1" || cfg.Port != "3001" {
+		t.Errorf("cfg = %+v, want defaults 127.0.0.1:3001", cfg)
 	}
 }
 
