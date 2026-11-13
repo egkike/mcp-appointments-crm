@@ -30,9 +30,13 @@ release automation), not as a next numbered phase.
   profile/clients/services queries, owner-only maintenance and hours
   exceptions (auth via `X-Caller-Id` + RBAC). Full catalog: `docs/PRD.md` §3
   / `docs/SDD.md`.
-- **Latest release**: v0.12.2 (2026-11-12) — patch: the allowlist advisory is now visible in the TUI; option 7 audits the
-  channel tool allowlist (read-only advisory, three states), plus the
-  security-doc corrections on the per-platform tool boundary and a CI fix.
+- **Latest release**: v0.13.0 (2026-11-13) — minor: the default port moves to
+  `3001`, so a fresh install no longer collides with the Hermes WhatsApp bridge
+  that already owns `3000` and never allocates another; the installer pre-flight
+  now parses the port the way the binary does, validates it and fails closed, and
+  the TUI advisory can no longer paint a stale audit as the current one.
+  Deployed installs are pinned by their own dotenv file and do not move.
+  Previous: v0.12.2 (patch — the allowlist advisory is visible in the TUI).
   Assets and install steps:
   [Quickstart](#quickstart) / [`docs/installation.md`](./docs/installation.md).
 - **Platform covenant**: Linux + macOS native; Windows via **WSL2**
@@ -70,7 +74,7 @@ curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/s
 
 ```bash
 # pinned version (required — see note below)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.12.2
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.13.0
 ```
 
 > The pipe (`curl | bash`) works only for Paso 2; Paso 1 must run in a real terminal. See
@@ -91,7 +95,7 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 > needs a real terminal — a piped invocation has no TTY, so it prints
 > `Error: el modo interactivo requiere una terminal.` and exits 1.
 >
-> **Updating: re-run Paso 2 with the newer tag** (e.g. `--version v0.12.2`). The pinned
+> **Updating: re-run Paso 2 with the newer tag** (e.g. `--version v0.13.0`). The pinned
 > deploy is idempotent — it swaps the binary and restarts the service while preserving
 > the database, `caller-id`, setup files and the Hermes entry. Paso 1 (wizard) is only
 > needed on a first-time install. *(Idempotent re-run verified 2026-09-26.)*
