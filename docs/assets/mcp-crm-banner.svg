@@ -43,7 +43,7 @@
       <text x="466" y="376" font-weight="600" fill="#f6eff3">25<tspan fill="#a78e9b"> tools</tspan></text>
       <text x="580" y="376" font-weight="600" fill="#f6eff3">SQLite<tspan fill="#a78e9b">+FTS5</tspan></text>
       <text x="716" y="376" font-weight="600" fill="#f6eff3">WAL<tspan fill="#a78e9b"> safe</tspan></text>
-      <text x="822" y="376" font-weight="600" fill="#f6eff3">127.0.0.1<tspan fill="#a78e9b">:3000</tspan></text>
+      <text x="822" y="376" font-weight="600" fill="#f6eff3">127.0.0.1<tspan fill="#a78e9b">:3001</tspan></text>
     </g>
   </g>
 </svg>

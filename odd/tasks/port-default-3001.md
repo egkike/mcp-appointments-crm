@@ -37,6 +37,19 @@ Three PRs, in this order: code+installer+tests → operations docs → records/c
 4. `openspec/changes/archive/**` (55 hits) está congelado. No se toca.
 5. `docs/SDD.md` congelado (S7).
 
+## Advisories del review del PR 1 (review-5c8578023bfdfd87, APPROVED + burned)
+
+Tier `high` (por `process_boundary`/`shell_source` en `scripts/install.sh`), 4 lentes, 4 corridas. Todos **informational, no bloqueantes**: ninguno abrió corrección ni habilita re-revisar este candidato.
+
+| ID | Lente | Ubicación | Severidad |
+|---|---|---|---|
+| `R1-001` | risk | `scripts/install.sh:1799-1804` (`mcp_effective_port`) | WARNING |
+| `R4-001` | resilience | `internal/mcp/config.go:22` | WARNING |
+| `R2-1` | readability | `scripts/install.sh:1517-1803` | SUGGESTION |
+| `R2-2` | readability | `internal/mcp/config.go:15-19` | SUGGESTION |
+
+**Pendiente de disposición**: se tratan como trabajo posterior. Si se deciden arreglar, va en su propio candidato (los textos del reviewer no sobreviven al burn: reconstruir desde la ubicación con `git show 8d1fd42:<path> | sed -n '<ini>,<fin>p'`).
+
 ## Log
 
 - **L1** 2026-11-13 (owner): "Tomando en cuenta que el órden habitual y recomendado o ideal es: 1- Instalar y dejar funcionando Hermes en el Server. 2- Instalar nuestro MCP y configurarlo. Cual de los caminos consideras el más conveniente para nuestro proyecto? Yo tenía entendido que nuestro MCP primero lee el puerto definido en el archivo .env y usa eso, y si no hay .env usa el 3000... es así?"

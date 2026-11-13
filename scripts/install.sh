@@ -1877,9 +1877,9 @@ preflight_port_available() {
     return 0
   fi
   echo "Error: el puerto MCP $port ya está en uso por otro proceso de este host (pid $foreign)." >&2
-  echo "Escenario típico (rama A): el bridge del agente del canal ya corre este puerto (3000 es su default)." >&2
+  echo "Referencia (rama A): el bridge del agente del canal usa 3000 por default y no busca un puerto alternativo." >&2
   echo "Salidas — una de las dos palancas (ninguna es opcional en este host):" >&2
-  echo "  1. Fijá MCP_PORT=<puerto libre> (p. ej. 3001) en $ENV_FILE y volvé a correr el instalador." >&2
+  echo "  1. Fijá MCP_PORT=<puerto libre> en $ENV_FILE y volvé a correr el instalador." >&2
   echo "  2. O mové el puerto del bridge del agente: platforms.<canal>.extra.bridge_port (p. ej. 3005) en la config del runtime." >&2
   echo "Referencia: docs/installation.md Paso 0 (rama A) y gateway-contract §6.1." >&2
   return 1

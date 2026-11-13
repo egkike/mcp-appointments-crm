@@ -24,7 +24,7 @@ You are developing a high-performance, self-hosted, lightweight MCP (Model Conte
 * **Core Languages/Tech:** Go (Golang), SQLite (with WAL mode enabled).
 * **Search Engine:** Native SQLite FTS5 virtual tables (`clients_fts`, `services_fts`).
 * **UI/UX Layer:** Go-based Terminal User Interface (TUI) using the **Charm Bubble Tea** ecosystem (`bubbletea`, `bubbles`, `lipgloss`) for initial setup.
-* **Architecture:** Hybrid. TUI runs natively to validate inputs and output JSON configurations; the MCP Server runs as a native Go binary registered as a system service (systemd on Linux, launchd on macOS, NSSM or Task Scheduler on Windows), exposing an SSE endpoint strictly to `127.0.0.1:3000`.
+* **Architecture:** Hybrid. TUI runs natively to validate inputs and output JSON configurations; the MCP Server runs as a native Go binary registered as a system service (systemd on Linux, launchd on macOS, NSSM or Task Scheduler on Windows), exposing an SSE endpoint strictly to `127.0.0.1:3001`.
 
 ## Coding Standards
 * **Concurreny & SQLite:** Always assume high concurrency from the upstream LLM (Hermes). Ensure SQLite is opened with `_busy_timeout=5000` and journal mode set to `WAL`.
@@ -326,7 +326,7 @@ forgotten step.
 - ✅ Validate table/column names against a strict allowlist if dynamic
 
 ### Authentication & Authorization
-> **N/A for this project:** This MCP server runs locally on `127.0.0.1:3000` for a single trusted client (Hermes LLM). No web auth, no public users, no password storage. Re-evaluate this section if a future API-key or remote-deployment auth layer is added.
+> **N/A for this project:** This MCP server runs locally on `127.0.0.1:3001` for a single trusted client (Hermes LLM). No web auth, no public users, no password storage. Re-evaluate this section if a future API-key or remote-deployment auth layer is added.
 
 Reference patterns if/when auth is introduced:
 - ❌ **NEVER** implement auth from scratch - use proven libraries (e.g., `golang-jwt/jwt`, `casbin`, `oauth2`)
@@ -355,7 +355,7 @@ Reference patterns if/when JWT is introduced:
 - ✅ Rotate secrets regularly
 
 ### Secure Headers & HTTPS
-> **N/A for this project:** The MCP server is loopback-only (`127.0.0.1:3000`). No browser, no static assets, no public TLS termination. Re-evaluate this section only if the server is exposed beyond loopback or fronted by a public reverse proxy.
+> **N/A for this project:** The MCP server is loopback-only (`127.0.0.1:3001`). No browser, no static assets, no public TLS termination. Re-evaluate this section only if the server is exposed beyond loopback or fronted by a public reverse proxy.
 
 Reference patterns if/when the server is exposed:
 - ✅ Terminate TLS at a reverse proxy (Caddy, nginx, traefik) - never in-app
