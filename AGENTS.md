@@ -422,11 +422,11 @@ Verification routing is **exclusive**: one path per change, never both by defaul
 
 | Change type | Gate | Notes |
 |-------------|------|-------|
-| **Default** (sensible + funcional medio: auth/RBAC, transport/network HTTP/SSE, DB/schema, new dependencies go.mod, >400 lines, PII, business logic) | **Según `assess`** | `assess` es la autoridad del ruteo: `reviewDue: true` → native review; `reviewDue: false` (p. ej. `under_budget`) → **no se corre review** y la verificación es el pipeline + los checks funcionales. mechanics owned by `gentle-ai`; check with `review mode status` / `review status` |
+| **Default** (sensible + funcional medio: auth/RBAC, transport/network HTTP/SSE, DB/schema, new dependencies go.mod, >400 lines, PII, business logic) | **Según `assess`** | `reviewDue` decide; detalle abajo |
 | **Trivial / docs** | Structural readback | single-file mechanical fixes, documentation |
 | **Escalada a pedido** | JD (2 blind judges) | solo si owner pide explícitamente "judgment day" / "hagamos juicio" — no corre junto al review nativo por default |
 
-- **`assess` decide el gate, no la intuición.** Con `reviewDue: false` correr un review igual es gastar rondas de modelo sin mandato; la verificación queda en el pipeline completo + los checks funcionales aplicables. La fila "Default" ya **no** dice "native review" incondicional.
+- **`assess` decide el gate, no el tipo de cambio.** `reviewDue: true` → native review. `reviewDue: false` (p. ej. `under_budget`) → **no se corre review**: la verificación es el pipeline completo + los checks funcionales aplicables, porque correr un review igual es gastar rondas de modelo sin mandato. Mecánica owned by `gentle-ai`; consultar con `review mode status` / `review status`.
 - **Riesgo ≠ autoridad — no confundirlas.** `assess` responde "¿hace falta por **riesgo**?". Un recordatorio de **autoridad RDD** (candidato sin receipt) responde otra pregunta y **prevalece sobre `reviewDue`**: si el harness lo dispara, corresponde `inspect` → `start` **aunque `assess` haya dicho `reviewDue: false`**. El único camino limpio para no invocarlo es una **disposición explícita del humano sobre ese candidato exacto** ("este target no se revisa"); el anuncio del agente no cuenta como disposición.
 - JD is a second-opinion escalation, never run together with native review unless explicitly requested.
 - Delivery closes under ordinary repository policy (Pre-Commit Checklist, CI green, PR review approval; the IA gate is the Verification & Review Protocol — GGA disabled 2026-11-03).
