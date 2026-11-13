@@ -51,7 +51,7 @@ mandatory: the script resolves no `latest` and rejects pre-releases.
 $ curl -fsSL https://.../install.sh | bash -s -- --version v0.3.0
 ...
 Despliegue completado: v0.3.0
-  Endpoint MCP: http://127.0.0.1:3000/mcp
+  Endpoint MCP: http://127.0.0.1:3001/mcp
 ```
 
 A **checkpoint mechanism** (`setup.json.tmp`) handles the case where

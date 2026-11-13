@@ -18,7 +18,7 @@ La forma soportada hoy es escribir en `~/.hermes/config.yaml`:
 ```yaml
 mcp_servers:
   mcp-appointments:
-    url: http://127.0.0.1:3000/mcp
+    url: http://127.0.0.1:3001/mcp
     headers:
       X-Caller-Id: <teléfono-del-owner>
 ```

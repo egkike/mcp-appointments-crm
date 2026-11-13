@@ -116,7 +116,7 @@ The fresh-guard check and the seed MUST run in `cmd/mcp-server` immediately afte
 
 - GIVEN a first boot on a fresh database with valid setup JSONs
 - WHEN `main.run()` executes
-- THEN the guard and seed MUST complete before the server begins listening on `127.0.0.1:3000`
+- THEN the guard and seed MUST complete before the server begins listening on `127.0.0.1:3001`
 
 #### Scenario: Rollback restores pre-hook behavior
 

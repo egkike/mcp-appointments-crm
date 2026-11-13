@@ -22,7 +22,7 @@ context: |
   Architecture: Hybrid - TUI runs natively to validate inputs and emit JSON config;
                 MCP Server runs as a native Go binary registered as a user-level system service
                 (systemd on Linux, launchd on macOS, NSSM/Task Scheduler on Windows), exposing SSE
-                on 127.0.0.1:3000. No Docker, no appuser. See docs/architecture/ for ADRs.
+                on 127.0.0.1:3001. No Docker, no appuser. See docs/architecture/ for ADRs.
   Communication: Model Context Protocol with upstream LLM (Hermes)
   Coding standards:
     - Prepared statements only (parameterized queries with ? placeholders)

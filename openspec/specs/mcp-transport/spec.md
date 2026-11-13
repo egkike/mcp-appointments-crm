@@ -7,7 +7,7 @@
 
 ## Purpose
 
-Serve the MCP protocol over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3000/mcp` for the local Hermes client. This is the transport adapter layer mandated by ADR-0013 — the Hexagonal "adapter" that wires existing use cases to the MCP protocol.
+Serve the MCP protocol over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3001/mcp` for the local Hermes client. This is the transport adapter layer mandated by ADR-0013 — the Hexagonal "adapter" that wires existing use cases to the MCP protocol.
 
 ## Requirements
 
@@ -18,7 +18,7 @@ The server MUST validate that `MCP_BIND` resolves to `127.0.0.0/8` or `::1` at s
 #### Scenario: Default bind succeeds
 - GIVEN `MCP_BIND` is unset (default `127.0.0.1`)
 - WHEN the server starts
-- THEN it binds to `127.0.0.1:3000` successfully
+- THEN it binds to `127.0.0.1:3001` successfully
 
 #### Scenario: Non-loopback rejected
 - GIVEN `MCP_BIND=0.0.0.0`
@@ -166,7 +166,7 @@ The transport MUST declare consumer interfaces in `internal/mcp/`. It MUST NOT i
 
 ### REQ-MT-013 — Configuration via env vars
 
-Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: explicit flag (reserved tier, none exist today) > env vars > `.env` > defaults. Defaults: `127.0.0.1:3000`.
+Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: explicit flag (reserved tier, none exist today) > env vars > `.env` > defaults. Defaults: `127.0.0.1:3001`.
 
 #### Scenario: Custom port
 - GIVEN `MCP_PORT=4000`

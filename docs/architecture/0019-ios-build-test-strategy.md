@@ -10,7 +10,7 @@
 **No hay superficie iOS en el producto.** ADR-0018 congeló los canales: los clientes del negocio
 escriben por WhatsApp (primario) o Telegram al número del negocio; el owner opera por SSH con
 `mcp-server hermes chat` y un bot privado de Telegram; el server corre en la VPS con bind estricto
-a `127.0.0.1:3000`. Un usuario con iPhone es un cliente de mensajería o un terminal SSH — el server
+a `127.0.0.1:3001`. Un usuario con iPhone es un cliente de mensajería o un terminal SSH — el server
 no distingue el OS del cliente. La pregunta "¿cómo probamos la instalación en iOS?" nació de una
 premisa que el diseño ya descartó, y motivó este registro para cuando el escenario cambie.
 

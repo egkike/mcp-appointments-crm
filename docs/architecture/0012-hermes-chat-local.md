@@ -17,7 +17,7 @@ El sistema MCP recibe tool calls de un LLM (Hermes) que actúa como intermediari
 
 ## Decision
 
-**El Chat nativo de Hermes es un sub-comando del binario principal** (`mcp-server hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3000` (loopback), e inyecta el `X-Caller-Id` en cada tool call.
+**El Chat nativo de Hermes es un sub-comando del binario principal** (`mcp-server hermes chat`). Corre en la VPS, se conecta al MCP server en `127.0.0.1:3001` (loopback), e inyecta el `X-Caller-Id` en cada tool call.
 
 **Default:** el `X-Caller-Id` del owner se guarda durante el TUI menú en `~/.config/mcp-appointments-crm/caller-id`. El Chat lo lee al iniciar.
 
@@ -40,7 +40,7 @@ El sistema MCP recibe tool calls de un LLM (Hermes) que actúa como intermediari
 2. **`mcp-server hermes chat`** (sub-comando del binario, Fase 2+):
    - Lee `$MCP_CALLER_ID` env var; si está vacía, lee `~/.config/mcp-appointments-crm/caller-id`.
    - Si no hay caller_id en ningún lado: error "Configura MCP_CALLER_ID antes de usar el chat" y exit 1.
-   - Se conecta al MCP server en `127.0.0.1:3000` (loopback, sin exponer el MCP al exterior).
+   - Se conecta al MCP server en `127.0.0.1:3001` (loopback, sin exponer el MCP al exterior).
    - Inicia el loop de chat con el LLM (mismo Hermes que consume el bot, pero con caller_id del owner en lugar de phone del chat context).
    - Cada tool call del LLM lleva el header `X-Caller-Id: <caller_id>`.
 
@@ -53,7 +53,7 @@ El sistema MCP recibe tool calls de un LLM (Hermes) que actúa como intermediari
 - **Defense-in-depth intacta**:
   - El LLM NO puede falsificar el `MCP_CALLER_ID` — la env var se lee del shell del owner, no del LLM.
   - El admin del OS (SSH a la VPS) sigue siendo el gatekeeper. El Chat corre en la VPS, no expone nada al exterior.
-  - Loopback enforcement: el MCP server sigue en `127.0.0.1:3000`. El Chat también es loopback.
+  - Loopback enforcement: el MCP server sigue en `127.0.0.1:3001`. El Chat también es loopback.
 - **Override para debug/testing**: el owner puede ejecutar `MCP_CALLER_ID=+5491100001111 mcp-server hermes chat` para simular ser un cliente (e.g., para verificar que el filtrado de `client_id` funciona).
 - **Consistente con el TUI menú (ADR-0010)**: ambos son sub-comandos del binario, corren en la VPS, gatekeeper SSH.
 
