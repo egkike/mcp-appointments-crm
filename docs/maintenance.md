@@ -99,9 +99,10 @@ Verificación post-upgrade:
 ~/.local/bin/mcp-server --version   # vX.Y.Z (la versión instalada)
 systemctl --user is-active mcp-appointments-crm
 # El upgrade NO reescribe tu .env, así que el puerto es el que ese archivo fija
-# (3001 si nunca lo personalizaste). Leelo en vez de asumirlo:
-MCP_PORT=$(awk -F= '/^MCP_PORT=/{print $2}' ~/.config/mcp-appointments-crm/.env | tail -n 1)
-curl --fail "http://127.0.0.1:${MCP_PORT:-3001}/healthz"
+# (3001 si nunca lo personalizaste). Leelo en vez de asumirlo; `tr -d` tolera
+# MCP_PORT="3005" y `PORT` no pisa tu variable MCP_PORT:
+PORT=$(sed -n 's/^MCP_PORT=//p' ~/.config/mcp-appointments-crm/.env | tr -d '"' | tail -n 1)
+curl --fail "http://127.0.0.1:${PORT:-3001}/healthz"
 ```
 
 ### 2.2 Downgrade

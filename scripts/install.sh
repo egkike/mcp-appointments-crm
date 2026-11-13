@@ -1817,7 +1817,9 @@ mcp_effective_port() {
     # binds 3005. Parsing it raw here would probe the literal ':"3005"', which
     # no listener ever matches — the pre-flight would report a busy port as
     # free and the unit would crash-loop on the very collision it was added to
-    # catch. Keep this in step with LoadDotEnv.
+    # catch. Keep this in step with LoadDotEnv: the parity is pinned
+    # behaviourally by test_mcp_effective_port_strips_quotes_like_the_binary
+    # (scripts/tests/install_deploy_test.sh).
     port=$(trim_value "$port")
     case "$port" in
       \"*\"|\'*\') port=${port:1:${#port}-2} ;;
@@ -1885,14 +1887,11 @@ _pid_is_ours_mcp() {
 preflight_port_available() {
   local port pids pid foreign=""
   port=$(mcp_effective_port)
-  # Validate what we are about to probe. ensure_env_file validates the
-  # EXPORTED value, but on an upgrade it returns before that block, and the
-  # .env it leaves untouched is never checked anywhere: an unusable MCP_PORT
-  # there (non-numeric, out of range, an inline comment glued to the value)
-  # makes every probe below match nothing, so the pre-flight would pass and the
-  # unit would crash-loop on a bad value instead of a busy port. Fail closed
-  # and name the file — this check runs BEFORE the unit is touched, which is
-  # the whole point of the pre-flight.
+  # Fail closed on a value we cannot probe. ensure_env_file validates the
+  # EXPORTED value and returns early on upgrade, so the .env it leaves alone is
+  # never checked: a non-numeric/out-of-range/inline-commented MCP_PORT matches
+  # no listener and the untouched unit would crash-loop on it. This runs before
+  # the unit is touched, which is the point of the pre-flight.
   case "$port" in
     ''|*[!0-9]*)
       echo "Error: el puerto MCP resuelto no es un entero válido: '$port' (revisá MCP_PORT en $ENV_FILE)." >&2

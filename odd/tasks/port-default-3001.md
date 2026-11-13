@@ -67,6 +67,25 @@ Fuera de la tabla, error factual: la fila 1.47 del PRD citaba `#229` como PR de 
 
 Baja confianza, y por eso la disposición se apoya en la evidencia, no en el texto perdido: en `R4-001` del PR 1 no se tocó nada (una constante correcta; el defecto supuesto es una decisión de ADR-0007) y en `R2-2` el cambio es sólo de forma.
 
+## Advisories del review del PR #232 — ronda final (`docs/close-advisory-thread`, issue #233)
+
+Ocho advisories con **una sola causa raíz en cinco de ellos**. La lente se deriva del prefijo del ID (`R1` risk, `R2` readability, `R3` reliability, `R4` resilience), igual que en la ronda anterior. Esta es la **última** ronda por decisión del owner: lo que genere va al backlog, no hay iteración siguiente.
+
+| ID | Lente | Clase | Qué se hizo | Por qué |
+|---|---|---|---|---|
+| `R1-2` | risk | **REAL** | `docs/installation.md` §puerto en uso: el `awk` crudo pasa a `sed -n 's/^MCP_PORT=//p' … \| tr -d '"' \| tail -n 1` | El `awk` devolvía `"3005"` **con comillas**: `grep ":$PORT"` no matcheaba y el doc declaraba libre un puerto ocupado |
+| `R2-1` | readability | **REAL** (misma causa raíz) | mismo snippet de `docs/installation.md`, misma corrección | El snippet documentaba un parser que divergía del binario: la misma familia de error que arregló el PR #232 en el instalador |
+| `R3-001` | reliability | **REAL** (misma causa raíz) | mismo snippet de `docs/installation.md`, misma corrección | Con el valor entrecomillado el `ss \| grep` no encontraba al ocupante: diagnóstico falso en el paso que existe para diagnosticar |
+| `R3-002` | reliability | **REAL** | `docs/maintenance.md` §2.1: mismo `sed`+`tr` en la verificación post-upgrade | El `health check` quedaba en `http://127.0.0.1:"3005"/healthz`, una URL rota |
+| `R4-001` | resilience | **REAL** | `docs/maintenance.md` §2.1: el snippet escribe `PORT` en vez de `MCP_PORT` | El snippet **pisaba** la variable `MCP_PORT` del operador en su propia shell |
+| `R1-1` | risk | **NO-ACTION** | Nada de código; sólo se amplió una línea del comentario de `mcp_effective_port` (`scripts/install.sh`) para apuntar al test | No hay fix: un parser Go (`config.LoadDotEnv`) no se comparte con un script bash. La paridad ya está acotada **conductualmente** por `test_mcp_effective_port_strips_quotes_like_the_binary` |
+| `R2-2` | readability | **COSMETIC** | El comentario de validación dentro de `preflight_port_available` pasa de 8 a 5 líneas, conservando las tres razones (fail-closed, el `.env` no se valida en ningún otro lado, corre antes de tocar la unit) | El bloque de comentario era más largo que el código que explicaba |
+| `R3-003` | reliability | **COSMETIC** | El comentario de `defaultPort` (`internal/mcp/config.go`) pasa de 5 a 3 líneas | Conserva el porqué de `3001` sin dominar el bloque `const` |
+
+**Evidencia de la disposición `R1-1` (NO-ACTION, no pereza):** `test_mcp_effective_port_strips_quotes_like_the_binary` (`scripts/tests/install_deploy_test.sh:824`) escribe `MCP_PORT="3005"` en el `.env` y afirma que `mcp_effective_port` resuelve `3005`. La duplicación del parser queda pinneada por test, que es la única forma de pinneable cuando los dos lados son lenguajes distintos. El comentario ahora lo dice, para que nadie "arregle" la duplicación rompiendo la paridad.
+
+Fuera de la tabla, verificado en la misma corrida: el `sed`+`tr` propuesto se probó contra un archivo con `MCP_PORT="3005"` y devuelve `3005` (el `awk` devolvía `"3005"`). `tr -d '"'` no cubre comillas simples (`MCP_PORT='3005'` sale como `'3005'`): se deja así a propósito — el `.env` lo escribe el instalador, que usa comillas dobles — y queda anotado acá para no re-descubrirlo.
+
 ## Log
 
 - **L1** 2026-11-13 (owner): "Tomando en cuenta que el órden habitual y recomendado o ideal es: 1- Instalar y dejar funcionando Hermes en el Server. 2- Instalar nuestro MCP y configurarlo. Cual de los caminos consideras el más conveniente para nuestro proyecto? Yo tenía entendido que nuestro MCP primero lee el puerto definido en el archivo .env y usa eso, y si no hay .env usa el 3000... es así?"

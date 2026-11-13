@@ -14,11 +14,9 @@ import (
 const (
 	defaultBind = "127.0.0.1"
 
-	// defaultPort is 3001, not the more familiar 3000: the Hermes WhatsApp bridge
-	// also defaults to 3000 and never allocates an alternative, so under the
-	// documented install order (Hermes first, this server second) 3000 is already
-	// taken by a prerequisite before we ever start. Sitting on 3001 keeps the two
-	// services from colliding without the operator having to know about it.
+	// defaultPort is 3001, not the familiar 3000: the Hermes WhatsApp bridge
+	// already owns 3000 under the documented install order (Hermes first), so
+	// 3001 avoids the collision without the operator knowing about it.
 	defaultPort = "3001"
 )
 
