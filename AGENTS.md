@@ -102,7 +102,7 @@ The `status:approved` label is owner-granted and protected — it is NEVER self-
 - **GGA is DISABLED for this project**: the pre-commit hook no longer runs `gga run`;
   commits are gated only by the Pre-Commit Checklist + the native review RDD gate.
 - The single IA gate for this repo is the
-  **Verification & Review Protocol** (native review by default, readback for
+  **Verification & Review Protocol** (el gate lo decide `assess`, readback for
   trivial/docs, JD only on explicit owner request).
 - The `.gga` project config is intentionally KEPT: re-enabling = re-adding the
   `gga run || exit 1` block to `.git/hooks/pre-commit` (hook lives in the local
@@ -204,7 +204,10 @@ deterministic pipeline took over that role.)
    □ Revisar resultado
    □ Verificar el resultado (pipeline + checks funcionales)
    □ Correr el gate según routing (Verification & Review Protocol):
-       default (sensible + funcional medio) → review nativo
+       default (sensible + funcional medio) → según `assess`:
+           `reviewDue: true`  → review nativo
+           `reviewDue: false` → sin review; gate = pipeline + checks funcionales
+           recordatorio de AUTORIDAD RDD → prevalece: inspect/start
        trivial/docs → readback estructural
        escalada a pedido → JD (2 rondas, solo si owner pide "judgment day")
    □ Si hay issues → Fix → correr el gate de nuevo (sin loop infinito)
@@ -419,13 +422,16 @@ Verification routing is **exclusive**: one path per change, never both by defaul
 
 | Change type | Gate | Notes |
 |-------------|------|-------|
-| **Default** (sensible + funcional medio: auth/RBAC, transport/network HTTP/SSE, DB/schema, new dependencies go.mod, >400 lines, PII, business logic) | Native review | mechanics owned by `gentle-ai`; check with `review mode status` / `review status` |
+| **Default** (sensible + funcional medio: auth/RBAC, transport/network HTTP/SSE, DB/schema, new dependencies go.mod, >400 lines, PII, business logic) | **Según `assess`** | `assess` es la autoridad del ruteo: `reviewDue: true` → native review; `reviewDue: false` (p. ej. `under_budget`) → **no se corre review** y la verificación es el pipeline + los checks funcionales. mechanics owned by `gentle-ai`; check with `review mode status` / `review status` |
 | **Trivial / docs** | Structural readback | single-file mechanical fixes, documentation |
 | **Escalada a pedido** | JD (2 blind judges) | solo si owner pide explícitamente "judgment day" / "hagamos juicio" — no corre junto al review nativo por default |
 
-- Native review is the default gate; JD is a second-opinion escalation, never run together unless explicitly requested.
+- **`assess` decide el gate, no la intuición.** Con `reviewDue: false` correr un review igual es gastar rondas de modelo sin mandato; la verificación queda en el pipeline completo + los checks funcionales aplicables. La fila "Default" ya **no** dice "native review" incondicional.
+- **Riesgo ≠ autoridad — no confundirlas.** `assess` responde "¿hace falta por **riesgo**?". Un recordatorio de **autoridad RDD** (candidato sin receipt) responde otra pregunta y **prevalece sobre `reviewDue`**: si el harness lo dispara, corresponde `inspect` → `start` **aunque `assess` haya dicho `reviewDue: false`**. El único camino limpio para no invocarlo es una **disposición explícita del humano sobre ese candidato exacto** ("este target no se revisa"); el anuncio del agente no cuenta como disposición.
+- JD is a second-opinion escalation, never run together with native review unless explicitly requested.
 - Delivery closes under ordinary repository policy (Pre-Commit Checklist, CI green, PR review approval; the IA gate is the Verification & Review Protocol — GGA disabled 2026-11-03).
 - Verification always precedes the gate: full pipeline + applicable functional checks.
+- **Precedente (2026-11-13, issue #219 / PR #220):** risk `medium`, `reviewDue: false` (`under_budget`), review nativo **omitido por decisión del owner**; gate = pipeline completo verde (fmt/vet/lint/build/test -race).
 
 ### Judgment Day Process (escalada — solo a pedido)
 
