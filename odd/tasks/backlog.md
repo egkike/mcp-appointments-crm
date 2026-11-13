@@ -136,9 +136,29 @@ Everything else (B1..B14) is CLOSED with evidence — verified 2026-10-27 agains
 **Owner decision (option C):** un idioma canónico por doc según audiencia, SIN traducciones duplicadas por-doc (no README.es.md ni secciones espejo completas); resumenes en el otro idioma solo si se suman como `<details>`. Manifest de referencia: `docs/README.md` (tabla doc→idioma→audiencia + regla de nacimiento para docs nuevos). Estado del patrón: contratos/infra en EN (gateway-contract, deployment, README, AGENTS, ADRs); manuales de operación del owner en ES (installation, PRD, SDD, maintenance, demo-plan). Candidato pendiente: migrar `deployment.md` a ES (opcional, es runbook del owner) — registrado como tarea pequeña si el owner lo quiere; el commit/reference del README ahora linkea el índice.
 - **L-sweep 2026-11-03 (GGA off)** — **decisión owner: GGA DESACTIVADO para este repo; el único gate IA es el review nativo RDD**. Pre-commit hook local desarmado (`.git/hooks/pre-commit` reducido a comentario con la línea de re-activación); `.gga` conservado intacto (re-activo = re-agregar el bloque al hook); `gga run` manual queda disponible a pedido; item B6 (vigilancia upstream #113) sigue dropped-passive. Motivo: los loops de GGA tejieron la mayoría del costo de las sesiones (24+ rounds minted en PR #135, parser STRICT #113/#148) y el review nativo cubre ese rol con receipts y corrección acotada. Enmienda de AGENTS.md: GGA Rule marcada DISABLED (con instrucción de re-activación), Worker commit contract re-escrito sin cap de 5 rondas GGA (loop de pipeline only, hand-off con output de checks), Verification routing note actualizada.
 
-## Deuda documentada — advisories informativos del advisory de allowlist (2026-11-12)
+## Advisories del advisory de allowlist — CERRADO (2026-11-12 → 2026-11-13)
 
-**Decisión del owner**: cerrar el ciclo de advisories del canal-allowlist y dejar los hallazgos restantes como **deuda documentada**, sin más rondas de fix. Razón: cada fix-set genera advisories nuevos sobre el código que introduce (curva observada 6 → 7 → 2 → 2 → 4); el valor restante es de precisión sobre caminos degradados, no de comportamiento normal.
+**Decisión del owner (v1, 2026-11-12)**: cerrar el ciclo de advisories del canal-allowlist y dejar los hallazgos restantes como **deuda documentada**, sin más rondas de fix. Razón: cada fix-set genera advisories nuevos sobre el código que introduce (curva observada 6 → 7 → 2 → 2 → 4); el valor restante es de precisión sobre caminos degradados, no de comportamiento normal.
+
+**Decisión del owner (v2, 2026-11-13) — CIERRE**: la decisión v1 se tomó sobre una premisa no verificada. Los textos del reviewer no sobrevivieron al burn y **nunca se verificó su sustancia**. Triage del 2026-11-13 leyendo el código en los commits que cada review vio (`73337e1` para `review-43a2d36e3f0cfce1`, `415e0bf` para `review-620516a374297bfb`): **3 son defectos con consecuencia observable, 2 son descalce de copy, 2 son realmente no-action**. El owner autorizó arreglar los 5 accionables — issue **#219**.
+
+**Método de reconstrucción (válido para cualquier deuda de este tipo)**: los textos no se recuperan (verificado 2026-11-13: `review-transactions/terminal-consumption/v1/*.json` guardan sólo hashes de 259 B, `~/.gentle-ai/review-contexts/v1/` no cubre estas lineages, la memoria retiene ids + ubicaciones sin prosa, el PRD sólo repite ids). Lo que **sí** se recupera es el código exacto que el reviewer vio: `git show <commit>:<path> | sed -n '<línea_inicial>,<línea_final>p'`. Los anchors registrados aterrizan exactos en el commit revisado; sólo parecen corridos si se lee el árbol actual (drift +35/36 en `allowlist.go` por el PR #208, +0 en `ports.go`).
+
+### Disposición final de los 7
+
+| ID | Lente | Ubicación registrada | Disposición |
+|---|---|---|---|
+| `R3-1` | reliability | `allowlist.go:376-389` | **FIXED** (#219) — el tope por bytes no acota lo que el operador lee: se agregó tope de líneas (200) y de ancho por línea (300 runas) sobre el reporte |
+| `R3-2` | reliability | `allowlist.go:152-154` | **NO-ACTION** — la heurística de 250 ms hace lo que el comentario dice y está testeada en banda |
+| `R4-001` | resilience | `allowlist.go:146-151` | **FIXED** (#219) — el doc prometía "nunca más largo que el deadline del caller" mientras el guard exige un piso de 250 ms; promesa calificada (comment-only) |
+| `R4-002` | resilience | `allowlist.go:380-387` | **FIXED** (#219) — el marcador conflacionaba corrupción UTF-8 con tope de tamaño; ahora cada causa tiene su marcador |
+| `R3-allowlist-stale-probe` | reliability | `model.go:1040-1046` | **FIXED** (#219) — `allowlistPending` era un bool sin token de correlación: la respuesta tardía de una cascada vieja se pintaba sobre la nueva y la actual se descartaba. Ahora hay sello monotónico (`allowlistSeq`) + slot armado (`allowlistArmed`) |
+| `R3-nil-runner-contract` | reliability | `ports.go:146-152` | **FIXED** (#219) — `nil` estaba conflado con "binario ausente"; categoría propia `auditRunnerNotWired` + copy propia + test |
+| `R4-001` | resilience | `ports.go:145-151` | **NO-ACTION** — degradar en vez de fail-fast en el seam es decisión documentada, sólo alcanzable fuera de producción |
+
+### Registro histórico de los hallazgos parkeados (2026-11-12)
+
+Se conserva como evidencia de la curva y de por qué el ciclo no converge solo.
 
 **Pendientes registrados** (todos `informational`, ninguno bloqueante) del lineage `review-43a2d36e3f0cfce1`, sobre el código que entró en `73337e1`:
 
@@ -159,9 +179,9 @@ Everything else (B1..B14) is CLOSED with evidence — verified 2026-10-27 agains
 
 Dos de los tres apuntan al contrato del runner `nil` del seam que los tests usan para inyectar el probe — el único código que el implementador tocó fuera de sus superficies autorizadas.
 
-**Cómo retomarlos si alguna vez se decide**: los textos de los reviewers no sobreviven al burn; hay que reconstruirlos desde la ubicación (patrón usado en issues #197/#199/#201/#203) o esperar a que un review futuro los re-detecte en un cambio que toque esas líneas.
+**Cómo se retomó (2026-11-13)**: `git show <commit_revisado>:<path> | sed -n '<ini>,<fin>p'` sobre la ubicación registrada — el método directo, no la inferencia desde el árbol actual. Ver la sección anterior para el detalle y para el estado de cada uno.
 
-**Política propuesta (pendiente de escribir en AGENTS.md si el owner la adopta)**: el review nativo corre sobre el cambio original; los fixes que cierran advisories *informativos* no se re-revisan — la verificación es tests + CI.
+**Política pendiente de escribir en AGENTS.md (decisión del owner, 2026-11-13)**: la tabla de routing de la *Verification & Review Protocol* hoy rutea **business logic → native review** como default, lo que choca con el contrato RDD: cuando `assess` responde `reviewDue: false`, **no se corre review nativo**. El owner confirmó que manda el `assess` (es el caso de la issue #219: risk medium, `under_budget`, review omitido por decisión). Falta reescribir la tabla para que la fila "Default" diga "según `assess`" en vez de "native review" incondicional, y aclarar que un recordatorio de **autoridad** RDD prevalece sobre `reviewDue` (son preguntas distintas: riesgo vs autoridad). **Pendiente de doc, no de código.**
 
 ## Pendiente — revisar el puerto default del MCP (3000) vs. cambiar a otro (owner, 2026-11-12)
 

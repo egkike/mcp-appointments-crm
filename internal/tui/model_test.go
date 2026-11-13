@@ -233,3 +233,59 @@ func TestAdvisoryDoesNotHijackAnotherScreen(t *testing.T) {
 		t.Errorf("menu view = %q, want no advisory for a screen it does not belong to", got)
 	}
 }
+
+// TestAllowlistAdvisory_StaleProbeDoesNotPaintOverTheNewerScreen locks
+// R3-allowlist-stale-probe: the probe runs off the Update loop for up to five
+// seconds, so a second option-7 cascade can start before the first probe answers.
+// A plain "pending" flag cannot tell the two answers apart: the stale one is
+// accepted, painted on the newer screen, and then the CURRENT answer is dropped as
+// if it were the late one. The operator reads an audit of a run that is no longer
+// on screen. The message carries a sequence token so only the probe of the newest
+// cascade is accepted.
+func TestAllowlistAdvisory_StaleProbeDoesNotPaintOverTheNewerScreen(t *testing.T) {
+	m := advisoryModel(fakeToolsList(minimalHermesToolsList, nil, nil))
+
+	// First cascade arms its probe.
+	first, firstCmd := m.Update(skillResultMsg{outcome: admin.SkillOutcomeInstalled})
+	firstModel, ok := first.(AppModel)
+	if !ok {
+		t.Fatalf("Update(skillResultMsg) returned %T, want AppModel", first)
+	}
+	if firstCmd == nil {
+		t.Fatal("first cascade dispatched no probe command")
+	}
+
+	// The operator runs option 7 again before the first probe answers.
+	second, secondCmd := firstModel.Update(skillResultMsg{outcome: admin.SkillOutcomeInstalled})
+	secondModel, ok := second.(AppModel)
+	if !ok {
+		t.Fatalf("Update(skillResultMsg) returned %T, want AppModel", second)
+	}
+	if secondCmd == nil {
+		t.Fatal("second cascade dispatched no probe command")
+	}
+
+	// The FIRST probe answers late: its advisory belongs to a run that is gone.
+	stale, _ := secondModel.Update(firstCmd())
+	staleModel, ok := stale.(AppModel)
+	if !ok {
+		t.Fatalf("Update(stale allowlistMsg) returned %T, want AppModel", stale)
+	}
+	if got := staleModel.View(); strings.Contains(got, "Allowlist del canal") {
+		t.Errorf("screen = %q, want the stale advisory dropped instead of painted over the newer screen", got)
+	}
+
+	// The CURRENT probe still lands: dropping the stale message must not consume
+	// the slot the newer cascade is waiting on.
+	fresh, _ := staleModel.Update(secondCmd())
+	freshModel, ok := fresh.(AppModel)
+	if !ok {
+		t.Fatalf("Update(current allowlistMsg) returned %T, want AppModel", fresh)
+	}
+	if got := freshModel.View(); !strings.Contains(got, "Allowlist del canal whatsapp: mínima ✓") {
+		t.Errorf("screen = %q, want the current advisory painted", got)
+	}
+	if freshModel.infoKind != infoSuccess {
+		t.Errorf("infoKind = %v, want infoSuccess", freshModel.infoKind)
+	}
+}

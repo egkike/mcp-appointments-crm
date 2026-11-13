@@ -216,11 +216,16 @@ type AppModel struct {
 	// screens of the same decision; menuScreen resets it.
 	skillRegen skillInputs
 
-	// allowlistPending marks the option-7 success screen as the one the read-only
-	// channel-allowlist advisory belongs to (issue #195). The probe answers later
-	// and in the meantime the operator can leave; without this flag the late
-	// message would append itself to whatever screen happened to be open.
-	allowlistPending bool
+	// allowlistSeq stamps every option-7 cascade with a strictly increasing value,
+	// and allowlistArmed holds the stamp of the probe the screen is waiting for (0
+	// = none). The probe answers later and in the meantime the operator can leave
+	// the screen or run option 7 again; a plain flag cannot tell the first
+	// cascade's late answer from the current one, so a stale audit would be painted
+	// over the newer run and the current answer dropped afterwards (native review
+	// R3-allowlist-stale-probe). The counter is never reset — a reset would hand the
+	// next cascade a stamp a probe still in flight is carrying.
+	allowlistSeq   uint64
+	allowlistArmed uint64
 }
 
 // NewAppModel builds the initial model. ctx is propagated into every core call
@@ -1012,21 +1017,25 @@ func (m AppModel) onSkillResult(msg skillResultMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m = m.withInfo(kind, lines...)
-	m.allowlistPending = true
-	return m, allowlistAdvisoryCmd(m.ctx, m.deps.AllowlistRunner)
+	// withInfo goes through withScreen, which clears the armed slot: stamp the
+	// cascade AFTER the screen change so the probe carries the current stamp.
+	m.allowlistSeq++
+	m.allowlistArmed = m.allowlistSeq
+	return m, allowlistAdvisoryCmd(m.ctx, m.deps.AllowlistRunner, m.allowlistArmed)
 }
 
 // onAllowlist appends the advisory to the success screen once the probe answers.
 // It preserves the severity the screen already had, so a failed skill cascade
 // stays an error screen with the advisory added instead of being repainted as a
 // success. A screen that no longer belongs to this cascade (the operator left
-// while the probe was running) keeps its own content: a late advisory is dropped,
-// never painted on an unrelated screen.
+// while the probe was running, or started another one) keeps its own content: a
+// late advisory is dropped, never painted on an unrelated screen, and dropping it
+// never consumes the slot the CURRENT probe is waiting on.
 func (m AppModel) onAllowlist(msg allowlistMsg) (tea.Model, tea.Cmd) {
-	if !m.allowlistPending || m.screen != screenInfo {
+	if msg.seq == 0 || msg.seq != m.allowlistArmed || m.screen != screenInfo {
 		return m, nil
 	}
-	m.allowlistPending = false
+	m.allowlistArmed = 0
 
 	advisory := allowlistScreenLines(msg.text)
 	if len(advisory) == 0 {
@@ -1138,7 +1147,7 @@ func (m AppModel) withScreen(next screen) AppModel {
 	m.noticeLine = ""
 	// Leaving a screen detaches the late advisory: it belongs to the cascade that
 	// opened the success screen, not to the next one (see onAllowlist).
-	m.allowlistPending = false
+	m.allowlistArmed = 0
 	return m
 }
 
