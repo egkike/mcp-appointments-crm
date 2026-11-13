@@ -76,11 +76,13 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 > The pipe (`curl | bash`) works only for Paso 2; Paso 1 must run in a real terminal. See
 > [docs/installation.md](./docs/installation.md) for the full walkthrough.
 >
-> **Branch A (another channel agent already runs on this host):** if a Hermes
-> WhatsApp/Telegram bridge already binds the default `3000`, pass the port
-> hygiene up front — `MCP_PORT=3001` (exported values are persisted into a new
-> `.env`) or the agent's `bridge_port` lever. The installer pre-flights the
-> MCP port before starting the service and aborts early naming both levers
+> **Branch A (another channel agent already runs on this host):** the two
+> services no longer collide out of the box — our MCP server defaults to `3001`
+> and the Hermes WhatsApp/Telegram bridge keeps its own default `3000`. If you
+> ever need to move one, the `MCP_PORT` lever (exported values are persisted
+> into a new `.env`) and the agent's `bridge_port` lever are both still there.
+> The installer pre-flights the MCP port before starting the service and aborts
+> early naming both levers
 > (see [installation.md — Paso 0](./docs/installation.md#paso-0--el-flujo-completo-receta-recomendada)).
 >
 > **Pinning is mandatory in Paso 2.** The installer does not resolve `latest`: `--version`
@@ -98,12 +100,12 @@ Installs the prebuilt binary from GitHub Releases, verifies SHA256, registers a
 user-level service (`systemd --user` on Linux, `launchd` on macOS), enables linger
 on Linux, and verifies the installed binary (`mcp-server --version` matches the
 requested tag) plus that the user service is active. The installer itself issues no
-HTTP request; the liveness probe is `http://127.0.0.1:3000/healthz` (a bare `GET /mcp`
+HTTP request; the liveness probe is `http://127.0.0.1:3001/healthz` (a bare `GET /mcp`
 answers **405 by design** — the MCP endpoint accepts POST JSON-RPC only). The port
-is a documented default (`MCP_PORT` in the install `.env`), not a hardcode: on
-hosts that will also run the Hermes WhatsApp channel, set `MCP_PORT=3001` before
-the first start (see `docs/installation.md`, Paso 2 recommendation) so the MCP
-and the Hermes WhatsApp bridge (also defaulting to 3000) never collide.
+is a documented default (`MCP_PORT` in the install `.env`, `3001`), not a hardcode,
+and it sits one above the Hermes WhatsApp bridge's own default (`3000`), so the
+MCP server and the bridge never collide on a shared host (see
+`docs/installation.md`, Paso 2).
 
 It runs a standard MCP server (Streamable HTTP, POST-only `/mcp`) with a
 single non-standard surface: the per-request `X-Caller-Id` identity header.
@@ -153,7 +155,7 @@ inventory: [docs/installation.md § Desinstalación](./docs/installation.md).
 - **Language**: Go 1.27.4 with `modernc.org/sqlite` (pure Go, no CGo)
 - **Database**: SQLite with WAL mode, FTS5 full-text search, `busy_timeout=5000`
 - **TUI**: [Charm Bubble Tea](https://github.com/charmbracelet/bubbletea) ecosystem
-- **Transport**: MCP over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3000` (loopback only) — go-sdk v1.7.0, implemented (`feat-mcp-transport`, archived 2026-08-19)
+- **Transport**: MCP over Streamable HTTP (spec 2025-11-25) on `127.0.0.1:3001` (loopback only) — go-sdk v1.7.0, implemented (`feat-mcp-transport`, archived 2026-08-19)
 - **Install model**: user-level (no root, no `appuser`, no Docker). XDG paths on Linux
   (`~/.local/share/`, `~/.config/`), platform-native on macOS. Windows hosts run the Linux layout inside **WSL2** (2026-11-01 platform
   covenant; the Windows-native layout once designed in
@@ -192,7 +194,7 @@ MCP_DB_PATH=/tmp/dev-reservas.db \
 go run ./cmd/mcp-server
 ```
 
-It listens on `http://127.0.0.1:3000` — `/mcp` for MCP (POST-only), `/healthz` for
+It listens on `http://127.0.0.1:3001` — `/mcp` for MCP (POST-only), `/healthz` for
 liveness — and seeds `business_profile`, `professionals` and `services` from the
 fixtures.
 

@@ -18,7 +18,7 @@ ships a single Linux x86_64 archive plus `checksums.txt`; every tag after the pi
 carries the full matrix. The install script downloads the
 correct archive over HTTPS, verifies its checksum, installs to user-level paths, registers a
 user-level service, and verifies the installed binary plus the service state. The
-installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3000/healthz`
+installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3001/healthz`
 (a bare `GET /mcp` answers **405 by design** — the MCP endpoint accepts POST JSON-RPC only).
 
 - Repo: `https://github.com/egkike/mcp-appointments-crm`
@@ -26,7 +26,7 @@ installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3000/
   - Unix: `https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh`
   - Windows: **not implemented** — there is no `scripts/install.ps1`. See the Windows
     section below and [ADR-0014](./architecture/0014-release-and-deploy-workflow.md).
-- Default endpoint: `http://127.0.0.1:3000/mcp` (loopback only, see ADR-0007).
+- Default endpoint: `http://127.0.0.1:3001/mcp` (loopback only, see ADR-0007).
 
 ## Release Process
 
@@ -67,7 +67,7 @@ The only release assembled by hand is the historical `v0.3.0` demo (release titl
    gh release view v0.3.0 --repo egkike/mcp-appointments-crm
    curl -fsSL https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/checksums.txt | cat
    mcp-server --version   # after installing that tag
-   curl --fail http://127.0.0.1:3000/healthz
+   curl --fail http://127.0.0.1:3001/healthz
    ```
 
 If a release is wrong, either delete the remote tag and re-tag, or replace the assets
@@ -182,7 +182,7 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 # check
 systemctl --user is-active mcp-appointments-crm
 systemctl --user status mcp-appointments-crm --no-pager
-curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:3001/healthz
 ```
 
 ### Manual download (no pipe)
@@ -240,11 +240,11 @@ The `.env` file (created if absent, never overwritten) holds loopback config:
 ```bash
 # ~/.config/mcp-appointments-crm/.env
 MCP_BIND=127.0.0.1
-MCP_PORT=3000
+MCP_PORT=3001
 ```
 
 The service unit loads it via `EnvironmentFile=%h/.config/mcp-appointments-crm/.env`.
-Precedence is: system env vars > `.env` > defaults (`127.0.0.1:3000`) — see ADR-0007.
+Precedence is: system env vars > `.env` > defaults (`127.0.0.1:3001`) — see ADR-0007.
 
 `install.sh` runs `loginctl enable-linger $USER` so the user service survives logout
 (24/7 on a VPS — ADR-0002). Verify:
@@ -262,9 +262,9 @@ systemctl --user status mcp-appointments-crm --no-pager
 journalctl --user -u mcp-appointments-crm -n 50 --no-pager
 
 # health — loopback only (liveness endpoint)
-curl --fail http://127.0.0.1:3000/healthz   # 200 {"status":"ok",...}
+curl --fail http://127.0.0.1:3001/healthz   # 200 {"status":"ok",...}
 # with custom port
-curl --fail http://127.0.0.1:${MCP_PORT:-3000}/healthz
+curl --fail http://127.0.0.1:${MCP_PORT:-3001}/healthz
 # Note: a bare GET on /mcp answers 405 by design (REQ-MT-002) — the MCP
 # endpoint accepts POST JSON-RPC only. It proves the server is up and
 # routing, but /healthz is the liveness check.
@@ -319,7 +319,7 @@ Verification:
 ```bash
 launchctl list | grep com.mcp.appointments
 launchctl print gui/$UID/com.mcp.appointments.server
-curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:3001/healthz
 log show --predicate 'process == "mcp-server"' --last 5m
 ```
 
@@ -376,7 +376,7 @@ mcp-server --register-service
 # or: mcp-server install-service
 
 # health
-Invoke-RestMethod http://127.0.0.1:3000/mcp
+Invoke-RestMethod http://127.0.0.1:3001/mcp
 # NOT IMPLEMENTED — target design only
 Get-ScheduledTask -TaskName "mcp-appointments-crm" | Get-ScheduledTaskInfo
 ```
@@ -416,7 +416,7 @@ present (same path on every OS; not `%APPDATA%`).
 Verification:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:3000/mcp
+Invoke-RestMethod http://127.0.0.1:3001/mcp
 Get-ScheduledTask -TaskName "mcp-appointments-crm" | Get-ScheduledTaskInfo
 Get-Content "$env:LOCALAPPDATA\MCP Appointments CRM\Logs\mcp-server.log" -Tail 50
 ```
@@ -454,7 +454,7 @@ in `~/.local/share/mcp-appointments-crm/` outside the binary path):
 # example: rollback from v0.4.0 to v0.3.0
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
 systemctl --user restart mcp-appointments-crm
-curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:3001/healthz
 
 # Windows — NOT IMPLEMENTED (target design only; see Install — Windows)
 go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.3.0
@@ -473,7 +473,7 @@ systemctl --user stop mcp-appointments-crm
 gunzip -c ~/.local/share/mcp-appointments-crm/backups/reservas-20260827.db.gz \
   > ~/.local/share/mcp-appointments-crm/reservas.db
 systemctl --user start mcp-appointments-crm
-curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:3001/healthz
 ```
 
 ## Verification Checklist
@@ -488,7 +488,7 @@ docker --version  # should be absent or irrelevant; service runs without it
 # 2. Firewall — only loopback. No public port should be open for MCP.
 sudo ufw status numbered 2>/dev/null || sudo iptables -L -n | head -20
 # If UFW is active, ensure it doesn't block loopback (it doesn't by default).
-# No rule should expose 3000 publicly. The binary itself rejects non-loopback binds.
+# No rule should expose 3001 publicly. The binary itself rejects non-loopback binds.
 
 # 3. Hardening (recommended for any VPS)
 systemctl is-active fail2ban 2>/dev/null || echo "fail2ban not active — install if this is a public VPS"
@@ -503,8 +503,8 @@ systemctl --user is-active mcp-appointments-crm  # Linux: active
 # Windows: NOT IMPLEMENTED — target design only (Get-ScheduledTask -TaskName "mcp-appointments-crm")
 
 # 6. Port and bind
-ss -tlnp | grep 3000  # should show 127.0.0.1:3000, NOT 0.0.0.0:3000
-curl --fail http://127.0.0.1:3000/healthz
+ss -tlnp | grep 3001  # should show 127.0.0.1:3001, NOT 0.0.0.0:3001
+curl --fail http://127.0.0.1:3001/healthz
 # non-loopback must fail at startup (ADR-0007):
 #   MCP_BIND=0.0.0.0 mcp-server  # → Error: MCP_BIND=0.0.0.0 expone el server…
 
@@ -515,7 +515,7 @@ curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.
 sha256sum -c checksums.txt --ignore-missing
 
 # 8. Hermes integration (if Hermes is installed on the same host)
-hermes doctor  # or equivalent — should report MCP endpoint reachable at 127.0.0.1:3000
+hermes doctor  # or equivalent — should report MCP endpoint reachable at 127.0.0.1:3001
 ```
 
 ## Security Notes
@@ -539,21 +539,24 @@ hermes doctor  # or equivalent — should report MCP endpoint reachable at 127.0
 ### Port already in use
 
 ```
-Error: puerto 3000 en uso. Configurá MCP_PORT con otro valor (ej. export MCP_PORT=3001 && mcp-server).
+time=... level=ERROR msg="mcp server failed" error="listen on 127.0.0.1:3001: listen tcp 127.0.0.1:3001: bind: address already in use"
 ```
 
-The server does **not** auto-fallback to the next port (ADR-0007). Fix:
+The default `3001` and the Hermes WhatsApp bridge default (`3000`) do not collide,
+so something else holds the configured port (the bridge, if its port was moved onto
+it, or any other process). The server does **not** auto-fallback to the next port
+(ADR-0007). Fix:
 
 ```bash
-# option A: env var for this shell
-MCP_PORT=3001 mcp-server
+# option A: env var for this shell (3002 = any free port)
+MCP_PORT=3002 mcp-server
 # option B: persist in .env (systemd reads it via EnvironmentFile)
-echo "MCP_PORT=3001" >> ~/.config/mcp-appointments-crm/.env
+echo "MCP_PORT=3002" >> ~/.config/mcp-appointments-crm/.env
 systemctl --user restart mcp-appointments-crm
-curl --fail http://127.0.0.1:3001/healthz
-# option C: find who holds 3000
-ss -tlnp | grep 3000
-lsof -i :3000
+curl --fail http://127.0.0.1:3002/healthz
+# option C: find who holds the port
+ss -tlnp | grep 3001
+lsof -i :3001
 ```
 
 ### Bind is not loopback
@@ -605,9 +608,9 @@ open an issue at `https://github.com/egkike/mcp-appointments-crm/issues`.
 ### Hermes cannot reach MCP
 
 ```bash
-curl -v http://127.0.0.1:3000/mcp
+curl -v http://127.0.0.1:3001/mcp
 ss -tlnp | grep mcp-server
 journalctl --user -u mcp-appointments-crm -n 100 --no-pager
 journalctl --user -u mcp-appointments-crm -f
-# verify Hermes config points at http://127.0.0.1:3000/mcp (not 0.0.0.0, not a LAN IP)
+# verify Hermes config points at http://127.0.0.1:3001/mcp (not 0.0.0.0, not a LAN IP)
 ```

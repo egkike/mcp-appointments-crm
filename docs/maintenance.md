@@ -98,7 +98,7 @@ Verificación post-upgrade:
 ```bash
 ~/.local/bin/mcp-server --version   # vX.Y.Z (la versión instalada)
 systemctl --user is-active mcp-appointments-crm
-curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:3001/healthz
 ```
 
 ### 2.2 Downgrade
@@ -302,17 +302,17 @@ systemctl --user enable --now mcp-appointments-crm
 ### Puerto ocupado
 
 ```bash
-ss -tlnp | grep 3000
+ss -tlnp | grep 3001
 # o
-lsof -i :3000
+lsof -i :3001
 ```
 
-Cambiale el puerto en `~/.config/mcp-appointments-crm/.env` y reiniciá:
+Cambiale el puerto en `~/.config/mcp-appointments-crm/.env` (a otro libre) y reiniciá:
 
 ```bash
-echo "MCP_PORT=3001" >> ~/.config/mcp-appointments-crm/.env
+echo "MCP_PORT=3002" >> ~/.config/mcp-appointments-crm/.env # 3002 = un puerto libre
 systemctl --user restart mcp-appointments-crm
-curl --fail http://127.0.0.1:3001/healthz
+curl --fail http://127.0.0.1:3002/healthz
 ```
 
 ### SHA256 mismatch persistente en upgrade

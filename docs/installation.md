@@ -1,6 +1,6 @@
 # Guía de instalación de MCP Appointments CRM
 
-> Esta guía lleva un VPS limpio (Ubuntu 22.04+ o macOS) hasta tener el servicio `mcp-appointments-crm` activo y respondiendo en `http://127.0.0.1:3000/mcp`.
+> Esta guía lleva un VPS limpio (Ubuntu 22.04+ o macOS) hasta tener el servicio `mcp-appointments-crm` activo y respondiendo en `http://127.0.0.1:3001/mcp`.
 >
 > ⚠️ **Assets publicados**: el release publicado más reciente es **v0.12.2** (2026-11-12: patch — el detector de allowlist ya no alarma en falso; anterior: v0.12.1, patch — el advisory de allowlist visible en la TUI; anterior: v0.12.0, minor — la opción 7 del TUI audita la allowlist de tools del canal y muestra un advisory read-only en tres estados (nunca escribe `config.yaml`), corrección de las docs de seguridad (el boundary por plataforma existe pero está APAGADO por default; los bundles de canal son full-access) con el procedimiento verificado de allowlist mínima, y fix del `pr-gate` de CI (`cancel-in-progress: false`); anterior: v0.11.2, 2026-11-06: patch — hardening interno `internal/db`: fail-closed para `MCP_DB_PATH` con query string (antes: silent-ignore de los pragmas y `foreign_keys` OFF), paridad `:memory:` canónica `file::memory:`; anterior: v0.11.1, 2026-11-06 — patch: fix de producto `internal/db.buildDSN`: DSN `file:` canónica para que el server arranque en mac reales, bug descubierto por el smoke macOS e2e del propio repo; anterior: v0.11.0, 2026-11-04 — minor: uninstall end-to-end (script + Go sibling + docs), pre-flight de puerto del installer, framing público de números; anterior: v0.10.0, 2026-11-01 — Windows hardening ADR-0021, skill v1.1.1, contract de modos WhatsApp; el changelog completo vive en `docs/PRD.md`; anterior: v0.9.1 2026-10-22 — `list_hours_exceptions` en carrier `{exceptions:[…]}` para el contract root-object del cliente MCP de Hermes; v0.9.0 2026-10-22: minor de 25 tools — paquete B12 owner-in-chat: 2 tools de lectura nuevas, skill v1.1.0 dual persona, Telegram opcional/removible, fix de consola B14; v0.8.1 2026-10-21: fix de seed B11 — despliegue vía `--version` que siembra el template pristino de la skill — y OQ-5 — wizard pide specialties por profesional para instalaciones nuevas; v0.8.0 2026-10-19: skill de recepcionista de Hermes, vista TUI "Ver audit log", `Purgar cuentas desactivadas` con doble confirmación; v0.7.0: tools 20→23 hours-exceptions + backend del bot; v0.6.1 y v0.6.0 anteriores); todos los releases desde v0.4.0 salen del pipeline GoReleaser y traen la matriz Unix de 4 plataformas (`Darwin_arm64/x86_64`, `Linux_arm64/x86_64`) + `checksums.txt`; desde el covenant 2026-11-01 el zip de Windows ya no se publica (Windows = WSL2 con el asset Linux). El camino macOS de `install.sh` está implementado y descarga el asset `Darwin` correspondiente. Windows no tiene asset ni path de instalación nativo (covenant 2026-11-01; el instalador imprime el hint de WSL2 en el branch no-soportado) ([ADR-0014](./architecture/0014-release-and-deploy-workflow.md) Decision 3). `v0.3.0` fue el último armado a mano.
 >
@@ -16,7 +16,7 @@ Verificá estos ítems antes de empezar:
 - [ ] Usuario normal con shell `bash` y acceso por SSH (o consola local).
 - [ ] `curl`, `tar` y una herramienta de SHA256 (`sha256sum` en Linux, `shasum -a 256` en macOS) en el `PATH`.
 - [ ] Conexión saliente HTTPS a `github.com` y `raw.githubusercontent.com`.
-- [ ] Puerto `3000` libre en `127.0.0.1` (o el puerto que configures en `.env`; el instalador lo verifica con pre-flight y aborta temprano nombrando las dos salidas si está ocupado).
+- [ ] Puerto `3001` libre en `127.0.0.1` (o el puerto que configures en `.env`; el instalador lo verifica con pre-flight y aborta temprano nombrando las dos salidas si está ocupado).
 
 > **No ejecutes la instalación como root.** Todo el pipeline es user-level: el binario,
 > la DB, los JSONs de setup y el servicio quedan bajo el home del usuario que
@@ -50,24 +50,19 @@ end-to-end al toque (canal vivo + tools + skill recién renovada por la cascada)
 > suspende al cerrar la tapa mata la disponibilidad; en Windows, WSL2 hereda
 > el arranque del host Windows (ver nota Windows de arriba).
 
-> ⚠️ **Puerto (rama A — se fija ANTES del paso 2):** si el agente del canal ya
-> corre en esta máquina y su WhatsApp/config ya está activo, el puente de
-> WhatsApp (`bridge.js`) ya tiene — o tomará — `127.0.0.1:3000`. Cuando el
-> Paso 2 deja el server con el default `3000` contra un puerto ocupado, el
-> binario no arranca (`bind: address already in use`) y el unit entra en un
-> crash-loop de auto-restart cada 5s (verificado 2026-11-02 en vivo). Fijá
-> desde ya **`MCP_PORT=3001`** en el paso 2 (higiene de puertos:
-> `gateway-contract.md` §6.1; la otra palanca equivalente es fijar el
-> `bridge_port` del bridge en el config del gateway). La variante trampa
-> silenciosa (agente configurado pero sin parear aún) también cae acá: el
-> MCP arrancaría bien con 3000, y la pareja posterior del WhatsApp chocaría
-> contra el server ya corriendo — el canal no conectará sin una de las dos
-> palancas aplicadas. Nunca queda a ojo: el instalador hace **pre-flight del
-> puerto** justo después de escribir el `.env` y antes de instalar el binario
-> y el servicio — si el puerto está ocupado por otro proceso, aborta temprano
-> con las mismas dos palancas (un listener del propio unit, como durante un
-> upgrade en caliente, no cuenta como conflicto; sin `ss` ni `lsof`, advierte
-> que el chequeo se salteó y continúa).
+> ℹ️ **Puerto (rama A — defaults que no chocan):** el server MCP usa el default
+> `3001` y el puente de WhatsApp de Hermes (`bridge.js`) usa `3000` como puerto
+> local por default, así que con los dos en su default un host compartido no
+> colisiona y no hay nada que configurar. Si alguna vez movés uno de los dos
+> (higiene de puertos: `gateway-contract.md` §6.1), las dos palancas siguen
+> siendo `MCP_PORT` en el `.env` del MCP y el `bridge_port` del bridge en el
+> config del gateway — lo único necesario es que no queden en el mismo puerto.
+> Nunca queda a ojo: el instalador hace **pre-flight del puerto** justo después
+> de escribir el `.env` y antes de instalar el binario y el servicio — si el
+> puerto está ocupado por otro proceso, aborta temprano con las mismas dos
+> palancas (un listener del propio unit, como durante un upgrade en caliente, no
+> cuenta como conflicto; sin `ss` ni `lsof`, advierte que el chequeo se salteó y
+> continúa).
 
 **Rama B — máquina nueva (greenfield):** 2 → (instalar Hermes + WhatsApp del
 negocio) → 3 → 4. El resultado final es idéntico: ambos caminos convergen en la
@@ -166,26 +161,24 @@ Reemplazá `v0.12.2` por el tag exacto que querés instalar. El formato obligato
 9. Crea `~/.config/mcp-appointments-crm/.env` si no existe con:
    ```bash
    MCP_BIND=127.0.0.1
-   MCP_PORT=3000
+   MCP_PORT=3001
    ```
    Si ya existe `.env`, se preserva byte-idéntico (upgrade).
 
-   > **Recomendación si vas a correr el canal WhatsApp del negocio en esta misma
-   > máquina** (installación típica del producto con el gateway de Hermes):
-   > antes del primer arranque, editá el `.env` y fijá **`MCP_PORT=3001`** (o
-   > cualquier otro puerto libre). El default `3000` es el puerto contratado
-   > del MCP, pero **el puente de WhatsApp de Hermes (bridge.js/Baileys)
-   > también usa 3000 como puerto local por default** y choques con él dejarían
-   > el canal WhatsApp sin arrancar (`standalone_bridge_port` del runtime
-   > "never allocates", no busca un puerto libre). Con el MCP en 3001 ambos
-   > servicios conviven sin configuración extra. Si preferís mantener el MCP en
-   > 3000, la alternativa equivalente es fijar el `bridge_port` del bridge
-   > (config `platforms.whatsapp.extra.bridge_port` del runtime; ver
-   > [gateway-contract §6.1](gateway-contract.md)) — una de las dos palancas es
-   > necesaria; ninguna es opcional WhatsApp-on-same-host. Verificación:
-   > `curl --fail http://127.0.0.1:3001/healthz` y re-coré la opción 7 de la
-   > TUI para que la entrada `mcp_servers` de Hermes derive la URL del puerto
-   > nuevo.
+   > **Canal WhatsApp del negocio en esta misma máquina** (instalación típica
+   > del producto con el gateway de Hermes): no hay que tocar nada — el MCP usa
+   > el default `3001` y **el puente de WhatsApp de Hermes (bridge.js/Baileys)
+   > usa 3000 como puerto local por default**, así que ambos servicios conviven
+   > sin configuración extra. Los dos lados son deliberados: el MCP no busca un
+   > puerto libre por su cuenta y el `standalone_bridge_port` del runtime
+   > "never allocates" (tampoco busca uno). Si movés el MCP a otro puerto (ver
+   > [gateway-contract §6.1](gateway-contract.md)), la palanca recíproca es
+   > fijar el `bridge_port` del bridge (config
+   > `platforms.whatsapp.extra.bridge_port` del runtime); lo que no puede pasar
+   > es que los dos apunten al mismo número. Verificación:
+   > `curl --fail http://127.0.0.1:3001/healthz` — y si cambiaste el puerto,
+   > re-corré la opción 7 de la TUI para que la entrada `mcp_servers` de Hermes
+   > derive la URL del puerto nuevo.
 10. Instala el binario en `~/.local/bin/mcp-server` de forma atómica.
 11. Renderiza e instala la service unit:
     - Linux: `~/.config/systemd/user/mcp-appointments-crm.service`
@@ -233,7 +226,7 @@ Linger=yes
 ### 3.3 Endpoint MCP respondiendo
 
 ```bash
-curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:3001/healthz
 ```
 
 Resultado esperado: HTTP 200 con:
@@ -242,7 +235,7 @@ Resultado esperado: HTTP 200 con:
 {"status":"ok","version":"v0.3.0"}
 ```
 
-> **Nota:** un GET pelado a `http://127.0.0.1:3000/mcp` responde **405 por
+> **Nota:** un GET pelado a `http://127.0.0.1:3001/mcp` responde **405 por
 > diseño** (REQ-MT-002): el endpoint MCP solo acepta POST JSON-RPC. Ese 405 es
 > buena señal — prueba que el server vive y rutea — pero la verificación de
 > liveness es `/healthz`.
@@ -346,7 +339,7 @@ Verificación opcional del wire MCP (handshake POST `initialize`, sin sesión �
 el server es stateless y no exige `Mcp-Session-Id`):
 
 ```bash
-curl --fail -sS http://127.0.0.1:3000/mcp \
+curl --fail -sS http://127.0.0.1:3001/mcp \
   -H 'Content-Type: application/json' \
   -H 'X-Caller-Id: <teléfono-del-owner>' \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"curl-smoke","version":"0.0.1"}}}'
@@ -455,19 +448,22 @@ sha256sum -c checksums.txt --ignore-missing
 
 Si el checksum oficial falla, no instales y abrí un issue en el repo.
 
-### El servicio no arranca y el log dice "puerto 3000 en uso"
+### El servicio no arranca porque el puerto ya está en uso
 
-Causas típicas: (a) **el puente de WhatsApp de Hermes** (`bridge.js`, que por
-default usa 3000 — añadido el 2026-11-01 con la prueba de onboarding), o (b)
-cualquier otro proceso en el 3000. Dos salidas equivalentes, elegí UNA:
+El log muestra `bind: address already in use` para el puerto configurado. El
+default del MCP es `3001` y el puente de WhatsApp de Hermes (`bridge.js`) usa
+`3000` por default (añadido el 2026-11-01 con la prueba de onboarding), así que
+los dos ya no chocan con sus defaults. Un choque significa que otro proceso —el
+bridge, si le moviste la config, u otro cualquiera— ocupa ese puerto. Dos salidas
+equivalentes, elegí UNA:
 
 1. **Mover el MCP**: editá `~/.config/mcp-appointments-crm/.env` para usar otro
-   puerto — la recomendación del producto para hosts con WhatsApp es
-   `MCP_PORT=3001` (`docs/installation.md` §Paso 2) — y reiniciá:
+   puerto libre — `MCP_PORT=<puerto libre>` (`docs/installation.md` §Paso 2) — y
+   reiniciá:
 
 ```bash
 systemctl --user restart mcp-appointments-crm
-curl --fail http://127.0.0.1:3001/healthz
+curl --fail http://127.0.0.1:3002/healthz # 3002 = el puerto que hayas elegido
 # después re-coré la opción 7 de la TUI (o editá la entrada mcp_servers) para
 # que la URL de Hermes apunte al puerto nuevo
 ```
@@ -495,11 +491,11 @@ el header de identidad — esta sección es la guía universal de conexión.
 
 | Aspecto | Valor |
 |---|---|
-| Endpoint MCP | `http://127.0.0.1:3000/mcp` (POST JSON-RPC solo; `GET` responde 405) |
-| Liveness | `GET http://127.0.0.1:3000/healthz` |
+| Endpoint MCP | `http://127.0.0.1:3001/mcp` (POST JSON-RPC solo; `GET` responde 405) |
+| Liveness | `GET http://127.0.0.1:3001/healthz` |
 | Auth | **header `X-Caller-Id` con el teléfono del owner por request** (no hay OAuth/keys: el trust model es loopback-only, ADR-002; el header ES la identidad — roles por `accounts`/`clients`) |
 | Identidad del owner | `~/.config/mcp-appointments-crm/caller-id` (creado por la TUI Paso 1 — esa pieza es agnóstica del agente) |
-| Puerto no-3000 | el default es 3000 documentado; en hosts que corren además el canal WhatsApp leé la higiene de puertos en el Paso 2 de este doc + `gateway-contract.md` §6.1 |
+| Puerto | el default es `3001` documentado (`MCP_PORT` en el `.env`); el puente de WhatsApp de Hermes usa `3000` por default, así que conviven en el mismo host — detalle en el Paso 2 de este doc + `gateway-contract.md` §6.1 |
 
 > **Límite honesto de los headers estáticos**: los clientes MCP configuran
 > headers **por server**, no per-sender. Con un agente distinto de Hermes
@@ -514,17 +510,17 @@ el header de identidad — esta sección es la guía universal de conexión.
 
 ```bash
 # 1. liveness
-curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:3001/healthz
 
 # 2. catálogo de tools (25)
-curl -s -X POST http://127.0.0.1:3000/mcp \
+curl -s -X POST http://127.0.0.1:3001/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H 'X-Caller-Id: +5491100000000' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -c 400
 
 # 3. lectura real ejemplo (caller con rol resuelto)
-curl -s -X POST http://127.0.0.1:3000/mcp \
+curl -s -X POST http://127.0.0.1:3001/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -H 'X-Caller-Id: <tu-teléfono-registrado>' \
@@ -540,7 +536,7 @@ map de headers por server: bajo `mcp.servers` de su config:
 mcp: {
   servers: {
     "mcp-appointments": {
-      url: "http://127.0.0.1:3000/mcp",
+      url: "http://127.0.0.1:3001/mcp",
       transport: "streamable-http",
       headers: { "X-Caller-Id": "<teléfono del owner>" },
       requestTimeoutMs: 20000,
@@ -561,7 +557,7 @@ operador; nunca exponer el puerto más allá del loopback.
   "mcpServers": {
     "mcp-appointments": {
       "type": "http",
-      "url": "http://127.0.0.1:3000/mcp",
+      "url": "http://127.0.0.1:3001/mcp",
       "headers": { "X-Caller-Id": "<teléfono del owner>" }
     }
   }
@@ -578,7 +574,7 @@ operador; nunca exponer el puerto más allá del loopback.
   "mcp": {
     "mcp-appointments": {
       "type": "remote",
-      "url": "http://127.0.0.1:3000/mcp",
+      "url": "http://127.0.0.1:3001/mcp",
       "headers": { "X-Caller-Id": "<teléfono del owner>" },
       "enabled": true
     }

@@ -12,13 +12,13 @@
 |---|-----------|--------|
 | P1 | Acceso SSH `kike@100.95.242.72` (Tailscale) + fallback `192.168.100.192`, clave sin pass, sudo NOPASSWD | ✅ |
 | P2 | `loginctl show-user kike -p Linger` → `Linger=yes` | ✅ |
-| P3 | Puerto `3000` libre (`ss -tlnp`) | ✅ (re-chequear antes de cada corrida) |
+| P3 | Puerto `3001` libre (`ss -tlnp`) | ✅ (re-chequear antes de cada corrida) |
 | P4 | `sqlite3` CLI ≥ 3.46 (`sqlite3 --version`) | ✅ 3.46.1 |
 | P5 | Espacio en host para snapshot (`df -h ~/VirtualBox\ VMs`) | ✅ 576 GB libres |
 | P6 | Único user-service activo: `hermes-gateway.service` (Telegram) — convive, no colisiona | ✅ |
 
 **No-objetivos**: instalar toolchain Go en la VM (se cross-compila en la laptop);
-exponer el puerto 3000 fuera de loopback; usar datos reales (demo = datos
+exponer el puerto 3001 fuera de loopback; usar datos reales (demo = datos
 ficticios, siempre).
 
 ## Paso 0 — Snapshot `pre-demo-fase5`
@@ -124,7 +124,7 @@ Criterio: exit 0 y tiempo total < 5 minutos (DoD 1).
 |-----|--------------------|----------|
 | 5 | `systemctl --user is-active mcp-appointments-crm` | `active` |
 | 6 | `loginctl show-user kike -p Linger` | `Linger=yes` |
-| 1 | `curl --fail http://127.0.0.1:3000/healthz` | HTTP 200 + `{"status":"ok"}` (liveness). Nota: un GET pelado a `/mcp` responde **405 por diseño** (REQ-MT-002) — prueba que el server vive y rutea, pero el check de liveness es `/healthz` |
+| 1 | `curl --fail http://127.0.0.1:3001/healthz` | HTTP 200 + `{"status":"ok"}` (liveness). Nota: un GET pelado a `/mcp` responde **405 por diseño** (REQ-MT-002) — prueba que el server vive y rutea, pero el check de liveness es `/healthz` |
 | 9 | `~/.local/bin/mcp-server --version` | `v0.3.0` |
 | 5b | `sudo reboot` → esperar → `systemctl --user is-active mcp-appointments-crm` | `active` (sobrevive reboot) |
 | 7 | `bash ~/.local/share/mcp-appointments-crm/scripts/backup.sh ~/.local/share/mcp-appointments-crm/reservas.db` → `gunzip -c backups/reservas-*.db.gz > /tmp/r.db` → `sqlite3 /tmp/r.db "PRAGMA integrity_check;"` | `ok` |
@@ -156,7 +156,7 @@ bootstrap-ea `~/.hermes/config.yaml` sin YAML a mano — crea/combina la entrada
 (entre comillas), preserva toda clave ajena y escribe atómicamente. El teléfono
 va prefillado con el del owner activo. Fallback manual (hosts sin la TUI):
 configurar Hermes con el endpoint MCP
-`http://127.0.0.1:3000/mcp` y header `X-Caller-Id: <teléfono-del-owner>` según su
+`http://127.0.0.1:3001/mcp` y header `X-Caller-Id: <teléfono-del-owner>` según su
 documentación de MCP clients. Criterio: una llamada de prueba responde sin
 403 (403 = revisar `accounts` + header).
 
@@ -179,7 +179,7 @@ proporcionó X-Caller-Id`). La forma soportada es header custom en
 > ```yaml
 > mcp_servers:
 >   mcp-appointments:
->     url: http://127.0.0.1:3000/mcp
+>     url: http://127.0.0.1:3001/mcp
 >     headers:
 >       X-Caller-Id: <teléfono-del-owner>
 > ```
