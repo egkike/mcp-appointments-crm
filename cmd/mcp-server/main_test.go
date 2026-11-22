@@ -506,7 +506,7 @@ func TestNewIdentityDepsWiresIdentityRepos(t *testing.T) {
 
 // TestWiredRepoInventoryContract pins the startup telemetry "repos" source of
 // truth as an auditable contract, not a compiler-enforced one. The count comes
-// from the name list inside wiredRepoInventory (9 today), so the list must be
+// from the name list inside wiredRepoInventory (10 today), so the list must be
 // updated alongside the internal/repository constructors and the wiring in
 // run(). This test fails when the reported count drifts from the documented
 // handle set, or when that expected set itself contains a duplicate.
@@ -514,9 +514,9 @@ func TestWiredRepoInventoryContract(t *testing.T) {
 	// The documented handle set, one entry per repository implementation the
 	// serve path wires. Keep it in sync with wiredRepoInventory in main.go.
 	documented := []string{
-		"bookings", "business_hours_exceptions", "business_profile",
-		"professionals", "schedules", "services", "pending_alerts",
-		"clients", "accounts",
+		"bookings", "bookings_availability", "business_hours_exceptions",
+		"business_profile", "professionals", "schedules", "services",
+		"pending_alerts", "clients", "accounts",
 	}
 
 	seen := make(map[string]struct{}, len(documented))

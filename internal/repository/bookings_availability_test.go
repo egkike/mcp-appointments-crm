@@ -46,6 +46,19 @@ func seedAvailabilityScopeBookings(t *testing.T, db *sql.DB, base time.Time) {
 		FormatStorage(base.Add(5*time.Hour)), FormatStorage(base.Add(6*time.Hour)), "cancelled")
 }
 
+// seedFullProjectionBooking inserts a booking with EVERY column populated, so a
+// narrow projection shows up as absent data rather than as absent rows.
+func seedFullProjectionBooking(t *testing.T, db *sql.DB, id, clientID, professionalID, start, end, status, notes, paymentMethod string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(),
+		`INSERT INTO bookings (id, client_id, professional_id, service_id, start_datetime, end_datetime, status, notes, payment_method)
+		 VALUES (?, ?, ?, 's1', ?, ?, ?, ?, ?)`,
+		id, clientID, professionalID, start, end, status, notes, paymentMethod,
+	); err != nil {
+		t.Fatalf("insert full booking %s: %v", id, err)
+	}
+}
+
 // bookingIDs renders the returned bookings as IDs, in query order, so every
 // assertion names the COMPLETE observable result instead of a count.
 func bookingIDs(bookings []*entity.Booking) []string {
@@ -70,6 +83,31 @@ func wantBookingIDs(t *testing.T, got []*entity.Booking, want []string) {
 	}
 }
 
+// bookingSpans renders rows as "professional_id@<start>" in query order. The
+// reader's projection has no id column (L5, issue #247), so its assertions
+// identify rows by the columns it does load instead of by primary key.
+func bookingSpans(bookings []*entity.Booking) []string {
+	spans := make([]string, 0, len(bookings))
+	for _, booking := range bookings {
+		spans = append(spans, booking.ProfessionalID+"@"+booking.StartDatetime.UTC().Format(time.RFC3339))
+	}
+	return spans
+}
+
+// wantBookingSpans compares two span slices exactly (order included).
+func wantBookingSpans(t *testing.T, got []*entity.Booking, want []string) {
+	t.Helper()
+	gotSpans := bookingSpans(got)
+	if len(gotSpans) != len(want) {
+		t.Fatalf("got %v; want %v", gotSpans, want)
+	}
+	for index := range want {
+		if gotSpans[index] != want[index] {
+			t.Fatalf("got %v; want %v", gotSpans, want)
+		}
+	}
+}
+
 func TestAvailabilityBookingsReader_OverlapIsRoleNeutral(t *testing.T) {
 	db := newAvailabilityTestDB(t)
 	base := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
@@ -89,7 +127,10 @@ func TestAvailabilityBookingsReader_OverlapIsRoleNeutral(t *testing.T) {
 		}
 		// b-c2-p1 belongs to another client: visible anyway, and the cancelled row
 		// stays excluded exactly like the filtered query excludes it.
-		wantBookingIDs(t, got, []string{"b-c1-p1", "b-c2-p1"})
+		wantBookingSpans(t, got, []string{
+			bookingSpan("p1", base.Add(time.Hour)),
+			bookingSpan("p1", base.Add(3*time.Hour)),
+		})
 	})
 
 	t.Run("filtered repo still hides the other client's booking", func(t *testing.T) {
@@ -105,7 +146,7 @@ func TestAvailabilityBookingsReader_OverlapIsRoleNeutral(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FindOverlapping: %v", err)
 		}
-		wantBookingIDs(t, got, []string{"b-c2-p2"})
+		wantBookingSpans(t, got, []string{bookingSpan("p2", base.Add(time.Hour))})
 	})
 
 	t.Run("filtered repo returns nothing when staff asks about another professional", func(t *testing.T) {
@@ -155,7 +196,11 @@ func TestAvailabilityBookingsReader_RangeIsRoleNeutral(t *testing.T) {
 		}
 		// Ordered by professional_id then start_datetime, as the shared builder
 		// declares; the cancelled row is excluded.
-		wantBookingIDs(t, got, []string{"b-c1-p1", "b-c2-p1", "b-c2-p2"})
+		wantBookingSpans(t, got, []string{
+			bookingSpan("p1", base.Add(time.Hour)),
+			bookingSpan("p1", base.Add(3*time.Hour)),
+			bookingSpan("p2", base.Add(time.Hour)),
+		})
 	})
 
 	t.Run("filtered repo still scopes a client caller to its own bookings", func(t *testing.T) {
@@ -173,4 +218,164 @@ func TestAvailabilityBookingsReader_RangeIsRoleNeutral(t *testing.T) {
 		}
 		wantBookingIDs(t, got, []string{"b-c1-p1", "b-c2-p1"})
 	})
+}
+
+// bookingSpan renders one row the way bookingSpans does, so the expected values
+// read in the same shape as the got values.
+func bookingSpan(professionalID string, start time.Time) string {
+	return professionalID + "@" + start.UTC().Format(time.RFC3339)
+}
+
+// TestAvailabilityBookingsReaderProjectionIsNarrow is L5 (issue #247): the
+// reader must never load the columns its consumers do not read. The seed row has
+// every column populated, so the empty fields below can only mean "not selected"
+// — a row that carried them would prove the projection is still the full one.
+//
+// Both reads are checked, and each one carries a NEGATIVE CONTROL: the four
+// fields the consumers actually read must come back POPULATED, so a scanner that
+// silently returned an empty struct cannot pass this test.
+func TestAvailabilityBookingsReaderProjectionIsNarrow(t *testing.T) {
+	db := newAvailabilityTestDB(t)
+	base := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
+	start := base.Add(time.Hour)
+	end := base.Add(2 * time.Hour)
+	windowEnd := base.Add(9 * time.Hour)
+	seedFullProjectionBooking(t, db, "b-full", "c1", "p1",
+		FormatStorage(start), FormatStorage(end), "confirmed", "nota privada", "cash")
+
+	reader := NewAvailabilityBookingsReader(db)
+
+	// wantNarrow asserts the whole projection: the four columns the reader
+	// selects are populated, and the columns it does not select stay at their
+	// zero value.
+	wantNarrow := func(t *testing.T, got []*entity.Booking) {
+		t.Helper()
+		if len(got) != 1 {
+			t.Fatalf("got %d rows; want 1", len(got))
+		}
+		b := got[0]
+
+		// Negative control: a broken scan cannot pass by returning an empty struct.
+		if b.ProfessionalID != "p1" {
+			t.Errorf("ProfessionalID = %q; want %q (the projection must load it)", b.ProfessionalID, "p1")
+		}
+		if !b.StartDatetime.Equal(start) {
+			t.Errorf("StartDatetime = %s; want %s (the projection must load it)", b.StartDatetime, start)
+		}
+		if !b.EndDatetime.Equal(end) {
+			t.Errorf("EndDatetime = %s; want %s (the projection must load it)", b.EndDatetime, end)
+		}
+		if b.Status != entity.BookingStatusConfirmed {
+			t.Errorf("Status = %q; want %q (the projection must load it)", b.Status, entity.BookingStatusConfirmed)
+		}
+
+		// The columns the narrow projection omits (S3, S6): never loaded, so the
+		// zero value is the correct answer and nothing to leak.
+		if b.ClientID != "" {
+			t.Errorf("ClientID = %q; want the zero value (the availability reader must not load client_id)", b.ClientID)
+		}
+		if b.Notes != nil {
+			t.Errorf("Notes = %q; want nil (the availability reader must not load notes)", *b.Notes)
+		}
+		if b.PaymentMethod != nil {
+			t.Errorf("PaymentMethod = %q; want nil (the availability reader must not load payment_method)", *b.PaymentMethod)
+		}
+		if b.ID != "" {
+			t.Errorf("ID = %q; want the zero value (id is not part of the availability projection)", b.ID)
+		}
+		if b.ServiceID != "" {
+			t.Errorf("ServiceID = %q; want the zero value (service_id is not part of the availability projection)", b.ServiceID)
+		}
+		if !b.CreatedAt.IsZero() || !b.UpdatedAt.IsZero() {
+			t.Errorf("CreatedAt/UpdatedAt = %s/%s; want the zero value (not part of the availability projection)", b.CreatedAt, b.UpdatedAt)
+		}
+	}
+
+	t.Run("FindOverlapping", func(t *testing.T) {
+		got, err := reader.FindOverlapping(context.Background(), "p1", base, windowEnd)
+		if err != nil {
+			t.Fatalf("FindOverlapping: %v", err)
+		}
+		wantNarrow(t, got)
+	})
+
+	t.Run("ListBookingsForRange", func(t *testing.T) {
+		got, err := reader.ListBookingsForRange(context.Background(), base, windowEnd)
+		if err != nil {
+			t.Fatalf("ListBookingsForRange: %v", err)
+		}
+		wantNarrow(t, got)
+	})
+}
+
+// TestBookingsRepoDataPathsKeepTheFullProjection is the trap guard for S3a: the
+// narrow projection belongs to the availability reader ONLY. A data path that
+// switched to it would still return the right ROWS, so nothing but an assertion
+// on the columns can catch it — hence the explicit field-by-field check on every
+// method that shares the parametrised builders.
+func TestBookingsRepoDataPathsKeepTheFullProjection(t *testing.T) {
+	db := newAvailabilityTestDB(t)
+	base := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
+	start := base.Add(time.Hour)
+	end := base.Add(2 * time.Hour)
+	windowEnd := base.Add(9 * time.Hour)
+	seedFullProjectionBooking(t, db, "b-full", "c1", "p1",
+		FormatStorage(start), FormatStorage(end), "confirmed", "nota privada", "cash")
+
+	repo := NewBookingsRepo(db)
+
+	reads := []struct {
+		name string
+		run  func(ctx context.Context) ([]*entity.Booking, error)
+	}{
+		{"FindOverlapping", func(ctx context.Context) ([]*entity.Booking, error) {
+			return repo.FindOverlapping(ctx, "p1", base, windowEnd)
+		}},
+		{"FindByStaffAndRange", func(ctx context.Context) ([]*entity.Booking, error) {
+			return repo.FindByStaffAndRange(ctx, "p1", base, windowEnd)
+		}},
+		{"ListBookingsForRange", func(ctx context.Context) ([]*entity.Booking, error) {
+			return repo.ListBookingsForRange(ctx, base, windowEnd)
+		}},
+		{"SearchByNotes", func(ctx context.Context) ([]*entity.Booking, error) {
+			return repo.SearchByNotes(ctx, "privada")
+		}},
+	}
+
+	for _, read := range reads {
+		t.Run(read.name+" still selects every column", func(t *testing.T) {
+			got, err := read.run(adminCtx())
+			if err != nil {
+				t.Fatalf("%s: %v", read.name, err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("got %d rows; want 1", len(got))
+			}
+			b := got[0]
+			if b.ID != "b-full" {
+				t.Errorf("ID = %q; want %q", b.ID, "b-full")
+			}
+			if b.ClientID != "c1" {
+				t.Errorf("ClientID = %q; want %q (a data path must keep loading client_id)", b.ClientID, "c1")
+			}
+			if b.ServiceID != "s1" {
+				t.Errorf("ServiceID = %q; want %q (a data path must keep loading service_id)", b.ServiceID, "s1")
+			}
+			if b.Notes == nil || *b.Notes != "nota privada" {
+				t.Errorf("Notes = %v; want %q (a data path must keep loading notes)", b.Notes, "nota privada")
+			}
+			if b.PaymentMethod == nil || *b.PaymentMethod != "cash" {
+				t.Errorf("PaymentMethod = %v; want %q (a data path must keep loading payment_method)", b.PaymentMethod, "cash")
+			}
+			if b.CreatedAt.IsZero() || b.UpdatedAt.IsZero() {
+				t.Errorf("CreatedAt/UpdatedAt = %s/%s; want both loaded", b.CreatedAt, b.UpdatedAt)
+			}
+			if b.ProfessionalID != "p1" || b.Status != entity.BookingStatusConfirmed {
+				t.Errorf("ProfessionalID/Status = %q/%q; want %q/%q", b.ProfessionalID, b.Status, "p1", entity.BookingStatusConfirmed)
+			}
+			if !b.StartDatetime.Equal(start) || !b.EndDatetime.Equal(end) {
+				t.Errorf("Start/End = %s/%s; want %s/%s", b.StartDatetime, b.EndDatetime, start, end)
+			}
+		})
+	}
 }

@@ -369,7 +369,7 @@ func run(ctx context.Context) error {
 	pendingAlertsRepo := repository.NewPendingAlertsRepo(database.Conn)
 
 	// Startup telemetry source of truth: every repo handle serve mode wires
-	// joins the name list inside wiredRepoInventory (9 handles, one per
+	// joins the name list inside wiredRepoInventory (10 handles, one per
 	// repository implementation). A new handle that forgets the list makes the
 	// log lie — keep it in sync, exactly like the MCP tool registry in
 	// internal/mcp.
@@ -657,11 +657,16 @@ func run(ctx context.Context) error {
 // provide, since the pointer parameters were never read and a new handle added
 // only to the wiring still compiled. TestWiredRepoInventoryContract pins both
 // the count and the documented handle set so drift is caught at test time.
+//
+// The count tracks repository IMPLEMENTATIONS, not logical stores: "bookings"
+// and "bookings_availability" are two entries because they are two adapters over
+// the same table (the caller-scoped port and the role-neutral availability
+// reader, issue #243/#247).
 func wiredRepoInventory() int {
 	return len([]string{
-		"bookings", "business_hours_exceptions", "business_profile",
-		"professionals", "schedules", "services", "pending_alerts",
-		"clients", "accounts",
+		"bookings", "bookings_availability", "business_hours_exceptions",
+		"business_profile", "professionals", "schedules", "services",
+		"pending_alerts", "clients", "accounts",
 	})
 }
 
