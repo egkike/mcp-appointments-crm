@@ -369,7 +369,7 @@ func run(ctx context.Context) error {
 	pendingAlertsRepo := repository.NewPendingAlertsRepo(database.Conn)
 
 	// Startup telemetry source of truth: every repo handle serve mode wires
-	// joins the name list inside wiredRepoInventory (9 handles, one per
+	// joins the name list inside wiredRepoInventory (10 handles, one per
 	// repository implementation). A new handle that forgets the list makes the
 	// log lie — keep it in sync, exactly like the MCP tool registry in
 	// internal/mcp.
@@ -657,12 +657,28 @@ func run(ctx context.Context) error {
 // provide, since the pointer parameters were never read and a new handle added
 // only to the wiring still compiled. TestWiredRepoInventoryContract pins both
 // the count and the documented handle set so drift is caught at test time.
-func wiredRepoInventory() int {
-	return len([]string{
-		"bookings", "business_hours_exceptions", "business_profile",
-		"professionals", "schedules", "services", "pending_alerts",
-		"clients", "accounts",
-	})
+//
+// The count tracks repository IMPLEMENTATIONS, not logical stores: "bookings"
+// and "bookings_availability" are two entries because they are two adapters over
+// the same table (the caller-scoped port and the role-neutral availability
+// reader, issue #243/#247).
+func wiredRepoInventory() int { return len(wiredRepoHandles()) }
+
+// wiredRepoHandles is the auditable list behind wiredRepoInventory, one entry per
+// repository IMPLEMENTATION the serve path wires — not per logical store, so
+// "bookings" and "bookings_availability" are two entries because they are two
+// adapters over the same table.
+//
+// It is package-visible so the contract test can compare the documented set
+// against THIS list rather than against a copy of it (R2-dual-handle-list,
+// review-f94fd31c48e77ce8). Comparing a copy to a length only proves both sides
+// were updated together; comparing to the list makes a rename here fail the test.
+func wiredRepoHandles() []string {
+	return []string{
+		"bookings", "bookings_availability", "business_hours_exceptions",
+		"business_profile", "professionals", "schedules", "services",
+		"pending_alerts", "clients", "accounts",
+	}
 }
 
 // runHermesChat is the entry point of `mcp-server hermes chat`, a name reserved

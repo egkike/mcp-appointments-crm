@@ -506,17 +506,17 @@ func TestNewIdentityDepsWiresIdentityRepos(t *testing.T) {
 
 // TestWiredRepoInventoryContract pins the startup telemetry "repos" source of
 // truth as an auditable contract, not a compiler-enforced one. The count comes
-// from the name list inside wiredRepoInventory (9 today), so the list must be
-// updated alongside the internal/repository constructors and the wiring in
-// run(). This test fails when the reported count drifts from the documented
-// handle set, or when that expected set itself contains a duplicate.
+// from wiredRepoHandles (10 today), so the list must be updated alongside the
+// internal/repository constructors and the wiring in run(). This test fails when
+// the reported count drifts from the documented handle set, when that set contains
+// a duplicate, or when the documented names and the production list disagree.
 func TestWiredRepoInventoryContract(t *testing.T) {
 	// The documented handle set, one entry per repository implementation the
 	// serve path wires. Keep it in sync with wiredRepoInventory in main.go.
 	documented := []string{
-		"bookings", "business_hours_exceptions", "business_profile",
-		"professionals", "schedules", "services", "pending_alerts",
-		"clients", "accounts",
+		"bookings", "bookings_availability", "business_hours_exceptions",
+		"business_profile", "professionals", "schedules", "services",
+		"pending_alerts", "clients", "accounts",
 	}
 
 	seen := make(map[string]struct{}, len(documented))
@@ -529,5 +529,29 @@ func TestWiredRepoInventoryContract(t *testing.T) {
 
 	if got := wiredRepoInventory(); got != len(documented) {
 		t.Errorf("wiredRepoInventory() = %d handles, want %d; a new repo handle must join the list in wiredRepoInventory and the wiring in run()", got, len(documented))
+	}
+
+	// The documented set is compared against the PRODUCTION list, not only against
+	// its length (R2-dual-handle-list, review-f94fd31c48e77ce8). A rename in
+	// wiredRepoHandles used to pass because this slice and that list were bumped
+	// together; now the two must agree by name. Order is deliberately not pinned so
+	// a cosmetic reorder does not fail the contract.
+	handles := wiredRepoHandles()
+	inHandles := make(map[string]struct{}, len(handles))
+	for _, name := range handles {
+		if _, duplicate := inHandles[name]; duplicate {
+			t.Errorf("wiredRepoHandles() contains %q more than once", name)
+		}
+		inHandles[name] = struct{}{}
+	}
+	for name := range seen {
+		if _, present := inHandles[name]; !present {
+			t.Errorf("documented handle %q is missing from wiredRepoHandles()", name)
+		}
+	}
+	for name := range inHandles {
+		if _, documented := seen[name]; !documented {
+			t.Errorf("wiredRepoHandles() reports %q, which the documented set does not list", name)
+		}
 	}
 }
