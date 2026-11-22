@@ -51,6 +51,7 @@ type FindAvailableSlotsUseCase struct {
 	exceptions    domainrepo.BusinessHoursExceptionRepo
 	schedules     domainrepo.SchedulesRepo
 	bookings      domainrepo.BookingsRepo
+	clock         Clock
 }
 
 // NewFindAvailableSlotsUseCase constructs the use case. Every dependency is a
@@ -71,7 +72,15 @@ func NewFindAvailableSlotsUseCase(
 		exceptions:    exceptions,
 		schedules:     schedules,
 		bookings:      bookings,
+		clock:         systemClock{},
 	}
+}
+
+// SetClock replaces the clock. It is intended for tests, and it is what makes
+// the "today" clamp deterministic: a test pins the clock to the same instant it
+// used to derive its own dates, so the two can never disagree across midnight.
+func (uc *FindAvailableSlotsUseCase) SetClock(clock Clock) {
+	uc.clock = clock
 }
 
 // Execute searches the free slots of one service over an inclusive day range.
@@ -88,6 +97,11 @@ func NewFindAvailableSlotsUseCase(
 //   - a date with a closed-hours exception produces no slot (an exception with
 //     its own window replaces the weekly hours);
 //   - no free slot in the range → empty list, not an error.
+//
+// A window that starts before today is narrowed to today before any range read.
+// Past days cannot produce a slot (the chain rejects every past candidate in its
+// step 1), so the answer is identical and only the work disappears; the empty
+// result of a fully past range is a result, never an error.
 func (uc *FindAvailableSlotsUseCase) Execute(ctx context.Context, input dto.FindAvailableSlotsInput) (*dto.FindAvailableSlotsResult, error) {
 	if err := auth.RequireAuthenticated(input.Caller); err != nil {
 		return nil, err
@@ -98,7 +112,7 @@ func (uc *FindAvailableSlotsUseCase) Execute(ctx context.Context, input dto.Find
 	if err != nil {
 		return nil, err
 	}
-	from, to, days, err := resolveSlotsRange(input.From, input.To)
+	from, to, err := resolveSlotsRange(input.From, input.To)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +146,18 @@ func (uc *FindAvailableSlotsUseCase) Execute(ctx context.Context, input dto.Find
 	// what business hours and weekly schedules are expressed in, never an offset.
 	rangeStart := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, loc)
 	rangeEnd := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, loc)
+
+	// S11 efficiency invariant, not a rejection: clamp the scan to today in the
+	// business location, then recompute the day count so the loop below and both
+	// range reads agree on the same window. A fully past range narrows to zero
+	// days and returns the empty result WITHOUT reading the range at all.
+	if today := businessDay(uc.clock.Now(), loc); rangeStart.Before(today) {
+		rangeStart = today
+	}
+	days := civilDays(rangeStart, rangeEnd)
+	if days <= 0 {
+		return emptyAvailableSlotsResult(), nil
+	}
 
 	exceptions, err := uc.exceptions.List(ctx, rangeStart, rangeEnd)
 	if err != nil {
@@ -224,33 +250,58 @@ func resolveSlotsLimit(limit *int) (int, error) {
 }
 
 // resolveSlotsRange parses both inclusive bounds and enforces the 14-day cap on
-// the INCLUSIVE window. Both bounds are calendar dates, so the day count is an
-// exact multiple of 24h once parsed.
-func resolveSlotsRange(fromBound, toBound string) (from, to time.Time, days int, err error) {
+// the INCLUSIVE requested window. It returns no day count on purpose: the number
+// of days actually scanned is decided LATER, from the window clamped to today
+// (see Execute), and a single day-count source keeps the loop and both range
+// reads in agreement.
+func resolveSlotsRange(fromBound, toBound string) (from, to time.Time, err error) {
 	from, err = parseExceptionDateBound(fromBound)
 	if err != nil {
-		return time.Time{}, time.Time{}, 0, err
+		return time.Time{}, time.Time{}, err
 	}
 	to, err = parseExceptionDateBound(toBound)
 	if err != nil {
-		return time.Time{}, time.Time{}, 0, err
+		return time.Time{}, time.Time{}, err
 	}
 	if to.Before(from) {
-		return time.Time{}, time.Time{}, 0, &domain.SemanticError{
+		return time.Time{}, time.Time{}, &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: "el rango de fechas es inválido: 'to' no puede ser anterior a 'from'.",
 			Cause:   fmt.Errorf("rango invertido %s..%s: %w", fromBound, toBound, domain.ErrInvalidInput),
 		}
 	}
-	days = int(to.Sub(from)/(24*time.Hour)) + 1
+	days := civilDays(from, to)
 	if days > maxAvailableSlotsRangeDays {
-		return time.Time{}, time.Time{}, 0, &domain.SemanticError{
+		return time.Time{}, time.Time{}, &domain.SemanticError{
 			Code:    domain.ErrCodeInvalidInput,
 			Message: fmt.Sprintf("el rango de fechas no puede superar los %d días (se pidieron %d).", maxAvailableSlotsRangeDays, days),
 			Cause:   fmt.Errorf("rango %s..%s = %d días > %d: %w", fromBound, toBound, days, maxAvailableSlotsRangeDays, domain.ErrInvalidInput),
 		}
 	}
-	return from, to, days, nil
+	return from, to, nil
+}
+
+// businessDay returns business-local midnight of now's calendar date: the anchor
+// every business-hours and schedule comparison uses.
+func businessDay(now time.Time, loc *time.Location) time.Time {
+	local := now.In(loc)
+	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+}
+
+// civilDays counts the INCLUSIVE calendar days between two dates. Only the date
+// part matters, so both ends are re-anchored on UTC midnight before subtracting:
+// a daylight-saving hour must never shift the count and make the loop and the
+// range reads disagree.
+func civilDays(from, to time.Time) int {
+	start := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+	end := time.Date(to.Year(), to.Month(), to.Day(), 0, 0, 0, 0, time.UTC)
+	return int(end.Sub(start)/(24*time.Hour)) + 1
+}
+
+// emptyAvailableSlotsResult is the observable shape of "no slot in the range":
+// an empty list (never null), zero candidates, not truncated.
+func emptyAvailableSlotsResult() *dto.FindAvailableSlotsResult {
+	return &dto.FindAvailableSlotsResult{Slots: []dto.AvailableSlot{}}
 }
 
 // resolveService resolves the service and enforces the active gate. An inactive

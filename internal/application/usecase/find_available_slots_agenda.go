@@ -99,12 +99,21 @@ func indexExceptionsByDate(exceptions []*entity.BusinessHoursException) map[stri
 func businessWindow(profile *entity.BusinessProfile, exception *entity.BusinessHoursException, day time.Time) (openMin, closeMin int, open bool, err error) {
 	if exception != nil {
 		if exception.IsClosedDay() {
+			// A declared closure is data, not corruption: the day is closed.
 			return 0, 0, false, nil
 		}
 		if excOpen, excClose, hasHours := exception.EffectiveHours(); hasHours {
 			start, end, ok := parseSlotWindow(excOpen, excClose)
 			if !ok {
-				return 0, 0, false, nil
+				// Same fail-closed posture as the weekly hours below: an open
+				// exception declaring malformed or inverted hours is an internal
+				// problem, never a silently empty day.
+				return 0, 0, false, &domain.SemanticError{
+					Code:    domain.ErrCodeInternal,
+					Message: "la excepción de horario del negocio no pudo leerse; contactá al administrador.",
+					Cause: fmt.Errorf("excepción de horario %s con horas %q-%q inválidas: %w",
+						exception.ExceptionDate, excOpen, excClose, domain.ErrInvalidInput),
+				}
 			}
 			return start, end, true, nil
 		}
