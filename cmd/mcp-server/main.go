@@ -413,6 +413,17 @@ func run(ctx context.Context) error {
 		availabilityChecker, availabilityDeps,
 	)
 
+	// find_available_slots (agent-surface T2, issue #241): the date-range slot
+	// search. It composes over the SAME handles as the availability path — the
+	// shared validation chain runs per candidate, and the range's bookings are
+	// read once (BookingsRepo.ListBookingsForRange). No new port, no schema
+	// change. Role: any authenticated caller, so it has NO ToolRBAC entry below
+	// (same mold as check_availability); the use case re-asserts
+	// auth.RequireAuthenticated.
+	findAvailableSlotsUC := usecase.NewFindAvailableSlotsUseCase(
+		servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, bookingsRepo,
+	)
+
 	// 6th use case (Q3): get_business_profile wraps the singleton profile repo.
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
 
@@ -495,6 +506,9 @@ func run(ctx context.Context) error {
 	//   - search_professionals_advanced → auth.RequireAuthenticated only (the client
 	//     booking flow is the consumer; feat-owner-chat S7a, design §8.2). Output is
 	//     PII-free by construction, so no owner/admin gate applies.
+	//   - find_available_slots          → any authenticated caller, same mold as
+	//     check_availability (agent-surface T2, issue #241 / spec L10). Its output
+	//     is PII-free by construction (start + professional only).
 	// register_client also has NO entry, for a different reason: it is reached
 	// through the anonymous allowlist seam before resolution and carries no role in
 	// either layer (its guards are the accounts collision and the rate limit inside
@@ -547,6 +561,7 @@ func run(ctx context.Context) error {
 		Version:                cfg.Version,
 		Logger:                 logger,
 		CheckAvailability:      checkAvailabilityUC,
+		FindAvailableSlots:     findAvailableSlotsUC,
 		CreateBooking:          createBookingUC,
 		GetBooking:             getBookingUC,
 		CancelBooking:          cancelBookingUC,

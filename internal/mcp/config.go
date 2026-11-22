@@ -33,7 +33,12 @@ type Config struct {
 	Version string
 	Logger  *slog.Logger
 
-	CheckAvailability      CheckAvailabilityPort
+	CheckAvailability CheckAvailabilityPort
+	// FindAvailableSlots is the date-range slot search (agent-surface T2,
+	// issue #241). Like CheckAvailability it has NO ToolRBAC entry: any
+	// authenticated caller, with the gate re-asserted inside the use case. A nil
+	// port leaves the tool unregistered, exactly like every other port here.
+	FindAvailableSlots     FindAvailableSlotsPort
 	CreateBooking          CreateBookingPort
 	GetBooking             GetBookingPort
 	CancelBooking          CancelBookingPort

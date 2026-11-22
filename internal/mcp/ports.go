@@ -20,6 +20,19 @@ type CheckAvailabilityPort interface {
 	Execute(context.Context, dto.CheckAvailabilityInput) (*dto.CheckAvailabilityResult, error)
 }
 
+// FindAvailableSlotsPort answers the date-range slot search (find_available_slots,
+// agent-surface T2 / issue #241). No RBAC entry: ANY authenticated caller, the
+// same mold as CheckAvailabilityPort (owner decision L10), and the use case
+// re-asserts auth.RequireAuthenticated.
+//
+// The carrier is dto.FindAvailableSlotsResult, which is PII-free by construction:
+// start_datetime plus the professional identity, never a client booking. The use
+// case FILTERS unavailable slots instead of reporting why, so no
+// ErrCodeBookingOverlap ever reaches the caller through this port.
+type FindAvailableSlotsPort interface {
+	Execute(context.Context, dto.FindAvailableSlotsInput) (*dto.FindAvailableSlotsResult, error)
+}
+
 // CreateBookingPort creates a booking. Roles: owner/admin/staff (coarse RBAC
 // in main.go; auth.RequireClientMatch inside the use case for fine-grained
 // staff-calendar / client-self checks).

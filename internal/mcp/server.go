@@ -58,6 +58,7 @@ func NewServer(cfg Config) *Server {
 // registry consulted by unknownToolGuard (REQ-MT-006).
 func (s *Server) registerTools() {
 	s.registerBookingTools()
+	s.registerSlotsTools()
 	s.registerProfileTool()
 	s.registerSearchTools()
 	s.registerProfessionalsReadTools()
