@@ -631,3 +631,91 @@ func TestFindAvailableSlotsClampsTheReadWindowToToday(t *testing.T) {
 		t.Error("truncated = true; want false")
 	}
 }
+
+// slotsForeignBooking builds a booking owned by ANOTHER client (c-other) on the
+// given professional, at business-local `hour` of `day`, expressed in UTC the way
+// the repository stores and returns it.
+func slotsForeignBooking(day time.Time, professionalID string, hour int) *entity.Booking {
+	start := time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, day.Location())
+	return &entity.Booking{
+		ID:             "b-foreign-" + professionalID,
+		ClientID:       "c-other",
+		ProfessionalID: professionalID,
+		ServiceID:      "s1",
+		StartDatetime:  start.UTC(),
+		EndDatetime:    start.Add(time.Hour).UTC(),
+		Status:         entity.BookingStatusConfirmed,
+	}
+}
+
+// TestFindAvailableSlotsIgnoresTheCallerScope pins the use-case half of issue
+// #243: the grid answers from the ROWS the range reader returns, never from who
+// is asking. A client caller does not get another client's slot as free, and a
+// staff caller asking about another professional gets that professional's truth.
+//
+// The composition root guarantees those rows come from the role-neutral
+// AvailabilityBookingsReader; TestIntegrationAvailabilityIgnoresCallerScope is
+// what proves the wiring, since this interface alone cannot (trap 3).
+func TestFindAvailableSlotsIgnoresTheCallerScope(t *testing.T) {
+	loc := slotsTestLocation(t)
+	day := slotsTestDay(loc, 0)
+	dayStr := day.Format("2006-01-02")
+
+	t.Run("client caller loses the slot held by another client", func(t *testing.T) {
+		f := newSlotsFixture(t)
+		f.bookings.ListBookingsForRangeFn = func(context.Context, time.Time, time.Time) ([]*entity.Booking, error) {
+			f.rangeReads++
+			return []*entity.Booking{slotsForeignBooking(day, "p1", 10)}, nil
+		}
+
+		result, err := f.uc.Execute(context.Background(), dto.FindAvailableSlotsInput{
+			Caller:         clientCaller("c1"),
+			ServiceID:      "s1",
+			ProfessionalID: strPtr("p1"),
+			From:           dayStr,
+			To:             dayStr,
+		})
+		if err != nil {
+			t.Fatalf("Execute: %v (a client caller is any authenticated caller, not an error)", err)
+		}
+		// 10:00 belongs to c-other and must NOT come back as free to c1.
+		wantSlots(t, result.Slots, slotsAt(day, "p1", "Ana", 9, 11, 12, 13, 14, 15, 16))
+		if result.TotalCandidates != 7 || result.Truncated {
+			t.Errorf("total_candidates=%d truncated=%v; want 7/false", result.TotalCandidates, result.Truncated)
+		}
+		if f.rangeReads != 1 {
+			t.Errorf("bookings range reads = %d; want 1", f.rangeReads)
+		}
+		if f.overlapCalls != 0 {
+			t.Errorf("repository overlap calls = %d; want 0 (the chain's overlap step is in-memory)", f.overlapCalls)
+		}
+	})
+
+	t.Run("staff caller asking about another professional sees that professional's truth", func(t *testing.T) {
+		f := newSlotsFixture(t)
+		f.bookings.ListBookingsForRangeFn = func(context.Context, time.Time, time.Time) ([]*entity.Booking, error) {
+			f.rangeReads++
+			return []*entity.Booking{slotsForeignBooking(day, "p2", 11)}, nil
+		}
+
+		// staff-1 is linked to p1 and asks about p2. The caller's own professional
+		// must not filter the answer: 11:00 is taken for p2 and only for p2.
+		result, err := f.uc.Execute(context.Background(), dto.FindAvailableSlotsInput{
+			Caller:         staffCaller("staff-1", "p1"),
+			ServiceID:      "s1",
+			ProfessionalID: strPtr("p2"),
+			From:           dayStr,
+			To:             dayStr,
+		})
+		if err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		wantSlots(t, result.Slots, slotsAt(day, "p2", "Beto", 9, 10, 12, 13, 14, 15, 16))
+		if result.TotalCandidates != 7 || result.Truncated {
+			t.Errorf("total_candidates=%d truncated=%v; want 7/false", result.TotalCandidates, result.Truncated)
+		}
+		if f.rangeReads != 1 {
+			t.Errorf("bookings range reads = %d; want 1", f.rangeReads)
+		}
+	})
+}

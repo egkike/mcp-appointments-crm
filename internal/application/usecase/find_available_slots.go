@@ -31,6 +31,19 @@ const (
 	slotsDateLayout = "2006-01-02"
 )
 
+// bookingRangeReader is the consumer-side port for the ONE range read this use
+// case performs. It is deliberately narrow (only ListBookingsForRange): the use
+// case never asks a caller-scoped question, so it must not be handed a dependency
+// shaped like one (issue #243).
+//
+// The interface alone does NOT prevent the defect — the filtered BookingsRepo
+// satisfies it too (trap 3). What prevents it is the composition root wiring the
+// role-neutral repository.AvailabilityBookingsReader, proved end-to-end by
+// TestIntegrationAvailabilityIgnoresCallerScope.
+type bookingRangeReader interface {
+	ListBookingsForRange(ctx context.Context, start, end time.Time) ([]*entity.Booking, error)
+}
+
 // FindAvailableSlotsUseCase answers "which slots are free for this service
 // between these dates?" in one call (agent-surface T2, issue #241).
 //
@@ -41,6 +54,10 @@ const (
 // simply not returned: this tool FILTERS, it never reports why (REQ-AV-3), which
 // is the deliberate difference from check_availability.
 //
+// The range is read through the role-neutral availability adapter (issue #243):
+// with the caller-scoped repo a client caller lost every other client's booking
+// and saw taken slots as free.
+//
 // Role: any authenticated caller. It carries no ToolRBAC entry in the
 // composition root (same mold as check_availability) and this use case
 // re-asserts auth.RequireAuthenticated.
@@ -50,20 +67,20 @@ type FindAvailableSlotsUseCase struct {
 	profile       domainrepo.BusinessProfileRepo
 	exceptions    domainrepo.BusinessHoursExceptionRepo
 	schedules     domainrepo.SchedulesRepo
-	bookings      domainrepo.BookingsRepo
+	bookings      bookingRangeReader
 	clock         Clock
 }
 
-// NewFindAvailableSlotsUseCase constructs the use case. Every dependency is a
-// domain port; the composition root injects the same repository handles the
-// availability read path already consumes.
+// NewFindAvailableSlotsUseCase constructs the use case. Every dependency except
+// bookings is a domain port; bookings is the narrow range reader the
+// composition root satisfies with the role-neutral availability adapter.
 func NewFindAvailableSlotsUseCase(
 	services domainrepo.ServicesRepo,
 	professionals domainrepo.ProfessionalsRepo,
 	profile domainrepo.BusinessProfileRepo,
 	exceptions domainrepo.BusinessHoursExceptionRepo,
 	schedules domainrepo.SchedulesRepo,
-	bookings domainrepo.BookingsRepo,
+	bookings bookingRangeReader,
 ) *FindAvailableSlotsUseCase {
 	return &FindAvailableSlotsUseCase{
 		services:      services,

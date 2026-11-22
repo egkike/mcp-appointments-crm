@@ -70,6 +70,67 @@ func scanBooking(scan func(dest ...any) error) (*entity.Booking, error) {
 // bookingColumns is the canonical SELECT column list for booking queries.
 const bookingColumns = `id, client_id, professional_id, service_id, start_datetime, end_datetime, status, notes, payment_method, created_at, updated_at`
 
+// ─── Shared window queries (single source of truth, issue #243) ──────────────
+//
+// The availability path needs the SAME rows as these queries, minus the caller
+// scope. ONE builder per predicate: the filtered BookingsRepo methods and the
+// role-neutral AvailabilityBookingsReader share them, so the unfiltered variant
+// differs ONLY by not appending applyAuthFilter's clause (S4). A second copy of
+// either predicate would drift silently — a new status, a changed half-open
+// comparison — and the availability answer would diverge from the booking writes
+// that guard against the same windows.
+
+// bookingOverlapSQL selects the non-cancelled bookings of ONE professional that
+// overlap the half-open [start, end) window.
+const bookingOverlapSQL = `SELECT ` + bookingColumns + ` FROM bookings
+		 WHERE professional_id = ? AND status != 'cancelled'
+		   AND start_datetime < ? AND end_datetime > ?
+		 ORDER BY start_datetime ASC`
+
+// bookingOverlapQuery builds the overlap query and its args
+// (staffID, end, start — matching the placeholder order above).
+func bookingOverlapQuery(staffID string, start, end time.Time) (string, []any) {
+	return bookingOverlapSQL, []any{staffID, FormatStorage(end), FormatStorage(start)}
+}
+
+// bookingRangeSQL selects the non-cancelled bookings of EVERY professional
+// that overlap the half-open [start, end) window.
+const bookingRangeSQL = `SELECT ` + bookingColumns + ` FROM bookings
+		 WHERE status != 'cancelled'
+		   AND start_datetime < ? AND end_datetime > ?
+		 ORDER BY professional_id, start_datetime ASC`
+
+// bookingRangeQuery builds the all-staff range query and its args
+// (end, start — matching the placeholder order above).
+func bookingRangeQuery(start, end time.Time) (string, []any) {
+	return bookingRangeSQL, []any{FormatStorage(end), FormatStorage(start)}
+}
+
+// queryBookings runs a booking SELECT and scans every row into a slice. The
+// returned slice is never nil: callers (the availability chain included) rely on
+// an empty result meaning "nothing overlaps", not "nothing was read". op is the
+// per-call error label, so each adapter keeps its own forensic message.
+func queryBookings(ctx context.Context, db *sql.DB, op, query string, args []any) ([]*entity.Booking, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
+
+	bookings := make([]*entity.Booking, 0)
+	for rows.Next() {
+		b, err := scanBooking(rows.Scan)
+		if err != nil {
+			return nil, fmt.Errorf("%s: escaneo: %w", op, err)
+		}
+		bookings = append(bookings, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: iteración: %w", op, err)
+	}
+	return bookings, nil
+}
+
 // ─── Domain interface methods ────────────────────────────────────────────────
 
 // Create persists a new booking with an atomic overlap check.
@@ -335,48 +396,28 @@ func (r *BookingsRepo) Reschedule(ctx context.Context, id string, newStart, newE
 // overlap the [start, end) window. Returns an empty slice (not nil) when none match.
 // Auth: caller must be authenticated; client callers see only their own bookings,
 // staff callers see only their own professional's bookings, admin/owner see all.
+//
+// This caller scope makes the result unfit for availability questions (issue
+// #243): availability asks about the calendar, so it reads through
+// AvailabilityBookingsReader instead.
 func (r *BookingsRepo) FindOverlapping(ctx context.Context, staffID string, start, end time.Time) ([]*entity.Booking, error) {
 	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("buscar reservas superpuestas: %w", err)
 	}
-	startStr := FormatStorage(start)
-	endStr := FormatStorage(end)
 
-	query := `SELECT ` + bookingColumns + ` FROM bookings
-		 WHERE professional_id = ? AND status != 'cancelled'
-		   AND start_datetime < ? AND end_datetime > ?
-		 ORDER BY start_datetime ASC`
-	args := []any{staffID, endStr, startStr}
-
+	query, args := bookingOverlapQuery(staffID, start, end)
 	query, args, err = applyAuthFilter(caller, query, args)
 	if err != nil {
 		return nil, fmt.Errorf("buscar reservas superpuestas: %w", err)
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("buscar reservas superpuestas: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
-
-	bookings := make([]*entity.Booking, 0)
-	for rows.Next() {
-		b, err := scanBooking(rows.Scan)
-		if err != nil {
-			return nil, fmt.Errorf("buscar reservas superpuestas: escaneo: %w", err)
-		}
-		bookings = append(bookings, b)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("buscar reservas superpuestas: iteración: %w", err)
-	}
-	return bookings, nil
+	return queryBookings(ctx, r.db, "buscar reservas superpuestas", query, args)
 }
 
 // FindByStaffAndRange returns all non-cancelled bookings for a staff member within
 // the [start, end) time range, ordered by start_datetime ASC. Used by calendar views.
-// Note: the SQL is intentionally identical to FindOverlapping; the semantic
+// Note: the predicate is the shared overlap one (bookingOverlapQuery); the semantic
 // distinction is that this returns all bookings in the range, not just overlapping ones.
 // Auth: caller must be authenticated; client callers see only their own bookings,
 // staff callers see only their own professional's bookings, admin/owner see all.
@@ -385,38 +426,14 @@ func (r *BookingsRepo) FindByStaffAndRange(ctx context.Context, staffID string, 
 	if err != nil {
 		return nil, fmt.Errorf("listar reservas por profesional y rango: %w", err)
 	}
-	startStr := FormatStorage(start)
-	endStr := FormatStorage(end)
 
-	query := `SELECT ` + bookingColumns + ` FROM bookings
-		 WHERE professional_id = ? AND status != 'cancelled'
-		   AND start_datetime < ? AND end_datetime > ?
-		 ORDER BY start_datetime ASC`
-	args := []any{staffID, endStr, startStr}
-
+	query, args := bookingOverlapQuery(staffID, start, end)
 	query, args, err = applyAuthFilter(caller, query, args)
 	if err != nil {
 		return nil, fmt.Errorf("listar reservas por profesional y rango: %w", err)
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("listar reservas por profesional y rango: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
-
-	bookings := make([]*entity.Booking, 0)
-	for rows.Next() {
-		b, err := scanBooking(rows.Scan)
-		if err != nil {
-			return nil, fmt.Errorf("listar reservas por profesional y rango: escaneo: %w", err)
-		}
-		bookings = append(bookings, b)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("listar reservas por profesional y rango: iteración: %w", err)
-	}
-	return bookings, nil
+	return queryBookings(ctx, r.db, "listar reservas por profesional y rango", query, args)
 }
 
 // ListBookingsForRange returns all non-cancelled bookings across all staff within
@@ -424,43 +441,22 @@ func (r *BookingsRepo) FindByStaffAndRange(ctx context.Context, staffID string, 
 // Used by master calendar views.
 // Auth: caller must be authenticated; client callers see only their own bookings,
 // staff callers see only their own professional's bookings, admin/owner see all.
+//
+// This caller scope makes the result unfit for availability questions (issue
+// #243): AvailabilityBookingsReader serves those, unfiltered.
 func (r *BookingsRepo) ListBookingsForRange(ctx context.Context, start, end time.Time) ([]*entity.Booking, error) {
 	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listar reservas por rango: %w", err)
 	}
-	startStr := FormatStorage(start)
-	endStr := FormatStorage(end)
 
-	query := `SELECT ` + bookingColumns + ` FROM bookings
-		 WHERE status != 'cancelled'
-		   AND start_datetime < ? AND end_datetime > ?
-		 ORDER BY professional_id, start_datetime ASC`
-	args := []any{endStr, startStr}
-
+	query, args := bookingRangeQuery(start, end)
 	query, args, err = applyAuthFilter(caller, query, args)
 	if err != nil {
 		return nil, fmt.Errorf("listar reservas por rango: %w", err)
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("listar reservas por rango: %w", err)
-	}
-	defer rows.Close() //nolint:errcheck // Close errors are non-critical after iteration
-
-	bookings := make([]*entity.Booking, 0)
-	for rows.Next() {
-		b, err := scanBooking(rows.Scan)
-		if err != nil {
-			return nil, fmt.Errorf("listar reservas por rango: escaneo: %w", err)
-		}
-		bookings = append(bookings, b)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("listar reservas por rango: iteración: %w", err)
-	}
-	return bookings, nil
+	return queryBookings(ctx, r.db, "listar reservas por rango", query, args)
 }
 
 // SearchByNotes returns bookings whose notes contain the query substring.
