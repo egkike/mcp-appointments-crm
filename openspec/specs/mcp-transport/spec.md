@@ -59,7 +59,7 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 
 ### REQ-MT-005 — tools/list returns 25 tools
 
-`tools/list` MUST return exactly 25 tool descriptors (see REQ-MT-015 for names and schemas).
+`tools/list` MUST return exactly 26 tool descriptors (see REQ-MT-015 for names and schemas).
 
 (Previously: 24 tools — `feat-owner-chat` S7b adds the owner-only agenda read `get_professional_schedules`.)
 
@@ -81,7 +81,7 @@ This change adds `create_hours_exception`, `delete_hours_exception`, `list_hours
 
 - GIVEN a connected client
 - WHEN `tools/list` is called
-- THEN the response MUST contain 25 tools: `check_availability`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `search_professionals_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`, `get_professional_schedules`
+- THEN the response MUST contain 26 tools: `check_availability`, `find_available_slots`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `search_professionals_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`, `get_professional_schedules`
 ### REQ-MT-006 — tools/call dispatch
 
 `tools/call` MUST dispatch to the registered handler and return a JSON-RPC 2.0 result or error.
@@ -194,6 +194,7 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 | Tool | Roles | Input | Output |
 |------|-------|-------|--------|
 | `check_availability` | any authenticated (no RBAC entry = "any authenticated" per ToolRBAC contract, design §3) | `{service_id, professional_id, start_datetime, end_datetime?}` | `{available: bool, message?: string}` |
+| `find_available_slots` | any authenticated (no RBAC entry — same mold as `check_availability`; closed by owner decision L10, issue #241) | `{service_id, professional_id?, from, to, limit?}` — `from`/`to` are `YYYY-MM-DD` inclusive, `to - from` ≤ 14 days, `limit` default 10 / max 50 | `{slots: [{start_datetime, professional_id, professional_name}], total_candidates, truncated}` — ordered by `start_datetime` asc then `professional_name`; `total_candidates` counts valid slots before `limit`; slots are generated at the service duration step. **Filters, does not report**: a failing chain result is simply excluded. MUST NOT expose client identity (REQ-AV-3) |
 | `create_booking` | owner, admin, staff | `{client_id, service_id, professional_id, start_datetime, notes?}` | `{booking_id, start_datetime, end_datetime}` |
 | `get_booking` | owner, admin, staff, client (self) | `{booking_id}` | `BookingView` — `{id, client_id, professional_id, service_id, start_datetime, end_datetime, status, notes?, payment_method?, created_at, updated_at}` |
 | `cancel_booking` | owner, admin, staff | `{booking_id, reason}` | `{status: "cancelled"}` |

@@ -51,9 +51,9 @@ La persona `client` es el flujo de la recepcionista por WhatsApp (ADR-0018): es 
 
 ## Tasks
 
-**Ninguna task está autorizada.** Se listan para dimensionar, no para ejecutar.
+**Orden decidido por el owner (L9): T2 primero, luego T1.** T2 está autorizada y vive en `odd/tasks/feat-find-available-slots.md` (issue #241). T1 sigue **sin autorizar**: se lista para dimensionar.
 
-- **T1 (propuesta)** · S2,S3 · U1 · ~120–200 líneas · riesgo ítem 3
+- **T1 (sin autorizar)** · S2,S3 · U1 · ~120–200 líneas · riesgo ítem 3
   - `internal/mcp/server.go`: `AddReceivingMiddleware` con filtro sobre `req.Method == "tools/list"`
   - `internal/mcp/config.go`: campo nuevo con `auth.ToolRBAC` inyectado desde el composition root
   - `cmd/mcp-server/main.go`: pasar el mapa ya construido al `mcp.Config`
@@ -122,3 +122,8 @@ Racionales: devuelve `start_datetime` + profesional en vez de `BookingView` comp
 - **L6** (owner, verbatim): *"Antes de decidir me gustaría ver algo más... en una parte mencionaste que No teniamos tool para consultar un turno en específico, por ejemplo de mañana. Está esto contemplado en la propuesta?"* → precisión: "un turno en específico" **sí** existe (`check_availability`); lo que falta es la **búsqueda por rango**, que es T2. Se buscó si era decisión diferida: no aparece en `docs/PRD.md` ni en `openspec/specs/` (grep `slots|turnos disponibles|rango de fechas|franja`). Precedente del mismo molde: `get_professional_schedules` (v0.9.0, 24→25 tools) cerró el read-gap del chat del owner.
 - **L7** (decisión del agente, corregible): el ranking original puso U1 primero por **costo/riesgo**, no por valor de producto. Si la prioridad es que la recepcionista pueda ofrecer horarios, el orden debe invertirse (T2 primero).
 - **L8** (owner, verbatim, decisión de este ciclo): *"Solo el documento, con las dos"*.
+- **L9** (owner, verbatim, decisión): *"Mañana arrancaremos por T2 primero, luego T1... por si ya quieras anotarlo"* → orden fijado **T2 → T1**. Prevalece sobre el ranking por costo/riesgo de L7.
+- **L10** (owner, verbatim, decisión): *"Ah y el rol consumidor de find_available_slots — será any authenticated como recomiendas, anotalo también"* → **S5 resuelto**: `any authenticated`, sin entrada en `ToolRBAC`.
+- **L11** (owner, verbatim + decisión): *"la carpeta openspec/specs/ es la forma antigua que usabamos con SDD (ya descontinuado). Ahora usamos solo ODD así que considera esto para la doc necesaria. Es así?"* → verificado a medias: lo retirado es el **workflow** SDD (`openspec/changes/` solo tiene `archive/`; `docs/SDD.md` congelado por PRD 1.47), no el árbol — `openspec/specs/` se mantuvo hasta `4bcfd4e` (#230, 13-nov) y es el único hogar de la tabla de contratos de tools. **Decisión: opción C**, se sigue actualizando en su lugar, sin crear `openspec/changes/<change>/`.
+- **L12** (owner, verbatim): *"Listo el merge"* → PR #240 mergeado como `f1f2d49`; CI del merge commit en verde (run 44935140654).
+- **L13** (owner, verbatim + decisión): *"Hola capo, arranquemos el T2 si estamos en condiciones"* → aprobado el camino completo (issue + spec + writer). **T2 en ejecución**: issue #241 (`type:feature` + `status:approved`). S6 resultó **ya cumplida** por `ValidateBookingTimeSlot` (`internal/domain/service/booking_time_validator.go:85`): no hace falta extraer nada, se compone vía `BookingOverlapReader`.
