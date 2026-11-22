@@ -86,10 +86,14 @@ func wantBookingIDs(t *testing.T, got []*entity.Booking, want []string) {
 // bookingSpans renders rows as "professional_id@<start>" in query order. The
 // reader's projection has no id column (L5, issue #247), so its assertions
 // identify rows by the columns it does load instead of by primary key.
+//
+// It delegates the formatting to bookingSpan so the format string lives in ONE
+// place (R2-dup-span-helpers, review-f94fd31c48e77ce8): a future change to the
+// span shape must not be able to update one caller and miss the other.
 func bookingSpans(bookings []*entity.Booking) []string {
 	spans := make([]string, 0, len(bookings))
 	for _, booking := range bookings {
-		spans = append(spans, booking.ProfessionalID+"@"+booking.StartDatetime.UTC().Format(time.RFC3339))
+		spans = append(spans, bookingSpan(booking.ProfessionalID, booking.StartDatetime))
 	}
 	return spans
 }

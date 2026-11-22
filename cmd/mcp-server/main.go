@@ -662,12 +662,23 @@ func run(ctx context.Context) error {
 // and "bookings_availability" are two entries because they are two adapters over
 // the same table (the caller-scoped port and the role-neutral availability
 // reader, issue #243/#247).
-func wiredRepoInventory() int {
-	return len([]string{
+func wiredRepoInventory() int { return len(wiredRepoHandles()) }
+
+// wiredRepoHandles is the auditable list behind wiredRepoInventory, one entry per
+// repository IMPLEMENTATION the serve path wires — not per logical store, so
+// "bookings" and "bookings_availability" are two entries because they are two
+// adapters over the same table.
+//
+// It is package-visible so the contract test can compare the documented set
+// against THIS list rather than against a copy of it (R2-dual-handle-list,
+// review-f94fd31c48e77ce8). Comparing a copy to a length only proves both sides
+// were updated together; comparing to the list makes a rename here fail the test.
+func wiredRepoHandles() []string {
+	return []string{
 		"bookings", "bookings_availability", "business_hours_exceptions",
 		"business_profile", "professionals", "schedules", "services",
 		"pending_alerts", "clients", "accounts",
-	})
+	}
 }
 
 // runHermesChat is the entry point of `mcp-server hermes chat`, a name reserved
