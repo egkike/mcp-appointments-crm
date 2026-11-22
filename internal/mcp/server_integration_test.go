@@ -100,6 +100,11 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		Bookings:                bookingsRepo,
 	}
 	checkAvailabilityUC := usecase.NewCheckAvailabilityUseCase(availabilityChecker, availabilityDeps)
+	// agent-surface T2: the date-range slot search reads the SAME repositories as
+	// the availability path (one range booking read, the shared chain per slot).
+	findAvailableSlotsUC := usecase.NewFindAvailableSlotsUseCase(
+		servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, bookingsRepo,
+	)
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
 
 	// Anonymous self-registration (feat-whatsapp-bot): the same auth-free
@@ -143,7 +148,7 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 	deleteHoursExceptionUC := usecase.NewDeleteHoursExceptionUseCase(bizHoursExRepo, discardLogger())
 	listHoursExceptionsUC := usecase.NewListHoursExceptionsUseCase(bizHoursExRepo)
 
-	// The 25-port Config literal is composed by hand here on purpose: the
+	// The 26-port Config literal is composed by hand here on purpose: the
 	// integration suite wires REAL use cases over REAL repositories, while
 	// configFromMockPorts (tools_test.go) only renders the mock bundle — this
 	// literal is the composition-root mirror, not a mock variant. The compiler
@@ -153,6 +158,7 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		Version:                "test",
 		Logger:                 discardLogger(),
 		CheckAvailability:      checkAvailabilityUC,
+		FindAvailableSlots:     findAvailableSlotsUC,
 		CreateBooking:          createBookingUC,
 		GetBooking:             getBookingUC,
 		CancelBooking:          cancelBookingUC,

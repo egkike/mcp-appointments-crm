@@ -26,7 +26,7 @@ import (
 // This test is the catalog-level guard: it boots the REAL composition root
 // (run) in-process, asks the live SDK server for tools/list and asserts, for
 // every registered tool that declares an outputSchema, that its root type is
-// exactly the JSON string "object". It is the only place the full 25-tool
+// exactly the JSON string "object". It is the only place the full 26-tool
 // surface is inspected at once, so a new bare-slice output cannot ship
 // unnoticed (the array shape is a legal MCP schema, which is why no handler
 // test can catch it).
@@ -35,7 +35,7 @@ import (
 // wires one non-nil port per tool, so serve mode must advertise exactly this
 // many. Kept as a literal here on purpose — importing the mock helpers is not
 // possible across packages, and a drift makes this contract test fail loudly.
-const wiredToolCount = 25
+const wiredToolCount = 26
 
 // toolSchema is the slice of a tools/list entry this contract cares about.
 type toolSchema struct {

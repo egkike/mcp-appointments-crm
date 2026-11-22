@@ -27,6 +27,14 @@ func (m *mockCheckAvailabilityPort) Execute(ctx context.Context, in dto.CheckAva
 	return m.executeFn(ctx, in)
 }
 
+type mockFindAvailableSlotsPort struct {
+	executeFn func(ctx context.Context, in dto.FindAvailableSlotsInput) (*dto.FindAvailableSlotsResult, error)
+}
+
+func (m *mockFindAvailableSlotsPort) Execute(ctx context.Context, in dto.FindAvailableSlotsInput) (*dto.FindAvailableSlotsResult, error) {
+	return m.executeFn(ctx, in)
+}
+
 type mockCreateBookingPort struct {
 	executeFn func(ctx context.Context, in dto.CreateBookingInput) (*dto.CreateBookingResult, error)
 }
@@ -124,7 +132,7 @@ func ownerCallerPtr() *auth.Caller {
 	return &c
 }
 
-// configFromMockPorts renders the 25-port server Config from a mockToolPorts
+// configFromMockPorts renders the 26-port server Config from a mockToolPorts
 // bundle. It is the single source of the field mapping (R3-config-literal-
 // triplication: this literal used to be enumerated by hand at newToolServer
 // and newHoursExceptionUseCaseServer); tests needing different ports override
@@ -136,6 +144,7 @@ func configFromMockPorts(p *mockToolPorts) Config {
 		Version:                "test",
 		Logger:                 discardLogger(),
 		CheckAvailability:      p.checkAvail,
+		FindAvailableSlots:     p.findAvailableSlots,
 		CreateBooking:          p.create,
 		GetBooking:             p.get,
 		CancelBooking:          p.cancel,
@@ -164,7 +173,7 @@ func configFromMockPorts(p *mockToolPorts) Config {
 	}
 }
 
-// newToolServer builds a Server with all twenty-five ports mocked and returns
+// newToolServer builds a Server with all twenty-six ports mocked and returns
 // its unauthenticated Handler (unit level: caller is injected via the request
 // context, exactly as AuthMiddleware would).
 func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
@@ -175,14 +184,15 @@ func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
 }
 
 type mockToolPorts struct {
-	checkAvail     *mockCheckAvailabilityPort
-	create         *mockCreateBookingPort
-	get            *mockGetBookingPort
-	cancel         *mockCancelBookingPort
-	reschedule     *mockRescheduleBookingPort
-	profile        *mockBusinessProfilePort
-	searchClients  *mockSearchClientsAdvancedPort
-	searchServices *mockSearchServicesAdvancedPort
+	checkAvail         *mockCheckAvailabilityPort
+	findAvailableSlots *mockFindAvailableSlotsPort
+	create             *mockCreateBookingPort
+	get                *mockGetBookingPort
+	cancel             *mockCancelBookingPort
+	reschedule         *mockRescheduleBookingPort
+	profile            *mockBusinessProfilePort
+	searchClients      *mockSearchClientsAdvancedPort
+	searchServices     *mockSearchServicesAdvancedPort
 
 	searchProfessionals      *mockSearchProfessionalsAdvancedPort
 	getProfessionalSchedules *mockGetProfessionalSchedulesPort
@@ -209,14 +219,15 @@ type mockToolPorts struct {
 
 func newMockPorts() *mockToolPorts {
 	return &mockToolPorts{
-		checkAvail:     &mockCheckAvailabilityPort{},
-		create:         &mockCreateBookingPort{},
-		get:            &mockGetBookingPort{},
-		cancel:         &mockCancelBookingPort{},
-		reschedule:     &mockRescheduleBookingPort{},
-		profile:        &mockBusinessProfilePort{},
-		searchClients:  &mockSearchClientsAdvancedPort{},
-		searchServices: &mockSearchServicesAdvancedPort{},
+		checkAvail:         &mockCheckAvailabilityPort{},
+		findAvailableSlots: &mockFindAvailableSlotsPort{},
+		create:             &mockCreateBookingPort{},
+		get:                &mockGetBookingPort{},
+		cancel:             &mockCancelBookingPort{},
+		reschedule:         &mockRescheduleBookingPort{},
+		profile:            &mockBusinessProfilePort{},
+		searchClients:      &mockSearchClientsAdvancedPort{},
+		searchServices:     &mockSearchServicesAdvancedPort{},
 
 		searchProfessionals:      &mockSearchProfessionalsAdvancedPort{},
 		getProfessionalSchedules: &mockGetProfessionalSchedulesPort{},
@@ -350,9 +361,10 @@ func fixedTime() time.Time {
 	return time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 }
 
-// ── tools/list exposes exactly the twenty-five registered tools
+// ── tools/list exposes exactly the twenty-six registered tools
 // (8 + 2 alerts + 1 loyalty + 8 maintenance + 3 hours-exception + register_client
-// + search_professionals_advanced + get_professional_schedules) ──
+// + search_professionals_advanced + get_professional_schedules
+// + find_available_slots) ──
 
 func TestToolsListAllRegisteredTools(t *testing.T) {
 	srv, _ := newToolServer(t)
@@ -368,7 +380,7 @@ func TestToolsListAllRegisteredTools(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
 	}
-	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent", "get_loyalty_report", "update_business_profile", "create_service", "update_service", "delete_service", "create_professional", "update_professional", "upsert_schedule", "delete_schedule", "register_client", "create_hours_exception", "delete_hours_exception", "list_hours_exceptions", "search_professionals_advanced", "get_professional_schedules"}
+	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent", "get_loyalty_report", "update_business_profile", "create_service", "update_service", "delete_service", "create_professional", "update_professional", "upsert_schedule", "delete_schedule", "register_client", "create_hours_exception", "delete_hours_exception", "list_hours_exceptions", "search_professionals_advanced", "get_professional_schedules", "find_available_slots"}
 	if len(resp.Result.Tools) != len(want) {
 		t.Fatalf("tools/list returned %d tools; want %d: %s", len(resp.Result.Tools), len(want), mustJSON(t, resp.Result.Tools))
 	}

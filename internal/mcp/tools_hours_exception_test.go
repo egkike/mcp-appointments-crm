@@ -148,7 +148,7 @@ func (r *fakeHoursExceptionRepo) Delete(_ context.Context, id int) error {
 
 // ── helpers ──
 
-// newHoursExceptionUseCaseServer wires the twenty shared mock ports to a server
+// newHoursExceptionUseCaseServer wires the shared mock ports to a server
 // whose three exception ports are the REAL use cases, so the assertions below
 // exercise the messages the use cases actually produce. Only the repository is
 // replaced (in-memory fake); no mock echo sits in the path under test.
@@ -158,8 +158,8 @@ func newHoursExceptionUseCaseServer(t *testing.T) (*Server, *fakeHoursExceptionR
 	ports := newMockPorts()
 	// Single-source mapper + per-site overrides: the three exception ports are
 	// the REAL use cases over the fake repo so the assertions below exercise
-	// the messages the use cases actually produce; the other twenty ports stay
-	// the shared mocks.
+	// the messages the use cases actually produce; the other ports stay the
+	// shared mocks.
 	cfg := configFromMockPorts(ports)
 	cfg.CreateHoursException = usecase.NewCreateHoursExceptionUseCase(repo, discardLogger())
 	cfg.DeleteHoursException = usecase.NewDeleteHoursExceptionUseCase(repo, discardLogger())
@@ -190,15 +190,20 @@ func staffCallerPtr() *auth.Caller {
 	return &c
 }
 
-// ── registration (REQ-MT-005: 20 → 23 → 24 → 25) ──
+// ── registration (REQ-MT-005: 20 → 23 → 24 → 25 → 26) ──
 
 func TestHoursExceptionToolsRegistered(t *testing.T) {
 	srv, _ := newHoursExceptionUseCaseServer(t)
 
-	// 25 = the 20 tools shipped before this change + the 3 exception tools + the
-	// two professionals read tools (feat-owner-chat S7a catalog + S7b agenda).
-	if got := srv.ToolCount(); got != 25 {
-		t.Errorf("ToolCount() = %d; want 25", got)
+	// 26 = the 20 tools shipped before this change + the 3 exception tools + the
+	// two professionals read tools (feat-owner-chat S7a catalog + S7b agenda) +
+	// find_available_slots (agent-surface T2).
+	//
+	// Both assertions read expectedToolCount, the single source of truth for the
+	// registry size: this file used to carry its own literal, which is exactly how
+	// a surface change could leave one suite green and another red.
+	if got := srv.ToolCount(); got != expectedToolCount {
+		t.Errorf("ToolCount() = %d; want %d", got, expectedToolCount)
 	}
 
 	rec := callMethod(srv.Handler(), "tools/list", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
@@ -212,8 +217,8 @@ func TestHoursExceptionToolsRegistered(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal tools/list: %v; body=%s", err, rec.Body.String())
 	}
-	if len(resp.Result.Tools) != 25 {
-		t.Fatalf("tools/list returned %d tools; want 25 (REQ-MT-005)", len(resp.Result.Tools))
+	if len(resp.Result.Tools) != expectedToolCount {
+		t.Fatalf("tools/list returned %d tools; want %d (REQ-MT-005)", len(resp.Result.Tools), expectedToolCount)
 	}
 	got := make(map[string]bool, len(resp.Result.Tools))
 	for _, tool := range resp.Result.Tools {

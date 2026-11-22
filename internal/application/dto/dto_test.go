@@ -22,6 +22,9 @@ func TestDTOPackageCompiles(t *testing.T) {
 	_ = RescheduleBookingResult{}
 	_ = CheckAvailabilityInput{}
 	_ = CheckAvailabilityResult{}
+	_ = FindAvailableSlotsInput{}
+	_ = FindAvailableSlotsResult{}
+	_ = AvailableSlot{}
 	_ = GetBookingInput{}
 	_ = GetBookingResult{}
 	_ = BookingView{}
@@ -52,6 +55,9 @@ var inputCarriers = []func(caller auth.Caller) any{
 	func(c auth.Caller) any { return CancelBookingInput{Caller: c, BookingID: "b1"} },
 	func(c auth.Caller) any { return RescheduleBookingInput{Caller: c, BookingID: "b1"} },
 	func(c auth.Caller) any { return CheckAvailabilityInput{Caller: c, ServiceID: "s1"} },
+	func(c auth.Caller) any {
+		return FindAvailableSlotsInput{Caller: c, ServiceID: "s1", From: "2031-03-03", To: "2031-03-03"}
+	},
 	func(c auth.Caller) any { return GetBookingInput{Caller: c, BookingID: "b1"} },
 	func(c auth.Caller) any { return SearchClientsAdvancedInput{Caller: c, QueryText: "juan"} },
 	func(c auth.Caller) any { return SearchServicesAdvancedInput{Caller: c, QueryText: "corte"} },
@@ -184,6 +190,36 @@ func TestDTOFieldTags(t *testing.T) {
 			target: CheckAvailabilityResult{},
 			fields: []fieldSpec{
 				{"Available", "available"},
+			},
+		},
+		{
+			name:   "FindAvailableSlotsInput",
+			target: FindAvailableSlotsInput{},
+			fields: []fieldSpec{
+				{"Caller", "-"},
+				{"ServiceID", ""},
+				{"ProfessionalID", ""},
+				{"From", ""},
+				{"To", ""},
+				{"Limit", ""},
+			},
+		},
+		{
+			name:   "AvailableSlot",
+			target: AvailableSlot{},
+			fields: []fieldSpec{
+				{"StartDatetime", "start_datetime"},
+				{"ProfessionalID", "professional_id"},
+				{"ProfessionalName", "professional_name"},
+			},
+		},
+		{
+			name:   "FindAvailableSlotsResult",
+			target: FindAvailableSlotsResult{},
+			fields: []fieldSpec{
+				{"Slots", "slots"},
+				{"TotalCandidates", "total_candidates"},
+				{"Truncated", "truncated"},
 			},
 		},
 		{
@@ -355,6 +391,34 @@ func TestResultJSONRoundTrip(t *testing.T) {
 		assertRoundTrip(t, original, func(decoded CheckAvailabilityResult) {
 			if decoded.Available != original.Available {
 				t.Errorf("Available = %v, want %v", decoded.Available, original.Available)
+			}
+		})
+	})
+
+	t.Run("FindAvailableSlotsResult", func(t *testing.T) {
+		original := FindAvailableSlotsResult{
+			Slots: []AvailableSlot{{
+				StartDatetime:    now,
+				ProfessionalID:   "pr-1",
+				ProfessionalName: "Ana",
+			}},
+			TotalCandidates: 3,
+			Truncated:       true,
+		}
+		assertRoundTrip(t, original, func(decoded FindAvailableSlotsResult) {
+			if len(decoded.Slots) != 1 {
+				t.Fatalf("Slots = %d; want 1", len(decoded.Slots))
+			}
+			if !decoded.Slots[0].StartDatetime.Equal(original.Slots[0].StartDatetime) {
+				t.Errorf("StartDatetime = %v; want %v", decoded.Slots[0].StartDatetime, original.Slots[0].StartDatetime)
+			}
+			if decoded.Slots[0].ProfessionalID != original.Slots[0].ProfessionalID ||
+				decoded.Slots[0].ProfessionalName != original.Slots[0].ProfessionalName {
+				t.Errorf("slot = %+v; want %+v", decoded.Slots[0], original.Slots[0])
+			}
+			if decoded.TotalCandidates != original.TotalCandidates || decoded.Truncated != original.Truncated {
+				t.Errorf("total_candidates/truncated = %d/%v; want %d/%v",
+					decoded.TotalCandidates, decoded.Truncated, original.TotalCandidates, original.Truncated)
 			}
 		})
 	})
