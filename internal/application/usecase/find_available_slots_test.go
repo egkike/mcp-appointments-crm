@@ -514,3 +514,119 @@ func TestFindAvailableSlotsPastSlotsAreFiltered(t *testing.T) {
 		t.Errorf("total_candidates = %d; want %d (no truncation with limit 50)", result.TotalCandidates, len(result.Slots))
 	}
 }
+
+// TestFindAvailableSlotsFullyPastRangeReadsNothing is the S11 efficiency
+// invariant: a window entirely before today answers with the OLD empty shape and
+// performs NO range read at all — neither exceptions nor bookings. It must never
+// become a semantic error: the observable contract of a past range is unchanged.
+func TestFindAvailableSlotsFullyPastRangeReadsNothing(t *testing.T) {
+	loc := slotsTestLocation(t)
+	today := slotsTestToday(t, loc)
+
+	f := newSlotsFixture(t)
+	exceptionReads := 0
+	var excFrom, excTo time.Time
+	f.exceptions.ListFn = func(_ context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
+		exceptionReads++
+		excFrom, excTo = from, to
+		return nil, nil
+	}
+
+	// Five days ending yesterday: every day of the window is in the past.
+	result, err := f.execute(t, today.AddDate(0, 0, -5), today.AddDate(0, 0, -1), strPtr("p1"), nil)
+	if err != nil {
+		t.Fatalf("Execute: %v (a past range is the empty result, never an error)", err)
+	}
+	if result == nil {
+		t.Fatal("result is nil; want the empty result shape")
+	}
+	if result.Slots == nil {
+		t.Error("Slots is nil; want a non-nil empty slice ([] on the wire)")
+	}
+	if len(result.Slots) != 0 || result.TotalCandidates != 0 || result.Truncated {
+		t.Errorf("result = %+v; want {slots: [], total_candidates: 0, truncated: false}", result)
+	}
+	if exceptionReads != 0 {
+		t.Errorf("exception range reads = %d; want 0 (a fully past window reads no exceptions)", exceptionReads)
+	}
+	if !excFrom.IsZero() || !excTo.IsZero() {
+		t.Errorf("exception window = [%s, %s); want no window at all", excFrom, excTo)
+	}
+	if f.rangeReads != 0 {
+		t.Errorf("bookings range reads = %d; want 0 (a fully past window reads no bookings)", f.rangeReads)
+	}
+	if f.scheduleReads != 0 {
+		t.Errorf("schedule reads = %d; want 0 (no day is walked)", f.scheduleReads)
+	}
+	if f.overlapCalls != 0 {
+		t.Errorf("repository overlap calls = %d; want 0", f.overlapCalls)
+	}
+}
+
+// TestFindAvailableSlotsClampsTheReadWindowToToday pins the clamp itself: a range
+// that starts in the past and ends ahead is narrowed to today, the day count is
+// recomputed from the CLAMPED window, and both range reads receive that same
+// window (the loop and the exceptions read must agree). The returned slots are
+// the ones the unclamped scan would have produced: past days never had any.
+func TestFindAvailableSlotsClampsTheReadWindowToToday(t *testing.T) {
+	loc := slotsTestLocation(t)
+	today := slotsTestToday(t, loc)
+	tomorrow := today.AddDate(0, 0, 1)
+
+	f := newSlotsFixture(t)
+	exceptionReads := 0
+	var excFrom, excTo time.Time
+	f.exceptions.ListFn = func(_ context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
+		exceptionReads++
+		excFrom, excTo = from, to
+		return nil, nil
+	}
+
+	result, err := f.execute(t, today.AddDate(0, 0, -3), tomorrow, strPtr("p1"), intPtr(50))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	wantFrom := today.UTC()
+	wantTo := tomorrow.AddDate(0, 0, 1).UTC()
+	if f.rangeReads != 1 {
+		t.Errorf("bookings range reads = %d; want 1", f.rangeReads)
+	}
+	if !f.rangeReadFrom.Equal(wantFrom) || !f.rangeReadTo.Equal(wantTo) {
+		t.Errorf("bookings range read = [%s, %s); want [%s, %s) (clamped to today)",
+			f.rangeReadFrom, f.rangeReadTo, wantFrom, wantTo)
+	}
+	if exceptionReads != 1 {
+		t.Errorf("exception range reads = %d; want 1", exceptionReads)
+	}
+	if !excFrom.Equal(today) || !excTo.Equal(tomorrow) {
+		t.Errorf("exception range read = [%s, %s]; want [%s, %s] (same clamped window as the loop)",
+			excFrom, excTo, today, tomorrow)
+	}
+
+	// Tomorrow always contributes its full grid; today contributes only slots that
+	// are still ahead, so the total is asserted against its invariant, not a clock.
+	now := time.Now()
+	for _, slot := range result.Slots {
+		if slot.StartDatetime.Before(now) {
+			t.Errorf("slot %s is in the past; past days and past hours must not be returned", slot.StartDatetime)
+		}
+		if slot.StartDatetime.Before(today) {
+			t.Errorf("slot %s predates today; the clamp must have dropped it", slot.StartDatetime)
+		}
+	}
+	lastDay := time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), 0, 0, 0, 0, loc)
+	var tomorrowSlots []dto.AvailableSlot
+	for _, slot := range result.Slots {
+		if !slot.StartDatetime.Before(lastDay) {
+			tomorrowSlots = append(tomorrowSlots, slot)
+		}
+	}
+	wantSlots(t, tomorrowSlots, slotsAt(tomorrow, "p1", "Ana", 9, 10, 11, 12, 13, 14, 15, 16))
+	if result.TotalCandidates != len(result.Slots) {
+		t.Errorf("total_candidates = %d; want %d (limit 50 does not truncate)", result.TotalCandidates, len(result.Slots))
+	}
+	if result.Truncated {
+		t.Error("truncated = true; want false")
+	}
+}

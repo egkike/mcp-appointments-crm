@@ -46,6 +46,15 @@ func slotsTestDay(loc *time.Location, offsetDays int) time.Time {
 	return time.Date(2031, time.March, 3, 0, 0, 0, 0, loc).AddDate(0, 0, offsetDays)
 }
 
+// slotsTestToday returns business-local midnight of the real current date. The
+// S11 clamp reads the wall clock, so its tests cannot pin a fixed date the way
+// the rest of the suite does.
+func slotsTestToday(t *testing.T, loc *time.Location) time.Time {
+	t.Helper()
+	now := time.Now().In(loc)
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+}
+
 // slotsProfessional builds a staff member. Specialties carries the service id so
 // the "no professional_id" path (HasSpecialty, fail-closed) admits it.
 func slotsProfessional(id, name, status string) *entity.Professional {
@@ -71,17 +80,15 @@ func slotsShift(professionalID string, day entity.ScheduleWeekday, startHour, en
 
 // mockSlotsExceptionsRepo is the range read double: the shared exceptions mock
 // cannot answer List (it panics by design), and this use case needs the single
-// range query instead of one Get per day.
+// range query instead of one Get per day. It records no counter of its own: the
+// exception-read budget is asserted by the tests that pin it, from their own
+// ListFn closure, so nothing here can imply a budget nobody checks.
 type mockSlotsExceptionsRepo struct {
 	*mockBusinessHoursExceptionRepo
-	ListFn           func(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error)
-	listCalls        int
-	lastFrom, lastTo time.Time
+	ListFn func(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error)
 }
 
 func (m *mockSlotsExceptionsRepo) List(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
-	m.listCalls++
-	m.lastFrom, m.lastTo = from, to
 	return m.ListFn(ctx, from, to)
 }
 
@@ -98,6 +105,9 @@ type slotsFixture struct {
 	schedules     *mockSchedulesRepo
 	bookings      *mockBookingsRepo
 
+	// rangeReads pins HOW MANY range reads happened; rangeReadFrom/rangeReadTo
+	// pin WHICH window was read (S9 with the S11 clamp: the same bounds must reach
+	// both range reads, and a past window must collapse to today's).
 	rangeReads    int
 	rangeReadFrom time.Time
 	rangeReadTo   time.Time

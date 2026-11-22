@@ -3,7 +3,9 @@ package usecase
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
 )
 
@@ -28,6 +30,71 @@ func TestFindAvailableSlotsCachesTheAgendaPerWeekday(t *testing.T) {
 	}
 	if f.rangeReads != 1 {
 		t.Errorf("bookings range reads = %d; want 1", f.rangeReads)
+	}
+}
+
+// TestFindAvailableSlotsCorruptOpenExceptionFailsLoud pins the S11 posture for a
+// corrupt business-hours exception: an OPEN exception whose hours
+// parseSlotWindow rejects is an internal problem (ErrCodeInternal), never a day
+// that silently produces no slots. A closed exception stays a closed day.
+func TestFindAvailableSlotsCorruptOpenExceptionFailsLoud(t *testing.T) {
+	loc := slotsTestLocation(t)
+	day := slotsTestDay(loc, 0)
+
+	tests := []struct {
+		name      string
+		openTime  string
+		closeTime string
+	}{
+		{name: "inverted hours", openTime: "10:00", closeTime: "09:00"},
+		{name: "malformed open", openTime: "25:00", closeTime: "18:00"},
+		{name: "malformed close", openTime: "10:00", closeTime: "6pm"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newSlotsFixture(t)
+			f.exceptions.ListFn = func(context.Context, time.Time, time.Time) ([]*entity.BusinessHoursException, error) {
+				return []*entity.BusinessHoursException{{
+					ID:            9,
+					ExceptionDate: day.Format("2006-01-02"),
+					IsClosed:      false,
+					OpenTime:      ptr(tt.openTime),
+					CloseTime:     ptr(tt.closeTime),
+				}}, nil
+			}
+
+			result, err := f.execute(t, day, day, strPtr("p1"), nil)
+			if result != nil {
+				t.Errorf("result = %+v; want nil (a corrupt window returns no slot list)", result)
+			}
+			wantSemantic(t, err, domain.ErrCodeInternal)
+		})
+	}
+}
+
+// TestFindAvailableSlotsClosedExceptionIsNotCorruption guards the other side of
+// the previous test: a declared closure is data, so it keeps producing a closed
+// day (no slots, no error), even with no hours at all.
+func TestFindAvailableSlotsClosedExceptionIsNotCorruption(t *testing.T) {
+	loc := slotsTestLocation(t)
+	day := slotsTestDay(loc, 0)
+
+	f := newSlotsFixture(t)
+	f.exceptions.ListFn = func(context.Context, time.Time, time.Time) ([]*entity.BusinessHoursException, error) {
+		return []*entity.BusinessHoursException{{
+			ID:            10,
+			ExceptionDate: day.Format("2006-01-02"),
+			IsClosed:      true,
+		}}, nil
+	}
+
+	result, err := f.execute(t, day, day, strPtr("p1"), nil)
+	if err != nil {
+		t.Fatalf("Execute: %v (a closed exception is not corruption)", err)
+	}
+	if len(result.Slots) != 0 || result.TotalCandidates != 0 || result.Truncated {
+		t.Errorf("result = %+v; want the empty result, not an error", result)
 	}
 }
 

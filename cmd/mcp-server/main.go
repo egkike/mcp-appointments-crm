@@ -416,10 +416,11 @@ func run(ctx context.Context) error {
 	// find_available_slots (agent-surface T2, issue #241): the date-range slot
 	// search. It composes over the SAME handles as the availability path — the
 	// shared validation chain runs per candidate, and the range's bookings are
-	// read once (BookingsRepo.ListBookingsForRange). No new port, no schema
-	// change. Role: any authenticated caller, so it has NO ToolRBAC entry below
-	// (same mold as check_availability); the use case re-asserts
-	// auth.RequireAuthenticated.
+	// read once (BookingsRepo.ListBookingsForRange). No new domain-repository
+	// port, no schema change (the consumer-side FindAvailableSlotsPort lives in
+	// internal/mcp/ports.go). Role: any authenticated caller, so it has NO
+	// ToolRBAC entry below (same mold as check_availability); the use case
+	// re-asserts auth.RequireAuthenticated.
 	findAvailableSlotsUC := usecase.NewFindAvailableSlotsUseCase(
 		servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, bookingsRepo,
 	)
