@@ -400,6 +400,14 @@ func run(ctx context.Context) error {
 
 	// CheckAvailability: different shape — takes an AvailabilityChecker
 	// interface + a pre-assembled AvailabilityDeps struct.
+	//
+	// Issue #243: the availability path reads bookings through the ROLE-NEUTRAL
+	// AvailabilityBookingsReader, never through bookingsRepo. Availability asks
+	// whether the calendar is free, so a caller-scoped read answered a different
+	// question (a client saw other clients' slots as free; a staff caller saw
+	// every other professional's agenda as empty). The reader is built once here
+	// and injected into both availability consumers below.
+	availabilityBookings := repository.NewAvailabilityBookingsReader(database.Conn)
 	availabilityChecker := service.NewAvailabilityService()
 	availabilityDeps := service.AvailabilityDeps{
 		Services:                servicesRepo,
@@ -407,7 +415,7 @@ func run(ctx context.Context) error {
 		BusinessProfile:         bizProfRepo,
 		BusinessHoursExceptions: bizHoursExRepo,
 		Schedules:               schedulesRepo,
-		Bookings:                bookingsRepo,
+		Bookings:                availabilityBookings,
 	}
 	checkAvailabilityUC := usecase.NewCheckAvailabilityUseCase(
 		availabilityChecker, availabilityDeps,
@@ -416,13 +424,13 @@ func run(ctx context.Context) error {
 	// find_available_slots (agent-surface T2, issue #241): the date-range slot
 	// search. It composes over the SAME handles as the availability path — the
 	// shared validation chain runs per candidate, and the range's bookings are
-	// read once (BookingsRepo.ListBookingsForRange). No new domain-repository
-	// port, no schema change (the consumer-side FindAvailableSlotsPort lives in
-	// internal/mcp/ports.go). Role: any authenticated caller, so it has NO
-	// ToolRBAC entry below (same mold as check_availability); the use case
-	// re-asserts auth.RequireAuthenticated.
+	// read once (AvailabilityBookingsReader.ListBookingsForRange, role-neutral per
+	// issue #243). No new domain-repository port, no schema change (the
+	// consumer-side FindAvailableSlotsPort lives in internal/mcp/ports.go). Role:
+	// any authenticated caller, so it has NO ToolRBAC entry below (same mold as
+	// check_availability); the use case re-asserts auth.RequireAuthenticated.
 	findAvailableSlotsUC := usecase.NewFindAvailableSlotsUseCase(
-		servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, bookingsRepo,
+		servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, availabilityBookings,
 	)
 
 	// 6th use case (Q3): get_business_profile wraps the singleton profile repo.

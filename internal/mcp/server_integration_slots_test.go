@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -226,4 +228,150 @@ func TestIntegrationFindAvailableSlotsOverlapProvesTheInMemoryReader(t *testing.
 			t.Errorf("slot[%d].start = %s; want %s", index, out.Slots[index].StartDatetime, wantStart)
 		}
 	}
+}
+
+// ── availability is a question about the calendar, not about the caller (S9) ──
+
+// seedOtherClientBooking inserts a booking held by ANOTHER client (c2) on the
+// seeded professional p1, at business-local 10:00 of the given Monday.
+func seedOtherClientBooking(t *testing.T, conn *sql.DB, loc *time.Location, monday time.Time) (bookingID string, startUTC, endUTC time.Time) {
+	t.Helper()
+	startUTC = time.Date(monday.Year(), monday.Month(), monday.Day(), 10, 0, 0, 0, loc).UTC()
+	endUTC = startUTC.Add(time.Hour)
+	if _, err := conn.ExecContext(context.Background(),
+		`INSERT INTO bookings (id, client_id, professional_id, service_id, start_datetime, end_datetime, status)
+		 VALUES ('b-other-client', 'c2', 'p1', 's1', ?, ?, 'confirmed')`,
+		startUTC.Format("2006-01-02T15:04:05.000Z"), endUTC.Format("2006-01-02T15:04:05.000Z"),
+	); err != nil {
+		t.Fatalf("seed booking b-other-client: %v", err)
+	}
+	return "b-other-client", startUTC, endUTC
+}
+
+// wantSlotHours asserts the complete slot list: the exact clock of every entry,
+// the professional identity of each one, the true candidate total and no
+// truncation. It is the whole observable effect of the grid, not a subset.
+func wantSlotHours(t *testing.T, out dto.FindAvailableSlotsResult, day time.Time, loc *time.Location, professionalID, professionalName string, hours ...int) {
+	t.Helper()
+	if out.TotalCandidates != len(hours) || out.Truncated || len(out.Slots) != len(hours) {
+		t.Fatalf("total_candidates=%d truncated=%v slots=%d; want %d/false/%d (got %v)",
+			out.TotalCandidates, out.Truncated, len(out.Slots), len(hours), len(hours), slotStarts(out))
+	}
+	for index, hour := range hours {
+		want := time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, loc)
+		if !out.Slots[index].StartDatetime.Equal(want) {
+			t.Errorf("slot[%d].start = %s; want %s", index, out.Slots[index].StartDatetime, want)
+		}
+		if out.Slots[index].ProfessionalID != professionalID {
+			t.Errorf("slot[%d].professional_id = %q; want %q", index, out.Slots[index].ProfessionalID, professionalID)
+		}
+		if out.Slots[index].ProfessionalName != professionalName {
+			t.Errorf("slot[%d].professional_name = %q; want %q", index, out.Slots[index].ProfessionalName, professionalName)
+		}
+	}
+}
+
+// slotStarts renders the returned starts for a failure message.
+func slotStarts(out dto.FindAvailableSlotsResult) []string {
+	starts := make([]string, 0, len(out.Slots))
+	for _, slot := range out.Slots {
+		starts = append(starts, slot.StartDatetime.Format("2006-01-02T15:04"))
+	}
+	return starts
+}
+
+// findAvailableSlotsAs drives find_available_slots through the mux for a caller
+// and decodes its structured result.
+func findAvailableSlotsAs(t *testing.T, h http.Handler, callerID, professionalID, day string) dto.FindAvailableSlotsResult {
+	t.Helper()
+	body := fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"find_available_slots","arguments":{"service_id":"s1","professional_id":%q,"from":%q,"to":%q}}}`,
+		professionalID, day, day)
+	result, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, h, callerID, body))
+	if code != 0 {
+		t.Fatalf("find_available_slots as %q failed: %d %q (any authenticated caller is admitted)", callerID, code, msg)
+	}
+	var call struct {
+		StructuredContent dto.FindAvailableSlotsResult `json:"structuredContent"`
+	}
+	if err := json.Unmarshal(result, &call); err != nil {
+		t.Fatalf("tools/call result: %v", err)
+	}
+	return call.StructuredContent
+}
+
+// TestIntegrationAvailabilityIgnoresCallerScope is the S9 proof, and the ONLY
+// real one: the narrow AvailabilityDeps.Bookings interface does not stop the
+// composition root from injecting the filtered BookingsRepo, because that repo
+// satisfies it too (trap 3). Only a run through the REAL composition can show
+// which adapter was injected.
+//
+// The scenario is the defect itself: c2 holds a 10:00 booking with p1, and c1
+// asks the same question. With the caller-scoped reader c1 saw 10:00 as free
+// (the AND client_id = ? clause hid c2's row); with the neutral reader the slot
+// is reported as taken by both availability tools, and nothing else moves:
+//
+//   - find_available_slots returns the other seven hours, with the true count;
+//   - check_availability answers -32002 with the overlap message (S7: the
+//     professional and the window, never a client identity);
+//   - a genuinely free hour is still available (the reader does not over-block);
+//   - the DATA path is untouched: get_booking still hides c2's booking from c1
+//     behind the same ErrNotFound-shaped answer, with no existence oracle.
+func TestIntegrationAvailabilityIgnoresCallerScope(t *testing.T) {
+	loc := slotsIntegrationLocation(t)
+	monday := nextMonday(t, loc)
+	day := monday.Format("2006-01-02")
+
+	mux, conn := newIntegrationMuxWithDB(t)
+	bookingID, startUTC, endUTC := seedOtherClientBooking(t, conn, loc, monday)
+
+	t.Run("find_available_slots hides another client's booking from a client caller", func(t *testing.T) {
+		out := findAvailableSlotsAs(t, mux, "c1", "p1", day)
+		// 10:00 belongs to c2 and must be missing from c1's answer.
+		wantSlotHours(t, out, monday, loc, "p1", "Profesional Uno", 9, 11, 12, 13, 14, 15, 16)
+	})
+
+	t.Run("check_availability reports the overlap to a client caller", func(t *testing.T) {
+		body := fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"check_availability","arguments":{"service_id":"s1","professional_id":"p1","start_datetime":%q}}}`,
+			time.Date(monday.Year(), monday.Month(), monday.Day(), 10, 0, 0, 0, loc).Format(time.RFC3339))
+		_, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, "c1", body))
+		if code != -32002 {
+			t.Fatalf("code = %d msg = %q; want -32002 (the slot is taken)", code, msg)
+		}
+		want := fmt.Sprintf("Profesional Profesional Uno ya tiene una reserva de %s a %s.",
+			startUTC.Format(time.RFC3339), endUTC.Format(time.RFC3339))
+		if msg != want {
+			t.Errorf("message = %q; want %q", msg, want)
+		}
+	})
+
+	t.Run("a free slot is still reported available to a client caller", func(t *testing.T) {
+		body := fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"check_availability","arguments":{"service_id":"s1","professional_id":"p1","start_datetime":%q}}}`,
+			time.Date(monday.Year(), monday.Month(), monday.Day(), 15, 0, 0, 0, loc).Format(time.RFC3339))
+		result, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, "c1", body))
+		if code != 0 {
+			t.Fatalf("check_availability of a free slot failed: %d %q", code, msg)
+		}
+		var call struct {
+			StructuredContent dto.CheckAvailabilityResult `json:"structuredContent"`
+		}
+		if err := json.Unmarshal(result, &call); err != nil {
+			t.Fatalf("tools/call result: %v", err)
+		}
+		if !call.StructuredContent.Available {
+			t.Error("available = false; want true (15:00 is free for p1)")
+		}
+	})
+
+	t.Run("the data path still hides the other client's booking", func(t *testing.T) {
+		body := fmt.Sprintf(
+			`{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"get_booking","arguments":{"booking_id":%q}}}`,
+			bookingID)
+		_, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, "c1", body))
+		if code != -32002 || msg != "reserva no encontrada" {
+			t.Errorf("code=%d msg=%q; want -32002 %q (no existence oracle for another client's booking)", code, msg, "reserva no encontrada")
+		}
+	})
 }

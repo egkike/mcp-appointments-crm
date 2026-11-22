@@ -91,19 +91,24 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		bookingsRepo, servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, clientsRepo, bookingValidator, alertStore, nil,
 	)
 	availabilityChecker := service.NewAvailabilityService()
+	// Issue #243: availability reads bookings through the role-neutral adapter,
+	// exactly like the composition root. Using the caller-scoped bookingsRepo here
+	// would silently reintroduce the defect the integration suite guards.
+	availabilityBookings := repository.NewAvailabilityBookingsReader(database.Conn)
 	availabilityDeps := service.AvailabilityDeps{
 		Services:                servicesRepo,
 		Professionals:           prosRepo,
 		BusinessProfile:         bizProfRepo,
 		BusinessHoursExceptions: bizHoursExRepo,
 		Schedules:               schedulesRepo,
-		Bookings:                bookingsRepo,
+		Bookings:                availabilityBookings,
 	}
 	checkAvailabilityUC := usecase.NewCheckAvailabilityUseCase(availabilityChecker, availabilityDeps)
-	// agent-surface T2: the date-range slot search reads the SAME repositories as
-	// the availability path (one range booking read, the shared chain per slot).
+	// agent-surface T2: the date-range slot search reads the availability adapter
+	// for its single range read (one read for the whole range, the shared chain
+	// per slot).
 	findAvailableSlotsUC := usecase.NewFindAvailableSlotsUseCase(
-		servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, bookingsRepo,
+		servicesRepo, prosRepo, bizProfRepo, bizHoursExRepo, schedulesRepo, availabilityBookings,
 	)
 	getBusinessProfileUC := usecase.NewGetBusinessProfileUseCase(bizProfRepo)
 

@@ -45,7 +45,13 @@ type AvailabilityDeps struct {
 	BusinessProfile         repository.BusinessProfileRepo
 	BusinessHoursExceptions repository.BusinessHoursExceptionRepo
 	Schedules               repository.SchedulesRepo
-	Bookings                repository.BookingsRepo
+	// Bookings is the NARROW overlap reader, not the full BookingsRepo port
+	// (issue #243). The chain only asks "is this professional's window free?";
+	// typing it as the caller-scoped port let the answer depend on WHO asked,
+	// because the port appends `AND client_id = ?` / `AND professional_id = ?`.
+	// The narrow interface makes that requirement invisible here, and the
+	// composition root injects the role-neutral AvailabilityBookingsReader.
+	Bookings BookingOverlapReader
 }
 
 // spanishDayNames maps Go time.Weekday (0=Sunday) to the singular Spanish day
