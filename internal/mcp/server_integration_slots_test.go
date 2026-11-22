@@ -248,6 +248,43 @@ func seedOtherClientBooking(t *testing.T, conn *sql.DB, loc *time.Location, mond
 	return "b-other-client", startUTC, endUTC
 }
 
+// seedUnnamedRosterFixture prepares the ROSTER question for a staff caller: a
+// second active professional (p2) plus the specialties the unnamed candidate path
+// requires on BOTH professionals.
+//
+//   - Specialties: with no professional_id the use case resolves candidates
+//     through FindAllActive and keeps only the professionals that offer the
+//     service (entity.Professional.HasSpecialty, fail-closed on an empty/absent
+//     value). The shared seed leaves p1 without specialties, so without the UPDATE
+//     below the roster would be empty and this subtest would assert nothing.
+//   - Identical shifts: p2 gets p1's 09:00-17:00 Monday shift so both agendas
+//     produce the same 09:00..16:00 grid. That keeps the schedule read (whose own
+//     staff scoping is out of scope here, S10/S11) from confounding the assertion:
+//     the ONLY difference between the two agendas is the booking.
+//   - p2's 11:00 is booked to another client (c2): that is the slot the staff case
+//     must stop reporting as free.
+func seedUnnamedRosterFixture(t *testing.T, conn *sql.DB, loc *time.Location, monday time.Time) {
+	t.Helper()
+	for _, stmt := range []string{
+		`UPDATE professionals SET specialties = '["s1"]' WHERE id = 'p1'`,
+		`INSERT INTO professionals (id, name, status, specialties) VALUES ('p2', 'Profesional Dos', 'active', '["s1"]')`,
+		`INSERT INTO schedules (professional_id, day_of_week, start_time, end_time) VALUES ('p2', 1, '09:00', '17:00')`,
+	} {
+		if _, err := conn.ExecContext(context.Background(), stmt); err != nil {
+			t.Fatalf("seed %q: %v", stmt, err)
+		}
+	}
+	startUTC := time.Date(monday.Year(), monday.Month(), monday.Day(), 11, 0, 0, 0, loc).UTC()
+	endUTC := startUTC.Add(time.Hour)
+	if _, err := conn.ExecContext(context.Background(),
+		`INSERT INTO bookings (id, client_id, professional_id, service_id, start_datetime, end_datetime, status)
+		 VALUES ('b-other-professional', 'c2', 'p2', 's1', ?, ?, 'confirmed')`,
+		startUTC.Format("2006-01-02T15:04:05.000Z"), endUTC.Format("2006-01-02T15:04:05.000Z"),
+	); err != nil {
+		t.Fatalf("seed booking b-other-professional: %v", err)
+	}
+}
+
 // wantSlotHours asserts the complete slot list: the exact clock of every entry,
 // the professional identity of each one, the true candidate total and no
 // truncation. It is the whole observable effect of the grid, not a subset.
@@ -271,13 +308,51 @@ func wantSlotHours(t *testing.T, out dto.FindAvailableSlotsResult, day time.Time
 	}
 }
 
-// slotStarts renders the returned starts for a failure message.
+// slotStarts renders the returned grid for a failure message: start plus the
+// professional, because a multi-professional grid is unreadable by clock alone
+// (two slots can share a start and differ only by agenda).
 func slotStarts(out dto.FindAvailableSlotsResult) []string {
 	starts := make([]string, 0, len(out.Slots))
 	for _, slot := range out.Slots {
-		starts = append(starts, slot.StartDatetime.Format("2006-01-02T15:04"))
+		starts = append(starts, slot.StartDatetime.Format("2006-01-02T15:04")+"/"+slot.ProfessionalID)
 	}
 	return starts
+}
+
+// findAvailableSlotsUnnamedAs drives find_available_slots through the mux with
+// professional_id OMITTED: the candidate set is then the whole active roster
+// (FindAllActive), which is the only path where a staff caller used to be able to
+// see other professionals' agendas.
+func findAvailableSlotsUnnamedAs(t *testing.T, h http.Handler, callerID, day string) dto.FindAvailableSlotsResult {
+	t.Helper()
+	// limit 50: the two-professional grid is 14 candidates and the default limit
+	// is 10, so omitting it would truncate the very slots under assertion.
+	body := fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"find_available_slots","arguments":{"service_id":"s1","from":%q,"to":%q,"limit":50}}}`,
+		day, day)
+	result, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, h, callerID, body))
+	if code != 0 {
+		t.Fatalf("find_available_slots (no professional_id) as %q failed: %d %q", callerID, code, msg)
+	}
+	var call struct {
+		StructuredContent dto.FindAvailableSlotsResult `json:"structuredContent"`
+	}
+	if err := json.Unmarshal(result, &call); err != nil {
+		t.Fatalf("tools/call result: %v", err)
+	}
+	return call.StructuredContent
+}
+
+// slotIndex returns the position of the (professional, business-local hour) pair
+// in the returned grid, or -1 when the slot is absent.
+func slotIndex(out dto.FindAvailableSlotsResult, day time.Time, loc *time.Location, hour int, professionalID string) int {
+	start := time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, loc)
+	for index, slot := range out.Slots {
+		if slot.ProfessionalID == professionalID && slot.StartDatetime.Equal(start) {
+			return index
+		}
+	}
+	return -1
 }
 
 // findAvailableSlotsAs drives find_available_slots through the mux for a caller
@@ -317,6 +392,16 @@ func findAvailableSlotsAs(t *testing.T, h http.Handler, callerID, professionalID
 //   - a genuinely free hour is still available (the reader does not over-block);
 //   - the DATA path is untouched: get_booking still hides c2's booking from c1
 //     behind the same ErrNotFound-shaped answer, with no existence oracle.
+//
+// The last subtest covers the OTHER half of the defect (S1/S11): professional_id
+// OMITTED. The candidate set there comes from FindAllActive, which is unscoped by
+// design, so the grid can be built for several professionals — and any agenda the
+// grid renders must not be answered from a range read scoped to the caller. With
+// the caller-scoped reader each rendered agenda saw only the caller's own rows.
+// For a client caller that is directly observable (both agendas rendered, both
+// bookings owned by c2), which is what section 1 pins; for a staff caller a second
+// scoping layer (the schedules read) limits the grid to the own agenda, documented
+// in section 2 so the subtest is not credited with more than it proves.
 func TestIntegrationAvailabilityIgnoresCallerScope(t *testing.T) {
 	loc := slotsIntegrationLocation(t)
 	monday := nextMonday(t, loc)
@@ -373,5 +458,118 @@ func TestIntegrationAvailabilityIgnoresCallerScope(t *testing.T) {
 		if code != -32002 || msg != "reserva no encontrada" {
 			t.Errorf("code=%d msg=%q; want -32002 %q (no existence oracle for another client's booking)", code, msg, "reserva no encontrada")
 		}
+	})
+
+	// ── the unnamed path (S1/S11): the roster question over two agendas ──
+	//
+	// With professional_id OMITTED the candidate set comes from FindAllActive,
+	// which is unscoped BY DESIGN, so the grid is built for every active
+	// professional that offers the service. The range read must be role-neutral for
+	// the same reason: any agenda the grid renders needs that agenda's rows.
+	//
+	// TWO callers, because they do not see the same thing (verified, see the
+	// comments inside each section): the client caller renders both agendas, and
+	// the staff caller renders only their own — SchedulesRepo.FindByProfessionalAndDay
+	// rewrites the professional id to the caller's own for staff (schedules.go:71),
+	// and agendaCache.forDay discards a row whose ProfessionalID does not match the
+	// requested professional (find_available_slots_agenda.go). That second scoping
+	// is out of scope here (S10/S11); it is documented so nobody mistakes this
+	// subtest for a stronger guarantee than it gives.
+	t.Run("unnamed path: the roster question stays role-neutral across professionals", func(t *testing.T) {
+		seedUnnamedRosterFixture(t, conn, loc, monday)
+
+		// Ties at the same start are broken by professional NAME
+		// (sortAvailableSlots), and "Profesional Dos" sorts before "Profesional
+		// Uno", so p2 precedes p1 inside each hour.
+		type gridSlot struct {
+			hour    int
+			proID   string
+			proName string
+		}
+		grid := func(hour int, proID, proName string) gridSlot { return gridSlot{hour, proID, proName} }
+
+		// Both agendas, 09:00..16:00, minus the two taken slots.
+		bothAgendas := []gridSlot{
+			grid(9, "p2", "Profesional Dos"), grid(9, "p1", "Profesional Uno"),
+			grid(10, "p2", "Profesional Dos"), // p1's 10:00 is taken by another client
+			grid(11, "p1", "Profesional Uno"), // p2's 11:00 is taken by another client
+			grid(12, "p2", "Profesional Dos"), grid(12, "p1", "Profesional Uno"),
+			grid(13, "p2", "Profesional Dos"), grid(13, "p1", "Profesional Uno"),
+			grid(14, "p2", "Profesional Dos"), grid(14, "p1", "Profesional Uno"),
+			grid(15, "p2", "Profesional Dos"), grid(15, "p1", "Profesional Uno"),
+			grid(16, "p2", "Profesional Dos"), grid(16, "p1", "Profesional Uno"),
+		}
+		// The staff caller's own agenda only, minus its taken slot.
+		ownAgenda := []gridSlot{
+			grid(9, "p1", "Profesional Uno"),
+			grid(11, "p1", "Profesional Uno"),
+			grid(12, "p1", "Profesional Uno"),
+			grid(13, "p1", "Profesional Uno"),
+			grid(14, "p1", "Profesional Uno"),
+			grid(15, "p1", "Profesional Uno"),
+			grid(16, "p1", "Profesional Uno"),
+		}
+
+		assertGrid := func(t *testing.T, callerID string, out dto.FindAvailableSlotsResult, want []gridSlot) {
+			t.Helper()
+			if out.TotalCandidates != len(want) || out.Truncated || len(out.Slots) != len(want) {
+				t.Fatalf("caller %s: total_candidates=%d truncated=%v slots=%d; want %d/false/%d (got %v)",
+					callerID, out.TotalCandidates, out.Truncated, len(out.Slots), len(want), len(want), slotStarts(out))
+			}
+			for index, expected := range want {
+				wantStart := time.Date(monday.Year(), monday.Month(), monday.Day(), expected.hour, 0, 0, 0, loc)
+				if !out.Slots[index].StartDatetime.Equal(wantStart) {
+					t.Errorf("caller %s: slot[%d].start = %s; want %s", callerID, index, out.Slots[index].StartDatetime, wantStart)
+				}
+				if out.Slots[index].ProfessionalID != expected.proID {
+					t.Errorf("caller %s: slot[%d].professional_id = %q; want %q", callerID, index, out.Slots[index].ProfessionalID, expected.proID)
+				}
+				if out.Slots[index].ProfessionalName != expected.proName {
+					t.Errorf("caller %s: slot[%d].professional_name = %q; want %q", callerID, index, out.Slots[index].ProfessionalName, expected.proName)
+				}
+			}
+		}
+
+		// ── Section 1: a client caller renders BOTH agendas (the role-neutral read
+		// across two professionals). This is the part of the subtest that fails on
+		// the pre-fix wiring: with the caller-scoped range read, c1's snapshot held
+		// only rows with client_id = 'c1' — and both bookings below belong to c2 — so
+		// (10:00,p1) and (11:00,p2) both came back as FREE.
+		t.Run("client caller sees both agendas with both taken slots absent", func(t *testing.T) {
+			out := findAvailableSlotsUnnamedAs(t, mux, "c1", day)
+			assertGrid(t, "c1", out, bothAgendas)
+			if index := slotIndex(out, monday, loc, 10, "p1"); index >= 0 {
+				t.Errorf("caller c1: slot[%d] = 10:00/p1; want ABSENT (taken in p1's agenda by another client)", index)
+			}
+			if index := slotIndex(out, monday, loc, 11, "p2"); index >= 0 {
+				t.Errorf("caller c1: slot[%d] = 11:00/p2; want ABSENT (taken in p2's agenda by another client)", index)
+			}
+		})
+
+		// ── Section 2: the staff caller of the report. staff-1 belongs to p1.
+		// Observable result: p1's agenda only, with p1's taken 10:00 absent and
+		// p1's free slots still offered (the negative control: the neutral reader
+		// must not over-block). p2's 11:00 is absent too — as it must be — but it is
+		// absent because p2's agenda is not rendered at all for a staff caller, so
+		// this section does NOT discriminate the pre-fix wiring by itself; its job
+		// is to pin the reachable truth (own agenda, own taken slot hidden, free
+		// slots intact) so that a future un-scoping of the schedules read cannot
+		// silently start publishing foreign agendas against a scoped bookings read.
+		t.Run("staff caller renders the own agenda with its taken slot absent", func(t *testing.T) {
+			out := findAvailableSlotsUnnamedAs(t, mux, "staff-1", day)
+			assertGrid(t, "staff-1", out, ownAgenda)
+			if index := slotIndex(out, monday, loc, 10, "p1"); index >= 0 {
+				t.Errorf("caller staff-1: slot[%d] = 10:00/p1; want ABSENT (taken in p1's agenda by another client)", index)
+			}
+			if index := slotIndex(out, monday, loc, 11, "p2"); index >= 0 {
+				t.Errorf("caller staff-1: slot[%d] = 11:00/p2; want ABSENT (never offered as free)", index)
+			}
+			// Negative control: the genuinely free hours stay offered.
+			for _, hour := range []int{9, 15} {
+				if index := slotIndex(out, monday, loc, hour, "p1"); index < 0 {
+					t.Errorf("caller staff-1: slot %02d:00/p1 is missing; want it offered (free slot over-blocked)", hour)
+				}
+			}
+		})
 	})
 }
