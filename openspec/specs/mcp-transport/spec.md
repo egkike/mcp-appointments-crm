@@ -57,9 +57,11 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 - WHEN `initialize` is called
 - THEN response includes `protocolVersion`, `serverInfo.name`, `serverInfo.version`, and `capabilities.tools`
 
-### REQ-MT-005 — tools/list returns 25 tools
+### REQ-MT-005 — tools/list returns 26 tools
 
 `tools/list` MUST return exactly 26 tool descriptors (see REQ-MT-015 for names and schemas).
+
+(Previously: 25 tools — agent-surface T2 adds `find_available_slots`, the date-range slot search: `any authenticated`, PII-free, filters rather than reports.)
 
 (Previously: 24 tools — `feat-owner-chat` S7b adds the owner-only agenda read `get_professional_schedules`.)
 
