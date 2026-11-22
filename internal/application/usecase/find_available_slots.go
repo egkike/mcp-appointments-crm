@@ -51,6 +51,7 @@ type FindAvailableSlotsUseCase struct {
 	exceptions    domainrepo.BusinessHoursExceptionRepo
 	schedules     domainrepo.SchedulesRepo
 	bookings      domainrepo.BookingsRepo
+	clock         Clock
 }
 
 // NewFindAvailableSlotsUseCase constructs the use case. Every dependency is a
@@ -71,7 +72,15 @@ func NewFindAvailableSlotsUseCase(
 		exceptions:    exceptions,
 		schedules:     schedules,
 		bookings:      bookings,
+		clock:         systemClock{},
 	}
+}
+
+// SetClock replaces the clock. It is intended for tests, and it is what makes
+// the "today" clamp deterministic: a test pins the clock to the same instant it
+// used to derive its own dates, so the two can never disagree across midnight.
+func (uc *FindAvailableSlotsUseCase) SetClock(clock Clock) {
+	uc.clock = clock
 }
 
 // Execute searches the free slots of one service over an inclusive day range.
@@ -142,7 +151,7 @@ func (uc *FindAvailableSlotsUseCase) Execute(ctx context.Context, input dto.Find
 	// business location, then recompute the day count so the loop below and both
 	// range reads agree on the same window. A fully past range narrows to zero
 	// days and returns the empty result WITHOUT reading the range at all.
-	if today := businessDay(time.Now(), loc); rangeStart.Before(today) {
+	if today := businessDay(uc.clock.Now(), loc); rangeStart.Before(today) {
 		rangeStart = today
 	}
 	days := civilDays(rangeStart, rangeEnd)

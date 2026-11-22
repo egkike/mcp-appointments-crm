@@ -521,9 +521,9 @@ func TestFindAvailableSlotsPastSlotsAreFiltered(t *testing.T) {
 // become a semantic error: the observable contract of a past range is unchanged.
 func TestFindAvailableSlotsFullyPastRangeReadsNothing(t *testing.T) {
 	loc := slotsTestLocation(t)
-	today := slotsTestToday(t, loc)
 
 	f := newSlotsFixture(t)
+	today := slotsPinToday(t, f, loc)
 	exceptionReads := 0
 	var excFrom, excTo time.Time
 	f.exceptions.ListFn = func(_ context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
@@ -570,10 +570,11 @@ func TestFindAvailableSlotsFullyPastRangeReadsNothing(t *testing.T) {
 // the ones the unclamped scan would have produced: past days never had any.
 func TestFindAvailableSlotsClampsTheReadWindowToToday(t *testing.T) {
 	loc := slotsTestLocation(t)
-	today := slotsTestToday(t, loc)
-	tomorrow := today.AddDate(0, 0, 1)
 
 	f := newSlotsFixture(t)
+	today := slotsPinToday(t, f, loc)
+	tomorrow := today.AddDate(0, 0, 1)
+
 	exceptionReads := 0
 	var excFrom, excTo time.Time
 	f.exceptions.ListFn = func(_ context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {

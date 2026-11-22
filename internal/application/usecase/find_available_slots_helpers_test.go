@@ -55,6 +55,23 @@ func slotsTestToday(t *testing.T, loc *time.Location) time.Time {
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 }
 
+// slotsFixedClock pins the use case clock to one instant. Tests that depend on
+// "today" pin it to the same day they derived their own dates from, so the clamp
+// can never disagree with the test by crossing business-local midnight between
+// the two evaluations.
+type slotsFixedClock struct{ at time.Time }
+
+func (c slotsFixedClock) Now() time.Time { return c.at }
+
+// slotsPinToday derives business-local midnight of the real current date and then
+// pins the fixture's clock to noon of that same day, returning the midnight.
+func slotsPinToday(t *testing.T, f *slotsFixture, loc *time.Location) time.Time {
+	t.Helper()
+	today := slotsTestToday(t, loc)
+	f.uc.SetClock(slotsFixedClock{at: today.Add(12 * time.Hour)})
+	return today
+}
+
 // slotsProfessional builds a staff member. Specialties carries the service id so
 // the "no professional_id" path (HasSpecialty, fail-closed) admits it.
 func slotsProfessional(id, name, status string) *entity.Professional {
