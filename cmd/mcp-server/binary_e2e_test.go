@@ -114,10 +114,10 @@ func TestBinaryEndToEnd(t *testing.T) {
 	// only asserted "some error", which a schema or transport failure also
 	// satisfies (advisory R3-weak-rbac-rejection-assertion, issue #249).
 	t.Run("client role is refused an owner-only tool by the RBAC row", func(t *testing.T) {
-		body := `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_business_profile","arguments":{}}}`
+		body := `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_professional_schedules","arguments":{"professional_id":"p1"}}}`
 		_, code, msg := postRPC(t, baseURL, clientCallerID, body)
 		if code == 0 {
-			t.Fatalf("a client caller reached get_business_profile; ToolRoles() must not allow it")
+			t.Fatalf("a client caller reached get_professional_schedules; ToolRoles() must not allow it")
 		}
 		// "no tienes permiso para realizar esta acción" is the middleware's map gate
 		// verbatim; the use-case gate words its refusal differently
@@ -164,10 +164,10 @@ func TestBinaryEndToEnd(t *testing.T) {
 			t.Logf("create_booking unexpectedly succeeded with the minimal fixture set: %q", msg)
 		}
 
-		body = `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_business_profile","arguments":{}}}`
+		body = `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_professional_schedules","arguments":{"professional_id":"p1"}}}`
 		_, code, msg = postRPC(t, baseURL, clientCallerID, body)
 		if code == 0 || !strings.Contains(msg, rbacRefusal) {
-			t.Fatalf("get_business_profile must stay closed to a client; got code=%d msg=%q", code, msg)
+			t.Fatalf("get_professional_schedules must stay closed to a client; got code=%d msg=%q", code, msg)
 		}
 	})
 }
