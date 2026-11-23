@@ -396,6 +396,23 @@ func (uc *FindAvailableSlotsUseCase) resolveCandidateProfessionals(ctx context.C
 		}
 	}
 
+	// A staff caller MUST name its professional (issue #259). For staff the day
+	// read overrides the id with the caller's own and the cache drops foreign rows,
+	// so an unnamed call would discard every candidate and be indistinguishable
+	// from "no availability" — the agent would tell the client there are no slots
+	// when the caller simply had no permission. Refusing names the cause and the
+	// way out instead.
+	staffCaller, err := auth.RequireCaller(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if staffCaller.Role == auth.RoleStaff {
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeForbidden,
+			Message: "Personal debe indicar su professional_id: solo puede consultar su propia disponibilidad.",
+		}
+	}
+
 	// FindAllActive is deliberately unscoped (a staff caller must still see the
 	// whole roster): the question is "who can serve this service?", not "who am I".
 	all, err := uc.professionals.FindAllActive(ctx)
