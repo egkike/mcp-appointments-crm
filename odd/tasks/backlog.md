@@ -1,7 +1,7 @@
 # Repo backlog (live) — reconciled 2026-11-23
 
 **Type**: tracking doc (single live backlog; supersedes the "backlog de sesión" P1-P3 notes in Engram obs 1291/1323)
-**Reconciled**: 2026-10-27 from odd/tasks sweep + host evidence (PR states via gh, tags v0.8.0..v0.9.1), correcting stale Open markers whose PRs had already merged (B5/B9/B11/B12)
+**Reconciled**: 2026-11-23 (see the dated section below). Previously 2026-10-27 from odd/tasks sweep + host evidence (PR states via gh, tags v0.8.0..v0.9.1), correcting stale Open markers whose PRs had already merged (B5/B9/B11/B12).
 **Corrections vs stale notes**: the old "P1 — v0.7.0 release + backend bot WhatsApp (ADR-0018)" is CLOSED: v0.7.0 shipped 2026-10-16 (tag, changelog 1.22, 6 GoReleaser assets, CI green). `review-findings-backlog.md` is archived history (all items disposed); it is no longer the live backlog.
 
 **Policy context (2026-10-17)**: delegated worker commits formalized in AGENTS.md (`ecebff0`: worker runs pre-flight → commit with GGA hook → fix → re-commit, ≤5 rounds; ambiguous verdicts round-trip to the owner — never worker-side `--no-verify`). GGA stays on gpt-6-luna; STRICT_MODE stays ON; upstream #113 watched passively.
