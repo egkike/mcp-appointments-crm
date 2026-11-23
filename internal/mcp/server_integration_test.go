@@ -358,14 +358,25 @@ func TestIntegrationMissingCallerIDMapsToEnvelope(t *testing.T) {
 	}
 }
 
-func TestIntegrationClientRoleForbidden(t *testing.T) {
+// TestIntegrationClientRoleForbiddenTools pins the boundary that SURVIVES issue
+// #251: a client may operate its own bookings, but the gate must keep refusing it
+// everywhere else. The previous version of this test asserted that create_booking
+// itself was refused; that was the stale transport contract, and it is now
+// replaced by TestIntegrationClientBooksOwnBooking, which proves the client's own
+// path works AND that a foreign booking cannot be touched.
+func TestIntegrationClientRoleForbiddenTools(t *testing.T) {
 	mux := newIntegrationMux(t)
 
-	// A client may not create bookings (RBAC: owner/admin/staff only).
-	rec := postMCPCaller(t, mux, "c1", `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"create_booking","arguments":{"client_id":"c1","service_id":"s1","professional_id":"p1","start_datetime":"2026-08-24T10:00:00-03:00"}}}`)
-	_, code, msg := decodeRPCEnvelope(t, rec)
-	if code != -32001 || msg != "no tienes permiso para realizar esta acción" {
-		t.Errorf("got code=%d msg=%q; want -32001 %q", code, msg, "no tienes permiso para realizar esta acción")
+	// Map-level refusals: rows that do not list client at all. The message is the
+	// middleware's own text, so a use-case refusal cannot satisfy this assertion.
+	for _, tool := range []string{"get_business_profile", "create_service", "get_professional_schedules"} {
+		t.Run(tool, func(t *testing.T) {
+			rec := postMCPCaller(t, mux, "c1", `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"`+tool+`","arguments":{}}}`)
+			_, code, msg := decodeRPCEnvelope(t, rec)
+			if code != -32001 || msg != "no tienes permiso para realizar esta acción" {
+				t.Errorf("got code=%d msg=%q; want -32001 %q", code, msg, "no tienes permiso para realizar esta acción")
+			}
+		})
 	}
 }
 
