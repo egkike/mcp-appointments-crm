@@ -29,9 +29,23 @@ import "github.com/egkike/mcp-appointments-crm/internal/auth"
 // relaxing one is a security change, not a refactor.
 func ToolRoles() auth.ToolRBAC {
 	return auth.ToolRBAC{
-		"create_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"cancel_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+		// Booking lifecycle: a client operates on its OWN bookings and nothing
+		// else (issue #251). The transport gate cannot express "own", so ownership
+		// is enforced three times below it, and the layers are deliberately
+		// redundant (defense in depth):
+		//   1. the read is scoped — FindByID runs through applyAuthFilter, so a
+		//      foreign booking is simply not found;
+		//   2. the use case re-asserts ownership on the fetched entity
+		//      (auth.AuthorizeBookingAccess in cancel/reschedule) and create_booking
+		//      compares input.ClientID with the caller's own id;
+		//   3. the write statements are scoped too (Cancel 2 clauses, Reschedule 3),
+		//      so even a race between read and write cannot touch a foreign row.
+		// The isolation cases in server_integration_client_booking_test.go assert the
+		// observable outcome of that chain, not any single guard: removing one layer
+		// alone still refuses (verified by mutation), which is the point of depth.
+		"create_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
+		"cancel_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
+		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"get_booking":          {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
 		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},

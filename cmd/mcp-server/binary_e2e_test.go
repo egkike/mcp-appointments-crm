@@ -147,6 +147,29 @@ func TestBinaryEndToEnd(t *testing.T) {
 			t.Fatalf("ungated tool returned no content: %s", string(result))
 		}
 	})
+
+	// A client must reach its own booking lifecycle (issue #251) while the gate
+	// keeps refusing what must stay closed. Asserting only the first half would
+	// pass for a gate that was removed entirely.
+	t.Run("client reaches the booking gate and is still refused the closed surface", func(t *testing.T) {
+		body := `{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"create_booking","arguments":{"client_id":"` + clientCallerID + `","service_id":"s1","professional_id":"p1","start_datetime":"2026-12-01T10:00:00Z"}}}`
+		_, code, msg := postRPC(t, baseURL, clientCallerID, body)
+		// No fixtures for services/professionals exist in this database, so the use
+		// case is expected to refuse on its own terms. What must NOT happen is the
+		// transport refusing the role: that is the defect this test guards.
+		if strings.Contains(msg, rbacRefusal) {
+			t.Fatalf("the shipped gate still refuses a client its own booking: %q", msg)
+		}
+		if code == 0 {
+			t.Logf("create_booking unexpectedly succeeded with the minimal fixture set: %q", msg)
+		}
+
+		body = `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_business_profile","arguments":{}}}`
+		_, code, msg = postRPC(t, baseURL, clientCallerID, body)
+		if code == 0 || !strings.Contains(msg, rbacRefusal) {
+			t.Fatalf("get_business_profile must stay closed to a client; got code=%d msg=%q", code, msg)
+		}
+	})
 }
 
 // seededBusinessName is the profile written into the temp database. Its presence
@@ -158,6 +181,11 @@ const seededBusinessName = "Negocio E2E Binario"
 // and no accounts row. The RBAC subtests need it to prove that a real row from
 // ToolRoles() refuses it while an ungated tool serves it.
 const clientCallerID = "client-e2e"
+
+// rbacRefusal is the middleware's own refusal text (internal/auth/middleware.go).
+// It is emitted only by the ToolRoles() gate, never by a use case, which is what
+// makes it usable as an anchor: a use-case refusal words itself differently.
+const rbacRefusal = "no tienes permiso para realizar esta acción"
 
 // buildServerBinary compiles the package under test into a temp dir and returns
 // the path. BUILDING the binary is the point: a test that instead called run()

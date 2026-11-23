@@ -215,7 +215,7 @@ When the middleware returns HTTP 401 (no/invalid `X-Caller-Id`), the MCP transpo
 When the middleware returns HTTP 403 (caller not authorized for the requested tool), the MCP transport MUST translate it to a JSON-RPC 2.0 error response with code `-32001` and the Spanish message. The error response MUST preserve the request `id` (JSON-RPC 2.0 §5.1); `id` MAY fall back to `null` only when the request body is not parseable as JSON-RPC.
 
 #### Scenario: Insufficient role → JSON-RPC -32001
-- GIVEN a caller with `Role: "client"` calling `create_booking` (requires owner/admin/staff)
+- GIVEN a caller with `Role: "client"` calling `get_business_profile` (requires owner/admin/staff; the booking-lifecycle tools admit a client for its OWN bookings since issue #251, so they no longer serve as the example here)
 - WHEN processed
 - THEN the response body MUST be a JSON-RPC 2.0 error with `code: -32001`, `message: "no tienes permiso para realizar esta acción"`, and `id` equal to the request's `id`
 
