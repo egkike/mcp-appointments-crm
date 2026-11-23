@@ -20,8 +20,15 @@ type SchedulesRepo interface {
 	// FindByProfessional returns every weekly slot of one professional, ordered
 	// by day_of_week ascending in the entity.ScheduleWeekday encoding
 	// (0=Sunday .. 6=Saturday), so the caller reads the week in calendar order
-	// without sorting. Built for the owner-only agenda read
-	// (get_professional_schedules, feat-owner-chat S7b).
+	// without sorting. Built for the agenda read (get_professional_schedules,
+	// feat-owner-chat S7b).
+	//
+	// Authorization is the shared predicate auth.AuthorizeProfessionalRead
+	// (feat-staff-self-read S3, issue #276): owner and admin may read any
+	// professional, staff only its own row, and any other caller is refused with
+	// domain.ErrCodeForbidden. Adapters MUST delegate to it instead of
+	// re-deriving the rule, so the repository cannot disagree with the two use
+	// cases that also consume it.
 	//
 	// The two "no data" answers are deliberately distinct and MUST NOT be
 	// collapsed into one (design §8.3): the professional does not exist →

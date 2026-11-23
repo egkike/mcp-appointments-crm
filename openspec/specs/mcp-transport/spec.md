@@ -60,8 +60,8 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 ### REQ-MT-005 — tools/list returns the caller's tools
 
 `tools/list` MUST return exactly the tool descriptors the resolved caller can
-invoke: the whole 26-tool registry for `owner`, and only the caller's subset for
-`admin` (14), `staff` (11) and `client` (11) — see REQ-MT-015 for the names and
+invoke: the whole 27-tool registry for `owner`, and only the caller's subset for
+`admin` (16), `staff` (13) and `client` (11) — see REQ-MT-015 for the names and
 schemas of the full registry.
 
 The filter MUST use the SAME policy that authorizes `tools/call`
@@ -82,9 +82,11 @@ scenario below: falling closed inside the filter would add a second refusal mode
 to a discovery surface the authorization layer already refuses, so this
 requirement asks for the log, not for an error.
 
+(Previously: 26 tools — `feat-staff-self-read` (issue #276) adds `get_professional`; `get_professional_schedules` keeps its slot and only widens its roles.)
+
 (Previously: 25 tools — agent-surface T2 adds `find_available_slots`, the date-range slot search: `any authenticated`, PII-free, filters rather than reports.)
 
-(Previously: 24 tools — `feat-owner-chat` S7b adds the owner-only agenda read `get_professional_schedules`.)
+(Previously: 24 tools — `feat-owner-chat` S7b adds the agenda read `get_professional_schedules`.)
 
 (Previously: 23 tools — `feat-owner-chat` S7a adds the read tool `search_professionals_advanced`, readable by ANY authenticated caller and PII-free.)
 
@@ -101,27 +103,41 @@ This change adds `create_hours_exception`, `delete_hours_exception`, `list_hours
 `feat-owner-chat` S7a adds `search_professionals_advanced` (23 → 24); S7b adds `get_professional_schedules` (24 → 25).
 
 Agent surface T1 (`feat-agent-surface-proposal` S2/S3, issue #265) adds the
-role filter itself, not a tool: the registry stays at 26 and only the per-caller
+role filter itself, not a tool: the registry stayed at 26 and only the per-caller
 view narrows.
+
+`feat-staff-self-read` (issue #276) adds `get_professional` (26 → 27) and widens
+`get_professional_schedules` from owner-only to owner/admin/staff. The staff
+surface grows by two tools (11 → 13) and the admin surface by two (14 → 16);
+the client surface is unchanged (11), because BOTH tools keep the client out.
 
 #### Scenario: List returns the owner's full surface
 
 - GIVEN a connected client whose caller role is `owner`
 - WHEN `tools/list` is called
-- THEN the response MUST contain the 26 tools: `check_availability`, `find_available_slots`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `search_professionals_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`, `get_professional_schedules`
+- THEN the response MUST contain the 27 tools: `check_availability`, `find_available_slots`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `search_professionals_advanced`, `get_professional`, `get_professional_schedules`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`
 
 #### Scenario: List narrows to the caller's subset
 
 - GIVEN a connected client whose caller role is `staff`
 - WHEN `tools/list` is called
-- THEN the response MUST contain exactly `cancel_booking`, `check_availability`, `create_booking`, `find_available_slots`, `get_booking`, `get_business_profile`, `register_client`, `reschedule_booking`, `search_clients_advanced`, `search_professionals_advanced`, `search_services_advanced` (11 tools)
+- THEN the response MUST contain exactly `cancel_booking`, `check_availability`, `create_booking`, `find_available_slots`, `get_booking`, `get_business_profile`, `get_professional`, `get_professional_schedules`, `register_client`, `reschedule_booking`, `search_clients_advanced`, `search_professionals_advanced`, `search_services_advanced` (13 tools)
 - AND it MUST NOT contain `delete_service`, `update_business_profile` or any other owner-only maintenance write
+- AND it MUST NOT contain any tool the `client` role sees and staff does not, because the staff surface is a strict superset of the client surface
 
 #### Scenario: Hidden tool is still refused
 
 - GIVEN a `staff` caller that does not see `delete_service` in `tools/list`
 - WHEN it calls `tools/call` with `name: "delete_service"`
 - THEN the response MUST be error code `-32001` with `auth.MsgForbiddenTool`, exactly as before the filter existed
+
+#### Scenario: A staff caller still cannot read a foreign professional
+
+- GIVEN a `staff` caller that DOES see `get_professional` and `get_professional_schedules` in `tools/list`
+- WHEN it calls either tool naming a professional other than its own
+- THEN the response MUST be a semantic `FORBIDDEN` (`-32002`, `auth.MsgForbiddenTool`) from the scope predicate below the transport
+- AND it MUST NOT be the repository's `UNAUTHENTICATED` answer, because the caller IS authenticated
+- NOTE: discovery is not authorization, and this refusal cannot be `-32001`: the RBAC row admits the staff role, and the per-id decision lives below a transport that never parses tool arguments
 
 #### Scenario: No caller, no surface
 
@@ -258,7 +274,8 @@ Configuration MUST use `MCP_BIND` + `MCP_PORT` with precedence per ADR-0007: exp
 | `search_clients_advanced` | any authenticated (scoping in the use case/repo per the `get_booking` precedent — admin/owner all, client own row, staff bookings-scoped; see clients REQ-CL-AUTH-004) | `{query_text}` | `[]ClientSearchEntry` — `{id, name, phone, preferences?}` ordered by FTS relevance (bm25 ASC) |
 | `search_services_advanced` | any authenticated (two role-scoped views; see the note below) | `{query_text}` | `[]ServiceSearchEntry` — `{id, name, description?, duration_minutes, price, is_active}`; FTS relevance order for owner/admin, name order for the booking catalog |
 | `search_professionals_advanced` | any authenticated (no RBAC entry; the use case enforces only `auth.RequireAuthenticated` — deliberately NOT the owner/admin gate of `search_services_advanced`, because the client booking flow consumes it) | `{query_text?, service_id?}` (both optional; neither ⇒ full active catalog) | `{results: [{id, name, role_specialty?, specialties: [service_id…]}]}` — PII-free: `email`/`phone` MUST NOT appear. `service_id` filters fail-closed through `entity.Professional.HasSpecialty` (empty/unreadable `specialties` ⇒ empty list, never the full catalog); `query_text` is a case-insensitive substring over `name`/`role_specialty` validated by the shared FTS query validator; no FTS5 table is added |
-| `get_professional_schedules` | owner (feat-owner-chat S7b — double enforcement: `ToolRBAC` entry AND `auth.RequireRole(RoleOwner)` in the use case) | `{professional_id}` | `{professional: {id, name, status}, schedules: [{id, day_of_week, start_time, end_time}]}` — every stored weekly slot ordered by `day_of_week` (0=domingo..6=sábado). Agenda rows carry NO `professional_id`: the response is scoped by `professional.id`, so a per-row copy is redundant (issued in #153, breaking wire change owner-approved 2026-10-30; the `upsert_schedule` read-back keeps the full stored-row shape). Inactive professionals ARE returned with their `status` (the delete gate must name whom it confirms). Unknown id ⇒ semantic NOT_FOUND; existing professional without slots ⇒ `schedules: []`. MUST NOT expose client or booking data |
+| `get_professional` | owner, admin, staff (feat-staff-self-read S1, issue #276 — `ToolRBAC` row AND `auth.RequireRole` in the use case; staff is own-only through `auth.AuthorizeProfessionalRead`) | `{professional_id?}` — an absent id asks for the CALLER'S own record, which requires a professional link (owner/admin/client omitting it get a semantic `INVALID_INPUT` naming the field) | `{professional: {id, name, role_specialty?, status, specialties: [service_id…]}, email?, phone?}` — `email`/`phone` are present ONLY when the caller is `owner` or the professional itself; for `admin` the keys are OMITTED, not empty (`omitempty`, mold `professionalOut`; owner decision L2). `specialties` is always an array, never null and never a raw JSON string (unreadable/absent ⇒ `[]`, mirroring `entity.Professional.HasSpecialty`). Inactive professionals ARE returned with their `status`. Unknown id ⇒ semantic NOT_FOUND |
+| `get_professional_schedules` | owner, admin, staff (feat-owner-chat S7b; roles widened by feat-staff-self-read S3, issue #276 — three gates: `ToolRBAC` entry, `auth.RequireRole` + `auth.AuthorizeProfessionalRead` in the use case, and the `SchedulesRepo.FindByProfessional` guard) | `{professional_id}` | `{professional: {id, name, status}, schedules: [{id, day_of_week, start_time, end_time}]}` — every stored weekly slot ordered by `day_of_week` (0=domingo..6=sábado). Agenda rows carry NO `professional_id`: the response is scoped by `professional.id`, so a per-row copy is redundant (issued in #153, breaking wire change owner-approved 2026-10-30; the `upsert_schedule` read-back keeps the full stored-row shape). Inactive professionals ARE returned with their `status` (the delete gate must name whom it confirms). Unknown id ⇒ semantic NOT_FOUND; existing professional without slots ⇒ `schedules: []`. `staff` MAY read only its own agenda and a foreign id is refused with the same semantic `FORBIDDEN` as `get_professional` (never `UNAUTHENTICATED`). MUST NOT expose client or booking data |
 | `get_pending_alerts` | owner, admin | `{}` | `[]PendingAlertView` — `{alert_id, type, message, scheduled_datetime, related_booking_id?}`: due pending only, oldest first |
 | `mark_alert_as_sent` | owner, admin | `{alert_id}` | `{alert_id, status: "sent"}` |
 | `get_loyalty_report` | owner, admin | `{period?, top_n?}` (defaults `last_month`, 10; see loyalty-report spec) | `[]LoyaltyReportEntry` — `{client_id, name, phone, booking_count}` ordered by `booking_count` DESC |

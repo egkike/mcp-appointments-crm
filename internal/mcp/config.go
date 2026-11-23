@@ -70,11 +70,17 @@ type Config struct {
 	// does NOT narrow the role, because the booking flow is the client's.
 	SearchProfessionalsAdvanced SearchProfessionalsAdvancedPort
 
-	// GetProfessionalSchedules is the owner-only agenda read (feat-owner-chat
-	// S7b). Unlike the port above it has a ToolRBAC entry in the composition
-	// root and the use case re-asserts auth.RequireRole(RoleOwner): the
-	// double enforcement closes the delete_schedule read-gap without widening
-	// the wire for clients (design §8.3 D5).
+	// GetProfessional is the single-record read (feat-staff-self-read S1, issue
+	// #276). ToolRBAC entry: owner/admin/staff; the client stays outside. Its
+	// contact fields (email/phone) cross only for the owner and the professional
+	// itself (S4), decided in the use case.
+	GetProfessional GetProfessionalPort
+
+	// GetProfessionalSchedules is the agenda read (feat-owner-chat S7b). Since
+	// feat-staff-self-read S3 it has a ToolRBAC entry admitting owner, admin and
+	// staff, and the use case re-asserts both the role and the own-only scope:
+	// the three gates close the delete_schedule read-gap without widening the wire
+	// for clients.
 	GetProfessionalSchedules GetProfessionalSchedulesPort
 
 	GetPendingAlerts GetPendingAlertsPort

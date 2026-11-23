@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -144,8 +145,12 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 	updateProfessionalUC := usecase.NewUpdateProfessionalUseCase(prosRepo, discardLogger())
 	upsertScheduleUC := usecase.NewUpsertScheduleUseCase(schedulesRepo, discardLogger())
 	deleteScheduleUC := usecase.NewDeleteScheduleUseCase(schedulesRepo, discardLogger())
-	// feat-owner-chat S7b: owner-only agenda read over the real repositories.
+	// feat-owner-chat S7b: agenda read over the real repositories; roles widened
+	// to owner/admin/staff by feat-staff-self-read S3.
 	getProfessionalSchedulesUC := usecase.NewGetProfessionalSchedulesUseCase(prosRepo, schedulesRepo)
+	// feat-staff-self-read S1: single-record read over the same repository, with
+	// the scope and PII rules inside the use case.
+	getProfessionalUC := usecase.NewGetProfessionalUseCase(prosRepo)
 
 	// Business-hours exception use cases (feat-hours-exception-tool), composed
 	// like the composition root over the shared exception repository.
@@ -153,7 +158,7 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 	deleteHoursExceptionUC := usecase.NewDeleteHoursExceptionUseCase(bizHoursExRepo, discardLogger())
 	listHoursExceptionsUC := usecase.NewListHoursExceptionsUseCase(bizHoursExRepo)
 
-	// The 26-port Config literal is composed by hand here on purpose: the
+	// The 27-port Config literal is composed by hand here on purpose: the
 	// integration suite wires REAL use cases over REAL repositories, while
 	// configFromMockPorts (tools_test.go) only renders the mock bundle — this
 	// literal is the composition-root mirror, not a mock variant. The compiler
@@ -181,6 +186,7 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		SearchServicesAdvanced: searchServicesAdvancedUC,
 
 		SearchProfessionalsAdvanced: searchProfessionalsAdvancedUC,
+		GetProfessional:             getProfessionalUC,
 		GetProfessionalSchedules:    getProfessionalSchedulesUC,
 		GetPendingAlerts:            getPendingAlertsUC,
 		MarkAlertAsSent:             markAlertAsSentUC,
@@ -373,8 +379,10 @@ func TestIntegrationClientRoleForbiddenTools(t *testing.T) {
 	// Map-level refusals: rows that do not list client at all. The message is the
 	// middleware's own text, so a use-case refusal cannot satisfy this assertion.
 	// get_business_profile left this list in issue #255: a client must be able to
-	// read the business it books with. Maintenance writes and the agenda stay.
-	for _, tool := range []string{"create_service", "get_professional_schedules"} {
+	// read the business it books with. Maintenance writes and the two professionals
+	// reads (get_professional_schedules since feat-staff-self-read S3 and
+	// get_professional since S1, issue #276) stay.
+	for _, tool := range []string{"create_service", "get_professional_schedules", "get_professional"} {
 		t.Run(tool, func(t *testing.T) {
 			rec := postMCPCaller(t, mux, "c1", `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"`+tool+`","arguments":{}}}`)
 			_, code, msg := decodeRPCEnvelope(t, rec)
@@ -451,10 +459,12 @@ func TestToolSearchClientsAdvancedRejectsEmptyQuery(t *testing.T) {
 //   - the owner reads the seeded agenda (identity + rows ordered by day);
 //   - a professional with no slot answers [] and stays distinguishable from a
 //     non-existent id, which answers the semantic NOT_FOUND;
-//   - admin, staff and client are stopped by the ToolRBAC layer with -32001
-//     before the handler runs, while the use case's own owner gate (the second
-//     layer, which answers the -32002 semantic forbidden) is pinned in
-//     tools_professionals_test.go + get_professional_schedules_test.go.
+//   - admin and staff read the agenda (feat-staff-self-read S3), staff own-only;
+//     the client is stopped by the ToolRBAC layer with -32001 before the handler
+//     runs, while the use case's and repository's scope gates (which answer the
+//     -32002 semantic forbidden) are pinned here and in
+//     tools_professionals_test.go + get_professional_schedules_test.go +
+//     schedules_test.go.
 func TestIntegrationProfessionalSchedules(t *testing.T) {
 	mux, conn := newIntegrationMuxWithDB(t)
 
@@ -510,11 +520,160 @@ func TestIntegrationProfessionalSchedules(t *testing.T) {
 		t.Errorf("unknown id: code=%d msg=%q; want -32002 %q", code, msg, "el profesional indicado no existe")
 	}
 
-	// Layer 1 of the double gate: the RBAC map rejects every non-owner role.
-	for _, caller := range []string{"admin-1", "staff-1", "c1"} {
-		_, code, msg := callMCPTool(t, mux, caller, "get_professional_schedules", `{"professional_id":"p1"}`)
-		if code != -32001 || msg != auth.MsgForbiddenTool {
-			t.Errorf("caller %s: code=%d msg=%q; want -32001 %q", caller, code, msg, auth.MsgForbiddenTool)
+	// feat-staff-self-read S3 (issue #276): admin and staff read the agenda too.
+	// The RBAC row admits them, the use case's RequireRole re-asserts the role and
+	// auth.AuthorizeProfessionalRead decides the scope; the repository re-asserts
+	// the same predicate as the third gate.
+	for _, caller := range []string{"admin-1", "staff-1"} {
+		var got struct {
+			Professional struct {
+				ID string `json:"id"`
+			} `json:"professional"`
+			Schedules []struct {
+				DayOfWeek int `json:"day_of_week"`
+			} `json:"schedules"`
+		}
+		decodeToolStructured(t, mustCallTool(t, mux, caller, "get_professional_schedules", `{"professional_id":"p1"}`), &got)
+		if got.Professional.ID != "p1" {
+			t.Errorf("caller %s: professional = %+v; want p1", caller, got.Professional)
+		}
+		if len(got.Schedules) != 1 {
+			t.Errorf("caller %s: schedules = %+v; want the seeded Monday slot", caller, got.Schedules)
 		}
 	}
+
+	// Staff is own-only (S2 semantics, S3 resource): the same FORBIDDEN answer as
+	// the record read, never the repository's old UNAUTHENTICATED. staff-1 is
+	// linked to p1, so p-sin-agenda is a foreign id.
+	if _, code, msg := callMCPTool(t, mux, "staff-1", "get_professional_schedules", `{"professional_id":"p-sin-agenda"}`); code != -32002 || msg != auth.MsgForbiddenTool {
+		t.Errorf("staff naming a foreign agenda: code=%d msg=%q; want -32002 %q", code, msg, auth.MsgForbiddenTool)
+	}
+
+	// Layer 1 stays load-bearing for the client, which the RBAC row keeps out
+	// entirely (S5): the map refuses with -32001 before the handler runs.
+	if _, code, msg := callMCPTool(t, mux, "c1", "get_professional_schedules", `{"professional_id":"p1"}`); code != -32001 || msg != auth.MsgForbiddenTool {
+		t.Errorf("client: code=%d msg=%q; want -32001 %q", code, msg, auth.MsgForbiddenTool)
+	}
+}
+
+// TestIntegrationGetProfessional runs get_professional through the real
+// composition (real SQLite → repository → use case → tool → real RBAC map) and
+// pins feat-staff-self-read S1/S2/S4 end to end:
+//   - owner and admin read the record, and only the owner (and the professional
+//     itself) receives email/phone;
+//   - staff reads its own record with an ABSENT professional_id (self) and with
+//     its own id;
+//   - staff naming a foreign professional is refused with -32002 and the shipped
+//     message: a FORBIDDEN scope answer, never UNAUTHENTICATED;
+//   - owner omitting the id gets the input error naming the missing field;
+//   - the client never reaches the tool: the RBAC row refuses it with -32001.
+func TestIntegrationGetProfessional(t *testing.T) {
+	mux, conn := newIntegrationMuxWithDB(t)
+
+	// The seed carries no contact data for p1; this test needs real values so
+	// "present" and "omitted" are distinguishable instead of comparing nils.
+	if _, err := conn.ExecContext(context.Background(),
+		`UPDATE professionals SET email = 'p1@example.com', phone = '+5491100000001', role_specialty = 'Estilista', specialties = '["s1"]' WHERE id = 'p1'`); err != nil {
+		t.Fatalf("seed contact data: %v", err)
+	}
+
+	type recordWire struct {
+		Professional struct {
+			ID            string   `json:"id"`
+			Name          string   `json:"name"`
+			RoleSpecialty *string  `json:"role_specialty"`
+			Status        string   `json:"status"`
+			Specialties   []string `json:"specialties"`
+		} `json:"professional"`
+		Email *string `json:"email"`
+		Phone *string `json:"phone"`
+	}
+
+	t.Run("owner reads any record with contact data", func(t *testing.T) {
+		var got recordWire
+		decodeToolStructured(t, mustCallTool(t, mux, "owner-1", "get_professional", `{"professional_id":"p1"}`), &got)
+		if got.Professional.ID != "p1" || got.Professional.Name != "Profesional Uno" || got.Professional.Status != "active" {
+			t.Errorf("professional = %+v; want p1/Profesional Uno/active", got.Professional)
+		}
+		if got.Professional.RoleSpecialty == nil || *got.Professional.RoleSpecialty != "Estilista" {
+			t.Errorf("role_specialty = %v; want Estilista", got.Professional.RoleSpecialty)
+		}
+		if len(got.Professional.Specialties) != 1 || got.Professional.Specialties[0] != "s1" {
+			t.Errorf("specialties = %v; want [s1]", got.Professional.Specialties)
+		}
+		if got.Email == nil || *got.Email != "p1@example.com" || got.Phone == nil || *got.Phone != "+5491100000001" {
+			t.Errorf("contact = %v/%v; the owner must receive email and phone (S4)", got.Email, got.Phone)
+		}
+	})
+
+	t.Run("admin reads the record without contact data", func(t *testing.T) {
+		result := mustCallTool(t, mux, "admin-1", "get_professional", `{"professional_id":"p1"}`)
+		var got recordWire
+		decodeToolStructured(t, result, &got)
+		if got.Professional.ID != "p1" {
+			t.Errorf("professional = %+v; admin must read the record (S1)", got.Professional)
+		}
+		// Asserted on the raw payload: a null pair would still decode into nils.
+		if bytes.Contains(result, []byte(`"email"`)) || bytes.Contains(result, []byte(`"phone"`)) {
+			t.Errorf("admin received contact data; S4 withholds it: %s", string(result))
+		}
+	})
+
+	t.Run("staff reads its own record, with and without the id", func(t *testing.T) {
+		for name, args := range map[string]string{
+			"omitted": `{}`,
+			"own id":  `{"professional_id":"p1"}`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				var got recordWire
+				decodeToolStructured(t, mustCallTool(t, mux, "staff-1", "get_professional", args), &got)
+				if got.Professional.ID != "p1" {
+					t.Errorf("professional = %+v; want the caller's own p1", got.Professional)
+				}
+				if got.Email == nil || got.Phone == nil {
+					t.Errorf("contact = %v/%v; the professional itself must see its own contact data (S4)",
+						got.Email, got.Phone)
+				}
+			})
+		}
+	})
+
+	t.Run("staff naming a foreign record is forbidden", func(t *testing.T) {
+		if _, err := conn.ExecContext(context.Background(),
+			`INSERT INTO professionals (id, name, status) VALUES ('p-otro', 'Otro', 'active')`); err != nil {
+			t.Fatalf("seed foreign professional: %v", err)
+		}
+		_, code, msg := callMCPTool(t, mux, "staff-1", "get_professional", `{"professional_id":"p-otro"}`)
+		// The scope answer is a semantic FORBIDDEN (-32002), not the old
+		// repository UNAUTHENTICATED and not the middleware's -32001: the RBAC row
+		// admits staff, and the per-id decision lives below the transport.
+		if code != -32002 {
+			t.Errorf("code = %d; want -32002 (a FORBIDDEN scope answer, msg=%q)", code, msg)
+		}
+		if msg != auth.MsgForbiddenTool {
+			t.Errorf("message = %q; want the shipped refusal %q", msg, auth.MsgForbiddenTool)
+		}
+	})
+
+	t.Run("a caller without a professional that omits the id gets an input error", func(t *testing.T) {
+		_, code, msg := callMCPTool(t, mux, "owner-1", "get_professional", `{}`)
+		if code != -32002 || msg != auth.MsgProfessionalScopeRequired {
+			t.Errorf("code=%d msg=%q; want -32002 %q", code, msg, auth.MsgProfessionalScopeRequired)
+		}
+	})
+
+	t.Run("unknown id is NOT_FOUND", func(t *testing.T) {
+		_, code, msg := callMCPTool(t, mux, "owner-1", "get_professional", `{"professional_id":"p-missing"}`)
+		if code != -32002 || msg != "el profesional indicado no existe" {
+			t.Errorf("code=%d msg=%q; want -32002 %q", code, msg, "el profesional indicado no existe")
+		}
+	})
+
+	t.Run("client is refused by the RBAC row", func(t *testing.T) {
+		_, code, msg := callMCPTool(t, mux, "c1", "get_professional", `{"professional_id":"p1"}`)
+		if code != -32001 || msg != auth.MsgForbiddenTool {
+			t.Errorf("code=%d msg=%q; want -32001 %q (the client stays out of this surface, S5)",
+				code, msg, auth.MsgForbiddenTool)
+		}
+	})
 }

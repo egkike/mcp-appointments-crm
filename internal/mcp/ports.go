@@ -89,12 +89,27 @@ type SearchProfessionalsAdvancedPort interface {
 	Execute(context.Context, dto.SearchProfessionalsAdvancedInput) (*dto.SearchProfessionalsAdvancedResult, error)
 }
 
+// GetProfessionalPort reads ONE professional record, with the contact fields
+// included only when the caller may see them (feat-staff-self-read S1/S4, issue
+// #276). ToolRBAC entry: owner, admin, staff — the client is deliberately
+// excluded, so the record cannot widen the conversational client surface.
+//
+// Both the scope (which record) and the PII rule (which fields) are decided in
+// the use case through the shared auth predicates; this port carries the answer,
+// not the policy: a nil Email/Phone means "the caller may not see it", which the
+// transport renders as an absent key.
+type GetProfessionalPort interface {
+	Execute(context.Context, dto.GetProfessionalInput) (*dto.GetProfessionalResult, error)
+}
+
 // GetProfessionalSchedulesPort reads one professional's weekly agenda together
-// with the professional identity (feat-owner-chat S7b). ToolRBAC entry: owner
-// only. Unlike the reads above, this port is NOT an open set: the agenda is
-// business-operational data, so the transport gate and the use case's
-// auth.RequireRole(RoleOwner) are both required (double enforcement, design
-// §8.3 D5).
+// with the professional identity (feat-owner-chat S7b). ToolRBAC entry: owner,
+// admin and staff since feat-staff-self-read S3 (issue #276); staff is own-only.
+// Unlike the reads above, this port is NOT an open set: the agenda is
+// business-operational data, so the transport gate, the use case's
+// auth.RequireRole and auth.AuthorizeProfessionalRead (the same predicate the
+// record read uses, re-asserted by the repository as the third gate) are all
+// required.
 type GetProfessionalSchedulesPort interface {
 	Execute(context.Context, dto.GetProfessionalSchedulesInput) (*dto.GetProfessionalSchedulesResult, error)
 }

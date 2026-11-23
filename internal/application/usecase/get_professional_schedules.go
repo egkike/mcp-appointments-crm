@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -18,11 +17,15 @@ import (
 // had (feature doc L4): before this read, `delete_schedule` could only repeat the
 // professional+day pair the owner declared, never verify it.
 //
-// Role: OWNER ONLY, enforced twice by design (design §8.3 D5): the
-// composition-root ToolRBAC entry and auth.RequireRole(RoleOwner) below. The
-// agenda is business-operational data; the client already resolves availability
-// server-side through check_availability, so opening this read would widen the
-// wire without a product need.
+// Role: OWNER, ADMIN or STAFF, enforced in THREE layers (feat-staff-self-read S3,
+// issue #276): the composition-root ToolRBAC entry, auth.RequireRole below, and
+// the SchedulesRepo.FindByProfessional guard. The agenda is
+// business-operational data, so it stays closed to the client (which already
+// resolves availability server-side through check_availability). Staff is
+// own-only: the scope comes from the ONE shared predicate
+// auth.AuthorizeProfessionalRead, so a foreign id is refused with the same
+// FORBIDDEN answer as the record read (S2) instead of leaking through a
+// repository lookup.
 type GetProfessionalSchedulesUseCase struct {
 	professionals domainrepo.ProfessionalsRepo
 	schedules     domainrepo.SchedulesRepo
@@ -52,7 +55,8 @@ func (uc *GetProfessionalSchedulesUseCase) Execute(ctx context.Context, input dt
 	// Double enforcement, layer 2: pass auth.RequireRole's own semantic error
 	// through unchanged (same mold as delete_schedule.go), keeping the
 	// 401/403 distinction this layer's contract documents.
-	if _, err := auth.RequireRole(ctx, auth.RoleOwner); err != nil {
+	caller, err := auth.RequireRole(ctx, auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff)
+	if err != nil {
 		var sem *domain.SemanticError
 		if errors.As(err, &sem) {
 			return nil, sem
@@ -60,7 +64,18 @@ func (uc *GetProfessionalSchedulesUseCase) Execute(ctx context.Context, input dt
 		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: auth.MsgForbiddenTool, Cause: domain.ErrForbidden}
 	}
 
-	professionalID := strings.TrimSpace(input.ProfessionalID)
+	// Scope, decided on the REQUEST and before any read (feat-staff-self-read
+	// S2/S3): the shared predicate answers "may this caller read this
+	// professional?", so staff is own-only here with the same FORBIDDEN answer the
+	// record read gives, and owner/admin keep the whole roster.
+	professionalID, err := auth.AuthorizeProfessionalRead(*caller, input.ProfessionalID)
+	if err != nil {
+		var sem *domain.SemanticError
+		if errors.As(err, &sem) {
+			return nil, sem
+		}
+		return nil, fmt.Errorf("get_professional_schedules: %w", err)
+	}
 
 	professional, err := uc.professionals.FindByID(ctx, professionalID)
 	if err != nil {

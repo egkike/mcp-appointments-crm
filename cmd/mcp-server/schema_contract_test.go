@@ -35,7 +35,7 @@ import (
 // wires one non-nil port per tool, so serve mode must advertise exactly this
 // many. Kept as a literal here on purpose — importing the mock helpers is not
 // possible across packages, and a drift makes this contract test fail loudly.
-const wiredToolCount = 26
+const wiredToolCount = 27
 
 // toolSchema is the slice of a tools/list entry this contract cares about.
 type toolSchema struct {

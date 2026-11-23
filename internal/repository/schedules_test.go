@@ -549,11 +549,68 @@ func TestSchedulesRepo_FindByProfessional(t *testing.T) {
 
 	// ── TRIANGULATE ──
 
-	t.Run("admin caller is rejected with ErrCodeForbidden", func(t *testing.T) {
+	// feat-staff-self-read S3 (issue #276): the repository is the THIRD gate of
+	// the agenda read. Widening only the ToolRBAC row and the use case would have
+	// left every non-owner answering -32002 from here (feature doc L3).
+	t.Run("admin caller reads any professional agenda", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		mock.ExpectQuery(`SELECT id, professional_id, day_of_week, start_time, end_time\s+FROM schedules WHERE professional_id = \? ORDER BY day_of_week ASC`).
+			WithArgs("pro-1").
+			WillReturnRows(sqlmock.NewRows(scheduleColumns).AddRow(1, "pro-1", 1, "09:00", "13:00"))
+
+		agenda, err := repo.FindByProfessional(adminCtx(), "pro-1")
+		if err != nil {
+			t.Fatalf("admin must read the agenda (S3): %v", err)
+		}
+		if len(agenda) != 1 {
+			t.Fatalf("agenda = %d rows, want 1", len(agenda))
+		}
+	})
+
+	t.Run("staff caller reads its own agenda", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		mock.ExpectQuery(`SELECT id, professional_id, day_of_week, start_time, end_time\s+FROM schedules WHERE professional_id = \? ORDER BY day_of_week ASC`).
+			WithArgs("pro-1").
+			WillReturnRows(sqlmock.NewRows(scheduleColumns).AddRow(1, "pro-1", 1, "09:00", "13:00"))
+
+		agenda, err := repo.FindByProfessional(staffCtx("pro-1"), "pro-1")
+		if err != nil {
+			t.Fatalf("staff must read its own agenda (S3): %v", err)
+		}
+		if len(agenda) != 1 {
+			t.Fatalf("agenda = %d rows, want 1", len(agenda))
+		}
+	})
+
+	t.Run("staff naming another professional is forbidden, not unauthenticated", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
-		_, err := repo.FindByProfessional(adminCtx(), "pro-1")
+		// No ExpectQuery: the refusal must land before any SQL runs, and the
+		// FORBIDDEN code is the S2 contract (an authenticated caller outside its
+		// scope), not the repository's old UNAUTHENTICATED answer.
+		_, err := repo.FindByProfessional(staffCtx("pro-1"), "pro-2")
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+		if sErr.Message != auth.MsgForbiddenTool {
+			t.Errorf("got Message=%q, want %q", sErr.Message, auth.MsgForbiddenTool)
+		}
+	})
+
+	t.Run("client caller is rejected with ErrCodeForbidden", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		_, err := repo.FindByProfessional(clientCtx("c1"), "pro-1")
 		var sErr *domain.SemanticError
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
