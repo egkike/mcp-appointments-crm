@@ -59,6 +59,16 @@ Motivos (consecuencia directa del punto 3 del Context):
   `get_professional_schedules` (owner-only, doble capa) por S7b, que cierra el
   read-gap del `delete_schedule` en el doble gate).
 
+  > **Nota (2026-11-23, `feat-staff-self-read`, issue #276)**: el conteo y el
+  > alcance de esta decisión quedaron desactualizados y **no se reescriben** — un
+  > ADR registra lo que se decidió en su momento; se corrige con una nota, como en
+  > [ADR-0009](0009-authorization-model.md). Al 2026-11-23 la superficie es de
+  > **27 tools**: se sumó `get_professional` y `get_professional_schedules` ya
+  > **no** es owner-only, sino `{owner, admin, staff}` (el `staff` solo la propia).
+  > La PII de contacto de `get_professional` queda reservada al owner y al propio
+  > profesional, y el alcance lo decide un único predicado,
+  > `auth.AuthorizeProfessionalRead`.
+
 ### Decisión 2 — Rol e identidad: asistente del negocio, no asistente general
 
 La skill declara que Hermes es el **asistente del negocio** cargado en
