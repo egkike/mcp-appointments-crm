@@ -41,10 +41,13 @@ type Config struct {
 	// mcp.ToolRoles(); the ungated half of the policy is read from
 	// UngatedTools() by the filter itself.
 	//
-	// A nil map disables the filter, which is the skeleton/transport behavior:
-	// the tool-role coverage test (tool_roles_test.go) keeps the maps in sync
-	// with the registry, so production can never ship an empty policy by
-	// accident.
+	// A nil (or empty) map disables the filter, which is the skeleton/transport
+	// behavior, and NewServer says so with a single construction-time Warn
+	// (advisory S2, issue #268): a Config that wires ports but forgets the
+	// policy would otherwise degrade discovery silently, advertising the whole
+	// registry to every caller while the guard kept refusing tools/call. The
+	// tool-role coverage test (tool_roles_test.go) keeps the maps in sync with
+	// the registry, so production can never ship an empty policy by accident.
 	ToolRBAC auth.ToolRBAC
 
 	CheckAvailability CheckAvailabilityPort

@@ -42,6 +42,21 @@ func NewBusinessProfileRepo(db *sql.DB) *BusinessProfileRepo {
 // reached from an ungated tool, and the admin TUI, which runs with no caller in
 // context at all. A RequireCaller here would break the console path and prove
 // nothing about the MCP surface; the gate belongs to each caller's use case.
+//
+// The pins are cited by SYMBOL, not by file (advisory S5, issue #274), so a
+// rename cannot leave this rationale pointing at nothing:
+//   - TestToolsListFiltersByCallerRole (internal/mcp) pins that the profile tool
+//     is advertised — and therefore invocable — for all four roles, which is
+//     what "any authenticated caller" means here;
+//   - TestRegenerateSkillForConsoleOutcomes (internal/tui) pins the CONSUMER
+//     contract, not this adapter: it drives the console path, whose inputs are
+//     resolved with context.Background() and therefore with no caller in ctx.
+//     It injects a fake reader, so it would stay green if a gate were added
+//     here while production broke — it is the evidence that the read shape
+//     exists, not a regression pin at this layer;
+//   - update_business_profile is owner-only one layer up (auth.RequireRole in
+//     UpdateBusinessProfileUseCase) and on the tool map (ToolRoles); its read
+//     counterpart has no gate to mirror.
 func (r *BusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile, error) {
 	// Lazy-init: ensure the singleton row exists.
 	// INSERT OR IGNORE silently no-ops when the row already exists (UNIQUE

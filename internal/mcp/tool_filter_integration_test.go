@@ -185,11 +185,19 @@ func TestToolsListStillRefusesAMissingCallerHeader(t *testing.T) {
 }
 
 // TestVisibleToolsMirrorsTheTransportGate pins the predicate the filter shares
-// with AuthMiddleware (internal/mcp/tool_filter.go canInvoke): an absent row or
-// an EMPTY row is open to any role, a populated row admits only its listed
-// roles, and order/duplicates of the registry survive unchanged. The empty-row
-// case cannot occur in today's policy, which is exactly why it is asserted
-// here: it is the shape a future edit is most likely to translate wrongly.
+// with AuthMiddleware (auth.CanInvoke, internal/auth/can_invoke.go — one
+// function since advisory S1, issue #268): an absent row or an EMPTY row is
+// open to any role, a populated row admits only its listed roles, and
+// order/duplicates of the registry survive unchanged. The empty-row case cannot
+// occur in today's policy, which is exactly why it is asserted here: it is the
+// shape a future edit is most likely to translate wrongly.
+//
+// This is the filter-side view of the shared predicate. It is NOT a
+// cross-consumer equivalence test — the two gates now literally call the same
+// function — so what it pins is the wiring: visibleTools must route through
+// auth.CanInvoke instead of re-deriving the rule locally (the mutation that
+// proves it: make visibleTools return every tool and this test goes red while
+// the tools/call gate stays green).
 func TestVisibleToolsMirrorsTheTransportGate(t *testing.T) {
 	rbac := auth.ToolRBAC{
 		"owner_only": {auth.RoleOwner},
@@ -288,5 +296,123 @@ func TestToolsListFilterWithoutACallerLogsAndDoesNotFilter(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "without a resolved caller") {
 		t.Errorf("expected a warn log naming the missing caller; got %q", logs.String())
+	}
+}
+
+// capturingLogger mirrors discardLogger (shutdown_test.go) for the tests that
+// must READ the records instead of dropping them: same one-line construction,
+// but the handler keeps them (captureHandler, logging_test.go).
+func capturingLogger() (*slog.Logger, *captureHandler) {
+	cap := &captureHandler{}
+	return slog.New(cap), cap
+}
+
+// warnRecords returns the records at Warn or above, in emission order: the
+// level an operator actually sees without turning anything on.
+func warnRecords(h *captureHandler) []slog.Record {
+	var out []slog.Record
+	for _, r := range h.records {
+		if r.Level >= slog.LevelWarn {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// recordMessages flattens records to their messages so a count failure shows
+// WHAT was logged instead of only how many lines there were.
+func recordMessages(records []slog.Record) []string {
+	messages := make([]string, 0, len(records))
+	for _, r := range records {
+		messages = append(messages, r.Message)
+	}
+	return messages
+}
+
+// TestServerRegistersNoDiscoveryFilterWithoutAPolicy pins S2 (advisory, issue
+// #268) through both halves of its contract:
+//
+//  1. exactly ONE Warn at construction when ToolRBAC is nil, naming the missing
+//     policy — a partial Config must not degrade discovery in silence; and
+//  2. NOTHING registered, observed through the log the filter alone can print: a
+//     caller-less tools/list through the unauthenticated chain emits no
+//     "without a resolved caller" Warn. Half 1 alone could not tell
+//     "conditional registration" from "registered but inert on a nil map",
+//     which is the same surface with a middleware doing nothing.
+func TestServerRegistersNoDiscoveryFilterWithoutAPolicy(t *testing.T) {
+	t.Run("nil policy warns once and registers nothing", func(t *testing.T) {
+		logger, cap := capturingLogger()
+		srv := NewServer(Config{Version: "test", Logger: logger})
+
+		warns := warnRecords(cap)
+		if len(warns) != 1 {
+			t.Fatalf("construction emitted %d warn records; want exactly 1 (S2): %v",
+				len(warns), recordMessages(warns))
+		}
+		if msg := warns[0].Message; !strings.Contains(msg, "ToolRBAC") {
+			t.Errorf("construction warn = %q; want it to name the missing ToolRBAC policy", msg)
+		}
+
+		// No X-Caller-Id: only a REGISTERED filter answers this request, and it
+		// answers with its own fail-open Warn.
+		rec := postMCPCaller(t, srv.Handler(), "", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d; want 200 (body=%s)", rec.Code, rec.Body.String())
+		}
+		if got := len(warnRecords(cap)); got != 1 {
+			t.Errorf("warn records after a caller-less tools/list = %d; want still 1: "+
+				"the discovery filter must not be registered without a policy (%v)",
+				got, recordMessages(warnRecords(cap)))
+		}
+	})
+
+	t.Run("a policy registers the filter and stays quiet", func(t *testing.T) {
+		logger, cap := capturingLogger()
+		NewServer(Config{
+			Version:  "test",
+			Logger:   logger,
+			ToolRBAC: auth.ToolRBAC{"create_booking": {auth.RoleOwner}},
+		})
+
+		if warns := warnRecords(cap); len(warns) != 0 {
+			t.Errorf("construction with a policy emitted %d warns; want 0: %v",
+				len(warns), recordMessages(warns))
+		}
+	})
+}
+
+// TestToolsListCarriesNoNextCursor pins the pagination invariant of the shared
+// discovery surface (S3, advisory, issue #268) on the wire instead of in a
+// comment: the filter narrows the result AFTER the SDK paginated it, so
+// ServerOptions.PageSize must stay 0 and tools/list must never answer with a
+// nextCursor. A non-zero page size would compute the cursor without knowing the
+// caller's role: the client would follow it into the next page and the tools
+// this filter kept for that role would be unreachable — a capability hole
+// dressed as pagination.
+func TestToolsListCarriesNoNextCursor(t *testing.T) {
+	mux := newIntegrationMux(t)
+
+	for _, caller := range []string{"owner-1", "admin-1", "staff-1", "c1"} {
+		t.Run(caller, func(t *testing.T) {
+			result, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, caller,
+				`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+			if code != 0 {
+				t.Fatalf("caller %s tools/list failed: %d %q", caller, code, msg)
+			}
+
+			var page map[string]json.RawMessage
+			if err := json.Unmarshal(result, &page); err != nil {
+				t.Fatalf("unmarshal tools/list result: %v; raw=%s", err, result)
+			}
+			// Guard against a vacuous pass: the cursor keys can only be absent
+			// if the envelope is the one this test thinks it is.
+			if _, ok := page["tools"]; !ok {
+				t.Fatalf("tools/list result carries no tools key; raw=%s", result)
+			}
+			if _, ok := page["nextCursor"]; ok {
+				t.Errorf("tools/list for %s carries a nextCursor (S3: the filter narrows after pagination); raw=%s",
+					caller, result)
+			}
+		})
 	}
 }

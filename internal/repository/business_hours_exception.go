@@ -138,8 +138,12 @@ func (r *BusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*
 // with no scope column, and the hottest consumer is the availability chain,
 // reached from an ungated tool by any authenticated caller. Narrowing the
 // adapter to owner/admin would break find_available_slots; the owner-only rule
-// for the LIST *tool* lives in its use case (list_hours_exceptions.go), which
-// re-asserts the role and is pinned there.
+// for the LIST *tool* lives in its use case (list_hours_exceptions.go) and is
+// pinned there by SYMBOL, not by file (advisory S5, issue #274):
+// TestListHoursExceptionsUseCase_Forbidden walks every non-owner role, asserts
+// the semantic refusal and asserts the repository was never reached — which is
+// exactly the contract this comment describes. A rename of that test must come
+// here and update this rationale instead of leaving it pointing at nothing.
 func (r *BusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
 	if _, err := auth.RequireCaller(ctx); err != nil {
 		return nil, fmt.Errorf("listar excepciones: %w", err)
