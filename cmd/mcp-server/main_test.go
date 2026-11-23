@@ -512,7 +512,9 @@ func TestNewIdentityDepsWiresIdentityRepos(t *testing.T) {
 // a duplicate, or when the documented names and the production list disagree.
 func TestWiredRepoInventoryContract(t *testing.T) {
 	// The documented handle set, one entry per repository implementation the
-	// serve path wires. Keep it in sync with wiredRepoInventory in main.go.
+	// serve path wires. Keep it in sync with wiredRepoHandles in main.go: that
+	// list is what the assertions below compare against by name (R2-stale-comment,
+	// issue #249), so a rename there fails the test instead of passing silently.
 	documented := []string{
 		"bookings", "bookings_availability", "business_hours_exceptions",
 		"business_profile", "professionals", "schedules", "services",

@@ -87,6 +87,12 @@ func wantBookingIDs(t *testing.T, got []*entity.Booking, want []string) {
 // reader's projection has no id column (L5, issue #247), so its assertions
 // identify rows by the columns it does load instead of by primary key.
 //
+// Consequence to keep in mind when extending these tests (R2-span-identity,
+// issue #249): two rows sharing a professional and a start are INDISTINGUISHABLE
+// here. Cases give their spans distinct values for that reason; a case that must
+// tell two such rows apart has to assert on another loaded column instead of
+// assuming the primary key is available.
+//
 // It delegates the formatting to bookingSpan so the format string lives in ONE
 // place (R2-dup-span-helpers, review-f94fd31c48e77ce8): a future change to the
 // span shape must not be able to update one caller and miss the other.
