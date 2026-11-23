@@ -369,7 +369,9 @@ func TestIntegrationClientRoleForbiddenTools(t *testing.T) {
 
 	// Map-level refusals: rows that do not list client at all. The message is the
 	// middleware's own text, so a use-case refusal cannot satisfy this assertion.
-	for _, tool := range []string{"get_business_profile", "create_service", "get_professional_schedules"} {
+	// get_business_profile left this list in issue #255: a client must be able to
+	// read the business it books with. Maintenance writes and the agenda stay.
+	for _, tool := range []string{"create_service", "get_professional_schedules"} {
 		t.Run(tool, func(t *testing.T) {
 			rec := postMCPCaller(t, mux, "c1", `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"`+tool+`","arguments":{}}}`)
 			_, code, msg := decodeRPCEnvelope(t, rec)

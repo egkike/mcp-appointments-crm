@@ -40,25 +40,41 @@ func TestSearchServicesAdvancedUseCase(t *testing.T) {
 		}
 	})
 
-	t.Run("staff rejected", func(t *testing.T) {
-		uc := NewSearchServicesAdvancedUseCase(&mockServicesRepo{})
-		_, err := uc.Execute(context.Background(), dto.SearchServicesAdvancedInput{
+	t.Run("staff gets the active booking catalog, not the FTS view", func(t *testing.T) {
+		uc := NewSearchServicesAdvancedUseCase(&mockServicesRepo{
+			FindActiveFn: func(context.Context) ([]*entity.Service, error) {
+				return []*entity.Service{{ID: "s1", Name: "Corte", Active: true}}, nil
+			},
+			// SearchFTSFn deliberately unset: the mock panics if the maintenance
+			// path is taken, which is the assertion that matters here.
+		})
+		result, err := uc.Execute(context.Background(), dto.SearchServicesAdvancedInput{
 			Caller:    auth.Caller{ID: "staff-1", Role: auth.RoleStaff, ProfessionalID: ptr("p1")},
 			QueryText: "corte",
 		})
-		if !errors.Is(err, domain.ErrForbidden) {
-			t.Errorf("got %v, want ErrForbidden", err)
+		if err != nil {
+			t.Fatalf("staff must receive the booking catalog (issue #255): %v", err)
+		}
+		if len(result.Results) != 1 || result.Results[0].ID != "s1" {
+			t.Errorf("got %+v; want the active service", result.Results)
 		}
 	})
 
-	t.Run("client rejected", func(t *testing.T) {
-		uc := NewSearchServicesAdvancedUseCase(&mockServicesRepo{})
-		_, err := uc.Execute(context.Background(), dto.SearchServicesAdvancedInput{
+	t.Run("client gets the same booking catalog", func(t *testing.T) {
+		uc := NewSearchServicesAdvancedUseCase(&mockServicesRepo{
+			FindActiveFn: func(context.Context) ([]*entity.Service, error) {
+				return []*entity.Service{{ID: "s1", Name: "Corte", Active: true}}, nil
+			},
+		})
+		result, err := uc.Execute(context.Background(), dto.SearchServicesAdvancedInput{
 			Caller:    auth.Caller{ID: "client-1", Role: auth.RoleClient, ClientID: ptr("c1")},
 			QueryText: "corte",
 		})
-		if !errors.Is(err, domain.ErrForbidden) {
-			t.Errorf("got %v, want ErrForbidden", err)
+		if err != nil {
+			t.Fatalf("client must receive the booking catalog: %v", err)
+		}
+		if len(result.Results) != 1 {
+			t.Errorf("got %d results; want 1", len(result.Results))
 		}
 	})
 

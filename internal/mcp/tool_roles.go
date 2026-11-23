@@ -47,7 +47,7 @@ func ToolRoles() auth.ToolRBAC {
 		"cancel_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"get_booking":          {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
-		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
 		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
 		"get_loyalty_report":   {auth.RoleOwner, auth.RoleAdmin},
@@ -93,7 +93,9 @@ func UngatedTools() map[string]string {
 			"output is PII-free by construction (start + professional only)",
 		"search_clients_advanced": "row scope by caller role in the repository " +
 			"(internal/repository/clients.go)",
-		"search_services_advanced": "auth.RequireRole(RoleOwner, RoleAdmin) inside the use case",
+		"search_services_advanced": "two role-scoped views inside the use case: owner/admin get the " +
+			"FTS maintenance view over every service, every other authenticated caller gets the " +
+			"active-only booking catalog (issue #255)",
 		"search_professionals_advanced": "auth.RequireAuthenticated only: the client booking flow is " +
 			"the consumer (feat-owner-chat S7a); output is PII-free by construction",
 		"register_client": "anonymous allowlist seam: reached before caller resolution and carries " +

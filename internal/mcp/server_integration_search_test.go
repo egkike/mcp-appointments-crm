@@ -47,14 +47,17 @@ func TestIntegrationSearchClientsRoleScoped(t *testing.T) {
 	}
 }
 
-// TestIntegrationSearchServicesRoleRejection proves that
-// search_services_advanced is rejected for non-owner/admin callers.
-func TestIntegrationSearchServicesRoleRejection(t *testing.T) {
+// TestIntegrationSearchServicesRequiresAuth proves the gate that REMAINS on
+// search_services_advanced: an authenticated caller. Role no longer rejects
+// anyone (issue #255 gives every authenticated caller a catalog view -- the
+// maintenance FTS view for owner/admin, the active-only booking catalog for the
+// rest), so the former "non-owner/admin is rejected" contract is gone by design.
+func TestIntegrationSearchServicesRequiresAuth(t *testing.T) {
 	mux := newIntegrationMux(t)
 
-	rec := postMCPCaller(t, mux, "staff-1", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_services_advanced","arguments":{"query_text":"Consulta"}}}`)
+	rec := postMCPCaller(t, mux, "nobody-7", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_services_advanced","arguments":{"query_text":"Consulta"}}}`)
 	_, code, msg := decodeRPCEnvelope(t, rec)
-	if code != -32002 {
-		t.Errorf("code = %d; want -32002 (msg=%q)", code, msg)
+	if code == 0 {
+		t.Errorf("an unrecognized caller reached the service catalog (msg=%q)", msg)
 	}
 }

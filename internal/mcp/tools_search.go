@@ -53,7 +53,7 @@ func (s *Server) registerSearchTools() {
 	}
 
 	if s.cfg.SearchServicesAdvanced != nil {
-		mcp.AddTool(s.impl, s.mcpTool("search_services_advanced", "Busca servicios por nombre o descripción. Solo disponible para owner y admin"),
+		mcp.AddTool(s.impl, s.mcpTool("search_services_advanced", "Busca servicios por nombre o descripción. Owner y admin ven el catálogo completo (servicios retirados incluidos); el resto de los roles autenticados ve solo los servicios activos"),
 			func(ctx context.Context, _ *mcp.CallToolRequest, in searchServicesAdvancedIn) (*mcp.CallToolResult, dto.SearchServicesAdvancedResult, error) {
 				caller, err := auth.RequireCaller(ctx)
 				if err != nil {
