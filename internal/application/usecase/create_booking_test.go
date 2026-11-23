@@ -123,6 +123,23 @@ func TestCreateBookingUseCase(t *testing.T) {
 		}
 	})
 
+	t.Run("staff with a padded stored link books its own calendar", func(t *testing.T) {
+		// The auth gate must normalise the caller's link exactly like the read
+		// predicates (issue #284); the booking itself then fails on input
+		// validation, which is what proves the gate let it through.
+		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
+
+		_, err := uc.Execute(context.Background(), dto.CreateBookingInput{
+			Caller:         staffCaller("staff1", "  p1  "),
+			ClientID:       "c1",
+			ServiceID:      "", // stops at validation, after the auth gate
+			ProfessionalID: "p1",
+		})
+		if errors.Is(err, domain.ErrForbidden) {
+			t.Fatalf("the auth gate refused a padded stored link for its own calendar: %v", err)
+		}
+	})
+
 	t.Run("staff role for different professional", func(t *testing.T) {
 		uc := NewCreateBookingUseCase(&mockBookingsRepo{}, &mockServicesRepo{}, &mockProfessionalsRepo{}, &mockBusinessProfileRepo{}, &mockBusinessHoursExceptionRepo{}, &mockSchedulesRepo{}, nil, &mockBookingValidator{}, nil, nil)
 

@@ -216,6 +216,19 @@ func TestRequireClientMatch(t *testing.T) {
 			wantCode:    domain.ErrCodeForbidden,
 		},
 		{
+			// Trim symmetry (issue #284): the caller's link is normalised on both
+			// sides, like the read predicates do.
+			name: "staff with a padded stored link matches its own professional",
+			caller: &Caller{
+				ID:             "staff-padded",
+				Role:           RoleStaff,
+				ProfessionalID: ptrString("  p-1  "),
+			},
+			inputClient: clientID,
+			inputProf:   profID,
+			wantErr:     false,
+		},
+		{
 			name:        "no caller returns ErrCodeUnauthenticated",
 			caller:      nil,
 			inputClient: clientID,

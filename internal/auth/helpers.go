@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
@@ -62,7 +63,8 @@ func RequireClientMatch(ctx context.Context, inputClientID, inputProfessionalID 
 	}
 	// Staff must match their own professional (prevents calendar planting)
 	if caller.Role == RoleStaff {
-		if caller.ProfessionalID == nil || *caller.ProfessionalID != inputProfessionalID {
+		// Both sides normalised, like the read predicates (issue #284).
+		if own := CallerProfessionalID(*caller); own == "" || own != strings.TrimSpace(inputProfessionalID) {
 			return &domain.SemanticError{
 				Code:    domain.ErrCodeForbidden,
 				Message: "Profesional no tiene permiso para operar en este calendario",

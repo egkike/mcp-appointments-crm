@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 	"github.com/egkike/mcp-appointments-crm/internal/domain/entity"
@@ -28,7 +29,8 @@ func AuthorizeBookingAccess(caller Caller, booking *entity.Booking) error {
 			return &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "Cliente solo puede acceder a sus propias reservas", Cause: domain.ErrForbidden}
 		}
 	case RoleStaff:
-		if caller.ProfessionalID == nil || *caller.ProfessionalID != booking.ProfessionalID {
+		// Both sides normalised, like the read predicates (issue #284).
+		if own := CallerProfessionalID(caller); own == "" || own != strings.TrimSpace(booking.ProfessionalID) {
 			return &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "Personal solo puede acceder a las reservas de su profesional asignado", Cause: domain.ErrForbidden}
 		}
 	case RoleAdmin, RoleOwner:
