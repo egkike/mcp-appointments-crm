@@ -99,7 +99,9 @@ func (r *ProfessionalsRepo) FindByID(ctx context.Context, id string) (*entity.Pr
 	// "unauthenticated" told a staff member that a valid session was invalid and
 	// made the refusal unreadable to every caller that branches on the code.
 	if caller.Role == auth.RoleStaff {
-		if caller.ProfessionalID == nil || strings.TrimSpace(*caller.ProfessionalID) != id {
+		// The link is normalised by auth, not here (issue #286): this branch used
+		// to hold a second copy of the trim next to the shared predicate's.
+		if own := auth.CallerProfessionalID(*caller); own == "" || own != id {
 			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeForbidden,
 				Message: "no tiene permiso para ver este profesional",
@@ -132,10 +134,22 @@ func (r *ProfessionalsRepo) FindActive(ctx context.Context) ([]*entity.Professio
 	}
 
 	var rows *sql.Rows
-	if caller.Role == auth.RoleStaff && caller.ProfessionalID != nil {
+	if caller.Role == auth.RoleStaff {
+		// Fail closed (issue #286). The old `&& ProfessionalID != nil` guard fell
+		// through to the UNSCOPED query, so a staff caller with no link received
+		// every active professional — the widest possible answer to "who works
+		// here". The schema forbids that state; a Caller can still carry it.
+		own := auth.CallerProfessionalID(*caller)
+		if own == "" {
+			return nil, &domain.SemanticError{
+				Code:    domain.ErrCodeForbidden,
+				Message: "Profesional no tiene ID asignado",
+				Cause:   domain.ErrForbidden,
+			}
+		}
 		rows, err = r.db.QueryContext(ctx,
 			`SELECT id, name, role_specialty, status, email, phone, specialties, created_at, updated_at
-			 FROM professionals WHERE status = 'active' AND id = ? ORDER BY name`, *caller.ProfessionalID)
+			 FROM professionals WHERE status = 'active' AND id = ? ORDER BY name`, own)
 	} else {
 		rows, err = r.db.QueryContext(ctx,
 			`SELECT id, name, role_specialty, status, email, phone, specialties, created_at, updated_at

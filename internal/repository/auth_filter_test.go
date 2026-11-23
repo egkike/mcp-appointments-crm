@@ -35,6 +35,37 @@ func TestApplyAuthFilter(t *testing.T) {
 		}
 	})
 
+	t.Run("RoleStaff with a padded link filters by the trimmed value", func(t *testing.T) {
+		// The caller's link is normalised once, by auth.CallerProfessionalID
+		// (issue #286): a padded value used to reach SQL verbatim and match nothing.
+		padded := "  p-abc  "
+		caller := &auth.Caller{Role: auth.RoleStaff, ProfessionalID: &padded}
+
+		query, args, err := applyAuthFilter(caller, baseQuery, baseArgs)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.HasSuffix(query, " AND professional_id = ?") {
+			t.Errorf("query = %q; want suffix ' AND professional_id = ?'", query)
+		}
+		if len(args) != 2 || args[1] != "p-abc" {
+			t.Errorf("args = %v; want the trimmed professional id as the second arg", args)
+		}
+	})
+
+	t.Run("RoleStaff with an empty link is refused", func(t *testing.T) {
+		// Absent AND blank are the same answer: the caller has no calendar, so a
+		// filter cannot be built. Fail closed instead of querying an empty id.
+		blank := "   "
+		caller := &auth.Caller{Role: auth.RoleStaff, ProfessionalID: &blank}
+
+		if _, _, err := applyAuthFilter(caller, baseQuery, baseArgs); err == nil {
+			t.Fatal("expected a refusal for a blank professional link")
+		} else if !errors.Is(err, domain.ErrForbidden) {
+			t.Errorf("got %v; want ErrForbidden", err)
+		}
+	})
+
 	t.Run("RoleClient with nil ClientID returns SemanticError", func(t *testing.T) {
 		caller := &auth.Caller{Role: auth.RoleClient, ClientID: nil}
 

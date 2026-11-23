@@ -47,15 +47,20 @@ func applyAuthFilter(caller *auth.Caller, baseQuery string, baseArgs []any) (str
 		filterClause = " AND client_id = ?"
 		filterArg = *caller.ClientID
 	case auth.RoleStaff:
-		if caller.ProfessionalID == nil {
-			return "", nil, &domain.SemanticError{
-				Code:    domain.ErrCodeForbidden,
-				Message: "Profesional no tiene ID asignado",
-				Cause:   domain.ErrForbidden,
-			}
+		// Normalised once, by auth.CallerProfessionalID (issue #286): the raw
+		// pointer used to reach SQL verbatim, so a padded link matched nothing and
+		// an absent one — the case the schema forbids but a Caller can carry — was
+		// answered by a different branch than a blank one.
+		if own := auth.CallerProfessionalID(*caller); own != "" {
+			filterClause = " AND professional_id = ?"
+			filterArg = own
+			break
 		}
-		filterClause = " AND professional_id = ?"
-		filterArg = *caller.ProfessionalID
+		return "", nil, &domain.SemanticError{
+			Code:    domain.ErrCodeForbidden,
+			Message: "Profesional no tiene ID asignado",
+			Cause:   domain.ErrForbidden,
+		}
 	case auth.RoleAdmin, auth.RoleOwner:
 		// no extra filter
 	default:

@@ -67,16 +67,20 @@ func (r *SchedulesRepo) FindByProfessionalAndDay(ctx context.Context, profession
 	if err != nil {
 		return nil, fmt.Errorf("obtener horario: %w", err)
 	}
-	// Staff restricted to own schedule — fail-secure if ProfessionalID is nil
+	// Staff restricted to their own schedule, with the link normalised once by
+	// auth.CallerProfessionalID (issue #286). A caller without one is authenticated
+	// and out of scope: FORBIDDEN, not UNAUTHENTICATED — the same correction the
+	// professional read got in #278.
 	if caller.Role == auth.RoleStaff {
-		if caller.ProfessionalID == nil {
+		own := auth.CallerProfessionalID(*caller)
+		if own == "" {
 			return nil, &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
+				Code:    domain.ErrCodeForbidden,
 				Message: "Profesional no tiene ID asignado",
-				Cause:   domain.ErrUnauthenticated,
+				Cause:   domain.ErrForbidden,
 			}
 		}
-		professionalID = *caller.ProfessionalID
+		professionalID = own
 	}
 
 	s := &entity.Schedule{}

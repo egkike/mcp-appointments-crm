@@ -15,6 +15,41 @@ import (
 )
 
 func TestSchedulesRepo_FindByProfessionalAndDay(t *testing.T) {
+	// Trim symmetry and the right code for a scope miss (issue #286): the stored
+	// link is normalised once, and a caller without one is authenticated but out
+	// of scope — FORBIDDEN, never UNAUTHENTICATED.
+	t.Run("staff with a padded link reads its own schedule", func(t *testing.T) {
+		db, mock := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+		rows := sqlmock.NewRows([]string{"id", "professional_id", "day_of_week", "start_time", "end_time"}).
+			AddRow(1, "pro-1", 1, "09:00", "17:00")
+		mock.ExpectQuery(`SELECT .+ FROM schedules WHERE professional_id = \? AND day_of_week = \?`).
+			WithArgs("pro-1", 1).
+			WillReturnRows(rows)
+
+		s, err := repo.FindByProfessionalAndDay(staffCtx("  pro-1  "), "otro", 1)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if s.ProfessionalID != "pro-1" {
+			t.Errorf("got professional %q; want the caller's own", s.ProfessionalID)
+		}
+	})
+
+	t.Run("staff without a professional link is FORBIDDEN, not unauthenticated", func(t *testing.T) {
+		db, _ := newMockDB(t)
+		repo := NewSchedulesRepo(db)
+
+		_, err := repo.FindByProfessionalAndDay(staffCtxNoProf(), "pro-1", 1)
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) {
+			t.Fatalf("got %T: %v; want a semantic error", err, err)
+		}
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got code %q; want %q (the caller is authenticated)", sErr.Code, domain.ErrCodeForbidden)
+		}
+	})
+
 	t.Run("found", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewSchedulesRepo(db)
@@ -108,7 +143,7 @@ func TestSchedulesRepo_FindByProfessionalAndDay(t *testing.T) {
 		}
 	})
 
-	t.Run("staff with nil ProfessionalID returns domain.ErrCodeUnauthenticated (fail-secure)", func(t *testing.T) {
+	t.Run("staff with nil ProfessionalID is FORBIDDEN (fail-secure, right code)", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewSchedulesRepo(db)
 
@@ -123,8 +158,10 @@ func TestSchedulesRepo_FindByProfessionalAndDay(t *testing.T) {
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+		// FORBIDDEN, not UNAUTHENTICATED (issue #286): the caller resolved fine and
+		// simply has no calendar. This subtest used to pin the wrong code.
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
 		}
 	})
 
