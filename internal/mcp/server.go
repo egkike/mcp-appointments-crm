@@ -40,6 +40,11 @@ func NewServer(cfg Config) *Server {
 		cfg:       cfg,
 		toolNames: make(map[string]struct{}),
 	}
+	// Discovery filter (agent-surface T1, issue #265): tools/list advertises
+	// only the tools the resolved caller can invoke. Registered here, after the
+	// SDK server exists and before the HTTP chain is built, so every handler
+	// instance shares the one filtered surface.
+	impl.AddReceivingMiddleware(toolsListFilter(cfg.ToolRBAC, cfg.Logger))
 	srv.registerTools()
 	// Build the unauthenticated /mcp handler exactly ONCE, after registerTools
 	// has populated toolNames (R3-002). Tool registration is allocation-stable

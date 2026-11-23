@@ -1,6 +1,8 @@
 # Agent surface — tools/list por rol y búsqueda de turnos (PROPUESTA)
 
-Feature: reducir la superficie MCP que recibe el agente y cerrar el read-gap de turnos disponibles, partiendo de la evaluación de "code mode" descartada. **Estado: PROPUESTA — sin issue, sin rama, sin código.** Nada de este documento está aprobado para ejecución.
+Feature: reducir la superficie MCP que recibe el agente y cerrar el read-gap de turnos disponibles, partiendo de la evaluación de "code mode" descartada. **Estado: T2 entregada (#241); T1 en ejecución (issue #265, L14).** S1 y S7 siguen gobernando el alcance: nada fuera de T1 está autorizado por este ciclo.
+
+Documento de trabajo: `odd/tasks/feat-tools-list-role-filter.md` (T1).
 
 Origen: análisis de Codemode (harness de Pi) → descartado para el server → quedan dos unidades medidas.
 
@@ -51,7 +53,7 @@ La persona `client` es el flujo de la recepcionista por WhatsApp (ADR-0018): es 
 
 ## Tasks
 
-**Orden decidido por el owner (L9): T2 primero, luego T1.** T2 está autorizada y vive en `odd/tasks/feat-find-available-slots.md` (issue #241). T1 sigue **sin autorizar**: se lista para dimensionar.
+**Orden decidido por el owner (L9): T2 primero, luego T1.** T2 está entregada y vive en `odd/tasks/feat-find-available-slots.md` (issue #241). **T1 autorizada (L14) y en ejecución**: issue #265, trabajo en `odd/tasks/feat-tools-list-role-filter.md`.
 
 - **T1 (sin autorizar)** · S2,S3 · U1 · ~120–200 líneas · riesgo ítem 3
   - `internal/mcp/server.go`: `AddReceivingMiddleware` con filtro sobre `req.Method == "tools/list"`
@@ -127,3 +129,4 @@ Racionales: devuelve `start_datetime` + profesional en vez de `BookingView` comp
 - **L11** (owner, verbatim + decisión): *"la carpeta openspec/specs/ es la forma antigua que usabamos con SDD (ya descontinuado). Ahora usamos solo ODD así que considera esto para la doc necesaria. Es así?"* → verificado a medias: lo retirado es el **workflow** SDD (`openspec/changes/` solo tiene `archive/`; `docs/SDD.md` congelado por PRD 1.47), no el árbol — `openspec/specs/` se mantuvo hasta `4bcfd4e` (#230, 13-nov) y es el único hogar de la tabla de contratos de tools. **Decisión: opción C**, se sigue actualizando en su lugar, sin crear `openspec/changes/<change>/`.
 - **L12** (owner, verbatim): *"Listo el merge"* → PR #240 mergeado como `f1f2d49`; CI del merge commit en verde (run 44935140654).
 - **L13** (owner, verbatim + decisión): *"Hola capo, arranquemos el T2 si estamos en condiciones"* → aprobado el camino completo (issue + spec + writer). **T2 en ejecución**: issue #241 (`type:feature` + `status:approved`). S6 resultó **ya cumplida** por `ValidateBookingTimeSlot` (`internal/domain/service/booking_time_validator.go:85`): no hace falta extraer nada, se compone vía `BookingOverlapReader`.
+- **L14** (owner, verbatim, decisión de este ciclo): *"Arrancamos T1 — tools/list filtrado por rol, el único pendiente del plan agent surface. El hand-off completo está en memoria: hacé mem_search \"T1 tools/list handoff\" y leé la observación t1-tools-list-handoff antes de tocar código... Reglas de la casa: issue primero (status:approved + un type:*), RED antes de GREEN, verificador independiente antes del review nativo, assess con ítem 3 escalado, y preguntame antes de commit y antes de merge."* → **T1 autorizada**: issue #265 (`type:feature` + `status:approved`), rama `feat/feat-tools-list-role-filter`. Desvío verificado del hand-off: el código real de una violación RBAC en `tools/call` es **-32001** (403 del middleware → traductor), no -32000 como decía S3; y tras T2 los conteos por rol son owner 26 / admin 14 / staff 11 / client 11 (staff y client empatan porque ninguna fila separa sus roles).
