@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/db"
+	"github.com/egkike/mcp-appointments-crm/internal/mcp"
 )
 
 // TestBinaryEndToEnd exercises the SHIPPED wiring, not a mirror of it.
@@ -119,13 +121,14 @@ func TestBinaryEndToEnd(t *testing.T) {
 		if code == 0 {
 			t.Fatalf("a client caller reached get_professional_schedules; ToolRoles() must not allow it")
 		}
-		// "no tienes permiso para realizar esta acción" is the middleware's map gate
-		// verbatim; the use-case gate words its refusal differently
-		// (auth.RequireRole: `Rol %q no tiene permiso para esta operación`). Anchoring
-		// on this exact text is what proves a ToolRoles() row refused the call rather
-		// than some other layer erroring out.
-		if !strings.Contains(msg, "no tienes permiso para realizar esta acción") {
-			t.Errorf("client was rejected with %q; want the RBAC row's own refusal", msg)
+		// HONEST LIMIT: this text does NOT identify which layer refused.
+		// get_professional_schedules has double enforcement, so its use case answers
+		// with the SAME words once the RBAC row is gone — this assertion would still
+		// pass. What it proves is "refused for permission with the shipped message",
+		// which is the wire contract; what proves the MAP specifically is the
+		// surface assertion above plus TestToolRolesCoverTheRegisteredSurface.
+		if !strings.Contains(msg, rbacRefusal) {
+			t.Errorf("client was rejected with %q; want the shipped refusal message", msg)
 		}
 	})
 
@@ -145,6 +148,47 @@ func TestBinaryEndToEnd(t *testing.T) {
 		}
 		if len(call.Content) == 0 {
 			t.Fatalf("ungated tool returned no content: %s", string(result))
+		}
+	})
+
+	// The registered surface of the SHIPPED binary, compared against the policy
+	// itself rather than against a hand-kept count: a tool deregistered only in
+	// main.go's mux would be invisible to the in-process coverage test
+	// (advisories R2-binary-e2e-no-tools-list / R3-003 on #250, issue #257).
+	t.Run("tools/list matches the tool policy", func(t *testing.T) {
+		body := `{"jsonrpc":"2.0","id":8,"method":"tools/list"}`
+		result, code, msg := postRPC(t, baseURL, ownerCallerID, body)
+		if code != 0 {
+			t.Fatalf("tools/list failed: %d %q", code, msg)
+		}
+		var list struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		}
+		if err := json.Unmarshal(result, &list); err != nil {
+			t.Fatalf("tools/list result: %v", err)
+		}
+
+		present := make(map[string]struct{}, len(list.Tools))
+		for _, tool := range list.Tools {
+			present[tool.Name] = struct{}{}
+		}
+
+		roles := mcp.ToolRoles()
+		ungated := mcp.UngatedTools()
+		if got, want := len(list.Tools), len(roles)+len(ungated); got != want {
+			t.Errorf("shipped surface = %d tools; policy names %d", got, want)
+		}
+		for name := range roles {
+			if _, ok := present[name]; !ok {
+				t.Errorf("policy gates %q but the shipped binary does not register it", name)
+			}
+		}
+		for name := range ungated {
+			if _, ok := present[name]; !ok {
+				t.Errorf("policy declares %q ungated but the shipped binary does not register it", name)
+			}
 		}
 	})
 
@@ -182,10 +226,19 @@ const seededBusinessName = "Negocio E2E Binario"
 // ToolRoles() refuses it while an ungated tool serves it.
 const clientCallerID = "client-e2e"
 
-// rbacRefusal is the middleware's own refusal text (internal/auth/middleware.go).
-// It is emitted only by the ToolRoles() gate, never by a use case, which is what
-// makes it usable as an anchor: a use-case refusal words itself differently.
-const rbacRefusal = "no tienes permiso para realizar esta acción"
+// ownerCallerID is the seeded owner account: the tool-surface assertion asks for
+// the unrestricted view, so it cannot use a role-limited caller.
+const ownerCallerID = "owner-1"
+
+// rbacRefusal is the SAME string production emits, imported rather than copied
+// so a rewording cannot leave these assertions behind (issue #257).
+//
+// It is NOT unique to the ToolRoles() gate: several use cases answer with the
+// same wording for their own permission errors. An assertion on this text
+// therefore proves "refused for permission", never "refused by the map" — the
+// map's own discrimination is covered by the RBAC-row subtests, which call tools
+// whose use cases a client cannot satisfy anyway.
+const rbacRefusal = auth.MsgForbiddenTool
 
 // buildServerBinary compiles the package under test into a temp dir and returns
 // the path. BUILDING the binary is the point: a test that instead called run()
@@ -233,6 +286,10 @@ func startServer(t *testing.T, bin string) string {
 	// Three attempts: reserving a port by listening and closing leaves a window
 	// in which another process can steal it, and a lost race must not look like a
 	// wiring failure.
+	//
+	// Budget: worst case 3 x (20s healthz deadline) = ~60s before this test
+	// reports a failure. Raise the attempt count before raising the deadline —
+	// a stolen port is the likelier cause on a loaded runner.
 	var lastErr error
 	for attempt := 1; attempt <= 3; attempt++ {
 		port, err := reservePort(t.Context())

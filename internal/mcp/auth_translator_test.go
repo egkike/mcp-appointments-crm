@@ -189,8 +189,8 @@ func TestAuthTranslator403RBACDenied(t *testing.T) {
 	if code != -32001 {
 		t.Errorf("error.code = %d; want -32001", code)
 	}
-	if msg != "no tienes permiso para realizar esta acción" {
-		t.Errorf("error.message = %q; want %q", msg, "no tienes permiso para realizar esta acción")
+	if msg != auth.MsgForbiddenTool {
+		t.Errorf("error.message = %q; want %q", msg, auth.MsgForbiddenTool)
 	}
 	if string(id) != "9" {
 		t.Errorf("id = %s; want 9", id)

@@ -40,6 +40,10 @@ func (uc *SearchServicesAdvancedUseCase) Execute(ctx context.Context, input dto.
 	}
 	ctx = auth.WithCaller(ctx, input.Caller)
 
+	// No default case on purpose: owner/admin are the ONLY privileged roles, and
+	// every other authenticated role is the booking view below. A future
+	// privileged role must be added here explicitly — falling through would give it
+	// the public catalog silently (advisory R2-switch-no-default, issue #257).
 	switch input.Caller.Role {
 	case auth.RoleOwner, auth.RoleAdmin:
 		// Maintenance view: FTS over every service, retired ones included, because

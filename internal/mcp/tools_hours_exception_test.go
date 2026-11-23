@@ -31,7 +31,7 @@ const (
 	msgHoursExceptionInvalid    = "la excepción no es válida. Si el negocio está cerrado, no envíes open_time/close_time; si está abierto, ambos son obligatorios en formato HH:MM y open_time debe ser anterior a close_time."
 	msgHoursExceptionConflict   = "ya existe una excepción para esa fecha. Borrala y creala de nuevo si querés cambiar el horario de ese día."
 	msgHoursExceptionNotFound   = "no existe una excepción con ese id."
-	msgHoursExceptionForbidden  = "no tienes permiso para realizar esta acción"
+	msgHoursExceptionForbidden  = auth.MsgForbiddenTool
 	msgHoursExceptionRangeBound = "las fechas del rango deben tener formato YYYY-MM-DD."
 )
 

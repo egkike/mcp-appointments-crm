@@ -375,8 +375,8 @@ func TestIntegrationClientRoleForbiddenTools(t *testing.T) {
 		t.Run(tool, func(t *testing.T) {
 			rec := postMCPCaller(t, mux, "c1", `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"`+tool+`","arguments":{}}}`)
 			_, code, msg := decodeRPCEnvelope(t, rec)
-			if code != -32001 || msg != "no tienes permiso para realizar esta acción" {
-				t.Errorf("got code=%d msg=%q; want -32001 %q", code, msg, "no tienes permiso para realizar esta acción")
+			if code != -32001 || msg != auth.MsgForbiddenTool {
+				t.Errorf("got code=%d msg=%q; want -32001 %q", code, msg, auth.MsgForbiddenTool)
 			}
 		})
 	}
@@ -510,8 +510,8 @@ func TestIntegrationProfessionalSchedules(t *testing.T) {
 	// Layer 1 of the double gate: the RBAC map rejects every non-owner role.
 	for _, caller := range []string{"admin-1", "staff-1", "c1"} {
 		_, code, msg := callMCPTool(t, mux, caller, "get_professional_schedules", `{"professional_id":"p1"}`)
-		if code != -32001 || msg != "no tienes permiso para realizar esta acción" {
-			t.Errorf("caller %s: code=%d msg=%q; want -32001 %q", caller, code, msg, "no tienes permiso para realizar esta acción")
+		if code != -32001 || msg != auth.MsgForbiddenTool {
+			t.Errorf("caller %s: code=%d msg=%q; want -32001 %q", caller, code, msg, auth.MsgForbiddenTool)
 		}
 	}
 }

@@ -24,7 +24,7 @@ const (
 	// message instead — both are forwarded verbatim from the buffered body,
 	// see jsonrpcAuthTranslator).
 	msgAuthRequired = "no se proporcionó X-Caller-Id"
-	msgForbidden    = "no tienes permiso para realizar esta acción"
+	msgForbidden    = auth.MsgForbiddenTool
 	msgInternal     = "error interno del servidor"
 )
 
