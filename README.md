@@ -79,7 +79,7 @@ curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/s
 
 ```bash
 # pinned version (required — see note below)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.13.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.14.0
 ```
 
 > The pipe (`curl | bash`) works only for Paso 2; Paso 1 must run in a real terminal. See
@@ -100,7 +100,7 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 > needs a real terminal — a piped invocation has no TTY, so it prints
 > `Error: el modo interactivo requiere una terminal.` and exits 1.
 >
-> **Updating: re-run Paso 2 with the newer tag** (e.g. `--version v0.13.0`). The pinned
+> **Updating: re-run Paso 2 with the newer tag** (e.g. `--version v0.14.0`). The pinned
 > deploy is idempotent — it swaps the binary and restarts the service while preserving
 > the database, `caller-id`, setup files and the Hermes entry. Paso 1 (wizard) is only
 > needed on a first-time install. *(Idempotent re-run verified 2026-09-26.)*
