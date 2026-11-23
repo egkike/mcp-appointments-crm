@@ -57,7 +57,7 @@ func (uc *GetProfessionalSchedulesUseCase) Execute(ctx context.Context, input dt
 		if errors.As(err, &sem) {
 			return nil, sem
 		}
-		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "no tienes permiso para realizar esta acción", Cause: domain.ErrForbidden}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: auth.MsgForbiddenTool, Cause: domain.ErrForbidden}
 	}
 
 	professionalID := strings.TrimSpace(input.ProfessionalID)

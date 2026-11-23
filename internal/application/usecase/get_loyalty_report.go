@@ -60,7 +60,7 @@ func (uc *GetLoyaltyReportUseCase) Execute(ctx context.Context, input dto.GetLoy
 	}
 	ctx = auth.WithCaller(ctx, input.Caller)
 	if _, err := auth.RequireRole(ctx, auth.RoleOwner, auth.RoleAdmin); err != nil {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "no tienes permiso para realizar esta acción", Cause: domain.ErrForbidden}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: auth.MsgForbiddenTool, Cause: domain.ErrForbidden}
 	}
 
 	period := input.Period

@@ -141,7 +141,7 @@ func TestLoggingMiddlewareAuthDeniedLogsRealStatus(t *testing.T) {
 	// envelope; the log line must carry the REAL auth status (401), not the
 	// envelope's 200, and caller_role must be "none".
 	authReject := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "no se proporcionó X-Caller-Id", http.StatusUnauthorized)
+		http.Error(w, auth.MsgAuthRequired, http.StatusUnauthorized)
 	})
 	chain := loggingMiddleware(logger, jsonrpcAuthTranslator(authReject))
 

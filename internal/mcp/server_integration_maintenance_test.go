@@ -258,8 +258,8 @@ func TestIntegrationMaintenanceMissingCallerID(t *testing.T) {
 
 	for _, tool := range maintenanceToolNames() {
 		_, code, msg := callMCPTool(t, mux, "", tool, maintenanceToolArgs[tool])
-		if code != -32000 || msg != "no se proporcionó X-Caller-Id" {
-			t.Errorf("%s: code=%d msg=%q; want -32000 %q", tool, code, msg, "no se proporcionó X-Caller-Id")
+		if code != -32000 || msg != msgAuthRequired {
+			t.Errorf("%s: code=%d msg=%q; want -32000 %q", tool, code, msg, msgAuthRequired)
 		}
 	}
 }

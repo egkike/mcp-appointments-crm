@@ -33,6 +33,15 @@ func NewBusinessProfileRepo(db *sql.DB) *BusinessProfileRepo {
 // Get returns the singleton business profile, creating a
 // placeholder row on first call (lazy-init). Idempotent and safe under
 // concurrent access: INSERT OR IGNORE ensures at most one row exists.
+//
+// No caller gate here, by design (issue #271, DEBT-2). The table is a
+// single-tenant singleton — the row is keyed by the constant 'singleton' and no
+// scope column exists in the projection above — and the read feeds paths whose
+// authorization is deliberately NOT uniform: the MCP profile tool (any
+// authenticated caller), the owner-only update use case, the availability chain
+// reached from an ungated tool, and the admin TUI, which runs with no caller in
+// context at all. A RequireCaller here would break the console path and prove
+// nothing about the MCP surface; the gate belongs to each caller's use case.
 func (r *BusinessProfileRepo) Get(ctx context.Context) (*entity.BusinessProfile, error) {
 	// Lazy-init: ensure the singleton row exists.
 	// INSERT OR IGNORE silently no-ops when the row already exists (UNIQUE

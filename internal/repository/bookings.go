@@ -528,6 +528,15 @@ func scanClientBookingCount(scan func(dest ...any) error) (domainrepo.ClientBook
 // [start, end) UTC window, ordered by booking_count DESC and client name ASC,
 // capped by limit. Only authenticated callers may invoke it; the use case layer
 // enforces the owner/admin role requirement.
+//
+// Deliberately NOT filtered by caller scope (issue #271, DEBT-1). The aggregate
+// is business-wide by design: applyAuthFilter emits no predicate for owner or
+// admin, and those are the only two roles GetLoyaltyReport admits, so a filter
+// here would be a no-op that still reads like defense in depth. On a query that
+// joins clients it would be worse than useless for any hypothetical scoped
+// caller: the emitted predicate would rewrite what client_id means for rows
+// produced by a clients-side join. The gate lives one layer up and is pinned
+// there (get_loyalty_report_test.go).
 func (r *BookingsRepo) AggregateByClient(ctx context.Context, start, end time.Time, limit int) ([]domainrepo.ClientBookingCount, error) {
 	if _, err := auth.RequireCaller(ctx); err != nil {
 		return nil, fmt.Errorf("agregar reservas por cliente: %w", err)

@@ -9,6 +9,13 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
 
+// MsgAuthRequired is the 401 body AuthMiddleware writes when the request
+// carries no X-Caller-Id header. Exported so the wire tests anchor on the SAME
+// string production emits instead of re-typing it (advisory nits, issue #271);
+// jsonrpcAuthTranslator forwards the buffered body verbatim, so this text is
+// what the LLM actually receives as the -32000 message.
+const MsgAuthRequired = "no se proporcionó X-Caller-Id"
+
 // MsgForbiddenTool is the refusal message the transport emits when ToolRBAC
 // denies a caller. It is exported so the wire tests can anchor on the SAME
 // string production emits instead of a copy (advisory R2-duplicated-rbac-refusal-
@@ -111,7 +118,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		// Step 1: read X-Caller-Id
 		id := strings.TrimSpace(r.Header.Get("X-Caller-Id"))
 		if id == "" {
-			http.Error(w, "no se proporcionó X-Caller-Id", http.StatusUnauthorized)
+			http.Error(w, MsgAuthRequired, http.StatusUnauthorized)
 			return
 		}
 

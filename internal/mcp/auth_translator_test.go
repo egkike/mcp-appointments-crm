@@ -101,8 +101,8 @@ func TestAuthTranslator401MissingHeader(t *testing.T) {
 	if code != -32000 {
 		t.Errorf("error.code = %d; want -32000", code)
 	}
-	if msg != "no se proporcionó X-Caller-Id" {
-		t.Errorf("error.message = %q; want %q", msg, "no se proporcionó X-Caller-Id")
+	if msg != msgAuthRequired {
+		t.Errorf("error.message = %q; want %q", msg, msgAuthRequired)
 	}
 	if string(id) != "7" {
 		t.Errorf("id = %s; want 7", id)
@@ -367,8 +367,8 @@ func TestAuthHandlerComposition(t *testing.T) {
 			t.Fatalf("status = %d; want 200", rec.Code)
 		}
 		code, msg, id := decodeEnvelope(t, rec)
-		if code != -32000 || msg != "no se proporcionó X-Caller-Id" {
-			t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, "no se proporcionó X-Caller-Id")
+		if code != -32000 || msg != msgAuthRequired {
+			t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, msgAuthRequired)
 		}
 		if string(id) != "5" {
 			t.Errorf("id = %s; want 5", id)
@@ -462,8 +462,8 @@ func TestAuthHandlerUnauthenticatedGETMethodNotAllowed(t *testing.T) {
 		t.Fatalf("status = %d; want 200", rec.Code)
 	}
 	code, msg, id := decodeEnvelope(t, rec)
-	if code != -32000 || msg != "no se proporcionó X-Caller-Id" {
-		t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, "no se proporcionó X-Caller-Id")
+	if code != -32000 || msg != msgAuthRequired {
+		t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, msgAuthRequired)
 	}
 	if string(id) != "7" {
 		t.Errorf("id = %s; want 7", id)

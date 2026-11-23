@@ -214,8 +214,8 @@ func TestMiddleware_HeaderEmpty(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d; want %d", rec.Code, http.StatusUnauthorized)
 	}
-	if !strings.Contains(rec.Body.String(), "no se proporcionó X-Caller-Id") {
-		t.Errorf("body = %q; want to contain %q", rec.Body.String(), "no se proporcionó X-Caller-Id")
+	if !strings.Contains(rec.Body.String(), MsgAuthRequired) {
+		t.Errorf("body = %q; want to contain %q", rec.Body.String(), MsgAuthRequired)
 	}
 	if called {
 		t.Error("downstream handler should NOT have been called")

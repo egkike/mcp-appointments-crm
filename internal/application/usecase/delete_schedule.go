@@ -43,7 +43,7 @@ func (uc *DeleteScheduleUseCase) Execute(ctx context.Context, input dto.DeleteSc
 		if errors.As(err, &sem) {
 			return nil, sem
 		}
-		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "no tienes permiso para realizar esta acción", Cause: domain.ErrForbidden}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: auth.MsgForbiddenTool, Cause: domain.ErrForbidden}
 	}
 
 	// DayOfWeek arrives as the wire int (0..6) and is converted to the nominal

@@ -78,10 +78,10 @@ func TestToolRolesCoverTheRegisteredSurface(t *testing.T) {
 		}
 	}
 
-	if got, want := len(roles)+len(ungated), len(registered); got != want {
-		t.Errorf("ToolRoles() + UngatedTools() = %d entries, registered surface = %d %v; "+
-			"the maps must name every registered tool exactly once", got, want, sortedKeys(registered))
-	}
+	// No count assertion here on purpose: the four loops above already force the
+	// cardinality. Every registered tool carries exactly one declaration, and
+	// every declaration names a registered tool, so the two maps can neither
+	// overlap nor leave a hole (advisory nits, issue #271).
 }
 
 // sortedKeys returns the map keys in a stable order so failures are readable and

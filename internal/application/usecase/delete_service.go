@@ -38,7 +38,7 @@ func (uc *DeleteServiceUseCase) Execute(ctx context.Context, input dto.DeleteSer
 	ctx = auth.WithCaller(ctx, input.Caller)
 	caller, err := auth.RequireRole(ctx, auth.RoleOwner)
 	if err != nil {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "no tienes permiso para realizar esta acción", Cause: domain.ErrForbidden}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: auth.MsgForbiddenTool, Cause: domain.ErrForbidden}
 	}
 
 	if err := uc.services.Delete(ctx, input.ServiceID); err != nil {

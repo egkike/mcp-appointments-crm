@@ -356,8 +356,8 @@ func TestIntegrationMissingCallerIDMapsToEnvelope(t *testing.T) {
 
 	rec := postMCPCaller(t, mux, "", `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"check_availability","arguments":{}}}`)
 	_, code, msg := decodeRPCEnvelope(t, rec)
-	if code != -32000 || msg != "no se proporcionó X-Caller-Id" {
-		t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, "no se proporcionó X-Caller-Id")
+	if code != -32000 || msg != msgAuthRequired {
+		t.Errorf("got code=%d msg=%q; want -32000 %q", code, msg, msgAuthRequired)
 	}
 }
 
