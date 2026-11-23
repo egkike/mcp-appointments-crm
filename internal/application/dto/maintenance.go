@@ -190,6 +190,50 @@ type DeleteHoursExceptionResult struct {
 	Status      string
 }
 
+// GetProfessionalInput identifies the professional whose record get_professional
+// reads (feat-staff-self-read S1, issue #276). Application-layer carrier only —
+// the transport owns getProfessionalIn on the wire, so this struct carries no
+// data json tags; Caller stays `json:"-"` protectively.
+//
+// ProfessionalID is OPTIONAL, unlike its agenda sibling below: an empty value
+// asks for the caller's OWN record, which requires Caller.ProfessionalID. That
+// asymmetry is deliberate — "my profile" is the whole point of the tool for a
+// staff caller, while an agenda read without a named professional has no
+// meaning.
+type GetProfessionalInput struct {
+	Caller         auth.Caller `json:"-"`
+	ProfessionalID string
+}
+
+// ProfessionalDetail is the contact-free projection of one professional: the
+// fields every admitted caller receives (S4).
+//
+// Specialties is decoded here, in the application layer, and never nil on
+// success: the wire renders a list, never a raw JSON string and never null
+// (same fail-safe rule as entity.Professional.HasSpecialty — an unreadable
+// specialties column means "none", not "the whole catalog").
+type ProfessionalDetail struct {
+	ID            string
+	Name          string
+	RoleSpecialty *string
+	Status        string
+	Specialties   []string
+}
+
+// GetProfessionalResult is the response carrier of get_professional (S4): the
+// record plus the contact fields, which stay nil unless the caller may see them.
+//
+// The PII decision is made in the use case through auth.CanReadProfessionalContact
+// (owner and the professional itself only) and travels as absence, so the
+// transport has no branch to get wrong: a nil field is omitted from the wire
+// (ADR-0020 Decision 4 — the projection happens before the data leaves the
+// application layer).
+type GetProfessionalResult struct {
+	Professional ProfessionalDetail
+	Email        *string
+	Phone        *string
+}
+
 // GetProfessionalSchedulesInput identifies the professional whose weekly agenda
 // is read (feat-owner-chat S7b). Application-layer carrier only — the transport
 // owns getProfessionalSchedulesIn on the wire, so this struct carries no data

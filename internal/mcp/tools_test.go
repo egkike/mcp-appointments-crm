@@ -132,7 +132,7 @@ func ownerCallerPtr() *auth.Caller {
 	return &c
 }
 
-// configFromMockPorts renders the 26-port server Config from a mockToolPorts
+// configFromMockPorts renders the 27-port server Config from a mockToolPorts
 // bundle. It is the single source of the field mapping (R3-config-literal-
 // triplication: this literal used to be enumerated by hand at newToolServer
 // and newHoursExceptionUseCaseServer); tests needing different ports override
@@ -154,6 +154,7 @@ func configFromMockPorts(p *mockToolPorts) Config {
 		SearchServicesAdvanced: p.searchServices,
 
 		SearchProfessionalsAdvanced: p.searchProfessionals,
+		GetProfessional:             p.getProfessional,
 		GetProfessionalSchedules:    p.getProfessionalSchedules,
 		GetPendingAlerts:            p.getPendingAlerts,
 		MarkAlertAsSent:             p.markAlertAsSent,
@@ -173,7 +174,7 @@ func configFromMockPorts(p *mockToolPorts) Config {
 	}
 }
 
-// newToolServer builds a Server with all twenty-six ports mocked and returns
+// newToolServer builds a Server with all twenty-seven ports mocked and returns
 // its unauthenticated Handler (unit level: caller is injected via the request
 // context, exactly as AuthMiddleware would).
 func newToolServer(t *testing.T) (*Server, *mockToolPorts) {
@@ -195,6 +196,7 @@ type mockToolPorts struct {
 	searchServices     *mockSearchServicesAdvancedPort
 
 	searchProfessionals      *mockSearchProfessionalsAdvancedPort
+	getProfessional          *mockGetProfessionalPort
 	getProfessionalSchedules *mockGetProfessionalSchedulesPort
 	getPendingAlerts         *mockGetPendingAlertsPort
 	markAlertAsSent          *mockMarkAlertAsSentPort
@@ -230,6 +232,7 @@ func newMockPorts() *mockToolPorts {
 		searchServices:     &mockSearchServicesAdvancedPort{},
 
 		searchProfessionals:      &mockSearchProfessionalsAdvancedPort{},
+		getProfessional:          &mockGetProfessionalPort{},
 		getProfessionalSchedules: &mockGetProfessionalSchedulesPort{},
 		getPendingAlerts:         &mockGetPendingAlertsPort{},
 		markAlertAsSent:          &mockMarkAlertAsSentPort{},
@@ -361,10 +364,10 @@ func fixedTime() time.Time {
 	return time.Date(2026, 8, 3, 10, 0, 0, 0, time.UTC)
 }
 
-// ── tools/list exposes exactly the twenty-six registered tools
+// ── tools/list exposes exactly the twenty-seven registered tools
 // (8 + 2 alerts + 1 loyalty + 8 maintenance + 3 hours-exception + register_client
 // + search_professionals_advanced + get_professional_schedules
-// + find_available_slots) ──
+// + find_available_slots + get_professional) ──
 
 func TestToolsListAllRegisteredTools(t *testing.T) {
 	srv, _ := newToolServer(t)
@@ -380,7 +383,7 @@ func TestToolsListAllRegisteredTools(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
 	}
-	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent", "get_loyalty_report", "update_business_profile", "create_service", "update_service", "delete_service", "create_professional", "update_professional", "upsert_schedule", "delete_schedule", "register_client", "create_hours_exception", "delete_hours_exception", "list_hours_exceptions", "search_professionals_advanced", "get_professional_schedules", "find_available_slots"}
+	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent", "get_loyalty_report", "update_business_profile", "create_service", "update_service", "delete_service", "create_professional", "update_professional", "upsert_schedule", "delete_schedule", "register_client", "create_hours_exception", "delete_hours_exception", "list_hours_exceptions", "search_professionals_advanced", "get_professional_schedules", "find_available_slots", "get_professional"}
 	// The SDK serves tools sorted by name; compare as a SET in both directions.
 	// The previous count check plus a `want ⊆ got` loop was already equivalent
 	// for a list without duplicate names: equal cardinality plus a subset of the

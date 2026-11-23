@@ -89,29 +89,87 @@ func TestGetProfessionalSchedulesUseCase(t *testing.T) {
 		}
 	})
 
-	t.Run("admin staff and client are rejected with a semantic forbidden", func(t *testing.T) {
-		cases := map[string]struct {
-			caller auth.Caller
-			role   string
-		}{
-			"admin":  {adminCaller(), "admin"},
-			"staff":  {staffCaller("staff1", "p-romina"), "staff"},
-			"client": {clientCaller("c1"), "client"},
+	// feat-staff-self-read S3 (issue #276): the agenda read admits owner, admin
+	// and staff, and staff is own-only. Before this slice the use case answered
+	// `Rol "staff" no tiene permiso …` for the professional reading its own week;
+	// the manual use case (verify your own schedule from the chat) was the reason
+	// the owner widened the surface.
+	t.Run("admin reads any professional agenda", func(t *testing.T) {
+		professionals := &mockProfessionalsRepo{FindByIDFn: func(ctx context.Context, id string) (*entity.Professional, error) {
+			if id != "p-romina" {
+				t.Errorf("FindByID(%q); want p-romina", id)
+			}
+			return agendaOwnerProfessional(), nil
+		}}
+		schedules := &mockProfessionalSchedulesRepo{
+			mockSchedulesRepo: &mockSchedulesRepo{},
+			FindByProfessionalFn: func(ctx context.Context, professionalID string) ([]*entity.Schedule, error) {
+				return agendaWeek(), nil
+			},
 		}
-		for name, tc := range cases {
-			t.Run(name, func(t *testing.T) {
-				// Both repos stay fn-less on purpose: a non-owner caller must be
-				// rejected before any read (a read would panic in the mocks).
-				professionals := &mockProfessionalsRepo{}
-				schedules := &mockProfessionalSchedulesRepo{mockSchedulesRepo: &mockSchedulesRepo{}}
 
-				_, err := NewGetProfessionalSchedulesUseCase(professionals, schedules).Execute(context.Background(),
-					dto.GetProfessionalSchedulesInput{Caller: tc.caller, ProfessionalID: "p-romina"})
-				assertSemanticError(t, err, domain.ErrCodeForbidden, `Rol "`+tc.role+`" no tiene permiso para esta operación`)
-				if !errors.Is(err, domain.ErrForbidden) {
-					t.Errorf("sentinel lost: %v", err)
+		result, err := NewGetProfessionalSchedulesUseCase(professionals, schedules).Execute(context.Background(),
+			dto.GetProfessionalSchedulesInput{Caller: adminCaller(), ProfessionalID: "p-romina"})
+		if err != nil {
+			t.Fatalf("admin must read the agenda (S3): %v", err)
+		}
+		if result == nil || len(result.Schedules) != 2 {
+			t.Fatalf("result = %+v; want the two stored rows", result)
+		}
+	})
+
+	t.Run("staff reads its own agenda", func(t *testing.T) {
+		professionals := &mockProfessionalsRepo{FindByIDFn: func(ctx context.Context, id string) (*entity.Professional, error) {
+			return agendaOwnerProfessional(), nil
+		}}
+		schedules := &mockProfessionalSchedulesRepo{
+			mockSchedulesRepo: &mockSchedulesRepo{},
+			FindByProfessionalFn: func(ctx context.Context, professionalID string) ([]*entity.Schedule, error) {
+				if professionalID != "p-romina" {
+					t.Errorf("FindByProfessional(%q); want the caller's own p-romina", professionalID)
 				}
-			})
+				return agendaWeek(), nil
+			},
+		}
+
+		result, err := NewGetProfessionalSchedulesUseCase(professionals, schedules).Execute(context.Background(),
+			dto.GetProfessionalSchedulesInput{Caller: staffCaller("staff1", "p-romina"), ProfessionalID: "p-romina"})
+		if err != nil {
+			t.Fatalf("staff must read its own agenda (S3): %v", err)
+		}
+		if result == nil || len(result.Schedules) != 2 {
+			t.Fatalf("result = %+v; want the two stored rows", result)
+		}
+	})
+
+	t.Run("staff naming another professional is forbidden, not unauthenticated", func(t *testing.T) {
+		// Both repos stay fn-less on purpose: the scope must be decided BEFORE any
+		// read (a read would panic in the mocks).
+		professionals := &mockProfessionalsRepo{}
+		schedules := &mockProfessionalSchedulesRepo{mockSchedulesRepo: &mockSchedulesRepo{}}
+
+		_, err := NewGetProfessionalSchedulesUseCase(professionals, schedules).Execute(context.Background(),
+			dto.GetProfessionalSchedulesInput{Caller: staffCaller("staff1", "p-romina"), ProfessionalID: "p-otro"})
+		// S2 semantics: the caller IS authenticated, so the refusal is FORBIDDEN
+		// with the shipped message — never the ErrCodeUnauthenticated that the
+		// professionals repository used to answer for a foreign id.
+		assertSemanticError(t, err, domain.ErrCodeForbidden, auth.MsgForbiddenTool)
+		if !errors.Is(err, domain.ErrForbidden) {
+			t.Errorf("sentinel lost: %v", err)
+		}
+	})
+
+	t.Run("client is rejected by the role gate", func(t *testing.T) {
+		// The client stays outside the agenda surface entirely (S5): the refusal is
+		// the role gate's, so its message is the role one, not the scope one.
+		professionals := &mockProfessionalsRepo{}
+		schedules := &mockProfessionalSchedulesRepo{mockSchedulesRepo: &mockSchedulesRepo{}}
+
+		_, err := NewGetProfessionalSchedulesUseCase(professionals, schedules).Execute(context.Background(),
+			dto.GetProfessionalSchedulesInput{Caller: clientCaller("c1"), ProfessionalID: "p-romina"})
+		assertSemanticError(t, err, domain.ErrCodeForbidden, `Rol "client" no tiene permiso para esta operación`)
+		if !errors.Is(err, domain.ErrForbidden) {
+			t.Errorf("sentinel lost: %v", err)
 		}
 	})
 

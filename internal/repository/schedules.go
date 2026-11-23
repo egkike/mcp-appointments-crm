@@ -103,12 +103,25 @@ func (r *SchedulesRepo) FindByProfessionalAndDay(ctx context.Context, profession
 // (feat-owner-chat S7b, design §8.3). The empty case costs one extra indexed
 // probe on professionals, paid only when the week is empty — the common case
 // (agenda loaded) stays a single query.
-// Requires owner role: the agenda is business-operational data and the only
-// consumer is the owner-only read tool (design §8.3 D5).
+//
+// Roles: owner, admin and staff (feat-staff-self-read S3, issue #276). Staff is
+// own-only, and the rule is NOT re-derived here: this guard delegates to
+// auth.AuthorizeProfessionalRead, the same predicate the two agenda/record use
+// cases use. Until #276 the guard demanded owner, so widening only the ToolRBAC
+// row and the use case would have left every non-owner answering -32002 from
+// this layer (feature doc L3): three gates, one rule.
 func (r *SchedulesRepo) FindByProfessional(ctx context.Context, professionalID string) ([]*entity.Schedule, error) {
-	if _, err := auth.RequireRole(ctx, auth.RoleOwner); err != nil {
+	caller, err := auth.RequireCaller(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("obtener agendas del profesional: %w", err)
 	}
+	// A role outside the family is refused by the predicate below (Forbidden), so
+	// no separate RequireRole is needed: one rule, one call.
+	scopedID, err := auth.AuthorizeProfessionalRead(*caller, professionalID)
+	if err != nil {
+		return nil, fmt.Errorf("obtener agendas del profesional: %w", err)
+	}
+	professionalID = scopedID
 
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, professional_id, day_of_week, start_time, end_time

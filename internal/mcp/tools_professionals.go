@@ -30,12 +30,18 @@ type searchProfessionalsAdvancedIn struct {
 // (dto.ProfessionalSearchEntry has no email/phone), so exposing it to a client is
 // safe by construction.
 //
-// get_professional_schedules is the opposite case (S7b): OWNER ONLY, gated twice
-// (ToolRBAC entry in the composition root + auth.RequireRole inside the use
-// case). The transport still only resolves the caller and maps errors; the
-// agenda belongs to the business, not to the client (design §8.3 D5).
+// get_professional (feat-staff-self-read S1, issue #276) is the single-record
+// read: owner, admin and staff, with the client excluded, and email/phone crossing
+// only for the owner and the professional itself (S4).
+//
+// get_professional_schedules is the agenda read (S7b), widened to owner, admin
+// and staff by S3 of the same change; staff is own-only at the use-case layer.
+// Both tools carry a ToolRBAC row in the composition root AND re-assert the role
+// inside the use case, so the transport keeps only resolving the caller and
+// mapping errors.
 func (s *Server) registerProfessionalsReadTools() {
 	s.registerSearchProfessionalsAdvancedTool()
+	s.registerGetProfessionalTool()
 	s.registerGetProfessionalSchedulesTool()
 }
 
@@ -71,6 +77,84 @@ func (s *Server) registerSearchProfessionalsAdvancedTool() {
 			return nil, out, nil
 		})
 	s.toolNames["search_professionals_advanced"] = struct{}{}
+}
+
+// getProfessionalIn is the input of get_professional. The field is OPTIONAL, the
+// opposite of the agenda read below: an absent professional_id asks for the
+// caller's own record, which is the whole point of the tool for a staff caller.
+// The use case resolves the self case through auth.AuthorizeProfessionalRead, so
+// the transport never inspects the role to decide it.
+type getProfessionalIn struct {
+	ProfessionalID string `json:"professional_id,omitempty"`
+}
+
+// professionalDetailOut is the record projection every admitted caller receives
+// (feat-staff-self-read S4): the counterpart of professionalOut with the contact
+// fields REMOVED — they are not a conditional pair inside this object because
+// they must be omittable independently of the identity.
+type professionalDetailOut struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	RoleSpecialty *string  `json:"role_specialty,omitempty"`
+	Status        string   `json:"status"`
+	Specialties   []string `json:"specialties"`
+}
+
+// getProfessionalOut is the pinned output contract of get_professional: the
+// record plus the contact fields at the top level, present ONLY when the use case
+// decided the caller may see them (owner or the professional itself). omitempty
+// is load-bearing: a nil pointer renders as an ABSENT key, so Hermes can tell
+// "withheld" from "stored empty" — the same mold as professionalOut.
+type getProfessionalOut struct {
+	Professional professionalDetailOut `json:"professional"`
+	Email        *string               `json:"email,omitempty"`
+	Phone        *string               `json:"phone,omitempty"`
+}
+
+// registerGetProfessionalTool wires the single-record read (S1).
+func (s *Server) registerGetProfessionalTool() {
+	if s.cfg.GetProfessional == nil {
+		return
+	}
+	mcp.AddTool(s.impl, s.mcpTool("get_professional",
+		"Devuelve el registro de un profesional (identidad, estado y especialidades). Sin professional_id devuelve el registro propio. email y teléfono solo se incluyen para el owner y para el propio profesional. Disponible para owner, admin y staff"),
+		func(ctx context.Context, _ *mcp.CallToolRequest, in getProfessionalIn) (*mcp.CallToolResult, getProfessionalOut, error) {
+			caller, err := auth.RequireCaller(ctx)
+			if err != nil {
+				return nil, getProfessionalOut{}, s.toMCPError(err)
+			}
+			result, err := s.cfg.GetProfessional.Execute(ctx, dto.GetProfessionalInput{
+				Caller:         *caller,
+				ProfessionalID: strings.TrimSpace(in.ProfessionalID),
+			})
+			if err != nil {
+				return nil, getProfessionalOut{}, s.toMCPError(err)
+			}
+			// Fail closed: a success without a record would render a zero-value
+			// professional, which is a well-formed lie (same guard class as
+			// errNilMaintenanceEntity).
+			if result == nil {
+				return nil, getProfessionalOut{}, s.toMCPError(errNilMaintenanceEntity)
+			}
+			specialties := result.Professional.Specialties
+			if specialties == nil {
+				// The wire always carries an array, never null, so Hermes can iterate
+				// it unconditionally.
+				specialties = []string{}
+			}
+			return nil, getProfessionalOut{
+				Professional: professionalDetailOut{
+					ID:            result.Professional.ID,
+					Name:          result.Professional.Name,
+					RoleSpecialty: result.Professional.RoleSpecialty,
+					Status:        result.Professional.Status,
+					Specialties:   specialties,
+				},
+				Email: result.Email,
+				Phone: result.Phone,
+			}, nil
+		})
+	s.toolNames["get_professional"] = struct{}{}
 }
 
 // getProfessionalSchedulesIn is the input of get_professional_schedules. The
@@ -111,13 +195,14 @@ type getProfessionalSchedulesOut struct {
 	Schedules    []professionalScheduleRow `json:"schedules"`
 }
 
-// registerGetProfessionalSchedulesTool wires the owner-only agenda read.
+// registerGetProfessionalSchedulesTool wires the agenda read (S7b; roles widened
+// to owner/admin/staff by S3).
 func (s *Server) registerGetProfessionalSchedulesTool() {
 	if s.cfg.GetProfessionalSchedules == nil {
 		return
 	}
 	mcp.AddTool(s.impl, s.mcpTool("get_professional_schedules",
-		"Devuelve la agenda semanal de un profesional (identidad + franjas ordenadas por día, 0=domingo..6=sábado). Solo disponible para owner"),
+		"Devuelve la agenda semanal de un profesional (identidad + franjas ordenadas por día, 0=domingo..6=sábado). Disponible para owner, admin y staff; staff solo puede leer su propia agenda"),
 		func(ctx context.Context, _ *mcp.CallToolRequest, in getProfessionalSchedulesIn) (*mcp.CallToolResult, getProfessionalSchedulesOut, error) {
 			caller, err := auth.RequireCaller(ctx)
 			if err != nil {

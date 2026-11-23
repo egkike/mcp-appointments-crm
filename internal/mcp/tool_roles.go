@@ -69,9 +69,17 @@ func ToolRoles() auth.ToolRBAC {
 		"delete_hours_exception": {auth.RoleOwner},
 		"list_hours_exceptions":  {auth.RoleOwner},
 
-		// Professionals agenda read (feat-owner-chat S7b): owner-only here AND
-		// inside the use case, closing the delete_schedule read-gap.
-		"get_professional_schedules": {auth.RoleOwner},
+		// Professionals surface. search_professionals_advanced stays ungated (see
+		// UngatedTools). The two record/agenda reads admit owner, admin and staff
+		// (feat-staff-self-read S1/S3, issue #276): the ROLE is decided here, the
+		// SCOPE (staff is own-only) below it, because this map keys on the tool
+		// name and never sees the professional_id argument. A staff caller naming
+		// a foreign professional is therefore refused by the shared
+		// auth.AuthorizeProfessionalRead predicate with a FORBIDDEN semantic error
+		// (-32002 + auth.MsgForbiddenTool), never by this row — the two layers
+		// answer different questions and both are required.
+		"get_professional":           {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
+		"get_professional_schedules": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
 	}
 }
 

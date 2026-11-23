@@ -489,11 +489,19 @@ func run(ctx context.Context) error {
 	upsertScheduleUC := usecase.NewUpsertScheduleUseCase(schedulesRepo, logger)
 	deleteScheduleUC := usecase.NewDeleteScheduleUseCase(schedulesRepo, logger)
 
-	// feat-owner-chat (S7b): owner-only agenda read. It closes the read-gap of
+	// feat-staff-self-read (S1, issue #276): single-record read. Roles owner,
+	// admin and staff, with the client excluded (S5); the scope (staff is
+	// own-only) and the field-level PII rule live inside the use case, through the
+	// shared auth predicates, so no other layer re-derives them.
+	getProfessionalUC := usecase.NewGetProfessionalUseCase(prosRepo)
+
+	// feat-owner-chat (S7b): agenda read. It closes the read-gap of
 	// delete_schedule — the conversational gate can now name the professional and
 	// verify the slot it is about to remove instead of repeating a declared pair
-	// (feature doc L4, design §8.3). The owner-only gate is enforced twice: the
-	// ToolRBAC row below and auth.RequireRole(RoleOwner) inside the use case.
+	// (feature doc L4, design §8.3). feat-staff-self-read S3 widened the roles to
+	// owner/admin/staff; the gate is triple: the ToolRBAC row below,
+	// auth.RequireRole + auth.AuthorizeProfessionalRead inside the use case, and
+	// the SchedulesRepo.FindByProfessional guard.
 	getProfessionalSchedulesUC := usecase.NewGetProfessionalSchedulesUseCase(prosRepo, schedulesRepo)
 
 	// feat-hours-exception-tool (PR2): the three owner-only exception use cases
@@ -539,6 +547,7 @@ func run(ctx context.Context) error {
 		SearchServicesAdvanced: searchServicesAdvancedUC,
 
 		SearchProfessionalsAdvanced: searchProfessionalsAdvancedUC,
+		GetProfessional:             getProfessionalUC,
 		GetProfessionalSchedules:    getProfessionalSchedulesUC,
 		GetPendingAlerts:            getPendingAlertsUC,
 		MarkAlertAsSent:             markAlertAsSentUC,

@@ -330,3 +330,193 @@ func TestToolGetProfessionalSchedulesNilRowFailsClosed(t *testing.T) {
 	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_professional_schedules", `{"professional_id":"p-romina"}`))
 	wantErrorCode(t, resp, -32603)
 }
+
+// ── get_professional (feat-staff-self-read S1/S4, issue #276) ──
+
+// adminCallerPtr / staffSelfCallerPtr are the record-read caller fixtures. The
+// shared staffCallerPtr() in tools_hours_exception_test.go carries no
+// professional link because the hours-exception suite only needs the role; a
+// record read needs the caller's own professional, which is the whole point of
+// feat-staff-self-read.
+func adminCallerPtr() *auth.Caller {
+	c := auth.Caller{ID: "admin-1", Role: auth.RoleAdmin}
+	return &c
+}
+
+func staffSelfCallerPtr(professionalID string) *auth.Caller {
+	c := auth.Caller{ID: "staff-1", Role: auth.RoleStaff, ProfessionalID: &professionalID}
+	return &c
+}
+
+// mockGetProfessionalPort is the fn-table mock for the record-read consumer port
+// (same shape as the other port mocks in tools_test.go).
+type mockGetProfessionalPort struct {
+	executeFn func(ctx context.Context, in dto.GetProfessionalInput) (*dto.GetProfessionalResult, error)
+}
+
+func (m *mockGetProfessionalPort) Execute(ctx context.Context, in dto.GetProfessionalInput) (*dto.GetProfessionalResult, error) {
+	return m.executeFn(ctx, in)
+}
+
+// getProfessionalWire mirrors the pinned output contract of get_professional so
+// the assertions below fail on a wire-shape change, not on a compile error.
+// email/phone are pointers precisely because they must be OMITTED, not empty.
+type getProfessionalWire struct {
+	Professional struct {
+		ID            string   `json:"id"`
+		Name          string   `json:"name"`
+		RoleSpecialty *string  `json:"role_specialty"`
+		Status        string   `json:"status"`
+		Specialties   []string `json:"specialties"`
+	} `json:"professional"`
+	Email *string `json:"email"`
+	Phone *string `json:"phone"`
+}
+
+func TestToolGetProfessional(t *testing.T) {
+	srv, ports := newToolServer(t)
+	role := "Estilista"
+	email := "romina@example.com"
+	phone := "+5491100000009"
+	ports.getProfessional.executeFn = func(ctx context.Context, in dto.GetProfessionalInput) (*dto.GetProfessionalResult, error) {
+		// The caller travels from the resolved request context into the use case:
+		// the transport never trusts the arguments for identity, and it trims the
+		// requested id before handing it over.
+		if in.Caller.ID != "owner-1" || in.Caller.Role != auth.RoleOwner {
+			t.Errorf("input.Caller = %+v; want owner-1/owner", in.Caller)
+		}
+		if in.ProfessionalID != "p-romina" {
+			t.Errorf("input.ProfessionalID = %q; want the trimmed p-romina", in.ProfessionalID)
+		}
+		return &dto.GetProfessionalResult{
+			Professional: dto.ProfessionalDetail{
+				ID: "p-romina", Name: "Romina", RoleSpecialty: &role, Status: "active",
+				Specialties: []string{"s-lavado"},
+			},
+			Email: &email,
+			Phone: &phone,
+		}, nil
+	}
+
+	raw := wantStructured(t, decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_professional",
+		`{"professional_id":"  p-romina  "}`)))
+
+	var out getProfessionalWire
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	if out.Professional.ID != "p-romina" || out.Professional.Name != "Romina" || out.Professional.Status != "active" {
+		t.Errorf("professional = %+v; want p-romina/Romina/active", out.Professional)
+	}
+	if out.Professional.RoleSpecialty == nil || *out.Professional.RoleSpecialty != "Estilista" {
+		t.Errorf("role_specialty = %v; want Estilista", out.Professional.RoleSpecialty)
+	}
+	if len(out.Professional.Specialties) != 1 || out.Professional.Specialties[0] != "s-lavado" {
+		t.Errorf("specialties = %v; want [s-lavado]", out.Professional.Specialties)
+	}
+	if out.Email == nil || *out.Email != email || out.Phone == nil || *out.Phone != phone {
+		t.Errorf("contact = %v/%v; the owner must receive email and phone (S4)", out.Email, out.Phone)
+	}
+}
+
+// TestToolGetProfessionalOmitsTheIDForSelf pins the optional input: an absent
+// professional_id is a valid request ("my record"), not a schema violation.
+func TestToolGetProfessionalOmitsTheIDForSelf(t *testing.T) {
+	srv, ports := newToolServer(t)
+	called := false
+	ports.getProfessional.executeFn = func(ctx context.Context, in dto.GetProfessionalInput) (*dto.GetProfessionalResult, error) {
+		called = true
+		if in.Caller.Role != auth.RoleStaff {
+			t.Errorf("input.Caller = %+v; want the staff caller", in.Caller)
+		}
+		if in.ProfessionalID != "" {
+			t.Errorf("input.ProfessionalID = %q; want empty (self)", in.ProfessionalID)
+		}
+		return &dto.GetProfessionalResult{
+			Professional: dto.ProfessionalDetail{ID: "p-romina", Name: "Romina", Status: "active", Specialties: []string{}},
+		}, nil
+	}
+
+	staff := staffSelfCallerPtr("p-romina")
+	wantStructured(t, decodeToolResponse(t, callTool(srv.Handler(), staff, "get_professional", `{}`)))
+	if !called {
+		t.Fatal("the port was not called; an absent professional_id must reach the use case as self")
+	}
+}
+
+// TestToolGetProfessionalAdminHasNoContact pins S4 ON THE WIRE: when the use case
+// withholds the contact fields (admin), the keys must be ABSENT, not empty
+// strings — a null/"" pair would tell Hermes the professional has no phone.
+func TestToolGetProfessionalAdminHasNoContact(t *testing.T) {
+	srv, ports := newToolServer(t)
+	ports.getProfessional.executeFn = func(ctx context.Context, in dto.GetProfessionalInput) (*dto.GetProfessionalResult, error) {
+		return &dto.GetProfessionalResult{
+			Professional: dto.ProfessionalDetail{ID: "p-romina", Name: "Romina", Status: "active", Specialties: []string{}},
+		}, nil
+	}
+
+	admin := adminCallerPtr()
+	raw := wantStructured(t, decodeToolResponse(t, callTool(srv.Handler(), admin, "get_professional", `{"professional_id":"p-romina"}`)))
+
+	for _, forbidden := range []string{`"email"`, `"phone"`} {
+		if bytes.Contains(raw, []byte(forbidden)) {
+			t.Errorf("wire carries %s; admin MUST NOT receive contact data (S4): %s", forbidden, raw)
+		}
+	}
+	for _, want := range []string{`"id"`, `"name"`, `"status"`, `"specialties"`} {
+		if !bytes.Contains(raw, []byte(want)) {
+			t.Errorf("wire missing %s: %s", want, raw)
+		}
+	}
+	// An empty specialties list must still render as an array, never null.
+	if bytes.Contains(raw, []byte(`"specialties":null`)) {
+		t.Errorf("specialties rendered null; want []: %s", raw)
+	}
+}
+
+// TestToolGetProfessionalForbiddenIsSemantic pins the S2 answer at the wire: the
+// scope refusal is a DOMAIN semantic error (ErrCodeForbidden +
+// auth.MsgForbiddenTool), which the transport maps to -32002. It is NOT the
+// middleware's -32001: the RBAC row admits staff, and the per-id decision lives
+// below the transport, which never parses tool arguments.
+func TestToolGetProfessionalForbiddenIsSemantic(t *testing.T) {
+	srv, ports := newToolServer(t)
+	ports.getProfessional.executeFn = func(ctx context.Context, in dto.GetProfessionalInput) (*dto.GetProfessionalResult, error) {
+		return nil, &domain.SemanticError{
+			Code:    domain.ErrCodeForbidden,
+			Message: auth.MsgForbiddenTool,
+			Cause:   domain.ErrForbidden,
+		}
+	}
+
+	resp := decodeToolResponse(t, callTool(srv.Handler(), staffSelfCallerPtr("p-romina"), "get_professional",
+		`{"professional_id":"p-otro"}`))
+	wantErrorCode(t, resp, -32002)
+	if resp.Error.Message != auth.MsgForbiddenTool {
+		t.Errorf("message = %q; want the shipped refusal %q", resp.Error.Message, auth.MsgForbiddenTool)
+	}
+}
+
+func TestToolGetProfessionalNilResultFailsClosed(t *testing.T) {
+	srv, ports := newToolServer(t)
+	ports.getProfessional.executeFn = func(ctx context.Context, in dto.GetProfessionalInput) (*dto.GetProfessionalResult, error) {
+		return nil, nil
+	}
+
+	// A zero-value record is a well-formed lie: fail closed like every other tool.
+	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_professional", `{"professional_id":"p-romina"}`))
+	wantErrorCode(t, resp, -32603)
+}
+
+func TestToolGetProfessionalInternalErrorLeaksNothing(t *testing.T) {
+	srv, ports := newToolServer(t)
+	ports.getProfessional.executeFn = func(ctx context.Context, in dto.GetProfessionalInput) (*dto.GetProfessionalResult, error) {
+		return nil, errors.New("sql: database is locked at /home/owner/appointments.db")
+	}
+
+	resp := decodeToolResponse(t, callTool(srv.Handler(), ownerCallerPtr(), "get_professional", `{"professional_id":"p-romina"}`))
+	wantErrorCode(t, resp, -32603)
+	if strings.Contains(resp.Error.Message, "appointments.db") || strings.Contains(resp.Error.Message, "locked") {
+		t.Errorf("internal detail leaked to the client: %q", resp.Error.Message)
+	}
+}

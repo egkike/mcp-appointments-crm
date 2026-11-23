@@ -23,12 +23,13 @@ import (
 // can never disagree silently. The literal counts are the deliberate pin: they
 // make an unintended broadening of the surface visible in the diff.
 
-// The wire contract per role, derived from the policy on 2026-11-23:
-// 20 gated rows (owner 20, admin 8, staff 5, client 5) + 6 ungated tools.
+// The wire contract per role, derived from the policy on 2026-11-23
+// (feat-staff-self-read S5, issue #276):
+// 21 gated rows (owner 21, admin 10, staff 7, client 5) + 6 ungated tools.
 const (
-	expectedOwnerToolCount  = expectedToolCount // 26
-	expectedAdminToolCount  = 14
-	expectedStaffToolCount  = 11
+	expectedOwnerToolCount  = expectedToolCount // 27
+	expectedAdminToolCount  = 16
+	expectedStaffToolCount  = 13
 	expectedClientToolCount = 11
 )
 
@@ -251,6 +252,8 @@ func TestToolsListStaffSurfaceMatchesTheSpec(t *testing.T) {
 		"find_available_slots",
 		"get_booking",
 		"get_business_profile",
+		"get_professional",
+		"get_professional_schedules",
 		"register_client",
 		"reschedule_booking",
 		"search_clients_advanced",
