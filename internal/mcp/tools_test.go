@@ -381,17 +381,26 @@ func TestToolsListAllRegisteredTools(t *testing.T) {
 		t.Fatalf("unmarshal: %v; body=%s", err, rec.Body.String())
 	}
 	want := []string{"check_availability", "create_booking", "get_booking", "cancel_booking", "reschedule_booking", "get_business_profile", "search_clients_advanced", "search_services_advanced", "get_pending_alerts", "mark_alert_as_sent", "get_loyalty_report", "update_business_profile", "create_service", "update_service", "delete_service", "create_professional", "update_professional", "upsert_schedule", "delete_schedule", "register_client", "create_hours_exception", "delete_hours_exception", "list_hours_exceptions", "search_professionals_advanced", "get_professional_schedules", "find_available_slots"}
-	if len(resp.Result.Tools) != len(want) {
-		t.Fatalf("tools/list returned %d tools; want %d: %s", len(resp.Result.Tools), len(want), mustJSON(t, resp.Result.Tools))
-	}
-	// The SDK serves tools sorted by name; compare as a set.
+	// The SDK serves tools sorted by name; compare as a SET in both directions.
+	// The previous count check plus a `want ⊆ got` loop was already equivalent
+	// for a list without duplicate names: equal cardinality plus a subset of the
+	// same size means equality. What changes here is the DIAGNOSIS — the failure
+	// now names the unexpected tool instead of only reporting a count mismatch
+	// (advisory nits, issue #271; the equivalence is recorded in the task doc L3).
 	got := make(map[string]bool, len(resp.Result.Tools))
 	for _, tool := range resp.Result.Tools {
 		got[tool.Name] = true
 	}
+	wantSet := make(map[string]bool, len(want))
 	for _, w := range want {
+		wantSet[w] = true
 		if !got[w] {
 			t.Errorf("tools/list missing %q; got %s", w, mustJSON(t, resp.Result.Tools))
+		}
+	}
+	for name := range got {
+		if !wantSet[name] {
+			t.Errorf("tools/list returned unexpected tool %q; want exactly the %d tools above", name, len(want))
 		}
 	}
 }

@@ -284,7 +284,7 @@ func (r *ClientsRepo) GetOrCreate(ctx context.Context, phone, name string) (*ent
 		if caller.Role != auth.RoleClient || phone == "" || phone != caller.ID {
 			return nil, &domain.SemanticError{
 				Code:    domain.ErrCodeForbidden,
-				Message: "no tienes permiso para realizar esta acción",
+				Message: auth.MsgForbiddenTool,
 				Cause:   domain.ErrForbidden,
 			}
 		}

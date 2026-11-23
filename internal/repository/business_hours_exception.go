@@ -132,6 +132,14 @@ func (r *BusinessHoursExceptionRepo) Get(ctx context.Context, date time.Time) (*
 
 // List returns all exceptions within the [from, to] date range (inclusive),
 // ordered by exception_date ascending.
+//
+// Like Get above, this carries no gate beyond authentication and no scope
+// predicate (issue #271, DEBT-2): the table is business-wide calendar metadata
+// with no scope column, and the hottest consumer is the availability chain,
+// reached from an ungated tool by any authenticated caller. Narrowing the
+// adapter to owner/admin would break find_available_slots; the owner-only rule
+// for the LIST *tool* lives in its use case (list_hours_exceptions.go), which
+// re-asserts the role and is pinned there.
 func (r *BusinessHoursExceptionRepo) List(ctx context.Context, from, to time.Time) ([]*entity.BusinessHoursException, error) {
 	if _, err := auth.RequireCaller(ctx); err != nil {
 		return nil, fmt.Errorf("listar excepciones: %w", err)

@@ -131,8 +131,8 @@ func TestMiddleware_AnonymousAllowlist_EmptyHeaderUniversal401(t *testing.T) {
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("status = %d; want %d", rec.Code, http.StatusUnauthorized)
 			}
-			if !strings.Contains(rec.Body.String(), "no se proporcionó X-Caller-Id") {
-				t.Errorf("body = %q; want to contain %q", rec.Body.String(), "no se proporcionó X-Caller-Id")
+			if !strings.Contains(rec.Body.String(), MsgAuthRequired) {
+				t.Errorf("body = %q; want to contain %q", rec.Body.String(), MsgAuthRequired)
 			}
 			if probe.called {
 				t.Error("downstream handler must NOT run when the header is missing/empty")

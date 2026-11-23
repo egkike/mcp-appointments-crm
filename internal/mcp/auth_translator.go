@@ -23,7 +23,7 @@ const (
 	// missing header; unknown/disabled callers carry the resolver's Spanish
 	// message instead — both are forwarded verbatim from the buffered body,
 	// see jsonrpcAuthTranslator).
-	msgAuthRequired = "no se proporcionó X-Caller-Id"
+	msgAuthRequired = auth.MsgAuthRequired
 	msgForbidden    = auth.MsgForbiddenTool
 	msgInternal     = "error interno del servidor"
 )

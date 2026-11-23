@@ -262,8 +262,8 @@ func TestIntegrationRegistrationSeamBoundaries(t *testing.T) {
 
 	t.Run("missing X-Caller-Id is the universal 401 before the seam", func(t *testing.T) {
 		_, code, msg := callMCPTool(t, mux, "", "register_client", `{}`)
-		if code != -32000 || msg != "no se proporcionó X-Caller-Id" {
-			t.Errorf("code=%d msg=%q; want -32000 %q", code, msg, "no se proporcionó X-Caller-Id")
+		if code != -32000 || msg != msgAuthRequired {
+			t.Errorf("code=%d msg=%q; want -32000 %q", code, msg, msgAuthRequired)
 		}
 	})
 

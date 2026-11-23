@@ -386,8 +386,15 @@ func TestFindAvailableSlotsInactiveProfessional(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
-		if len(result.Slots) == 0 || result.TotalCandidates == 0 {
+		if len(result.Slots) == 0 {
 			t.Errorf("result = %+v; want slots (specialties must not filter availability)", result)
+		}
+		// Pinned, not just non-zero: 09:00..16:00 on a 60-minute service against
+		// business hours 09:00-18:00 is exactly 8 candidates. A count assertion
+		// would pass with any non-empty grid and hide a real regression in the
+		// candidate window (advisory nits, issue #271).
+		if result.TotalCandidates != 8 {
+			t.Errorf("TotalCandidates = %d; want 8", result.TotalCandidates)
 		}
 	})
 }

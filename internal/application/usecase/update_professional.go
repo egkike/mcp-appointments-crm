@@ -42,7 +42,7 @@ func (uc *UpdateProfessionalUseCase) Execute(ctx context.Context, input dto.Upda
 	ctx = auth.WithCaller(ctx, input.Caller)
 	caller, err := auth.RequireRole(ctx, auth.RoleOwner)
 	if err != nil {
-		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "no tienes permiso para realizar esta acción", Cause: domain.ErrForbidden}
+		return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: auth.MsgForbiddenTool, Cause: domain.ErrForbidden}
 	}
 
 	professional, err := uc.professionals.FindByID(ctx, input.ProfessionalID)
