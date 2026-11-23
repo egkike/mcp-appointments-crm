@@ -43,22 +43,23 @@ const MsgProfessionalScopeRequired = "Debes indicar professional_id: tu usuario 
 // pass to the repository.
 func AuthorizeProfessionalRead(caller Caller, requestedID string) (string, error) {
 	id := strings.TrimSpace(requestedID)
+	own := callerProfessionalID(caller)
 	if id == "" {
-		if caller.ProfessionalID == nil || strings.TrimSpace(*caller.ProfessionalID) == "" {
+		if own == "" {
 			return "", &domain.SemanticError{
 				Code:    domain.ErrCodeInvalidInput,
 				Message: MsgProfessionalScopeRequired,
 				Cause:   domain.ErrInvalidInput,
 			}
 		}
-		return *caller.ProfessionalID, nil
+		return own, nil
 	}
 
 	switch caller.Role {
 	case RoleOwner, RoleAdmin:
 		return id, nil
 	case RoleStaff:
-		if caller.ProfessionalID != nil && *caller.ProfessionalID == id {
+		if own != "" && own == id {
 			return id, nil
 		}
 	}
@@ -97,5 +98,19 @@ func CanReadProfessionalContact(caller Caller, professionalID string) bool {
 	if caller.Role != RoleStaff {
 		return false
 	}
-	return caller.ProfessionalID != nil && *caller.ProfessionalID == professionalID
+	own := callerProfessionalID(caller)
+	return own != "" && own == strings.TrimSpace(professionalID)
+}
+
+// callerProfessionalID is the caller's own professional link, trimmed, or "" when
+// it carries none. Both predicates above go through it (issue #278 A1): the scope
+// question trims the REQUESTED id, so the contact question and the self branch
+// must normalise the STORED one the same way — otherwise a padded value would be
+// in scope for one question and out of it for the other, and the self branch
+// would hand the repository an untrimmed lookup id.
+func callerProfessionalID(caller Caller) string {
+	if caller.ProfessionalID == nil {
+		return ""
+	}
+	return strings.TrimSpace(*caller.ProfessionalID)
 }

@@ -136,7 +136,7 @@ the client surface is unchanged (11), because BOTH tools keep the client out.
 - GIVEN a `staff` caller that DOES see `get_professional` and `get_professional_schedules` in `tools/list`
 - WHEN it calls either tool naming a professional other than its own
 - THEN the response MUST be a semantic `FORBIDDEN` (`-32002`, `auth.MsgForbiddenTool`) from the scope predicate below the transport
-- AND it MUST NOT be the repository's `UNAUTHENTICATED` answer, because the caller IS authenticated
+- AND it MUST NOT be the `UNAUTHENTICATED` answer the repository used to give for a scope miss (now FORBIDDEN), because the caller IS authenticated
 - NOTE: discovery is not authorization, and this refusal cannot be `-32001`: the RBAC row admits the staff role, and the per-id decision lives below a transport that never parses tool arguments
 
 #### Scenario: No caller, no surface

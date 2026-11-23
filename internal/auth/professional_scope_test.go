@@ -136,6 +136,10 @@ func TestCanReadProfessionalContact(t *testing.T) {
 		// finding on #276). Only the staff role is schema-tied to a professional.
 		{"admin linked to the professional still reads no contact", Caller{ID: "admin-1", Role: RoleAdmin, ProfessionalID: ptrString("p-own")}, "p-own", false},
 		{"staff reads another professional", staffScopeCaller("p-own"), "p-other", false},
+		// Trim symmetry (issue #278 A1): the requested id is trimmed by the scope
+		// predicate, so the contact comparison must normalise both sides or the
+		// same record would pass one question and fail the other.
+		{"staff reads its own contact with a padded stored id", staffScopeCaller("  p-own  "), "p-own", true},
 		{"client reads no contact", Caller{ID: "c1", Role: RoleClient, ClientID: ptrString("c1")}, "p-any", false},
 	}
 

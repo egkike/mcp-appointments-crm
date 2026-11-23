@@ -84,17 +84,26 @@ func (r *ProfessionalsRepo) Save(ctx context.Context, p *entity.Professional) er
 // FindByID returns a professional by ID. Returns domain.ErrNotFound if not found.
 // Staff callers can only retrieve their own professional record.
 func (r *ProfessionalsRepo) FindByID(ctx context.Context, id string) (*entity.Professional, error) {
+	// One normalisation, used by the scope comparison AND the statement below
+	// (verifier finding on #278): trimming only the comparison let "pro-1 " pass
+	// the gate and then miss in `WHERE id = ?`, so the caller was told its own
+	// record does not exist.
+	id = strings.TrimSpace(id)
 	caller, err := auth.RequireCaller(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("obtener profesional %s: %w", id, err)
 	}
-	// Staff restricted to their own row
+	// Staff restricted to their own row. The refusal is FORBIDDEN, not
+	// UNAUTHENTICATED (issue #278 A2): the caller is authenticated — its token and
+	// account resolved — and only the record is out of scope. Answering
+	// "unauthenticated" told a staff member that a valid session was invalid and
+	// made the refusal unreadable to every caller that branches on the code.
 	if caller.Role == auth.RoleStaff {
-		if caller.ProfessionalID == nil || *caller.ProfessionalID != id {
+		if caller.ProfessionalID == nil || strings.TrimSpace(*caller.ProfessionalID) != id {
 			return nil, &domain.SemanticError{
-				Code:    domain.ErrCodeUnauthenticated,
+				Code:    domain.ErrCodeForbidden,
 				Message: "no tiene permiso para ver este profesional",
-				Cause:   domain.ErrUnauthenticated,
+				Cause:   domain.ErrForbidden,
 			}
 		}
 	}
