@@ -233,6 +233,31 @@ func TestProfessionalsRepo_FindByID(t *testing.T) {
 		}
 	})
 
+	t.Run("staff gets its own record when the id carries padding", func(t *testing.T) {
+		// Trimming only the COMPARISON and not the query handed SQL an id that
+		// cannot match, so the caller was told its own record does not exist
+		// (verifier finding on #278): the normalised value has to be the one that
+		// travels to the statement too.
+		db, mock := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+		rows := sqlmock.NewRows([]string{
+			"id", "name", "role_specialty", "status", "email", "phone",
+			"specialties", "created_at", "updated_at",
+		}).AddRow("pro-1", "Juan", nil, "active", nil, nil, nil,
+			"2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z")
+		mock.ExpectQuery(`SELECT .+ FROM professionals WHERE id = \?`).
+			WithArgs("pro-1").
+			WillReturnRows(rows)
+
+		p, err := repo.FindByID(staffCtx("  pro-1  "), "pro-1 ")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if p.ID != "pro-1" {
+			t.Errorf("got ID=%q, want %q", p.ID, "pro-1")
+		}
+	})
+
 	t.Run("staff cannot get another professional record", func(t *testing.T) {
 		db, _ := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
@@ -242,8 +267,13 @@ func TestProfessionalsRepo_FindByID(t *testing.T) {
 		if !errors.As(err, &sErr) {
 			t.Fatalf("expected *domain.SemanticError, got %T: %v", err, err)
 		}
-		if sErr.Code != domain.ErrCodeUnauthenticated {
-			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeUnauthenticated)
+		// An authenticated staff caller asking about a foreign record is out of
+		// SCOPE, not unauthenticated (issue #278 A2): the token was fine.
+		if sErr.Code != domain.ErrCodeForbidden {
+			t.Errorf("got Code=%q, want %q", sErr.Code, domain.ErrCodeForbidden)
+		}
+		if !errors.Is(sErr.Cause, domain.ErrForbidden) {
+			t.Errorf("got Cause=%v, want domain.ErrForbidden", sErr.Cause)
 		}
 	})
 
