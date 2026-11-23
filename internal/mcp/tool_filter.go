@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -46,7 +45,13 @@ const methodListTools = "tools/list"
 // PAGINATION INVARIANT: this filter narrows the page AFTER the SDK paginated
 // it, so it must not be combined with a non-zero ServerOptions.PageSize. The
 // server is built without pagination (PageSize 0, one page with every tool) and
-// TestToolsListFiltersByCallerRole pins the resulting surface per role.
+// TestToolsListFiltersByCallerRole pins the resulting surface per role;
+// TestToolsListCarriesNoNextCursor pins the invariant itself — a paginated
+// answer would hand the caller a cursor computed before this narrowing, and the
+// page behind it would be skipped without ever naming a role. It is a
+// size-sensitive pin: it fails for any PageSize smaller than the per-role
+// surface and passes for one large enough to emit no cursor, which is exactly
+// the pagination-inert case.
 func toolsListFilter(rbac auth.ToolRBAC, logger *slog.Logger) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -81,31 +86,21 @@ func toolsListFilter(rbac auth.ToolRBAC, logger *slog.Logger) mcp.Middleware {
 }
 
 // visibleTools keeps the tools the role may invoke, applying the SAME predicate
-// AuthMiddleware applies to tools/call: a tool with no row, or an empty row, is
-// open to any authenticated caller; otherwise the role must be listed. The
-// deliberately ungated tools (UngatedTools, tool_roles.go) are therefore kept
-// visible by construction rather than by a second list that could drift.
+// AuthMiddleware applies to tools/call — auth.CanInvoke, literally the same
+// function since advisory S1 (issue #268), not a twin that must be kept in
+// sync: a tool with no row, or an empty row, is open to any authenticated
+// caller; otherwise the role must be listed. The deliberately ungated tools
+// (UngatedTools, tool_roles.go) are therefore kept visible by construction
+// rather than by a second list that could drift.
 func visibleTools(tools []*mcp.Tool, rbac auth.ToolRBAC, role string) []*mcp.Tool {
 	visible := make([]*mcp.Tool, 0, len(tools))
 	for _, tool := range tools {
 		if tool == nil {
 			continue
 		}
-		if canInvoke(rbac, tool.Name, role) {
+		if auth.CanInvoke(rbac, tool.Name, role) {
 			visible = append(visible, tool)
 		}
 	}
 	return visible
-}
-
-// canInvoke reports whether the transport gate would let role call tool. It is
-// the discovery twin of AuthMiddleware's step 6 (internal/auth/middleware.go);
-// the two are kept in one place here so a change on either side is a diff in
-// this file, not a silent divergence.
-func canInvoke(rbac auth.ToolRBAC, tool, role string) bool {
-	roles := rbac[tool]
-	if len(roles) == 0 {
-		return true
-	}
-	return slices.Contains(roles, role)
 }

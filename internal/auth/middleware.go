@@ -176,12 +176,13 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 			rr.RecordCallerRole(caller.Role)
 		}
 
-		// Step 6: RBAC check BEFORE calling next
-		if roles, ok := m.rbac[tool]; ok && len(roles) > 0 {
-			if !roleAllowed(caller.Role, roles) {
-				http.Error(w, MsgForbiddenTool, http.StatusForbidden)
-				return
-			}
+		// Step 6: RBAC check BEFORE calling next. The decision is CanInvoke
+		// (can_invoke.go), shared with the tools/list discovery filter so the
+		// menu and the guard cannot drift: absent or empty row ⇒ any
+		// authenticated caller, populated row ⇒ the role must be listed.
+		if !CanInvoke(m.rbac, tool, caller.Role) {
+			http.Error(w, MsgForbiddenTool, http.StatusForbidden)
+			return
 		}
 
 		// Step 7: audit log for privileged callers (keyed digest — no PII in logs)
@@ -195,16 +196,6 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		ctx := WithCaller(r.Context(), caller)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-// roleAllowed checks if the given role is in the allowed set.
-func roleAllowed(role string, allowed []string) bool {
-	for _, r := range allowed {
-		if r == role {
-			return true
-		}
-	}
-	return false
 }
 
 // auditAttrs returns attrs with the keyed caller reference prepended, so every

@@ -536,7 +536,10 @@ func scanClientBookingCount(scan func(dest ...any) error) (domainrepo.ClientBook
 // joins clients it would be worse than useless for any hypothetical scoped
 // caller: the emitted predicate would rewrite what client_id means for rows
 // produced by a clients-side join. The gate lives one layer up and is pinned
-// there (get_loyalty_report_test.go).
+// there by SYMBOL, not by file (advisory S5, issue #274): TestGetLoyaltyReportUseCase
+// asserts the owner/admin rows and the refusals in its "staff rejected" and
+// "client rejected" subtests, so a rename of that test must come here and
+// update this rationale instead of silently leaving it pointing at nothing.
 func (r *BookingsRepo) AggregateByClient(ctx context.Context, start, end time.Time, limit int) ([]domainrepo.ClientBookingCount, error) {
 	if _, err := auth.RequireCaller(ctx); err != nil {
 		return nil, fmt.Errorf("agregar reservas por cliente: %w", err)

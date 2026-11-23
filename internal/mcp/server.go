@@ -31,6 +31,18 @@ func NewServer(cfg Config) *Server {
 		Version: cfg.Version,
 	}, &mcp.ServerOptions{
 		Logger: cfg.Logger,
+		// PageSize stays at its zero value (0 = no pagination, one page with
+		// the whole registry) ON PURPOSE, and it must stay there while the
+		// discovery filter exists: toolsListFilter narrows the result AFTER
+		// the SDK paginated it, so a non-zero page size would hand the caller
+		// a page selected without knowing its role, plus a nextCursor that
+		// skips the tools the filter kept. TestToolsListCarriesNoNextCursor
+		// pins the observable half (the answer carries no nextCursor); changing
+		// this value without re-paginating after the filter is a silent
+		// capability hole, not a tuning knob. The pin is size-sensitive by
+		// nature: it goes red for any PageSize below the per-role surface, and a
+		// page size at or above it emits no cursor at all (the SDK then serves
+		// one page), which is pagination-inert until the registry outgrows it.
 		Capabilities: &mcp.ServerCapabilities{
 			Tools: &mcp.ToolCapabilities{ListChanged: false},
 		},
@@ -44,7 +56,22 @@ func NewServer(cfg Config) *Server {
 	// only the tools the resolved caller can invoke. Registered here, after the
 	// SDK server exists and before the HTTP chain is built, so every handler
 	// instance shares the one filtered surface.
-	impl.AddReceivingMiddleware(toolsListFilter(cfg.ToolRBAC, cfg.Logger))
+	//
+	// Registration is CONDITIONAL on a non-empty policy (advisory S2, issue
+	// #268): the filter reads the RBAC map, so with ToolRBAC nil it would keep
+	// every tool visible for every role — the skeleton/transport behavior
+	// transport-level tests rely on. Registering nothing is therefore
+	// equivalent, and it says so in one line instead of running a middleware
+	// that pretends to decide. The Warn exists because a PARTIAL Config (a port
+	// wired, the policy forgotten) would otherwise degrade discovery in silence:
+	// the menu would quietly become the full registry while the tools/call guard
+	// still refused. Exactly one line, at construction, not per request.
+	if len(cfg.ToolRBAC) > 0 {
+		impl.AddReceivingMiddleware(toolsListFilter(cfg.ToolRBAC, cfg.Logger))
+	} else {
+		cfg.Logger.Warn("mcp: empty ToolRBAC policy; tools/list discovery filter not registered",
+			slog.String("consequence", "every registered tool is advertised to every caller"))
+	}
 	srv.registerTools()
 	// Build the unauthenticated /mcp handler exactly ONCE, after registerTools
 	// has populated toolNames (R3-002). Tool registration is allocation-stable

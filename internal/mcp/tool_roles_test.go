@@ -78,10 +78,18 @@ func TestToolRolesCoverTheRegisteredSurface(t *testing.T) {
 		}
 	}
 
-	// No count assertion here on purpose: the four loops above already force the
-	// cardinality. Every registered tool carries exactly one declaration, and
-	// every declaration names a registered tool, so the two maps can neither
-	// overlap nor leave a hole (advisory nits, issue #271).
+	// Deliberately REDUNDANT with the four loops above (advisory S4, issue #274):
+	// they already force the cardinality, because every registered tool carries
+	// exactly one declaration and every declaration names a registered tool, so
+	// the two maps can neither overlap nor leave a hole. Two reviewers asked for
+	// the count to be asserted anyway, and it is cheap: the loops prove the
+	// partition, this line proves the PARTITION'S SIZE with an arithmetic failure
+	// message instead of five per-tool diffs. If the loops ever pass while this
+	// fails, the tool surface changed without a policy decision to match it.
+	if got, want := len(roles)+len(ungated), len(registered); got != want {
+		t.Errorf("len(ToolRoles())+len(UngatedTools()) = %d; want len(registered) = %d "+
+			"(every registered tool has exactly one policy declaration)", got, want)
+	}
 }
 
 // sortedKeys returns the map keys in a stable order so failures are readable and
