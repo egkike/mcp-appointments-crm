@@ -252,11 +252,10 @@ func seedOtherClientBooking(t *testing.T, conn *sql.DB, loc *time.Location, mond
 // second active professional (p2) plus the specialties the unnamed candidate path
 // requires on BOTH professionals.
 //
-//   - Specialties: with no professional_id the use case resolves candidates
-//     through FindAllActive and keeps only the professionals that offer the
-//     service (entity.Professional.HasSpecialty, fail-closed on an empty/absent
-//     value). The shared seed leaves p1 without specialties, so without the UPDATE
-//     below the roster would be empty and this subtest would assert nothing.
+//   - Specialties: NOT seeded. Since issue #261 they are catalog/search metadata
+//     and do not narrow availability, so both professionals are candidates on the
+//     roster question without any specialty row. (Before that decision this
+//     fixture had to UPDATE specialties on both, or the roster came back empty.)
 //   - Identical shifts: p2 gets p1's 09:00-17:00 Monday shift so both agendas
 //     produce the same 09:00..16:00 grid. That keeps the schedule read (whose own
 //     staff scoping is out of scope here, S10/S11) from confounding the assertion:
@@ -266,8 +265,7 @@ func seedOtherClientBooking(t *testing.T, conn *sql.DB, loc *time.Location, mond
 func seedUnnamedRosterFixture(t *testing.T, conn *sql.DB, loc *time.Location, monday time.Time) {
 	t.Helper()
 	for _, stmt := range []string{
-		`UPDATE professionals SET specialties = '["s1"]' WHERE id = 'p1'`,
-		`INSERT INTO professionals (id, name, status, specialties) VALUES ('p2', 'Profesional Dos', 'active', '["s1"]')`,
+		`INSERT INTO professionals (id, name, status) VALUES ('p2', 'Profesional Dos', 'active')`,
 		`INSERT INTO schedules (professional_id, day_of_week, start_time, end_time) VALUES ('p2', 1, '09:00', '17:00')`,
 	} {
 		if _, err := conn.ExecContext(context.Background(), stmt); err != nil {

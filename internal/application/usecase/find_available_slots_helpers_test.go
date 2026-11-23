@@ -72,8 +72,8 @@ func slotsPinToday(t *testing.T, f *slotsFixture, loc *time.Location) time.Time 
 	return today
 }
 
-// slotsProfessional builds a staff member. Specialties carries the service id so
-// the "no professional_id" path (HasSpecialty, fail-closed) admits it.
+// slotsProfessional builds a staff member. Specialties is carried as catalog
+// metadata; since issue #261 it does NOT gate admission to the grid.
 func slotsProfessional(id, name, status string) *entity.Professional {
 	return &entity.Professional{
 		ID:          id,

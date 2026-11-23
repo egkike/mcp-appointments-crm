@@ -368,7 +368,15 @@ func TestFindAvailableSlotsInactiveProfessional(t *testing.T) {
 		}
 	})
 
-	t.Run("professional without the specialty is not a candidate", func(t *testing.T) {
+	// This subtest used to pin the OPPOSITE rule ("fail-closed on an undeclared
+	// specialty": a professional whose specialty list did not include the service
+	// was not a candidate). The owner decided on 2026-11-23 (issue #261) that
+	// specialties are catalog/search metadata and do NOT restrict availability, so
+	// the assertion is inverted rather than deleted -- the policy change stays
+	// visible here. The old rule was deliberate but never specified: the
+	// availability spec said nothing about specialties, and no other layer validated
+	// them, so availability could disagree with booking.
+	t.Run("professional without the specialty IS a candidate", func(t *testing.T) {
 		f := newSlotsFixture(t)
 		other := &entity.Professional{ID: "p9", Name: "Sin especialidad", Status: "active"}
 		f.professionals.FindAllActiveFn = func(context.Context) ([]*entity.Professional, error) {
@@ -378,8 +386,8 @@ func TestFindAvailableSlotsInactiveProfessional(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
-		if len(result.Slots) != 0 || result.TotalCandidates != 0 {
-			t.Errorf("result = %+v; want no slots (fail-closed on an undeclared specialty)", result)
+		if len(result.Slots) == 0 || result.TotalCandidates == 0 {
+			t.Errorf("result = %+v; want slots (specialties must not filter availability)", result)
 		}
 	})
 }
