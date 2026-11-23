@@ -115,20 +115,22 @@ func TestBinaryEndToEnd(t *testing.T) {
 	// refused by a gated row and be served by an ungated tool. An earlier version
 	// only asserted "some error", which a schema or transport failure also
 	// satisfies (advisory R3-weak-rbac-rejection-assertion, issue #249).
-	t.Run("client role is refused an owner-only tool by the RBAC row", func(t *testing.T) {
-		body := `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_professional_schedules","arguments":{"professional_id":"p1"}}}`
-		_, code, msg := postRPC(t, baseURL, clientCallerID, body)
-		if code == 0 {
-			t.Fatalf("a client caller reached get_professional_schedules; ToolRoles() must not allow it")
-		}
-		// HONEST LIMIT: this text does NOT identify which layer refused.
-		// get_professional_schedules has double enforcement, so its use case answers
-		// with the SAME words once the RBAC row is gone — this assertion would still
-		// pass. What it proves is "refused for permission with the shipped message",
-		// which is the wire contract; what proves the MAP specifically is the
-		// surface assertion above plus TestToolRolesCoverTheRegisteredSurface.
-		if !strings.Contains(msg, rbacRefusal) {
-			t.Errorf("client was rejected with %q; want the shipped refusal message", msg)
+	t.Run("client role is refused the closed surface by the RBAC row", func(t *testing.T) {
+		for id, tool := range clientClosedTools {
+			body := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":%q,"arguments":{"professional_id":"p1"}}}`, 4+id, tool)
+			_, code, msg := postRPC(t, baseURL, clientCallerID, body)
+			if code == 0 {
+				t.Fatalf("a client caller reached %s; ToolRoles() must not allow it", tool)
+			}
+			// HONEST LIMIT: this text does NOT identify which layer refused. Both
+			// tools have double enforcement, so their use cases answer with the SAME
+			// words once the RBAC row is gone — this assertion would still pass. What
+			// it proves is "refused for permission with the shipped message", which is
+			// the wire contract; what proves the MAP specifically is the surface
+			// assertion above plus TestToolRolesCoverTheRegisteredSurface.
+			if !strings.Contains(msg, rbacRefusal) {
+				t.Errorf("%s: client was rejected with %q; want the shipped refusal message", tool, msg)
+			}
 		}
 	})
 
@@ -208,13 +210,23 @@ func TestBinaryEndToEnd(t *testing.T) {
 			t.Logf("create_booking unexpectedly succeeded with the minimal fixture set: %q", msg)
 		}
 
-		body = `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_professional_schedules","arguments":{"professional_id":"p1"}}}`
-		_, code, msg = postRPC(t, baseURL, clientCallerID, body)
-		if code == 0 || !strings.Contains(msg, rbacRefusal) {
-			t.Fatalf("get_professional_schedules must stay closed to a client; got code=%d msg=%q", code, msg)
+		for id, tool := range clientClosedTools {
+			body = fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":%q,"arguments":{"professional_id":"p1"}}}`, 7+id, tool)
+			_, code, msg = postRPC(t, baseURL, clientCallerID, body)
+			if code == 0 || !strings.Contains(msg, rbacRefusal) {
+				t.Fatalf("%s must stay closed to a client; got code=%d msg=%q", tool, code, msg)
+			}
 		}
 	})
 }
+
+// clientClosedTools are the tools a client must never reach, and the ones the
+// binary E2E refuses explicitly. Both carry a {owner, admin, staff} row since
+// feat-staff-self-read (issue #276): opening them to the professional and the
+// admin is exactly what makes the client the role that must stay out, and a
+// single literal per subtest let a future row change hide on one of them
+// (verifier finding on #276, issue #282). Adding the next such tool is one line.
+var clientClosedTools = []string{"get_professional_schedules", "get_professional"}
 
 // seededBusinessName is the profile written into the temp database. Its presence
 // in the tool output is what proves the child process read OUR database, not a
