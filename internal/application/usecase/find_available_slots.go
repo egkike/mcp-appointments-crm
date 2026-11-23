@@ -149,7 +149,7 @@ func (uc *FindAvailableSlotsUseCase) Execute(ctx context.Context, input dto.Find
 		}
 	}
 
-	professionals, err := uc.resolveCandidateProfessionals(ctx, input.ProfessionalID, svc.ID)
+	professionals, err := uc.resolveCandidateProfessionals(ctx, input.ProfessionalID)
 	if err != nil {
 		return nil, err
 	}
@@ -359,12 +359,14 @@ func (uc *FindAvailableSlotsUseCase) resolveService(ctx context.Context, service
 //
 // A named professional is resolved strictly: unknown or inactive is a semantic
 // error (the caller asked about someone specific, so silence would be a lie).
-// With no name the candidate set is every ACTIVE professional offering the
-// service: inactive staff are excluded silently, and a professional with no
-// declared specialty is excluded too (fail-closed, same rule as
-// search_professionals_advanced: an empty/unreadable specialties value never
-// widens the catalog).
-func (uc *FindAvailableSlotsUseCase) resolveCandidateProfessionals(ctx context.Context, professionalID *string, serviceID string) ([]*entity.Professional, error) {
+// With no name the candidate set is every ACTIVE professional: inactive staff are
+// excluded silently.
+//
+// Specialties do NOT narrow either path (owner decision 2026-11-23, issue #261):
+// they are catalog/search metadata (search_professionals_advanced still filters on
+// them) and no other layer validates them, so filtering here made availability
+// disagree with what booking actually allows.
+func (uc *FindAvailableSlotsUseCase) resolveCandidateProfessionals(ctx context.Context, professionalID *string) ([]*entity.Professional, error) {
 	if professionalID != nil {
 		if named := strings.TrimSpace(*professionalID); named != "" {
 			pro, err := uc.professionals.FindByID(ctx, named)
@@ -423,9 +425,15 @@ func (uc *FindAvailableSlotsUseCase) resolveCandidateProfessionals(ctx context.C
 		}
 		return nil, fmt.Errorf("find_available_slots: listar profesionales activos: %w", err)
 	}
+	// Specialties do NOT restrict availability (owner decision, 2026-11-23, issue
+	// #261): they are catalog/search metadata. This path used to drop every
+	// professional whose specialty list did not include the requested service, which
+	// made availability disagree with booking -- no other layer validates the
+	// specialty, so a client could book a professional this filter hid, and an
+	// installation with no specialties loaded got an empty grid for everyone.
 	candidates := make([]*entity.Professional, 0, len(all))
 	for _, pro := range all {
-		if pro == nil || !pro.IsActive() || !pro.HasSpecialty(serviceID) {
+		if pro == nil || !pro.IsActive() {
 			continue
 		}
 		candidates = append(candidates, pro)
