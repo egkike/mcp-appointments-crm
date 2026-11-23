@@ -2,9 +2,9 @@
 //
 // The composition root is responsible for:
 //   - Opening the SQLite database (WAL mode, busy_timeout=5000)
-//   - Constructing all 9 repository implementations
+//   - Constructing all 10 repository implementations
 //   - Sharing a single BookingValidator across Create and Reschedule use cases
-//   - Wiring the 5 domain use cases with their correct dependency sets
+//   - Wiring the use cases with their correct dependency sets
 //   - Serving the MCP streamable-HTTP endpoint (/mcp) and the health probe
 //     (/healthz) on 127.0.0.1:3001, with a graceful 10s drain on SIGTERM/SIGINT
 //   - Dispatching the CLI before serve mode: `admin tui` (identity & accounts,
@@ -507,58 +507,14 @@ func run(ctx context.Context) error {
 
 	// ── Auth: resolver + middleware + tool RBAC (design §3) ──
 	//
-	// Every /mcp request must carry X-Caller-Id. Four tools deliberately have
-	// no entry here and enforce role downstream:
-	//   - check_availability            → any authenticated caller
-	//   - search_clients_advanced       → row scope by caller role (repository/clients.go)
-	//   - search_services_advanced      → auth.RequireRole(RoleOwner, RoleAdmin) in the use case
-	//   - search_professionals_advanced → auth.RequireAuthenticated only (the client
-	//     booking flow is the consumer; feat-owner-chat S7a, design §8.2). Output is
-	//     PII-free by construction, so no owner/admin gate applies.
-	//   - find_available_slots          → any authenticated caller, same mold as
-	//     check_availability (agent-surface T2, issue #241 / spec L10). Its output
-	//     is PII-free by construction (start + professional only).
-	// register_client also has NO entry, for a different reason: it is reached
-	// through the anonymous allowlist seam before resolution and carries no role in
-	// either layer (its guards are the accounts collision and the rate limit inside
-	// the use case). Every other tool is gated by the map below. RBAC keys on r.URL.Path, so
-	// the JSON-RPC auth translator rewrites the path to the tool name for
-	// tools/call requests. The eight maintenance tools are owner-only
-	// (ADR-0015 Decision 2): the partial admin scope stays deferred, so no
-	// admin role is granted here.
+	// Every /mcp request must carry X-Caller-Id. The tool → role policy lives in
+	// ONE place, mcp.ToolRoles(), and the deliberately ungated tools are declared
+	// with their reasons in mcp.UngatedTools(); both used to be a literal here
+	// plus a verbatim copy in the integration harness, which is the drift window
+	// issue #249 closed. RBAC keys on r.URL.Path, so the JSON-RPC auth translator
+	// rewrites the path to the tool name for tools/call requests.
 	resolver := auth.NewCallerResolver(database.Conn)
-	rbac := auth.ToolRBAC{
-		"create_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"cancel_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"get_booking":          {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
-		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
-		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
-		"get_loyalty_report":   {auth.RoleOwner, auth.RoleAdmin},
-
-		// Maintenance WRITE tools (ADR-0015): owner-only MVP.
-		"update_business_profile": {auth.RoleOwner},
-		"create_service":          {auth.RoleOwner},
-		"update_service":          {auth.RoleOwner},
-		"delete_service":          {auth.RoleOwner},
-		"create_professional":     {auth.RoleOwner},
-		"update_professional":     {auth.RoleOwner},
-		"upsert_schedule":         {auth.RoleOwner},
-		"delete_schedule":         {auth.RoleOwner},
-
-		// Business-hours exception tools (feat-hours-exception-tool, D5):
-		// owner-only, mirroring the maintenance rows above.
-		"create_hours_exception": {auth.RoleOwner},
-		"delete_hours_exception": {auth.RoleOwner},
-		"list_hours_exceptions":  {auth.RoleOwner},
-
-		// Professionals agenda read (feat-owner-chat S7b): owner-only here AND
-		// inside the use case, closing the delete_schedule read-gap. Note that
-		// search_professionals_advanced (S7a) deliberately has NO row: that read
-		// is the client's booking flow.
-		"get_professional_schedules": {auth.RoleOwner},
-	}
+	rbac := mcp.ToolRoles()
 	authMW := auth.NewAuthMiddleware(resolver, rbac, logger)
 
 	// ── D5: Authenticated transport (T-09: tools wired) ──

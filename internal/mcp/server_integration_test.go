@@ -193,38 +193,11 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		ListHoursExceptions:  listHoursExceptionsUC,
 	})
 	resolver := auth.NewCallerResolver(database.Conn)
-	rbac := auth.ToolRBAC{
-		"create_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"cancel_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"get_booking":          {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
-		"get_business_profile": {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff},
-		"get_pending_alerts":   {auth.RoleOwner, auth.RoleAdmin},
-		"mark_alert_as_sent":   {auth.RoleOwner, auth.RoleAdmin},
-		"get_loyalty_report":   {auth.RoleOwner, auth.RoleAdmin},
-
-		// Maintenance WRITE tools (ADR-0015): owner-only MVP, mirroring the
-		// composition root's ToolRBAC rows. Every use case re-asserts the same
-		// gate (defense in depth).
-		"update_business_profile": {auth.RoleOwner},
-		"create_service":          {auth.RoleOwner},
-		"update_service":          {auth.RoleOwner},
-		"delete_service":          {auth.RoleOwner},
-		"create_professional":     {auth.RoleOwner},
-		"update_professional":     {auth.RoleOwner},
-		"upsert_schedule":         {auth.RoleOwner},
-		"delete_schedule":         {auth.RoleOwner},
-
-		// Business-hours exception tools (feat-hours-exception-tool): owner-only,
-		// mirroring the composition root's ToolRBAC rows.
-		"create_hours_exception": {auth.RoleOwner},
-		"delete_hours_exception": {auth.RoleOwner},
-		"list_hours_exceptions":  {auth.RoleOwner},
-
-		// Professionals agenda read (feat-owner-chat S7b): owner-only, mirroring
-		// the composition root. search_professionals_advanced (S7a) has no row.
-		"get_professional_schedules": {auth.RoleOwner},
-	}
+	// The harness consumes the SAME policy the composition root does
+	// (ToolRoles, internal/mcp/tool_roles.go). It used to carry its own copy,
+	// which meant a row edited in only one place passed every test (debt L11,
+	// issue #249).
+	rbac := ToolRoles()
 	authMW := auth.NewAuthMiddleware(resolver, rbac, discardLogger())
 
 	mux := http.NewServeMux()
@@ -317,8 +290,8 @@ func TestIntegrationHappyPath(t *testing.T) {
 		t.Errorf("protocolVersion = %q; want 2025-11-25", init.ProtocolVersion)
 	}
 
-	// tools/list exposes the twenty-four registered tools (8 original + 2 alerts
-	// + 1 loyalty + 8 maintenance writes + 3 hours-exception + register_client).
+	// tools/list exposes every registered tool; expectedToolCount pins the exact
+	// number, not this comment (it drifted behind the surface twice: issue #249).
 	rec = postMCPCaller(t, mux, "owner-1", `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
 	result, code, msg = decodeRPCEnvelope(t, rec)
 	if code != 0 {
