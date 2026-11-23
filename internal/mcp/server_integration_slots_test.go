@@ -547,16 +547,22 @@ func TestIntegrationAvailabilityIgnoresCallerScope(t *testing.T) {
 		})
 
 		// ── Section 2: the staff caller of the report. staff-1 belongs to p1.
-		// Observable result: p1's agenda only, with p1's taken 10:00 absent and
-		// p1's free slots still offered (the negative control: the neutral reader
-		// must not over-block). p2's 11:00 is absent too — as it must be — but it is
-		// absent because p2's agenda is not rendered at all for a staff caller, so
-		// this section does NOT discriminate the pre-fix wiring by itself; its job
-		// is to pin the reachable truth (own agenda, own taken slot hidden, free
-		// slots intact) so that a future un-scoping of the schedules read cannot
-		// silently start publishing foreign agendas against a scoped bookings read.
-		t.Run("staff caller renders the own agenda with its taken slot absent", func(t *testing.T) {
-			out := findAvailableSlotsUnnamedAs(t, mux, "staff-1", day)
+		// Since issue #259 the UNNAMED path is refused for staff: that is a stronger
+		// form of the guarantee this section always pinned (a staff caller cannot
+		// reach a foreign agenda), so it is asserted first. The reachable truth is
+		// still pinned below through the NAMED call — own agenda only, own taken slot
+		// hidden, free slots intact — so that a future un-scoping of the schedules
+		// read cannot silently start publishing foreign agendas against a scoped
+		// bookings read.
+		t.Run("staff caller is refused unnamed and renders the own agenda when named", func(t *testing.T) {
+			unnamed := fmt.Sprintf(
+				`{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"find_available_slots","arguments":{"service_id":"s1","from":%q,"to":%q}}}`,
+				day, day)
+			if _, code, msg := decodeRPCEnvelope(t, postMCPCaller(t, mux, "staff-1", unnamed)); code == 0 {
+				t.Fatalf("staff-1 received a grid with no professional_id; it must be refused (issue #259), got %q", msg)
+			}
+
+			out := findAvailableSlotsAs(t, mux, "staff-1", "p1", day)
 			assertGrid(t, "staff-1", out, ownAgenda)
 			if index := slotIndex(out, monday, loc, 10, "p1"); index >= 0 {
 				t.Errorf("caller staff-1: slot[%d] = 10:00/p1; want ABSENT (taken in p1's agenda by another client)", index)
