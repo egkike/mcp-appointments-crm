@@ -32,13 +32,16 @@ release automation), not as a next numbered phase.
   `tools/list` answers only what the resolved caller can invoke — a `client`
   sees 11 of the 27, a `staff` 13, an `admin` 16. Full catalog: `docs/PRD.md` §3
   / `docs/SDD.md`.
-- **Latest release**: v0.13.0 (2026-11-13) — minor: the default port moves to
-  `3001`, so a fresh install no longer collides with the Hermes WhatsApp bridge
-  that already owns `3000` and never allocates another; the installer pre-flight
-  now parses the port the way the binary does, validates it and fails closed, and
-  the TUI advisory can no longer paint a stale audit as the current one.
-  Deployed installs are pinned by their own dotenv file and do not move.
-  Previous: v0.12.2 (patch — the allowlist advisory is visible in the TUI).
+- **Latest release**: v0.14.0 (2026-11-23) — minor: the MCP surface grows from
+  25 to 27 tools (`find_available_slots`, `get_professional`) and `tools/list`
+  stops being role-independent: each caller is advertised only the tools it can
+  invoke (owner 27, admin 16, staff 13, client 11). A `staff` can now read its
+  own professional record (with its own email and phone) and its own agenda,
+  while a foreign id is refused; the `admin` reads any record without the
+  roster's contact data. Scope misses answer `FORBIDDEN` instead of
+  `UNAUTHENTICATED`, and the professional link is normalised once, in `auth`.
+  Previous: v0.13.0 (minor — default port `3001` and installer hardening);
+  v0.12.2 (patch — the allowlist advisory is visible in the TUI).
   Assets and install steps:
   [Quickstart](#quickstart) / [`docs/installation.md`](./docs/installation.md).
 - **Platform covenant**: Linux + macOS native; Windows via **WSL2**
