@@ -65,15 +65,17 @@ func applyClientsAuthFilter(caller *auth.Caller, baseQuery string, suffix string
 		filterClause = filterByClientID
 		filterArg = *caller.ClientID
 	case auth.RoleStaff:
-		if caller.ProfessionalID == nil {
-			return "", nil, &domain.SemanticError{
-				Code:    domain.ErrCodeForbidden,
-				Message: "Personal no tiene un profesional asignado",
-				Cause:   domain.ErrForbidden,
-			}
+		// Same normalisation as the bookings filter (issue #286).
+		if own := auth.CallerProfessionalID(*caller); own != "" {
+			filterClause = filterByStaffBookings
+			filterArg = own
+			break
 		}
-		filterClause = filterByStaffBookings
-		filterArg = *caller.ProfessionalID
+		return "", nil, &domain.SemanticError{
+			Code:    domain.ErrCodeForbidden,
+			Message: "Personal no tiene un profesional asignado",
+			Cause:   domain.ErrForbidden,
+		}
 	case auth.RoleAdmin, auth.RoleOwner:
 		// no extra filter
 	default:

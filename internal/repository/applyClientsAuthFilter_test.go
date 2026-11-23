@@ -32,6 +32,20 @@ func TestApplyClientsAuthFilter_ErrorSentinels(t *testing.T) {
 		}
 	})
 
+	t.Run("staff with a padded link scopes by the trimmed value", func(t *testing.T) {
+		// Same normalisation as the bookings filter (issue #286): the padded value
+		// used to travel into the subquery and match no client.
+		padded := "  p1  "
+		caller := &auth.Caller{ID: "s1", Role: auth.RoleStaff, ProfessionalID: &padded}
+		_, args, err := applyClientsAuthFilter(caller, "SELECT * FROM clients WHERE x = ?", "", sqlArgs{"val"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(args) != 2 || args[1] != "p1" {
+			t.Errorf("got args %v, want [val p1]", args)
+		}
+	})
+
 	t.Run("unknown role -> ErrForbidden", func(t *testing.T) {
 		caller := &auth.Caller{ID: "x1", Role: "vendor"}
 		_, _, err := applyClientsAuthFilter(caller, "SELECT * FROM clients WHERE x = ?", "", nil)

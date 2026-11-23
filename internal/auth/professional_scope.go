@@ -110,13 +110,19 @@ func CanReadProfessionalContact(caller Caller, professionalID string) bool {
 // RequireClientMatch, CreateBookingUseCase) compare the same stored value against
 // a named target, and each of them had its own raw comparison — so a padded link
 // was in scope for a record read and out of scope for its own booking (issue
-// #284). One normalisation for every gate of the auth and application layers.
+// #284). One normalisation, every layer.
 //
-// HONEST LIMIT: the repository adapters still consume the raw pointer (they are
-// fail-closed: a padded link matches no rows, so it denies the caller its own
-// data instead of granting anyone else's), and ProfessionalsRepo.FindByID trims
-// the stored value inline for its own comparison. Converging those on this
-// function is a follow-up, not a claim this comment can make yet.
+// Since issue #286 the repository adapters read the link through this function
+// too: the two auth filters (bookings, clients) scope their subqueries with it,
+// ProfessionalsRepo.FindByID and FindActive use it instead of their own inline
+// trim, and SchedulesRepo.FindByProfessionalAndDay normalises the override with
+// it. Converging them closed a fail-open on the way — FindActive answered a staff
+// caller with no link by running the UNSCOPED query, so it received the whole
+// roster instead of a refusal.
+//
+// What remains outside is caller.ClientID, whose provenance differs (for a client,
+// Caller.ID is the phone and ClientID the UUID) and whose filters are already
+// fail-closed.
 func CallerProfessionalID(caller Caller) string {
 	if caller.ProfessionalID == nil {
 		return ""

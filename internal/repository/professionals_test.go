@@ -362,6 +362,52 @@ func TestProfessionalsRepo_FindActive(t *testing.T) {
 		}
 	})
 
+	t.Run("staff with a padded link sees only its own row", func(t *testing.T) {
+		// Normalised once by auth.CallerProfessionalID (issue #286): a padded
+		// value used to reach SQL verbatim and return zero rows.
+		db, mock := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+
+		rows := sqlmock.NewRows([]string{
+			"id", "name", "role_specialty", "status", "email", "phone",
+			"specialties", "created_at", "updated_at",
+		}).AddRow("pro-1", "Juan", nil, "active", nil, nil, nil,
+			"2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z")
+		mock.ExpectQuery(`SELECT .+ FROM professionals WHERE status = .active. AND id = \? ORDER BY name`).
+			WithArgs("pro-1").
+			WillReturnRows(rows)
+
+		pros, err := repo.FindActive(staffCtx("  pro-1  "))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(pros) != 1 || pros[0].ID != "pro-1" {
+			t.Fatalf("got %d rows (%v); want only pro-1", len(pros), pros)
+		}
+	})
+
+	t.Run("staff without a professional link is refused, not shown the roster", func(t *testing.T) {
+		// The nil branch used to fall through to the UNSCOPED query, so a staff
+		// caller with no professional_id received every active professional —
+		// fail-open on the one query that answers "who works here" (issue #286).
+		db, mock := newMockDB(t)
+		repo := NewProfessionalsRepo(db)
+
+		_, err := repo.FindActive(staffCtxNoProf())
+		if err == nil {
+			t.Fatal("expected a refusal for a staff caller with no professional link")
+		}
+		var sErr *domain.SemanticError
+		if !errors.As(err, &sErr) || sErr.Code != domain.ErrCodeForbidden {
+			t.Fatalf("got %v; want a FORBIDDEN semantic error", err)
+		}
+		if err := mock.ExpectationsWereMet(); err == nil {
+			// No statement was prepared beyond the implicit ones, which is the
+			// point: the query must never run.
+			_ = err
+		}
+	})
+
 	t.Run("client can see all active professionals", func(t *testing.T) {
 		db, mock := newMockDB(t)
 		repo := NewProfessionalsRepo(db)
