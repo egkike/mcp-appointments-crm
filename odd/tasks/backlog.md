@@ -1,10 +1,39 @@
-# Repo backlog (live) — reconciled 2026-10-17
+# Repo backlog (live) — reconciled 2026-11-23
 
 **Type**: tracking doc (single live backlog; supersedes the "backlog de sesión" P1-P3 notes in Engram obs 1291/1323)
-**Reconciled**: 2026-10-27 from odd/tasks sweep + host evidence (PR states via gh, tags v0.8.0..v0.9.1), correcting stale Open markers whose PRs had already merged (B5/B9/B11/B12)
+**Reconciled**: 2026-11-23 (see the dated section below). Previously 2026-10-27 from odd/tasks sweep + host evidence (PR states via gh, tags v0.8.0..v0.9.1), correcting stale Open markers whose PRs had already merged (B5/B9/B11/B12).
 **Corrections vs stale notes**: the old "P1 — v0.7.0 release + backend bot WhatsApp (ADR-0018)" is CLOSED: v0.7.0 shipped 2026-10-16 (tag, changelog 1.22, 6 GoReleaser assets, CI green). `review-findings-backlog.md` is archived history (all items disposed); it is no longer the live backlog.
 
 **Policy context (2026-10-17)**: delegated worker commits formalized in AGENTS.md (`ecebff0`: worker runs pre-flight → commit with GGA hook → fix → re-commit, ≤5 rounds; ambiguous verdicts round-trip to the owner — never worker-side `--no-verify`). GGA stays on gpt-6-luna; STRICT_MODE stays ON; upstream #113 watched passively.
+
+## Reconciliación 2026-11-23 — después de 7 PRs en un día
+
+**Entregado y mergeado** (cada uno con pipeline completo, verificador independiente y review nativo aprobado con autoridad quemada):
+
+| PR | Issue | Qué |
+|---|---|---|
+| #250 | #249 | Deuda **L11**: mapa `ToolRBAC` de fuente única + contrato de cobertura + E2E que ejecuta el binario real |
+| #252 | #251 | El rol `client` puede reservar, reprogramar y cancelar **sus** reservas (3 barreras de propiedad documentadas) |
+| #254 | #253 | Docs de roles alineadas a la decisión: **solo `owner` tiene todo** (auth-roles spec, PRD, ADR-0009 con nota de estado, ADR-0011) |
+| #256 | #255 | El cliente lee el perfil del negocio y el **catálogo de servicios activos** (dos vistas detrás de una tool) |
+| #258 | #257 | Barrido de advisories de #250/#252/#256 + corrección de un claim falso mío sobre el mensaje de rechazo |
+| #260 | #259 | `find_available_slots` sin `professional_id` para staff: **rechazo** en vez de grilla vacía |
+| #262 | #261 | Las especialidades **dejan de filtrar disponibilidad** (son catálogo/búsqueda) |
+
+**Pendientes vivos al cierre del día** (orden de impacto):
+
+| ID | Item | Fuente | Ruta |
+|---|---|---|---|
+| **T1** | **`tools/list` filtrado por rol**: hoy `staff`/`client` reciben las 26 tools del owner; descubren sus límites por 403, no por contrato. Único pendiente del plan "agent surface". Trampa: `ToolRBAC` keyea sobre `r.URL.Path`, que solo se reescribe en `tools/call` | `odd/tasks/feat-agent-surface-proposal.md` | code lane → issue propio, `assess` ítem 3, verificador |
+| **Self-read** | Un `staff` no puede leer **su propio registro de profesional** ni **su propio horario**: `get_professional_schedules` es owner-only y no hay otra tool | owner 2026-11-23 | code lane |
+| **DEBT-1** | `AggregateByClient` sin cláusula de filtro en el repo: la única contención es el gate del use case (`get_loyalty_report.go:58-62`) | auditoría de roles 2026-11-23 | code lane chico |
+| **DEBT-2** | `BusinessProfileRepo.Get` y `BusinessHoursExceptionRepo.List` sin gate en el repo: dependen de capas de arriba | auditoría de roles 2026-11-23 | code lane chico |
+| **DEBT-3** | ~16 use cases + `internal/repository/clients.go:287` duplican el literal del mensaje de rechazo. Declarado como deuda aparte en #257 (los bordes ya usan `auth.MsgForbiddenTool`) | #257 | code lane, barrido |
+| **NITS** | Advisories informativos parkeados de hoy: `bookingStatusAs` con doble RPC (ya corregido), literales inline en tests de integración, `tools/list` con comparación por conteo (un duplicado podría balancear), el subtest invertido de #261 podría pinear `TotalCandidates` | reviews de #250/#252/#256/#260/#261 | backlog; cada uno está comentado en su PR |
+
+**Trade-offs aceptados explícitamente** (no tocar sin una decisión nueva): `check_availability` como oráculo de ocupación (intencional, documentado) · staff ve clientes de reservas **canceladas** (decisión owner) · matcher del catálogo de cliente por substring en vez de FTS · especialidades no restringen nada al reservar (la búsqueda sí filtra) · el ancla de tests en el texto de rechazo prueba "rechazo por permiso", no la capa.
+
+**El set legacy de la reconciliación 2026-10-27 NO se modifica por este trabajo**: B6 (vigilancia GGA upstream #113), B15 residuales (#154/#155), B16 (gap persona owner en Hermes), los dossiers upstream (#4030/#5460/#147647) y el cleanup de la demo DB siguen como estaban. Ninguno fue tocado por los 7 PRs de hoy.
 
 ## Backlog
 
