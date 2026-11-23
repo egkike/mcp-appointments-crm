@@ -206,9 +206,9 @@ Secuencia mínima sugerida, con negocio demo:
 6c. `get_professional_schedules({"professional_id": "<id>"})` → identidad del
    profesional (`id`, `name`, `status`) + sus franjas ordenadas por día. Con un id
    inexistente responde error semántico de no encontrado; un profesional sin agenda
-   responde `{"schedules": []}`. Es owner-only: con admin/staff/cliente la respuesta
-   es el error de permiso. Es la lectura que habilita el doble gate del
-   `delete_schedule`.
+   responde `{"schedules": []}`. Owner y admin leen cualquier agenda; un `staff`
+   lee solo la suya y un id ajeno —o cualquier llamada de un `client`— responde el
+   error de permiso. Es la lectura que habilita el doble gate del `delete_schedule`.
 7. `get_loyalty_report` → reporte con datos agregados.
 8. Mantenimiento de datos vía Hermes chat (owner-only): `update_business_profile`
    (p. ej. cambiar el teléfono), `create_service`/`update_service`/`delete_service`,

@@ -25,10 +25,12 @@ behind a merged, review-gated change — and work now runs as **continuous
 support & improvements** (installer/uninstall hardening, channel contracts,
 release automation), not as a next numbered phase.
 
-- **Server capability**: 25 MCP tools covering the booking flow, client
+- **Server capability**: 27 MCP tools covering the booking flow, client
   self-registration (`register_client`, anonymous seam), business/
-  profile/clients/services queries, owner-only maintenance and hours
-  exceptions (auth via `X-Caller-Id` + RBAC). Full catalog: `docs/PRD.md` §3
+  profile/clients/services queries, professional record and agenda reads, and
+  owner-only maintenance and hours exceptions (auth via `X-Caller-Id` + RBAC).
+  `tools/list` answers only what the resolved caller can invoke — a `client`
+  sees 11 of the 27, a `staff` 13, an `admin` 16. Full catalog: `docs/PRD.md` §3
   / `docs/SDD.md`.
 - **Latest release**: v0.13.0 (2026-11-13) — minor: the default port moves to
   `3001`, so a fresh install no longer collides with the Hermes WhatsApp bridge
