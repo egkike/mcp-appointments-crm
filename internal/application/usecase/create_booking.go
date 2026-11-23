@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
@@ -90,7 +91,11 @@ func (uc *CreateBookingUseCase) Execute(ctx context.Context, input dto.CreateBoo
 			return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "Cliente solo puede crear reservas para sí mismo", Cause: domain.ErrForbidden}
 		}
 	case auth.RoleStaff:
-		if input.Caller.ProfessionalID == nil || *input.Caller.ProfessionalID != input.ProfessionalID {
+		// The link is normalised by the auth package, not here (issue #284): this
+		// gate used to compare the raw stored value while the read predicates
+		// trimmed, so the same professional could be in scope for its record and
+		// out of scope for its own calendar.
+		if own := auth.CallerProfessionalID(input.Caller); own == "" || own != strings.TrimSpace(input.ProfessionalID) {
 			return nil, &domain.SemanticError{Code: domain.ErrCodeForbidden, Message: "Personal solo puede crear reservas para su profesional asignado", Cause: domain.ErrForbidden}
 		}
 	case auth.RoleAdmin, auth.RoleOwner:

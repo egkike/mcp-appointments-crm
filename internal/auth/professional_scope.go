@@ -43,7 +43,7 @@ const MsgProfessionalScopeRequired = "Debes indicar professional_id: tu usuario 
 // pass to the repository.
 func AuthorizeProfessionalRead(caller Caller, requestedID string) (string, error) {
 	id := strings.TrimSpace(requestedID)
-	own := callerProfessionalID(caller)
+	own := CallerProfessionalID(caller)
 	if id == "" {
 		if own == "" {
 			return "", &domain.SemanticError{
@@ -98,17 +98,26 @@ func CanReadProfessionalContact(caller Caller, professionalID string) bool {
 	if caller.Role != RoleStaff {
 		return false
 	}
-	own := callerProfessionalID(caller)
+	own := CallerProfessionalID(caller)
 	return own != "" && own == strings.TrimSpace(professionalID)
 }
 
-// callerProfessionalID is the caller's own professional link, trimmed, or "" when
-// it carries none. Both predicates above go through it (issue #278 A1): the scope
-// question trims the REQUESTED id, so the contact question and the self branch
-// must normalise the STORED one the same way — otherwise a padded value would be
-// in scope for one question and out of it for the other, and the self branch
-// would hand the repository an untrimmed lookup id.
-func callerProfessionalID(caller Caller) string {
+// CallerProfessionalID is the caller's own professional link, trimmed, or "" when
+// it carries none.
+//
+// It is EXPORTED because the normalisation is not the read predicates' private
+// business: the three remaining gates of the booking edge (AuthorizeBookingAccess,
+// RequireClientMatch, CreateBookingUseCase) compare the same stored value against
+// a named target, and each of them had its own raw comparison — so a padded link
+// was in scope for a record read and out of scope for its own booking (issue
+// #284). One normalisation for every gate of the auth and application layers.
+//
+// HONEST LIMIT: the repository adapters still consume the raw pointer (they are
+// fail-closed: a padded link matches no rows, so it denies the caller its own
+// data instead of granting anyone else's), and ProfessionalsRepo.FindByID trims
+// the stored value inline for its own comparison. Converging those on this
+// function is a follow-up, not a claim this comment can make yet.
+func CallerProfessionalID(caller Caller) string {
 	if caller.ProfessionalID == nil {
 		return ""
 	}
