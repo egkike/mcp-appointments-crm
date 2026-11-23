@@ -49,7 +49,7 @@ El `CallerResolver` ahora ejecuta **2 queries siempre que la cuenta existe en `a
 - **El dueño puede reservar para sí mismo** sin fricción: usa el mismo `X-Caller-Id` que usa para gestionar, y el sistema lo reconoce como `client` automáticamente.
 - **El staff también puede reservar para sí mismo**: la peluquera del staff se corta el pelo en su propio salón con un solo chat.
 - **El modelo refleja la realidad**: una persona del negocio es, naturalmente, un cliente del negocio.
-- **Defense-in-depth intacta**: el LLM NO puede falsificar `X-Caller-Id`, y el resolver distingue correctamente entre los dos roles. El `Role` del `Caller` determina qué tools puede usar (admin: full access; client: solo sus propios datos).
+- **Defense-in-depth intacta**: el LLM NO puede falsificar `X-Caller-Id`, y el resolver distingue correctamente entre los dos roles. El `Role` del `Caller` determina qué tools puede usar (owner: todo; admin: operación y lectura sin filtro; client: solo sus propios datos — ver la nota de estado al pie de [ADR-0009](0009-authorization-model.md), que corrige la lectura de "admin con full access").
 - **El sistema unifica el resolver**: ya no hay un caso especial para "admin que también es cliente" — siempre se hacen las queries y se combinan.
 
 **Negative**:

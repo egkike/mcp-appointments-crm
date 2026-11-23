@@ -728,8 +728,8 @@ El sistema diferencia cuatro tipos de **caller** según quién está interactuan
 
 | Rol | Descripción | Tabla de identidad |
 |---|---|---|
-| `owner` | Dueño del negocio (single-owner invariant, ver ADR-0010). Mismos permisos que `admin` + capacidad exclusiva de crear/eliminar otros admins. | `accounts` (whitelist) |
-| `admin` | Dueño del negocio (alternativo al owner, ej: un manager). Acceso total al sistema (configuración, reportes, gestión de staff, todos los datos de bookings/clients/professionals/services) | `accounts` (whitelist) |
+| `owner` | Único rol con permisos completos: todo lo de `admin` + las escrituras de mantenimiento (perfil del negocio, servicios, profesionales, horarios), las excepciones de horario, la lectura de agenda (`get_professional_schedules`) y la capacidad exclusiva de crear/eliminar otros admins (single-owner invariant, ver ADR-0010). | `accounts` (whitelist) |
+| `admin` | Administra la operación: reservas (crear/cancelar/reprogramar/ver), alertas y reportes, con lectura **sin filtro** de todos los datos del negocio. NO puede escribir servicios/profesionales/perfil del negocio/horarios, ni gestionar excepciones de horario, ni leer la agenda de un profesional: 12 de las 26 tools son owner-only (ADR-0015 Decisión 2). | `accounts` (whitelist) |
 | `staff` | Profesional del negocio. Acceso limitado a sus propias reservas y datos asociados (no puede ver/modificar otros profesionales) | `accounts` (whitelist) |
 | `client` | Cliente final. Acceso limitado a sus propios datos (sus reservas, su perfil). NO puede ver datos de otros clientes | `clients` (implícito) |
 

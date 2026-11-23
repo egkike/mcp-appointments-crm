@@ -104,3 +104,11 @@ Orden:
 - `docs/PRD.md` §3.8 (nueva sección, agregada con este ADR)
 - `docs/architecture/0006-data-model-and-reservations.md` (decisiones relacionadas al schema)
 - Próximo: `openspec/changes/feat-authorization/` (proposal + specs + design + tasks)
+
+## Status note (2026-11-23): `admin` no tiene permisos completos
+
+La Decisión 4 de este ADR dice *"admin tiene full access"* y no menciona al `owner`. El modelo vigente —y el que el código implementa— es más angosto para `admin`: **solo `owner` tiene permisos completos**.
+
+`admin` conserva el alcance de lectura sin filtro (`applyAuthFilter` no le agrega cláusula) y la operación de reservas, alertas y fidelidad, pero **12 de las 26 tools MCP son owner-only**: las ocho escrituras de mantenimiento (`update_business_profile`, `create/update/delete_service`, `create/update_professional`, `upsert/delete_schedule`), las tres de excepciones de horario y `get_professional_schedules`, por [ADR-0015](0015-hermes-operational-maintenance.md) Decisión 2 (partial admin scope diferido). Decisión del owner, 2026-11-23.
+
+La jerarquía completa vive en `openspec/specs/auth-roles/spec.md` y `docs/PRD.md` §3.8; la fuente única en código es `internal/mcp/tool_roles.go`. Este ADR **no se reescribe**: la decisión original y su corrección quedan ambas visibles.
