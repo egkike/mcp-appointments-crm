@@ -1,10 +1,14 @@
 package mcp
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/egkike/mcp-appointments-crm/internal/auth"
@@ -79,7 +83,7 @@ func listToolsForCaller(t *testing.T, h http.Handler, callerID string) []string 
 // TestToolsListFiltersByCallerRole is the T1 wire contract: every role gets
 // exactly the tools the policy allows it to invoke, owner included.
 //
-// Before the filter landded, all four callers received the same 26-tool
+// Before the filter landed, all four callers received the same 26-tool
 // surface (the measured defect: 20.151 B for staff and client too). Owner is
 // asserted as well, not just the narrowed roles, because a filter that hides
 // something the owner can invoke is a capability regression (spec S3).
@@ -248,5 +252,41 @@ func TestToolsListStaffSurfaceMatchesTheSpec(t *testing.T) {
 
 	if got := listToolsForCaller(t, mux, "staff-1"); !slices.Equal(got, want) {
 		t.Errorf("staff tools/list advertised:\n got %v\nwant %v (REQ-MT-005)", got, want)
+	}
+}
+
+// TestToolsListFilterWithoutACallerLogsAndDoesNotFilter pins the fail-open
+// branch that REQ-MT-005 now publishes as deliberate. The branch is unreachable
+// through AuthMiddleware (a caller-less request is refused with -32000 before
+// the SDK handler), so this test drives the middleware directly: the point is
+// that the surface is left intact AND the condition is loud. Without the log
+// assertion the requirement would be unproven, and a silent fail-open is
+// exactly the failure mode the requirement exists to forbid.
+func TestToolsListFilterWithoutACallerLogsAndDoesNotFilter(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	inner := func(context.Context, string, sdkmcp.Request) (sdkmcp.Result, error) {
+		return &sdkmcp.ListToolsResult{Tools: []*sdkmcp.Tool{
+			{Name: "owner_only"},
+			{Name: "shared"},
+		}}, nil
+	}
+	filtered := toolsListFilter(auth.ToolRBAC{"owner_only": {auth.RoleOwner}}, logger)(inner)
+
+	// A context with no injected caller: exactly the condition under test.
+	result, err := filtered(context.Background(), methodListTools, &sdkmcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("filter returned error: %v", err)
+	}
+	list, ok := result.(*sdkmcp.ListToolsResult)
+	if !ok || list == nil {
+		t.Fatalf("filter returned %T; want *mcp.ListToolsResult", result)
+	}
+	if len(list.Tools) != 2 {
+		t.Errorf("tools = %d; want the unfiltered 2 (fail-open)", len(list.Tools))
+	}
+	if !strings.Contains(logs.String(), "without a resolved caller") {
+		t.Errorf("expected a warn log naming the missing caller; got %q", logs.String())
 	}
 }

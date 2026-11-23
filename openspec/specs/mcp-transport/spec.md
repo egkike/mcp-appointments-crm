@@ -74,6 +74,14 @@ the caller MUST still be refused by the RBAC gate with `-32001` and
 `auth.MsgForbiddenTool`. A request with no `X-Caller-Id` MUST still be refused
 with `-32000` before any surface is computed.
 
+The filter fails OPEN when its own context carries no resolved caller: it MUST
+leave the result unfiltered and MUST log the condition. That branch is
+unreachable through the production chain — `AuthMiddleware` answers `-32000`
+before the SDK handler runs — and it is deliberately NOT the "no surface"
+scenario below: falling closed inside the filter would add a second refusal mode
+to a discovery surface the authorization layer already refuses, so this
+requirement asks for the log, not for an error.
+
 (Previously: 25 tools — agent-surface T2 adds `find_available_slots`, the date-range slot search: `any authenticated`, PII-free, filters rather than reports.)
 
 (Previously: 24 tools — `feat-owner-chat` S7b adds the owner-only agenda read `get_professional_schedules`.)
@@ -120,7 +128,14 @@ view narrows.
 - GIVEN a `tools/list` request with no `X-Caller-Id` header
 - WHEN it reaches the transport
 - THEN the response MUST be error code `-32000` with `"no se proporcionó X-Caller-Id"`
-- AND no tool surface MUST be computed (never an empty list, never the full registry)
+- AND no tool surface MUST be computed, because the request never reaches the tool handler (never an empty list, never the full registry)
+
+#### Scenario: Filter context without a caller logs and does not filter
+
+- GIVEN the discovery filter runs with no resolved caller in its context (unreachable through `AuthMiddleware`, reachable only by wiring the SDK handler without the auth chain)
+- WHEN `tools/list` is executed
+- THEN the advertised surface MUST be left unfiltered
+- AND the condition MUST be logged at warn level, so the fail-open is never silent
 
 ### REQ-MT-006 — tools/call dispatch
 
