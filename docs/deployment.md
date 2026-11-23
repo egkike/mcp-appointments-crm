@@ -41,8 +41,8 @@ installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3001/
    ```bash
    git checkout main
    git pull origin main
-   git tag -a v0.3.0 -m "v0.3.0"
-   git push origin v0.3.0
+   git tag -a v0.14.0 -m "v0.14.0"
+   git push origin v0.14.0
    ```
 
 5. **CI builds and publishes the release** — the tag push triggers
@@ -143,7 +143,7 @@ Verify with:
 
 ```bash
 mcp-server --version
-# v0.3.0
+# 0.14.0
 ```
 
 The binary prints the bare version tag so the installer can match it against the requested release tag.
@@ -159,7 +159,7 @@ The binary prints the bare version tag so the installer can match it against the
 
 ```bash
 # pinned version (the only supported one-line form)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.14.0
 
 # first-time setup needs the interactive wizard, which cannot be piped —
 # run it in a real terminal instead (see docs/installation.md):
@@ -177,7 +177,7 @@ ssh kike@100.95.242.72
 
 # on the VM - run the installer, pinned (the wizard step must run earlier in a real
 # terminal; see docs/installation.md)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.14.0
 
 # check
 systemctl --user is-active mcp-appointments-crm
@@ -189,8 +189,8 @@ curl --fail http://127.0.0.1:3001/healthz
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh
-bash install.sh --version v0.3.0
-# equivalent to: curl -fsSL …/install.sh | bash -s -- --version v0.3.0
+bash install.sh --version v0.14.0
+# equivalent to: curl -fsSL …/install.sh | bash -s -- --version v0.14.0
 ```
 
 ### What gets installed (Linux XDG layout)
@@ -301,7 +301,7 @@ Mismo camino `curl | bash` que Linux (detecta `Darwin` vía `uname -s`):
 ```bash
 # pinned (required — the installer resolves no `latest` and rejects pre-releases;
 # a piped invocation without --version needs a real terminal and aborts)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.6.1
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.14.0
 ```
 
 Service registration uses `launchd`:
@@ -365,7 +365,7 @@ Requires Go once (`winget install Go.Go` or `scoop install go`):
 go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@latest
 
 # pinned version
-go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.3.0
+go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.14.0
 
 # verify
 mcp-server --version
@@ -429,7 +429,7 @@ There is no `latest` resolution: pick the newest published tag and pass it expli
 
 ```bash
 # Linux / macOS — re-run installer pinned to the target tag (idempotent, keeps .env and data)
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.14.0
 
 # Windows primary — NOT IMPLEMENTED (target design only; see Install — Windows)
 go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@latest
@@ -439,10 +439,10 @@ go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@latest
 
 ```bash
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.14.0
 
 # Windows primary — NOT IMPLEMENTED (target design only; see Install — Windows)
-go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.3.0
+go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.14.0
 ```
 
 ### Rollback (binary)
@@ -451,13 +451,13 @@ Re-run the installer pinned to the **previous** tag (data is untouched — it li
 in `~/.local/share/mcp-appointments-crm/` outside the binary path):
 
 ```bash
-# example: rollback from v0.4.0 to v0.3.0
-curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.3.0
+# example: rollback from v0.14.0 to v0.13.0
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh | bash -s -- --version v0.13.0
 systemctl --user restart mcp-appointments-crm
 curl --fail http://127.0.0.1:3001/healthz
 
 # Windows — NOT IMPLEMENTED (target design only; see Install — Windows)
-go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.3.0
+go install github.com/egkike/mcp-appointments-crm/cmd/mcp-server@v0.13.0
 Restart-ScheduledTask -TaskName "mcp-appointments-crm"
 ```
 
@@ -511,7 +511,7 @@ curl --fail http://127.0.0.1:3001/healthz
 # 7. Version and checksums
 mcp-server --version
 # compare archive sha256 against checksums.txt from the release:
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/checksums.txt
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.14.0/checksums.txt
 sha256sum -c checksums.txt --ignore-missing
 
 # 8. Hermes integration (if Hermes is installed on the same host)
@@ -597,8 +597,8 @@ Do not bypass — the download is corrupt or tampered. Re-run the installer; if
 it persists, download the archive and `checksums.txt` manually and compare:
 
 ```bash
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/mcp-appointments-crm_Linux_x86_64.tar.gz
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/checksums.txt
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.14.0/mcp-appointments-crm_Linux_x86_64.tar.gz
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.14.0/checksums.txt
 sha256sum -c checksums.txt --ignore-missing
 ```
 

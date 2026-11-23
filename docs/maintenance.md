@@ -111,7 +111,7 @@ Reinstalá el tag anterior con el mismo comando. Los datos y la configuración n
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh \
-  | bash -s -- --version v0.3.0
+  | bash -s -- --version v0.13.0
 ```
 
 ---
@@ -324,8 +324,8 @@ curl --fail http://127.0.0.1:3002/healthz
 No bypasses la verificación. Si un upgrade específico falla con SHA256:
 
 ```bash
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/checksums.txt
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.3.0/mcp-appointments-crm_Linux_x86_64.tar.gz
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.14.0/checksums.txt
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.14.0/mcp-appointments-crm_Linux_x86_64.tar.gz
 sha256sum -c checksums.txt --ignore-missing
 ```
 
