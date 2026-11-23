@@ -19,7 +19,13 @@ El paquete `internal/auth` MUST exportar cuatro constantes de tipo `string` con 
 - `RoleStaff  = "staff"`
 - `RoleClient = "client"` (esta constante existe pero NO se usa en `accounts.role`; los `client` se identifican por su presencia en `clients`)
 
-Estas constantes MUST ser los únicos valores válidos para `Caller.Role` en todo el sistema. `RoleOwner` y `RoleAdmin` son los únicos valores válidos para `accounts.role` (junto con `RoleStaff`); `RoleClient` es el valor implícito para callers identificados via `clients`. `owner` y `admin` tienen los mismos permisos operacionales; `owner` además tiene la capacidad exclusiva de crear/eliminar otros admins (single-owner invariant, ver Requirement "Single-owner invariant" en esta misma spec y `accounts-repo` spec).
+Estas constantes MUST ser los únicos valores válidos para `Caller.Role` en todo el sistema. `RoleOwner` y `RoleAdmin` son los únicos valores válidos para `accounts.role` (junto con `RoleStaff`); `RoleClient` es el valor implícito para callers identificados via `clients`.
+
+La jerarquía de permisos NO es plana entre `owner` y `admin` (ADR-0015 Decisión 2, partial admin scope diferido; decidido por el owner el 2026-11-23):
+
+- **`owner` es el único rol con permisos completos.** Es el único que puede ejecutar las escrituras de mantenimiento (perfil del negocio, servicios, profesionales, horarios), gestionar las excepciones de horario y leer la agenda de un profesional (`get_professional_schedules`). Doce de las 26 tools MCP son owner-only — ver `internal/mcp/tool_roles.go`, que es la fuente única de esa política.
+- **`admin` administra la operación.** Puede operar reservas (crear, cancelar, reprogramar, ver), alertas y reportes de fidelidad, y lee todos los datos del negocio sin filtro de rol (`applyAuthFilter` no agrega cláusula para `admin`/`owner`). NO puede ejecutar las doce tools owner-only.
+- **`owner`** además tiene la capacidad exclusiva de crear/eliminar otros admins (single-owner invariant, ver Requirement "Single-owner invariant" en esta misma spec y `accounts-repo` spec).
 
 #### Scenario: Constantes exportadas con los valores correctos
 
