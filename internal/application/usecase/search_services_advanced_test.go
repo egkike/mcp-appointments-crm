@@ -110,3 +110,33 @@ func TestSearchServicesAdvancedBadFTSInputIsSemantic(t *testing.T) {
 		t.Errorf("sentinel lost: %v", err)
 	}
 }
+
+// TestSearchServicesAdvancedBookingCatalogEmptyTerm pins the rule the integration
+// tier only observed indirectly: for a non-privileged caller an empty (or
+// whitespace-only) term means THE WHOLE ACTIVE CATALOG, not an error and not an
+// empty result. The Booking catalog is what a client reads before it knows any
+// service name, so emptying it on a blank term would break the flow silently.
+func TestSearchServicesAdvancedBookingCatalogEmptyTerm(t *testing.T) {
+	for _, term := range []string{"", "   "} {
+		uc := NewSearchServicesAdvancedUseCase(&mockServicesRepo{
+			FindActiveFn: func(context.Context) ([]*entity.Service, error) {
+				return []*entity.Service{
+					{ID: "s1", Name: "Corte", Active: true},
+					{ID: "s2", Name: "Color", Active: true},
+				}, nil
+			},
+			// SearchFTSFn unset: the mock panics if the maintenance path is taken.
+		})
+
+		result, err := uc.Execute(context.Background(), dto.SearchServicesAdvancedInput{
+			Caller:    auth.Caller{ID: "client-1", Role: auth.RoleClient, ClientID: ptr("c1")},
+			QueryText: term,
+		})
+		if err != nil {
+			t.Fatalf("term %q: a client with an empty term must get the whole catalog: %v", term, err)
+		}
+		if len(result.Results) != 2 {
+			t.Errorf("term %q: got %d services; want the whole active catalog (2)", term, len(result.Results))
+		}
+	}
+}

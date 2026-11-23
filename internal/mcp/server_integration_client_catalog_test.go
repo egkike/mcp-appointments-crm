@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 )
 
 // TestIntegrationClientCatalogReads pins the two reads a booking flow needs and
@@ -83,7 +85,7 @@ func TestIntegrationClientCatalogReads(t *testing.T) {
 
 	t.Run("client still cannot reach the maintenance writes", func(t *testing.T) {
 		_, code, msg := callToolAs(t, mux, "c1", "create_service", `{"name":"x","duration_minutes":30,"price":10}`)
-		if code == 0 || !strings.Contains(msg, "no tienes permiso para realizar esta acción") {
+		if code == 0 || !strings.Contains(msg, auth.MsgForbiddenTool) {
 			t.Fatalf("create_service must stay owner-only; got code=%d msg=%q", code, msg)
 		}
 	})

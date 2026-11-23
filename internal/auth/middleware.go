@@ -9,6 +9,14 @@ import (
 	"github.com/egkike/mcp-appointments-crm/internal/domain"
 )
 
+// MsgForbiddenTool is the refusal message the transport emits when ToolRBAC
+// denies a caller. It is exported so the wire tests can anchor on the SAME
+// string production emits instead of a copy (advisory R2-duplicated-rbac-refusal-
+// literal, issue #257). It is NOT unique to the map gate: several use cases
+// answer with the same wording for their own permission errors, so an assertion
+// on this text proves "refused for permission", never "refused by the map".
+const MsgForbiddenTool = "no tienes permiso para realizar esta acción"
+
 // ToolRBAC maps a tool/route path to the set of roles allowed to access it.
 // A nil or empty slice means "any authenticated caller".
 type ToolRBAC map[string][]string
@@ -164,7 +172,7 @@ func (m *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		// Step 6: RBAC check BEFORE calling next
 		if roles, ok := m.rbac[tool]; ok && len(roles) > 0 {
 			if !roleAllowed(caller.Role, roles) {
-				http.Error(w, "no tienes permiso para realizar esta acción", http.StatusForbidden)
+				http.Error(w, MsgForbiddenTool, http.StatusForbidden)
 				return
 			}
 		}

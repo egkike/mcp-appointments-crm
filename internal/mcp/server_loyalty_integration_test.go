@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 )
 
 // seedLoyaltyBookings inserts bookings relative to the current UTC time so
@@ -159,8 +160,8 @@ func TestIntegrationLoyaltyReport(t *testing.T) {
 			t.Run(caller, func(t *testing.T) {
 				rec := postMCPCaller(t, mux, caller, `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_loyalty_report","arguments":{"period":"all_time"}}}`)
 				_, code, msg := decodeRPCEnvelope(t, rec)
-				if code != -32001 || msg != "no tienes permiso para realizar esta acción" {
-					t.Errorf("caller %s: got code=%d msg=%q; want -32001 %q", caller, code, msg, "no tienes permiso para realizar esta acción")
+				if code != -32001 || msg != auth.MsgForbiddenTool {
+					t.Errorf("caller %s: got code=%d msg=%q; want -32001 %q", caller, code, msg, auth.MsgForbiddenTool)
 				}
 			})
 		}

@@ -40,9 +40,10 @@ func ToolRoles() auth.ToolRBAC {
 		//      compares input.ClientID with the caller's own id;
 		//   3. the write statements are scoped too (Cancel 2 clauses, Reschedule 3),
 		//      so even a race between read and write cannot touch a foreign row.
-		// The isolation cases in server_integration_client_booking_test.go assert the
-		// observable outcome of that chain, not any single guard: removing one layer
-		// alone still refuses (verified by mutation), which is the point of depth.
+		// server_integration_client_booking_test.go asserts the observable outcome of
+		// that chain, not any single guard: it fails only when the guards are gone
+		// together, which is what makes the redundancy load-bearing rather than
+		// decorative. Neutralizing one layer alone still refuses.
 		"create_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"cancel_booking":       {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},
 		"reschedule_booking":   {auth.RoleOwner, auth.RoleAdmin, auth.RoleStaff, auth.RoleClient},

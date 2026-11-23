@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/egkike/mcp-appointments-crm/internal/application/dto"
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 )
 
 // Integration coverage for the eight owner-only maintenance WRITE tools
@@ -226,9 +227,9 @@ func TestIntegrationMaintenanceRoleRejection(t *testing.T) {
 	for _, caller := range []string{"staff-1", "c1", "admin-1"} {
 		for _, tool := range maintenanceToolNames() {
 			_, code, msg := callMCPTool(t, mux, caller, tool, maintenanceToolArgs[tool])
-			if code != -32001 || msg != "no tienes permiso para realizar esta acción" {
+			if code != -32001 || msg != auth.MsgForbiddenTool {
 				t.Errorf("caller %s %s: code=%d msg=%q; want -32001 %q",
-					caller, tool, code, msg, "no tienes permiso para realizar esta acción")
+					caller, tool, code, msg, auth.MsgForbiddenTool)
 			}
 		}
 	}
