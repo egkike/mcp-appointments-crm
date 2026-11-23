@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/egkike/mcp-appointments-crm/internal/auth"
 	"github.com/egkike/mcp-appointments-crm/internal/buildinfo"
 	"github.com/egkike/mcp-appointments-crm/internal/config"
 )
@@ -32,6 +33,19 @@ type Config struct {
 	Port    string
 	Version string
 	Logger  *slog.Logger
+
+	// ToolRBAC is the tool → roles policy that backs BOTH gates of the /mcp
+	// surface: it is handed to auth.AuthMiddleware (tools/call authorization)
+	// and to the tools/list discovery filter (agent-surface T1, issue #265), so
+	// the menu and the guard read ONE map. Production injects
+	// mcp.ToolRoles(); the ungated half of the policy is read from
+	// UngatedTools() by the filter itself.
+	//
+	// A nil map disables the filter, which is the skeleton/transport behavior:
+	// the tool-role coverage test (tool_roles_test.go) keeps the maps in sync
+	// with the registry, so production can never ship an empty policy by
+	// accident.
+	ToolRBAC auth.ToolRBAC
 
 	CheckAvailability CheckAvailabilityPort
 	// FindAvailableSlots is the date-range slot search (agent-surface T2,

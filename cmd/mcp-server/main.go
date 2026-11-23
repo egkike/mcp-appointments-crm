@@ -523,8 +523,11 @@ func run(ctx context.Context) error {
 	// (internal/mcp/ports.go). A nil port would leave its tool unregistered;
 	// the production composition injects all of them.
 	srv := mcp.NewServer(mcp.Config{
-		Version:                cfg.Version,
-		Logger:                 logger,
+		Version: cfg.Version,
+		Logger:  logger,
+		// The same map authorizes tools/call (AuthMiddleware below) and narrows
+		// tools/list (agent-surface T1). One policy, two gates.
+		ToolRBAC:               rbac,
 		CheckAvailability:      checkAvailabilityUC,
 		FindAvailableSlots:     findAvailableSlotsUC,
 		CreateBooking:          createBookingUC,

@@ -159,9 +159,17 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 	// literal is the composition-root mirror, not a mock variant. The compiler
 	// forces field exhaustiveness at every Config construction; the
 	// ToolCount/expectedToolCount registration checks keep guarding the count.
+	// The harness consumes the SAME policy the composition root does
+	// (ToolRoles, internal/mcp/tool_roles.go), for BOTH gates: authorization
+	// and the tools/list discovery filter. It used to carry its own copy,
+	// which meant a row edited in only one place passed every test (debt L11,
+	// issue #249).
+	rbac := ToolRoles()
+
 	srv := NewServer(Config{
 		Version:                "test",
 		Logger:                 discardLogger(),
+		ToolRBAC:               rbac,
 		CheckAvailability:      checkAvailabilityUC,
 		FindAvailableSlots:     findAvailableSlotsUC,
 		CreateBooking:          createBookingUC,
@@ -193,11 +201,6 @@ func newIntegrationMuxWithOptions(t *testing.T, opts integrationOptions) (http.H
 		ListHoursExceptions:  listHoursExceptionsUC,
 	})
 	resolver := auth.NewCallerResolver(database.Conn)
-	// The harness consumes the SAME policy the composition root does
-	// (ToolRoles, internal/mcp/tool_roles.go). It used to carry its own copy,
-	// which meant a row edited in only one place passed every test (debt L11,
-	// issue #249).
-	rbac := ToolRoles()
 	authMW := auth.NewAuthMiddleware(resolver, rbac, discardLogger())
 
 	mux := http.NewServeMux()

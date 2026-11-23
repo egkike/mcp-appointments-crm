@@ -57,9 +57,22 @@ The server MUST respond to `initialize` with `protocolVersion: "2025-11-25"`, `s
 - WHEN `initialize` is called
 - THEN response includes `protocolVersion`, `serverInfo.name`, `serverInfo.version`, and `capabilities.tools`
 
-### REQ-MT-005 — tools/list returns 26 tools
+### REQ-MT-005 — tools/list returns the caller's tools
 
-`tools/list` MUST return exactly 26 tool descriptors (see REQ-MT-015 for names and schemas).
+`tools/list` MUST return exactly the tool descriptors the resolved caller can
+invoke: the whole 26-tool registry for `owner`, and only the caller's subset for
+`admin` (14), `staff` (11) and `client` (11) — see REQ-MT-015 for the names and
+schemas of the full registry.
+
+The filter MUST use the SAME policy that authorizes `tools/call`
+(`mcp.ToolRoles()`): a tool with no row, or an empty row, is visible to every
+authenticated caller; a tool with a populated row is visible only to the roles
+it lists. Both gates therefore read one map and cannot diverge.
+
+The filter is DISCOVERY, never authorization: `tools/call` on a tool hidden from
+the caller MUST still be refused by the RBAC gate with `-32001` and
+`auth.MsgForbiddenTool`. A request with no `X-Caller-Id` MUST still be refused
+with `-32000` before any surface is computed.
 
 (Previously: 25 tools — agent-surface T2 adds `find_available_slots`, the date-range slot search: `any authenticated`, PII-free, filters rather than reports.)
 
@@ -79,11 +92,36 @@ This change adds `create_hours_exception`, `delete_hours_exception`, `list_hours
 
 `feat-owner-chat` S7a adds `search_professionals_advanced` (23 → 24); S7b adds `get_professional_schedules` (24 → 25).
 
-#### Scenario: List returns all tools
+Agent surface T1 (`feat-agent-surface-proposal` S2/S3, issue #265) adds the
+role filter itself, not a tool: the registry stays at 26 and only the per-caller
+view narrows.
 
-- GIVEN a connected client
+#### Scenario: List returns the owner's full surface
+
+- GIVEN a connected client whose caller role is `owner`
 - WHEN `tools/list` is called
-- THEN the response MUST contain 26 tools: `check_availability`, `find_available_slots`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `search_professionals_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`, `get_professional_schedules`
+- THEN the response MUST contain the 26 tools: `check_availability`, `find_available_slots`, `create_booking`, `get_booking`, `cancel_booking`, `reschedule_booking`, `get_business_profile`, `search_clients_advanced`, `search_services_advanced`, `search_professionals_advanced`, `get_pending_alerts`, `mark_alert_as_sent`, `get_loyalty_report`, `update_business_profile`, `create_service`, `update_service`, `delete_service`, `create_professional`, `update_professional`, `upsert_schedule`, `delete_schedule`, `register_client`, `create_hours_exception`, `delete_hours_exception`, `list_hours_exceptions`, `get_professional_schedules`
+
+#### Scenario: List narrows to the caller's subset
+
+- GIVEN a connected client whose caller role is `staff`
+- WHEN `tools/list` is called
+- THEN the response MUST contain exactly `cancel_booking`, `check_availability`, `create_booking`, `find_available_slots`, `get_booking`, `get_business_profile`, `register_client`, `reschedule_booking`, `search_clients_advanced`, `search_professionals_advanced`, `search_services_advanced` (11 tools)
+- AND it MUST NOT contain `delete_service`, `update_business_profile` or any other owner-only maintenance write
+
+#### Scenario: Hidden tool is still refused
+
+- GIVEN a `staff` caller that does not see `delete_service` in `tools/list`
+- WHEN it calls `tools/call` with `name: "delete_service"`
+- THEN the response MUST be error code `-32001` with `auth.MsgForbiddenTool`, exactly as before the filter existed
+
+#### Scenario: No caller, no surface
+
+- GIVEN a `tools/list` request with no `X-Caller-Id` header
+- WHEN it reaches the transport
+- THEN the response MUST be error code `-32000` with `"no se proporcionó X-Caller-Id"`
+- AND no tool surface MUST be computed (never an empty list, never the full registry)
+
 ### REQ-MT-006 — tools/call dispatch
 
 `tools/call` MUST dispatch to the registered handler and return a JSON-RPC 2.0 result or error.
