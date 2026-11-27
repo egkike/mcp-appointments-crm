@@ -113,7 +113,7 @@ mínimo. Resultado esperado: `~/.config/mcp-appointments-crm/setup/` con los
 
 > **Registro histórico (2026-09).** Este plan documenta el ejercicio que publicó y desplegó
 > `v0.3.0`: por eso los comandos de abajo fijan ese tag. Si lo re-corrés hoy, pineá el release
-> vigente (`v0.14.0`) — el procedimiento es el mismo, el tag no.
+> vigente (`v0.15.0`) — el procedimiento es el mismo, el tag no.
 
 ```bash
 time curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh \
