@@ -598,6 +598,126 @@ test_install_uninstall_script_no_source_warns_not_fails() {
   rm -rf "$SCRIPT_DIR"
 }
 
+# ---------------------------------------------------------------------------
+# Issue #294 — review debt: conditional chmod + failure-branch coverage
+# ---------------------------------------------------------------------------
+
+_make_uninstall_fixture() {
+  local fixture_dir
+  fixture_dir=$(mktemp -d)
+  mkdir -p "$fixture_dir/scripts"
+  printf '#!/bin/bash\necho "uninstall fixture %s"\n' "${1:-v1}" \
+    > "$fixture_dir/scripts/uninstall.sh"
+  printf '%s' "$fixture_dir"
+}
+
+test_install_backup_script_preserves_existing_dir_perms() {
+  local fixture_dir
+  fixture_dir=$(_make_uninstall_fixture v1)
+  printf '#!/bin/bash\necho "backup fixture"\n' > "$fixture_dir/scripts/backup.sh"
+
+  mkdir -p "$DATA_DIR/scripts"
+  chmod 0755 "$DATA_DIR/scripts"
+  EXTRACT_DIR="$fixture_dir"
+  install_backup_script >/dev/null 2>&1
+  assertEquals 'backup seed ok' 0 $?
+  assertEquals 'pre-existing dir perms preserved' '755' \
+    "$(stat -c %a "$DATA_DIR/scripts")"
+
+  rm -rf "$fixture_dir"
+}
+
+test_install_uninstall_script_preserves_existing_dir_perms() {
+  local fixture_dir
+  fixture_dir=$(_make_uninstall_fixture v1)
+
+  mkdir -p "$DATA_DIR/scripts"
+  chmod 0755 "$DATA_DIR/scripts"
+  EXTRACT_DIR="$fixture_dir"
+  SCRIPT_DIR=$(mktemp -d)
+  install_uninstall_script >/dev/null 2>&1
+  assertEquals 'uninstall seed ok' 0 $?
+  assertEquals 'pre-existing dir perms preserved (uninstall)' '755' \
+    "$(stat -c %a "$DATA_DIR/scripts")"
+
+  rm -rf "$fixture_dir" "$SCRIPT_DIR"
+}
+
+test_install_uninstall_script_first_install_chmods_dir() {
+  local fixture_dir
+  fixture_dir=$(_make_uninstall_fixture v1)
+
+  rm -rf "$DATA_DIR/scripts"
+  EXTRACT_DIR="$fixture_dir"
+  SCRIPT_DIR=$(mktemp -d)
+  install_uninstall_script >/dev/null 2>&1
+  assertEquals 'first install seed ok' 0 $?
+  assertEquals 'fresh dir gets 700' '700' "$(stat -c %a "$DATA_DIR/scripts")"
+
+  rm -rf "$fixture_dir" "$SCRIPT_DIR"
+}
+
+test_install_uninstall_script_cp_fail_warns() {
+  local fixture_dir shim_dir out rc=0
+  fixture_dir=$(_make_uninstall_fixture v1)
+  mkdir -p "$DATA_DIR/scripts"
+
+  shim_dir=$(mktemp -d)
+  printf '#!/bin/bash\nexit 1\n' > "$shim_dir/cp"
+  chmod +x "$shim_dir/cp"
+
+  EXTRACT_DIR="$fixture_dir"
+  out=$(PATH="$shim_dir:$PATH" install_uninstall_script 2>&1) || rc=$?
+  assertEquals 'cp failure never aborts' 0 ${rc:-0}
+  assertTrue 'cp failure warns' "printf '%s' \"$out\" | grep -q 'no se pudo copiar'"
+  assertFalse 'no partial file left' "[ -e \"$DATA_DIR/scripts/uninstall.sh\" ]"
+  assertEquals 'no temp leftovers' 0 \
+    "$(find "$DATA_DIR/scripts" -name '.uninstall.sh.new.*' 2>/dev/null | wc -l)"
+
+  rm -rf "$fixture_dir" "$shim_dir"
+}
+
+test_install_uninstall_script_mv_fail_warns() {
+  local fixture_dir shim_dir out rc=0
+  fixture_dir=$(_make_uninstall_fixture v1)
+  mkdir -p "$DATA_DIR/scripts"
+
+  shim_dir=$(mktemp -d)
+  printf '#!/bin/bash\nexit 1\n' > "$shim_dir/mv"
+  chmod +x "$shim_dir/mv"
+
+  EXTRACT_DIR="$fixture_dir"
+  out=$(PATH="$shim_dir:$PATH" install_uninstall_script 2>&1) || rc=$?
+  assertEquals 'mv failure never aborts' 0 ${rc:-0}
+  assertTrue 'mv failure warns' "printf '%s' \"$out\" | grep -q 'no se pudo instalar'"
+  assertFalse 'no seeded file on mv failure' "[ -e \"$DATA_DIR/scripts/uninstall.sh\" ]"
+  assertEquals 'no temp leftovers after mv failure' 0 \
+    "$(find "$DATA_DIR/scripts" -name '.uninstall.sh.new.*' 2>/dev/null | wc -l)"
+
+  rm -rf "$fixture_dir" "$shim_dir"
+}
+
+test_install_uninstall_script_reseed_overwrites_cleanly() {
+  local fixture_a fixture_b
+  fixture_a=$(_make_uninstall_fixture v1)
+  fixture_b=$(_make_uninstall_fixture v2)
+  SCRIPT_DIR=$(mktemp -d)
+
+  EXTRACT_DIR="$fixture_a"
+  install_uninstall_script >/dev/null 2>&1
+  assertEquals 'first seed ok' 0 $?
+  EXTRACT_DIR="$fixture_b"
+  install_uninstall_script >/dev/null 2>&1
+  assertEquals 'reseed ok' 0 $?
+  assertTrue 'reseed overwrote content' \
+    "grep -q 'uninstall fixture v2' \"$DATA_DIR/scripts/uninstall.sh\""
+  assertTrue 'reseed keeps it executable' "[ -x \"$DATA_DIR/scripts/uninstall.sh\" ]"
+  assertEquals 'no temp leftovers after reseed' 0 \
+    "$(find "$DATA_DIR/scripts" -name '.uninstall.sh.new.*' 2>/dev/null | wc -l)"
+
+  rm -rf "$fixture_a" "$fixture_b" "$SCRIPT_DIR"
+}
+
 test_post_install_backup_cmd_prefers_persistent() {
   local persistent out
   persistent="$DATA_DIR/scripts/backup.sh"

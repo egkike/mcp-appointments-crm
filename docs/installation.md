@@ -754,20 +754,37 @@ nada; la ejecución exige `--apply`. Siempre empezar acá:
 - **Repo clone:** `./scripts/uninstall.sh` tal cual arriba.
 - **Install desde release con uninstaller en el asset:** el installer lo siembra
   junto a la DB — `~/.local/share/mcp-appointments-crm/scripts/uninstall.sh`
-  (invocalo con `bash`, el archivo no necesita `+x` propio):
+  (el installer lo deja ejecutable: corrélo directo o con `bash`):
   ```bash
   bash ~/.local/share/mcp-appointments-crm/scripts/uninstall.sh            # dry-run
   bash ~/.local/share/mcp-appointments-crm/scripts/uninstall.sh --apply
   ```
-- **Install desde un release anterior (el archivo no está en la máquina):**
-  bajalo del tag que tengas instalado y correlo con `bash` — nunca
-  `curl … | bash -s`, porque el script usa `$BASH_SOURCE` y leído desde stdin
-  no resuelve:
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/<tag-instalado>/scripts/uninstall.sh -o uninstall.sh
-  bash uninstall.sh            # plan completo, cero escritura
-  bash uninstall.sh --apply    # ejecuta la desinstalación
-  ```
+  La copia sembrada ya llega **verificada de fábrica**: el instalador valida el
+  tarball completo contra `checksums.txt` antes de extraer.
+- **Install desde un release anterior (el archivo no está en la máquina):** el
+  camino depende del tag instalado:
+  - **Tags que shippean `uninstall.sh` en el asset (recomendado):** bajá el asset
+    de tu plataforma, verificá contra `checksums.txt` y extraé el script:
+    ```bash
+    ASSET="mcp-appointments-crm_Linux_x86_64.tar.gz"   # tu plataforma
+    curl -fsSLO "https://github.com/egkike/mcp-appointments-crm/releases/download/<tag-instalado>/$ASSET"
+    curl -fsSLO "https://github.com/egkike/mcp-appointments-crm/releases/download/<tag-instalado>/checksums.txt"
+    grep " $ASSET\$" checksums.txt | sha256sum -c -
+    tar -xzf "$ASSET" scripts/uninstall.sh
+    bash scripts/uninstall.sh            # plan completo, cero escritura
+    bash scripts/uninstall.sh --apply    # ejecuta la desinstalación
+    ```
+  - **Tags legacy (sin `uninstall.sh` en el asset, p. ej. v0.14.0):** solo queda
+    el archivo crudo del repo. TLS protege el canal, pero no hay checksum
+    per-file posible — si tenés un clone, compará contra
+    `scripts/uninstall.sh` del mismo tag antes de correrlo. Nunca
+    `curl … | bash -s`: el script usa `$BASH_SOURCE` y leído desde stdin no
+    resuelve:
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/<tag-instalado>/scripts/uninstall.sh -o uninstall.sh
+    bash uninstall.sh            # plan completo, cero escritura
+    bash uninstall.sh --apply    # ejecuta la desinstalación
+    ```
 
 El orden de reversión es el inverso del install (servicio → binario → config →
 entrada Hermes → skill), es idempotente (correrlo dos veces es no-op con reporte

@@ -1562,11 +1562,15 @@ install_backup_script() {
     return 1
   fi
 
-  if ! mkdir -p "$dir"; then
-    echo "Error: no se pudo crear $dir" >&2
-    return 1
+  # chmod only when the directory is created: a reinstall must never impose
+  # a permission change on existing valid state (issue #294, R1/R3-perms).
+  if [ ! -d "$dir" ]; then
+    if ! mkdir -p "$dir"; then
+      echo "Error: no se pudo crear $dir" >&2
+      return 1
+    fi
+    chmod 0700 "$dir"
   fi
-  chmod 0700 "$dir"
 
   tmp="$dir/.backup.sh.new.$$"
   if ! cp "$src" "$tmp"; then
@@ -1602,11 +1606,15 @@ install_uninstall_script() {
     return 0
   fi
 
-  if ! mkdir -p "$dir"; then
-    echo "Aviso: no se pudo crear $dir; scripts/uninstall.sh no se instaló." >&2
-    return 0
+  # chmod only when the directory is created — mirrors install_backup_script
+  # (issue #294, R1/R3-perms): a reinstall never imposes a permission change.
+  if [ ! -d "$dir" ]; then
+    if ! mkdir -p "$dir"; then
+      echo "Aviso: no se pudo crear $dir; scripts/uninstall.sh no se instaló." >&2
+      return 0
+    fi
+    chmod 0700 "$dir"
   fi
-  chmod 0700 "$dir"
 
   tmp="$dir/.uninstall.sh.new.$$"
   if ! cp "$src" "$tmp"; then
