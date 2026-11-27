@@ -161,10 +161,15 @@ inventory: [docs/installation.md § Desinstalación](./docs/installation.md).
 
 **Where to find the script** ([issue #292](https://github.com/egkike/mcp-appointments-crm/issues/292)):
 releases that ship the uninstaller inside the asset seed it next to the DB —
-`~/.local/share/mcp-appointments-crm/scripts/uninstall.sh` (run it with
-`bash`). Installs made from older releases don't have the file on disk: fetch
-it from the tag you have installed and run it with `bash` (never
-`curl … | bash -s` — the script needs `$BASH_SOURCE`):
+`~/.local/share/mcp-appointments-crm/scripts/uninstall.sh` (the installer
+leaves it executable, already integrity-verified with the archive's
+`checksums.txt`). Installs made from older releases don't have the file on
+disk: fetch it from the tag you have installed. Prefer the verified path
+(asset + `checksums.txt` + `tar -xzf`) when the tag ships the uninstaller —
+full commands in [docs/installation.md § Desinstalación](./docs/installation.md);
+for legacy tags only the raw file exists, so verify it against your clone if
+you have one and run it with `bash` — never `curl … | bash -s` (the script
+needs `$BASH_SOURCE`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/<installed-tag>/scripts/uninstall.sh -o uninstall.sh
