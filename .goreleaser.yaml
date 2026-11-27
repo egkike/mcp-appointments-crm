@@ -52,6 +52,9 @@ archives:
     # archive self-sufficient for install on all platforms (backup + services).
     files:
       - scripts/backup.sh
+      # The uninstaller travels with the asset so release-only installs can
+      # run `./scripts/uninstall.sh` as documented (issue #292, S1).
+      - scripts/uninstall.sh
       - setup/service/mcp-appointments-crm.service
       - setup/service/com.mcp.appointments.server.plist
       # The archive ships the skill template for the TUI regeneration path.

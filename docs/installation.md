@@ -749,6 +749,26 @@ nada; la ejecución exige `--apply`. Siempre empezar acá:
 ./scripts/uninstall.sh --apply    # ejecuta la desinstalación
 ```
 
+**Dónde está el script según cómo instalaste** ([issue #292](https://github.com/egkike/mcp-appointments-crm/issues/292)):
+
+- **Repo clone:** `./scripts/uninstall.sh` tal cual arriba.
+- **Install desde release con uninstaller en el asset:** el installer lo siembra
+  junto a la DB — `~/.local/share/mcp-appointments-crm/scripts/uninstall.sh`
+  (invocalo con `bash`, el archivo no necesita `+x` propio):
+  ```bash
+  bash ~/.local/share/mcp-appointments-crm/scripts/uninstall.sh            # dry-run
+  bash ~/.local/share/mcp-appointments-crm/scripts/uninstall.sh --apply
+  ```
+- **Install desde un release anterior (el archivo no está en la máquina):**
+  bajalo del tag que tengas instalado y correlo con `bash` — nunca
+  `curl … | bash -s`, porque el script usa `$BASH_SOURCE` y leído desde stdin
+  no resuelve:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/<tag-instalado>/scripts/uninstall.sh -o uninstall.sh
+  bash uninstall.sh            # plan completo, cero escritura
+  bash uninstall.sh --apply    # ejecuta la desinstalación
+  ```
+
 El orden de reversión es el inverso del install (servicio → binario → config →
 entrada Hermes → skill), es idempotente (correrlo dos veces es no-op con reporte
 "nada que hacer") y termina con una verificación por artefacto

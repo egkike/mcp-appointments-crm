@@ -1582,6 +1582,46 @@ install_backup_script() {
   fi
 }
 
+install_uninstall_script() {
+  # Issue #292 (S2): seeds scripts/uninstall.sh next to the DB so a
+  # release-only install can run the documented uninstall path without a
+  # repo clone. Best-effort by design: a pinned older asset without the
+  # file warns and the install proceeds — the docs cover the
+  # curl-from-tag fallback for that case. Unlike backup.sh, this never
+  # aborts the install.
+  local src tmp dest dir
+  dest="$DATA_DIR/scripts/uninstall.sh"
+  dir="$DATA_DIR/scripts"
+
+  if [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/scripts/uninstall.sh" ]; then
+    src="$EXTRACT_DIR/scripts/uninstall.sh"
+  elif [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
+    src="$SCRIPT_DIR/uninstall.sh"
+  else
+    echo "Aviso: el asset no incluye scripts/uninstall.sh; la desinstalación se corre desde el repo (docs/installation.md § Desinstalación)." >&2
+    return 0
+  fi
+
+  if ! mkdir -p "$dir"; then
+    echo "Aviso: no se pudo crear $dir; scripts/uninstall.sh no se instaló." >&2
+    return 0
+  fi
+  chmod 0700 "$dir"
+
+  tmp="$dir/.uninstall.sh.new.$$"
+  if ! cp "$src" "$tmp"; then
+    echo "Aviso: no se pudo copiar $src; scripts/uninstall.sh no se instaló." >&2
+    rm -f "$tmp"
+    return 0
+  fi
+  chmod 0755 "$tmp"
+  if ! mv -f "$tmp" "$dest"; then
+    echo "Aviso: no se pudo instalar $dest" >&2
+    rm -f "$tmp"
+    return 0
+  fi
+}
+
 resolve_service_template() {
   local name="$1"
   if [ -n "${EXTRACT_DIR:-}" ] && [ -f "$EXTRACT_DIR/setup/service/$name" ]; then
@@ -1941,6 +1981,8 @@ run_deploy() {
   preflight_port_available || return 1
   install_binary || return 1
   install_backup_script || return 1
+  # Best-effort (issue #292): never aborts a working install.
+  install_uninstall_script
   install_service || return 1
   verify_installation || return 1
   print_post_install_summary
