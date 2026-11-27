@@ -32,16 +32,16 @@ release automation), not as a next numbered phase.
   `tools/list` answers only what the resolved caller can invoke — a `client`
   sees 11 of the 27, a `staff` 13, an `admin` 16. Full catalog: `docs/PRD.md` §3
   / `docs/SDD.md`.
-- **Latest release**: v0.14.0 (2026-11-23) — minor: the MCP surface grows from
-  25 to 27 tools (`find_available_slots`, `get_professional`) and `tools/list`
-  stops being role-independent: each caller is advertised only the tools it can
-  invoke (owner 27, admin 16, staff 13, client 11). A `staff` can now read its
-  own professional record (with its own email and phone) and its own agenda,
-  while a foreign id is refused; the `admin` reads any record without the
-  roster's contact data. Scope misses answer `FORBIDDEN` instead of
-  `UNAUTHENTICATED`, and the professional link is normalised once, in `auth`.
-  Previous: v0.13.0 (minor — default port `3001` and installer hardening);
-  v0.12.2 (patch — the allowlist advisory is visible in the TUI).
+- **Latest release**: v0.15.0 (2026-11-27) — minor: the release asset ships
+  `scripts/uninstall.sh` next to the binary and the installer seeds it next to
+  the DB, so a release-only install can run the documented uninstall path
+  without a repo clone (issue #292). Reinstalls no longer impose a permission
+  change on the existing `scripts/` directory, and the documented uninstall
+  fallback is integrity-verified (asset + `checksums.txt`) for tags that ship
+  it, with an explicit caveat for legacy tags (issue #294).
+  Previous: v0.14.0 (minor — MCP surface grows to 27 tools and role-filtered
+  `tools/list`); v0.13.0 (minor — default port `3001` and installer
+  hardening).
   Assets and install steps:
   [Quickstart](#quickstart) / [`docs/installation.md`](./docs/installation.md).
 - **Platform covenant**: Linux + macOS native; Windows via **WSL2**
