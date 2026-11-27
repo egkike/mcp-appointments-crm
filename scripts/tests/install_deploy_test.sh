@@ -543,6 +543,61 @@ test_install_backup_script_no_source_fails() {
   rm -rf "$SCRIPT_DIR"
 }
 
+# ---------------------------------------------------------------------------
+# Uninstall script seeding (issue #292, S2 — best-effort, never aborts)
+# ---------------------------------------------------------------------------
+
+test_install_uninstall_script_from_extract() {
+  local fixture_dir expected
+  fixture_dir=$(mktemp -d)
+  mkdir -p "$fixture_dir/scripts"
+  printf '#!/bin/bash\necho "uninstall from archive"\n' > "$fixture_dir/scripts/uninstall.sh"
+  chmod 0644 "$fixture_dir/scripts/uninstall.sh"
+  expected=$(cat "$fixture_dir/scripts/uninstall.sh")
+
+  EXTRACT_DIR="$fixture_dir"
+  SCRIPT_DIR=$(mktemp -d)
+  install_uninstall_script >/dev/null 2>&1
+  assertEquals 'seed from extract ok' 0 $?
+  assertTrue 'uninstall file installed' "[ -f \"$DATA_DIR/scripts/uninstall.sh\" ]"
+  assertTrue 'uninstall is executable' "[ -x \"$DATA_DIR/scripts/uninstall.sh\" ]"
+  assertEquals 'uninstall perms' '755' "$(stat -c %a "$DATA_DIR/scripts/uninstall.sh")"
+  assertEquals 'content matches archive' "$expected" "$(cat "$DATA_DIR/scripts/uninstall.sh")"
+
+  rm -rf "$fixture_dir" "$SCRIPT_DIR"
+}
+
+test_install_uninstall_script_fallback_script_dir() {
+  local fake_script_dir expected
+  fake_script_dir=$(mktemp -d)
+  mkdir -p "$fake_script_dir/scripts"
+  printf '#!/bin/bash\necho "uninstall from script dir"\n' > "$fake_script_dir/scripts/uninstall.sh"
+  expected=$(cat "$fake_script_dir/scripts/uninstall.sh")
+
+  EXTRACT_DIR=""
+  SCRIPT_DIR="$fake_script_dir/scripts"
+  install_uninstall_script >/dev/null 2>&1
+  assertEquals 'fallback seed ok' 0 $?
+  assertTrue 'uninstall installed from fallback' "[ -f \"$DATA_DIR/scripts/uninstall.sh\" ]"
+  assertTrue 'uninstall fallback executable' "[ -x \"$DATA_DIR/scripts/uninstall.sh\" ]"
+  assertEquals 'fallback content matches' "$expected" "$(cat "$DATA_DIR/scripts/uninstall.sh")"
+
+  rm -rf "$fake_script_dir"
+}
+
+test_install_uninstall_script_no_source_warns_not_fails() {
+  local out rc=0
+  SCRIPT_DIR=$(mktemp -d)
+  EXTRACT_DIR=""
+
+  out=$(install_uninstall_script 2>&1) || rc=$?
+  assertEquals 'missing source never aborts' 0 ${rc:-0}
+  assertTrue 'warning mentions uninstall.sh' "printf '%s' \"$out\" | grep -q 'uninstall.sh'"
+  assertTrue 'warning points at docs' "printf '%s' \"$out\" | grep -q 'installation.md'"
+
+  rm -rf "$SCRIPT_DIR"
+}
+
 test_post_install_backup_cmd_prefers_persistent() {
   local persistent out
   persistent="$DATA_DIR/scripts/backup.sh"

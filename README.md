@@ -159,6 +159,19 @@ Hermes entry (`--purge-hermes-entry`) is byte-clean; the skill is purged by
 default with `--keep-skill` to preserve it. Full flag table and the artifact
 inventory: [docs/installation.md § Desinstalación](./docs/installation.md).
 
+**Where to find the script** ([issue #292](https://github.com/egkike/mcp-appointments-crm/issues/292)):
+releases that ship the uninstaller inside the asset seed it next to the DB —
+`~/.local/share/mcp-appointments-crm/scripts/uninstall.sh` (run it with
+`bash`). Installs made from older releases don't have the file on disk: fetch
+it from the tag you have installed and run it with `bash` (never
+`curl … | bash -s` — the script needs `$BASH_SOURCE`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/<installed-tag>/scripts/uninstall.sh -o uninstall.sh
+bash uninstall.sh            # dry-run: full plan, zero writes
+bash uninstall.sh --apply    # execute the uninstall
+```
+
 ## Architecture
 
 - **Language**: Go 1.27.4 with `modernc.org/sqlite` (pure Go, no CGo)

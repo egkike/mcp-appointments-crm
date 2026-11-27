@@ -53,7 +53,7 @@ installer issues no HTTP request of its own; liveness is `http://127.0.0.1:3001/
      `CGO_ENABLED=0` (no cross toolchain required; `windows` was removed from the
      matrix by the 2026-11-01 covenant — Windows = WSL2 with the Linux asset)
    - assemble each archive with the required content set: `mcp-server`,
-     `scripts/backup.sh`,
+     `scripts/backup.sh`, `scripts/uninstall.sh`,
      `setup/service/mcp-appointments-crm.service`, `setup/service/com.mcp.appointments.server.plist`
    - compute `checksums.txt` (SHA256 over all archives, `sha256sum`-compatible)
    - create the GitHub Release and attach every asset — no manual build, no manual upload
@@ -127,10 +127,13 @@ Each `vX.Y.Z` release publishes 6 files:
 
 All archives contain the binary `mcp-server` (up to v0.10.0, the Windows zip carried `mcp-server_windows_amd64.exe`),
 the service templates (`setup/service/mcp-appointments-crm.service` /
-`com.mcp.appointments.server.plist`), and the `scripts/backup.sh` helper — the 4
-entries the published `v0.3.0` asset carries. This content set is the contract
-`install.sh` relies on: it reads `mcp-server`, `scripts/backup.sh` and the matching
-`setup/service/*` template out of the extracted archive. `scripts/install.sh` is
+`com.mcp.appointments.server.plist`), and the `scripts/backup.sh` helper. Since
+issue #292 the archive also ships `scripts/uninstall.sh`, which `install.sh`
+seeds next to the DB (best-effort: a pinned older asset warns and proceeds) so a
+release-only install can run the documented uninstall path. This content set is
+the contract `install.sh` relies on: it reads `mcp-server`, `scripts/backup.sh`
+and the matching `setup/service/*` template out of the extracted archive.
+`scripts/install.sh` is
 never inside the archive — it is curled from `raw.githubusercontent.com`. An earlier
 manual upload of the `v0.3.0` tag shipped only the binary and broke the install; that
 asset was replaced about an hour later by the complete one, which is what is published
