@@ -130,7 +130,7 @@ Una vez que los tres JSONs de setup existen, desplegá la versión que quieras. 
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh \
-  | bash -s -- --version v0.14.0
+  | bash -s -- --version v0.15.0
 ```
 
 > El despliegue por `--version` siembra el **template pristino** de la skill de recepcionista en `<CONFIG_DIR>/templates/recepcionista-negocio/SKILL.md` (0600/0700). El wizard interactivo sí instala la skill renderizada; el deploy nunca la renderiza ni la reescribe — el cascade de la TUI (opción 7) es quien regenera la skill instalada a partir de ese template.
@@ -139,10 +139,10 @@ curl -fsSL https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/sc
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/egkike/mcp-appointments-crm/main/scripts/install.sh
-bash install.sh --version v0.14.0
+bash install.sh --version v0.15.0
 ```
 
-Reemplazá `v0.14.0` por el tag exacto que querés instalar (el vigente es `v0.14.0`). El formato obligatorio es `vMAJOR.MINOR.PATCH` (por ejemplo `v0.9.1`). No se acepta `latest` ni pre-releases desde el instalador.
+Reemplazá `v0.15.0` por el tag exacto que querés instalar (el vigente es `v0.15.0`). El formato obligatorio es `vMAJOR.MINOR.PATCH` (por ejemplo `v0.9.1`). No se acepta `latest` ni pre-releases desde el instalador.
 
 ### Qué hace el despliegue
 
@@ -232,7 +232,7 @@ curl --fail http://127.0.0.1:3001/healthz
 Resultado esperado: HTTP 200 con:
 
 ```json
-{"status":"ok","version":"0.14.0"}
+{"status":"ok","version":"0.15.0"}
 ```
 
 > **Nota:** un GET pelado a `http://127.0.0.1:3001/mcp` responde **405 por
@@ -360,7 +360,7 @@ por eso `curl --fail` igual termina en exit 0 y hay que inspeccionar el cuerpo.
 Resultado esperado: el tag que instalaste, por ejemplo:
 
 ```text
-0.14.0
+0.15.0
 ```
 
 > **Diferencia clave:** `install.sh --version vX.Y.Z` le dice al instalador qué release descargar; `mcp-server --version` le pregunta al binario instalado qué versión es. Ambos comandos coexisten.
@@ -441,8 +441,8 @@ Significa que no completaste el Paso 1. Corré `bash install.sh` en una terminal
 No bypasses la verificación. El archive está corrupto, fue modificado o el release no coincide. Reintentá una vez; si persiste:
 
 ```bash
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.14.0/checksums.txt
-curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.14.0/mcp-appointments-crm_Linux_x86_64.tar.gz
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.15.0/checksums.txt
+curl -fsSLO https://github.com/egkike/mcp-appointments-crm/releases/download/v0.15.0/mcp-appointments-crm_Linux_x86_64.tar.gz
 sha256sum -c checksums.txt --ignore-missing
 ```
 
